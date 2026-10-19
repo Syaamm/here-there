@@ -1,0 +1,30 @@
+{
+  "name": "@here-there/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "start": "node dist/src/main.js",
+    "dev": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "db:push": "node ../../node_modules/prisma/build/index.js db push",
+    "seed": "node dist/scripts/seed.js",
+    "test": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json && node --test \"dist/test/*.test.js\""
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.2.0",
+    "@nestjs/core": "^12.2.0",
+    "@nestjs/jwt": "^12.0.3",
+    "@nestjs/platform-express": "^12.2.0",
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^26.0.0",
+    "prisma": "^6.19.3",
+    "typescript": "^5.9.0"
+  }
+}

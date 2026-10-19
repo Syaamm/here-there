@@ -1,0 +1,5 @@
+﻿{
+  "name": "here-there",
+  "private": true,
+  "workspaces": ["services/*", "apps/*", "packages/*"]
+}

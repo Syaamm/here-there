@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Local dev uses SQLite (no Docker/Postgres on dev machine yet).
+// For staging/prod switch provider to "postgresql" and enable PostGIS for geo queries.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Enum-like string columns are validated in code (see src/common/constants.ts)
+// so the schema stays portable between SQLite and PostgreSQL.
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  passwordHash      String
+  role              String   @default("user") // user | support | moderator | trust_lead | admin
+  state             String   @default("active") // active | suspended
+  adultConfirmed    Boolean  @default(false)
+  eligibility       String   @default("unverified") // unverified | pending | verified | rejected
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  profile           Profile?
+  verifications     VerificationCheck[]
+  activitiesHosted  Activity[]
+  activityRequests  ActivityRequest[]  @relation("applicant")
+  activityMemberships ActivityMembership[]
+  trips             Trip[]
+  tripApplications  TripApplication[]  @relation("tripApplicant")
+  tripMemberships   TripMembership[]
+  messages          Message[]
+  notifications     Notification[]
+  blocksMade        Block[]  @relation("blocker")
+  blocksReceived    Block[]  @relation("blocked")
+  reportsMade       Report[] @relation("reporter")
+  favorites         Favorite[]
+}
+
+model Profile {
+  userId      String  @id
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName String
+  homeCity    String?
+  languages   String  @default("") // comma separated
+  interests   String  @default("") // comma separated
+  bio         String?
+  photoUrl    String?
+}
+
+// Never stores identity documents - only provider reference + outcome.
+model VerificationCheck {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerRef   String
+  eligibility   String   // pending | verified | rejected
+  expiresAt     DateTime?
+  createdAt     DateTime @default(now())
+  reviewedBy    String?
+}
+
+model Activity {
+  id            String   @id @default(cuid())
+  hostId        String
+  host          User     @relation(fields: [hostId], references: [id])
+  title         String
+  category      String   // coffee | drinks | food | sports | culture
+  tags          String   @default("")
+  description   String?
+  city          String
+  cityKey       String   // lowercased/trimmed for case-insensitive search
+  venueName     String
+  venuePlaceId  String?
+  lat           Float?
+  lng           Float?
+  startsAt      DateTime
+  endsAt        DateTime
+  capacity      Int      // includes organizer
+  joinPolicy    String   @default("host_approval")
+  visibility    String   @default("public") // public | invite_only
+  language      String?
+  status        String   @default("published") // draft | published | full | confirmed | in_progress | completed | cancelled | archived
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  requests      ActivityRequest[]
+  memberships   ActivityMembership[]
+  conversation  Conversation?
+  favorites     Favorite[]
+
+  @@index([cityKey, startsAt])
+}
+
+model ActivityRequest {
+  id           String   @id @default(cuid())
+  activityId   String
+  activity     Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  applicantId  String
+  applicant    User     @relation("applicant", fields: [applicantId], references: [id])
+  intro        String?
+  state        String   @default("requested") // requested | approved | declined | waitlisted | withdrawn
+  reviewedBy   String?
+  createdAt    DateTime @default(now())
+  decidedAt    DateTime?
+
+  @@unique([activityId, applicantId])
+}
+
+model ActivityMembership {
+  id              String   @id @default(cuid())
+  activityId      String
+  activity        Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  role            String   @default("attendee") // host | attendee
+  state           String   @default("approved") // approved | withdrawn | removed
+  attendance      String   @default("unknown") // unknown | attended | no_show
+  createdAt       DateTime @default(now())
+
+  @@unique([activityId, userId])
+}
+
+model Trip {
+  id                    String   @id @default(cuid())
+  hostId                String
+  host                  User     @relation(fields: [hostId], references: [id])
+  title                 String
+  destination           String
+  destinationKey        String   // lowercased for search
+  destinationPlaceId    String?
+  originCity            String
+  dateStart             DateTime
+  dateEnd               DateTime
+  dateFlexibility       String   @default("exact") // exact | plus_minus_3 | plus_minus_7 | same_month
+  budgetCurrency        String   @default("EUR")
+  budgetMin             Int
+  budgetMax             Int
+  budgetIncludesTransport Boolean @default(false)
+  tags                  String   @default("")
+  description           String?
+  minCapacity           Int      @default(4)
+  maxCapacity           Int      @default(6)
+  approvalMode          String   @default("organizer_review")
+  visibility            String   @default("public")
+  status                String   @default("published") // draft | published | full | planning | confirmed | completed | cancelled
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  applications          TripApplication[]
+  memberships           TripMembership[]
+  conversation          Conversation?
+
+  @@index([destinationKey, dateStart])
+}
+
+model TripApplication {
+  id           String   @id @default(cuid())
+  tripId       String
+  trip         Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  applicantId  String
+  applicant    User     @relation("tripApplicant", fields: [applicantId], references: [id])
+  intro        String
+  experience   String?
+  state        String   @default("pending") // pending | approved | declined | withdrawn | expired | waitlisted
+  reviewedBy   String?
+  createdAt    DateTime @default(now())
+  decidedAt    DateTime?
+
+  @@unique([tripId, applicantId])
+}
+
+model TripMembership {
+  id        String   @id @default(cuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  role      String   @default("member") // organizer | member
+  state     String   @default("approved") // approved | left | removed
+  createdAt DateTime @default(now())
+
+  @@unique([tripId, userId])
+}
+
+// One conversation per activity/trip; read/write is derived from LIVE membership.
+model Conversation {
+  id         String   @id @default(cuid())
+  scopeType  String   // activity | trip
+  activityId String?  @unique
+  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  tripId     String?  @unique
+  trip       Trip?    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  messages   Message[]
+}
+
+model Message {
+  id              String   @id @default(cuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId        String
+  sender          User     @relation(fields: [senderId], references: [id])
+  body            String
+  moderationState String   @default("ok") // ok | flagged | removed
+  createdAt       DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  data      String?  // JSON
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Favorite {
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activityId String
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([userId, activityId])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blocker   User     @relation("blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+}
+
+model Report {
+  id            String   @id @default(cuid())
+  reporterId    String
+  reporter      User     @relation("reporter", fields: [reporterId], references: [id])
+  targetType    String   // user | activity | trip | message
+  targetId      String
+  category      String   // harassment | fraud | inappropriate_content | underage | physical_safety | spam | financial_solicitation
+  details       String?
+  status        String   @default("open") // open | in_review | resolved | dismissed
+  assignedTo    String?
+  resolution    String?
+  createdAt     DateTime @default(now())
+  resolvedAt    DateTime?
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  objectType String
+  objectId  String
+  metadata  String?  // JSON
+  createdAt DateTime @default(now())
+
+  @@index([objectType, objectId])
+}
