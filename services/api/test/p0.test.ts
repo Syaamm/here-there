@@ -187,8 +187,14 @@ describe('HERE: create, discover, request, approve, chat', () => {
     // approve -> chat access
     assert.equal((await post(`/v1/activities/${id}/requests/${req.body.id}/decision`, host.token, { decision: 'approve' })).body.state, 'approved');
     assert.equal((await post(`/v1/conversations/${conv.id}/messages`, a.token, { body: 'See you at 19:30' })).status, 201);
+    // chat alerts: one unread alert per person per conversation, never for the sender
+    assert.equal((await post(`/v1/conversations/${conv.id}/messages`, a.token, { body: 'Second message' })).status, 201);
+    const chatAlerts = (await get('/v1/notifications', host.token)).body.items.filter((x: any) => x.type === 'chat_message');
+    assert.equal(chatAlerts.length, 1);
+    assert.equal(chatAlerts[0].data.conversationId, conv.id);
+    assert.equal((await get('/v1/notifications', a.token)).body.items.some((x: any) => x.type === 'chat_message'), false);
     const msgs = await get(`/v1/conversations/${conv.id}/messages`, host.token);
-    assert.equal(msgs.body.items.length, 1);
+    assert.equal(msgs.body.items.length, 2);
     assert.equal((await get(`/v1/activities/${id}`, a.token)).body.conversationId, conv.id);
     assert.ok((await get('/v1/notifications', a.token)).body.items.some((x: any) => x.type === 'request_approved'));
 

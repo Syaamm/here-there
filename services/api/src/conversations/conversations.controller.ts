@@ -6,6 +6,7 @@ import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
+import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 
 const sendSchema = z.object({ body: z.string().trim().min(1).max(2000) });
@@ -16,6 +17,7 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
     private readonly limiter: RateLimiter,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -79,7 +81,7 @@ export class ConversationsService {
 
   async send(me: User, id: string, body: unknown) {
     const dto = parse(sendSchema, body);
-    const { writable } = await this.assertAccess(me, id);
+    const { conv, writable } = await this.assertAccess(me, id);
     if (!writable) throw E.conflict('CONVERSATION_CLOSED', 'This conversation is closed');
     const bad = contentProblem(dto.body);
     if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
@@ -89,7 +91,36 @@ export class ConversationsService {
     this.limiter.hit(`msg:${me.id}`, isNew ? 10 : 30, 60 * 1000);
 
     const m = await this.prisma.message.create({ data: { conversationId: id, senderId: me.id, body: dto.body } });
+    await this.notifyOthers(me, conv, dto.body);
     return { id: m.id, body: m.body, createdAt: m.createdAt };
+  }
+
+  /**
+   * Tell the other approved members there is something new, without flooding them:
+   * one unread "chat_message" alert per person per conversation until they read it.
+   * People who blocked the sender (or were blocked by them) are skipped.
+   */
+  private async notifyOthers(sender: User, conv: Conversation, body: string) {
+    let userIds: string[] = [];
+    let title = 'your group';
+    if (conv.scopeType === 'activity' && conv.activityId) {
+      userIds = (await this.prisma.activityMembership.findMany({ where: { activityId: conv.activityId, state: 'approved' } })).map((m) => m.userId);
+      title = (await this.prisma.activity.findUnique({ where: { id: conv.activityId } }))?.title ?? title;
+    } else if (conv.scopeType === 'trip' && conv.tripId) {
+      userIds = (await this.prisma.tripMembership.findMany({ where: { tripId: conv.tripId, state: 'approved' } })).map((m) => m.userId);
+      title = (await this.prisma.trip.findUnique({ where: { id: conv.tripId } }))?.title ?? title;
+    }
+    const blocked = new Set(await this.safety.blockedWith(sender.id));
+    const name = (await this.prisma.profile.findUnique({ where: { userId: sender.id } }))?.displayName ?? 'Someone';
+    const marker = `"conversationId":"${conv.id}"`;
+    for (const userId of userIds) {
+      if (userId === sender.id || blocked.has(userId)) continue;
+      const alreadyUnread = await this.prisma.notification.findFirst({
+        where: { userId, type: 'chat_message', readAt: null, data: { contains: marker } },
+      });
+      if (alreadyUnread) continue;
+      await this.notifications.notify(userId, 'chat_message', `New message in ${title}`, `${name}: ${body.slice(0, 80)}`, { conversationId: conv.id });
+    }
   }
 
   async mine(me: User) {
