@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Hero } from '@/components/Hero';
 import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
@@ -13,6 +13,8 @@ import { confirmAsync } from '@/lib/confirm';
 import { timeRange } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
+
+const WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 
 /** HERE · Activity detail. The join button always reflects server-side state, never a client guess. */
 export default function ActivityDetail() {
@@ -27,13 +29,13 @@ export default function ActivityDetail() {
 
   if (loading && !a)
     return (
-      <Screen hero={<Hero color="#D3EADD" />}>
+      <Screen hero={<Hero plain color="#D3EADD" />}>
         <Spinner />
       </Screen>
     );
   if (error || !a)
     return (
-      <Screen hero={<Hero color="#D3EADD" />}>
+      <Screen hero={<Hero plain color="#D3EADD" />}>
         <Empty title="Activity not found">It may have been cancelled or is no longer available.</Empty>
       </Screen>
     );
@@ -64,16 +66,16 @@ export default function ActivityDetail() {
   ];
 
   return (
-    <Screen hero={<Hero color={catColor(a.category)} emoji={cat?.emoji} right={isGuest ? undefined : <Menu floating items={menu} />} />}>
-      <Stack.Screen options={{ headerShown: false }} />
+    <Screen hero={<Hero plain color={catColor(a.category)} category={a.category} emoji={cat?.emoji} />}>
+      <Stack.Screen options={{ title: cat?.label ?? 'Activity', headerRight: isGuest ? undefined : () => <Menu items={menu} /> }} />
 
       <Between>
         <Chip label={cat?.label ?? a.category} tone="info" />
         <Txt variant="muted">{timeRange(a.startsAt, a.endsAt)}</Txt>
       </Between>
-      <Txt variant="h1" style={{ fontSize: 34, lineHeight: 40 }}>{a.title}</Txt>
+      <Txt variant="h1">{a.title}</Txt>
       <Row style={{ gap: 8 }}>
-        <Ionicons name="location-outline" size={20} color={c.muted} />
+        <Ionicons name="location-outline" size={17} color={c.muted} />
         <Txt variant="muted" style={{ flex: 1 }}>{a.venueName}, {a.city} · Public meeting venue</Txt>
       </Row>
       <View style={{ height: 1, backgroundColor: c.line }} />
@@ -82,38 +84,48 @@ export default function ActivityDetail() {
       {['in_progress', 'completed'].includes(a.status) && <Banner>This activity has already started.</Banner>}
       <ErrorBanner message={act.error} />
 
+      <Pressable accessibilityRole="button" accessibilityLabel={`${a.host.displayName}, host. Open profile`} onPress={() => go(`/user/${a.host.id}`)}>
       <Row style={{ gap: 14 }}>
-        <Avatar name={a.host.displayName} size={60} />
-        <View style={{ flex: 1 }}>
-          <Txt variant="h3" style={{ fontSize: 20 }}>{a.host.displayName} {a.host.verifiedAdult ? <Ionicons name="checkmark" size={18} color={c.green} /> : null}</Txt>
-          <Txt variant="muted">{a.host.verifiedAdult ? 'Verified adult · Host' : 'Host'}</Txt>
+        <Avatar name={a.host.displayName} uri={a.host.photoUrl} size={48} />
+        <View style={{ flex: 1, gap: 1 }}>
+          <Txt variant="h3" style={{ fontSize: 17, lineHeight: 22 }}>{a.host.displayName} {a.host.verifiedAdult ? <Ionicons name="checkmark" size={16} color={c.green} /> : null}</Txt>
+          <Txt variant="muted">
+            {[a.host.verifiedAdult ? 'Verified adult' : 'Host', a.activitiesHosted ? `${a.activitiesHosted} ${a.activitiesHosted === 1 ? 'activity' : 'activities'} hosted` : a.host.verifiedAdult ? 'Host' : ''].filter(Boolean).join(' · ')}
+          </Txt>
         </View>
       </Row>
+      </Pressable>
 
       {a.description ? (
         <>
-          <Txt variant="h2" style={{ fontSize: 24 }}>About the activity</Txt>
-          <Txt style={{ fontSize: 17, lineHeight: 26 }}>{a.description}</Txt>
+          <Txt variant="h2" accessibilityRole="header">About the activity</Txt>
+          <Txt style={{ lineHeight: 22 }}>{a.description}</Txt>
         </>
       ) : null}
 
       <Between>
         <View style={{ flex: 1 }}>
-          <Txt variant="h3" style={{ fontSize: 20 }}>{a.going} / {a.capacity} people going</Txt>
-          <Txt variant="muted">{a.spotsLeft === 0 ? 'No places left' : `${a.spotsLeft === 2 ? 'Two' : a.spotsLeft} ${a.spotsLeft === 1 ? 'place' : 'places'} available`}</Txt>
+          <Txt variant="h3" style={{ fontSize: 17, lineHeight: 22 }}>{a.going} / {a.capacity} people going</Txt>
+          <Txt variant="muted">{a.spotsLeft === 0 ? 'No places left' : `${WORDS[a.spotsLeft] ?? a.spotsLeft} ${a.spotsLeft === 1 ? 'place' : 'places'} available`}</Txt>
         </View>
-        <View style={{ flexDirection: 'row' }}>
-          {a.participants?.slice(0, 4).map((p, i) => (
-            <View key={p.id} style={{ marginLeft: i === 0 ? 0 : -12, borderRadius: 999, borderWidth: 3, borderColor: '#fff' }}>
-              <Avatar name={p.displayName} size={40} />
+        {/* who is going: overlapping initials, four at most, then "+N" */}
+        <View accessible accessibilityLabel={`Going: ${(a.participants ?? []).map((p) => p.displayName).join(', ')}`} style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {(a.participants ?? []).slice(0, 4).map((p, i) => (
+            <View key={p.id} style={{ marginLeft: i === 0 ? 0 : -10, borderRadius: 999, borderWidth: 2, borderColor: '#fff' }}>
+              <Avatar name={p.displayName} uri={p.photoUrl} size={34} />
             </View>
           ))}
+          {(a.participants?.length ?? 0) > 4 ? (
+            <View style={{ marginLeft: -10, minWidth: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: '#fff', backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+              <Txt variant="small" color="#fff" bold>+{(a.participants?.length ?? 0) - 4}</Txt>
+            </View>
+          ) : null}
         </View>
       </Between>
 
-      <Row style={{ backgroundColor: c.sand, borderRadius: 18, padding: 16, gap: 12, alignItems: 'flex-start' }}>
-        <Ionicons name="shield-outline" size={22} color={c.forest} />
-        <Txt style={{ flex: 1 }}>Your exact location is never shared. Group chat opens after host approval.</Txt>
+      <Row style={{ backgroundColor: c.sand, borderRadius: 14, padding: 12, gap: 10, alignItems: 'flex-start' }}>
+        <Ionicons name="shield-checkmark" size={18} color={c.forest} />
+        <Txt variant="small" style={{ flex: 1, color: c.text }}>Your exact location is never shared. Group chat opens after host approval.</Txt>
       </Row>
 
       {a.isHost ? (

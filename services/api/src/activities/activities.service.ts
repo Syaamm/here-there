@@ -52,7 +52,7 @@ const requestSchema = z.object({ intro: z.string().trim().max(500).optional() })
 const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
 
 type ActivityFull = Activity & {
-  host: { id: string; eligibility: string; profile: { displayName: string } | null };
+  host: { id: string; eligibility: string; profile: { displayName: string; photoUrl: string | null } | null };
   _count?: { memberships: number };
 };
 
@@ -101,13 +101,13 @@ export class ActivitiesService {
       status,
       visibility: a.visibility,
       language: a.language,
-      host: { id: a.host.id, displayName: a.host.profile?.displayName ?? 'Host', verifiedAdult: a.host.eligibility === 'verified' },
+      host: { id: a.host.id, displayName: a.host.profile?.displayName ?? 'Host', photoUrl: a.host.profile?.photoUrl ?? null, verifiedAdult: a.host.eligibility === 'verified' },
       ...extra,
     };
   }
 
   private readonly hostInclude = {
-    host: { select: { id: true, eligibility: true, profile: { select: { displayName: true } } } },
+    host: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } },
   } as const;
 
   private async goingCount(activityId: string) {
@@ -207,12 +207,16 @@ export class ActivitiesService {
     // Participants: only approved members' display names; never locations.
     const members = await this.prisma.activityMembership.findMany({
       where: { activityId: id, state: 'approved' },
-      include: { user: { select: { id: true, eligibility: true, profile: { select: { displayName: true } } } } },
+      include: { user: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } } },
     });
+
+    // a plain count of this host's real activities (not cancelled), shown as "N activities hosted"
+    const activitiesHosted = await this.prisma.activity.count({ where: { hostId: a.hostId, status: { in: ['published', 'in_progress', 'completed'] } } });
 
     return this.dto(a, going, {
       isHost: a.hostId === me.id,
       isMember,
+      activitiesHosted,
       myRequest: request ? { id: request.id, state: request.state } : null,
       favorited: !!fav,
       // chat id is withheld until the server has approved this user
@@ -220,6 +224,7 @@ export class ActivitiesService {
       participants: members.map((m) => ({
         id: m.user.id,
         displayName: m.user.profile?.displayName ?? 'Member',
+        photoUrl: m.user.profile?.photoUrl ?? null,
         verifiedAdult: m.user.eligibility === 'verified',
         role: m.role,
       })),
@@ -446,6 +451,7 @@ export class ActivitiesService {
         applicant: {
           id: r.applicant.id,
           displayName: r.applicant.profile?.displayName,
+          photoUrl: r.applicant.profile?.photoUrl ?? null,
           verifiedAdult: r.applicant.eligibility === 'verified',
           languages: r.applicant.profile?.languages ? r.applicant.profile.languages.split(',') : [],
           interests: r.applicant.profile?.interests ? r.applicant.profile.interests.split(',') : [],

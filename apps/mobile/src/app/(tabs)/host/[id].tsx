@@ -1,5 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
-import { Text, View } from 'react-native';
+import { CatPhoto } from '@/components/CatPhoto';
+import { View } from 'react-native';
+import { Text } from '@/components/ScaledText';
 import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, ProgressBar, Row, Screen, Spinner, Txt } from '@/components/ui';
 import { catColor, CATS } from '@/lib/constants';
 import { get, post, type Activity } from '@/lib/api';
@@ -12,7 +14,7 @@ type Req = {
   state: string;
   intro: string | null;
   createdAt: string;
-  applicant: { id: string; displayName?: string; verifiedAdult: boolean; languages: string[]; interests: string[] };
+  applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; languages: string[]; interests: string[] };
 };
 const ORDER: Record<string, number> = { requested: 0, approved: 1, declined: 2, withdrawn: 3 };
 
@@ -47,9 +49,7 @@ export default function HostReview() {
       {a && (
         <Card style={{ borderRadius: 20, gap: 12 }}>
           <Row style={{ gap: 14 }}>
-            <View style={{ width: 68, height: 68, borderRadius: 16, backgroundColor: catColor(a.category), alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 28, opacity: 0.55 }} accessibilityElementsHidden>{CATS[a.category]?.emoji ?? '📍'}</Text>
-            </View>
+            <CatPhoto category={a.category} style={{ width: 68, height: 68, borderRadius: 16 }} />
             <View style={{ flex: 1, gap: 2 }}>
               <Txt variant="h3" style={{ fontSize: 18 }}>{a.title}</Txt>
               <Txt variant="muted">{when(a.startsAt)} · {a.going} of {a.capacity} approved</Txt>
@@ -67,7 +67,7 @@ export default function HostReview() {
         <Card key={r.id}>
           <Between>
             <Row>
-              <Avatar name={r.applicant.displayName} />
+              <Avatar name={r.applicant.displayName} uri={r.applicant.photoUrl} />
               <View>
                 <Txt variant="h3">{r.applicant.displayName ?? 'Member'} {r.applicant.verifiedAdult ? '✓' : ''}</Txt>
                 <Txt variant="small">{r.applicant.verifiedAdult ? 'Verified adult' : 'Not verified'}{r.applicant.languages.length ? ` · ${r.applicant.languages.join(', ')}` : ''}</Txt>

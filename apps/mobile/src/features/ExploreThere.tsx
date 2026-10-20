@@ -32,12 +32,11 @@ export function ExploreThere() {
   const more = items.slice(4);
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>
-      <TabHeader subtitle="Go there. Together." />
+    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader subtitle="Go there. Together." />}>
 
       <VerifyBanner />
 
-      <Txt variant="h1" style={{ fontSize: 32, lineHeight: 38 }}>Where to next?</Txt>
+      <Txt variant="h1" style={{ fontSize: 24, lineHeight: 30 }}>Where to next?</Txt>
       <SearchBar value={q} onChangeText={setQ} placeholder="Search a destination, trip or country" />
       <PillRow>
         <Pill label="All" active={tag === ''} onPress={() => setTag('')} />
@@ -62,9 +61,9 @@ export function ExploreThere() {
               ))}
             </Grid>
           ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }} snapToInterval={236 + 12} snapToAlignment="start" disableIntervalMomentum decelerationRate="fast">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }} snapToInterval={148 + 12} snapToAlignment="start" disableIntervalMomentum decelerationRate="fast">
               {featured.map((t) => (
-                <TripFeatureCard key={t.id} t={t} width={236} />
+                <TripFeatureCard key={t.id} t={t} width={148} />
               ))}
             </ScrollView>
           )}
@@ -86,7 +85,7 @@ export function ExploreThere() {
 
       <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.sand, borderWidth: 0, borderRadius: 20, padding: 16 }}>
         <View style={{ flex: 1, paddingRight: 12 }}>
-          <Txt variant="h3" style={{ fontSize: 17 }}>Have a trip in mind?</Txt>
+          <Txt variant="h3" style={{ fontSize: 15 }}>Have a trip in mind?</Txt>
           <Txt variant="muted">Propose it and find your group.</Txt>
         </View>
         <Btn title="Propose +" small onPress={() => go('/create')} />

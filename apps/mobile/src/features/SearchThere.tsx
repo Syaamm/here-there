@@ -49,8 +49,7 @@ export function SearchThere() {
   const toggleTag = (t: string) => setTags((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
 
   return (
-    <Screen tabBar wide>
-      <TabHeader />
+    <Screen tabBar wide header={<TabHeader />}>
       <Txt variant="h1">Search trips</Txt>
 
       {/* wide screens: filters on the left, results on the right. Phones: one column. */}

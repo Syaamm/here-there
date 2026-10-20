@@ -1,10 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '@/components/ScaledText';
 import { TabHeader } from '@/components/TabHeader';
-import { Banner, Between, Btn, Card, Empty, ErrorBanner, ListRow, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
+import { Reveal } from '@/components/Reveal';
+import { CatPhoto } from '@/components/CatPhoto';
+import { Avatar, Banner, Between, Btn, Card, Empty, ErrorBanner, ListRow, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, post, type ConversationRef, type Notif } from '@/lib/api';
-import { ago } from '@/lib/format';
+import { ago, when } from '@/lib/format';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
 
@@ -54,8 +57,7 @@ export function Inbox() {
   };
 
   return (
-    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing}>
-      <TabHeader />
+    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader />}>
       <Between>
         <Txt variant="h1">Your inbox</Txt>
         {!!notifs.data?.unreadCount && <Btn title="Mark all read" variant="ghost" small onPress={() => act.run(() => post('/v1/notifications/read-all'))} />}
@@ -71,15 +73,17 @@ export function Inbox() {
         <>
           {convs.loading && !convs.data && <Spinner />}
           {convs.data && convs.data.items.length === 0 && <Empty title="No group chats yet">Chats open once an organizer approves you.</Empty>}
-          {convs.data?.items.map((cv) => (
-            <Card key={cv.conversationId} onPress={() => go(`/chat/${cv.conversationId}`)} style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-              <Text style={{ fontSize: 24 }}>💬</Text>
+          {convs.data?.items.map((cv, ci) => (
+            <Reveal key={cv.conversationId} index={ci}>
+            <Card onPress={() => go(`/chat/${cv.conversationId}`)} accessibilityLabel={`${cv.title}, ${cv.startsAt ? when(cv.startsAt) : ''}${unreadChats.has(cv.conversationId) ? ', new messages' : ''}`} style={{ flexDirection: 'row', gap: 10, alignItems: 'center', padding: 10, borderRadius: 14 }}>
+              {cv.category ? <CatPhoto category={cv.category} style={{ width: 40, height: 40, borderRadius: 20 }} /> : <Avatar name={cv.title} size={40} />}
               <View style={{ flex: 1 }}>
-                <Txt variant="h3">{cv.title}</Txt>
-                <Txt variant="small">{cv.scope === 'trip' ? 'Trip group' : 'Activity group'}</Txt>
+                <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 19 }}>{cv.title}</Txt>
+                <Txt variant="small" numberOfLines={1}>{cv.startsAt ? `${when(cv.startsAt)} · ` : ''}{cv.scope === 'trip' ? 'Trip group' : 'Activity group'}</Txt>
               </View>
-              {unreadChats.has(cv.conversationId) && <Text style={{ color: '#fff', backgroundColor: c.green, fontSize: 11, fontWeight: '800', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' }}>New</Text>}
+              {unreadChats.has(cv.conversationId) && <Text style={{ color: '#fff', backgroundColor: c.green, fontSize: 10, fontWeight: '800', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' }}>New</Text>}
             </Card>
+            </Reveal>
           ))}
         </>
       ) : (
@@ -89,10 +93,10 @@ export function Inbox() {
           {[['Today', items.filter((n) => isToday(n.createdAt))], ['Earlier', items.filter((n) => !isToday(n.createdAt))]].map(([label, rows]) =>
             (rows as Notif[]).length ? (
               <View key={label as string}>
-                <Txt variant="h2" style={{ fontSize: 22, marginBottom: 4 }}>{label as string}</Txt>
+                <Txt variant="label" color={c.muted} style={{ marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.8 }}>{label as string}</Txt>
                 {(rows as Notif[]).map((n, i, all) => (
+                  <Reveal key={n.id} index={i}>
                   <ListRow
-                    key={n.id}
                     icon={ICON[n.type] ?? 'notifications-outline'}
                     title={n.title}
                     subtitle={`${n.body} · ${ago(n.createdAt)}`}
@@ -100,11 +104,12 @@ export function Inbox() {
                     last={i === all.length - 1}
                     right={
                       <Row style={{ gap: 8 }}>
-                        {!n.readAt && <View accessibilityLabel="Unread" style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: c.green }} />}
-                        <Ionicons name="chevron-forward" size={20} color={c.muted} />
+                        {!n.readAt && <View accessibilityLabel="Unread" style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.green }} />}
+                        <Ionicons name="chevron-forward" size={16} color={c.muted} />
                       </Row>
                     }
                   />
+                  </Reveal>
                 ))}
               </View>
             ) : null,

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import { FeatureCard, ShowMoreCard } from '@/components/Cards';
+import { FeatureCard, NextUpCard, ShowMoreCard } from '@/components/Cards';
+import { Reveal } from '@/components/Reveal';
 import { CityPicker } from '@/components/CityPicker';
 import { TabHeader } from '@/components/TabHeader';
 import { VerifyBanner } from '@/components/VerifyBanner';
@@ -11,6 +12,7 @@ import { CATS } from '@/lib/constants';
 import { feedRange, splitFeed } from '@/lib/feed';
 import { useLoad, useRefresh } from '@/lib/hooks';
 import { useLayout } from '@/lib/layout';
+import { useScale } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 
 /** HERE · Explore: a time-sensitive feed of what is happening nearby. */
@@ -18,6 +20,7 @@ export function ExploreHere() {
   const go = useGo();
   const { c } = useTheme();
   const { isTablet, gutter } = useLayout();
+  const k = useScale();
   const [city, setCity] = useCity();
   const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
@@ -44,18 +47,19 @@ export function ExploreHere() {
   const sections = splitFeed(items);
   const soon = sections[0].items;
   const later = [...sections[1].items, ...sections[2].items];
-  const CARD = 236;
+  // Quiet next two hours: lead with the one that starts next, then Tonight and Tomorrow as their own rows, so the page is never bare.
+  const next = soon.length === 0 ? later[0] : undefined;
+  const tonight = sections[1].items.filter((a) => a !== next);
+  const tomorrow = sections[2].items.filter((a) => a !== next);
+  const CARD = Math.round(148 * k);
   const MAX_LATER = 4;
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>
-      <TabHeader>
-        <CityPicker city={city} onPick={setCity} />
-      </TabHeader>
+    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader><CityPicker city={city} onPick={setCity} /></TabHeader>}>
 
       <VerifyBanner />
 
-      <Txt variant="h1" style={{ fontSize: 32, lineHeight: 38 }}>What are you up for?</Txt>
+      <Txt variant="h1" style={{ fontSize: 24, lineHeight: 30 }}>What are you up for?</Txt>
       <SearchBar value={q} onChangeText={setQ} placeholder="Search activities or neighborhoods" />
 
       <PillRow>
@@ -75,7 +79,7 @@ export function ExploreHere() {
       )}
 
       {soon.length > 0 && (
-        <>
+        <Reveal index={0} style={{ gap: 16 }}>
           <SectionHeader title="Happening soon" />
           {/* swipe sideways on phones, a grid of the same cards on tablets */}
           {isTablet ? (
@@ -91,30 +95,51 @@ export function ExploreHere() {
               ))}
             </ScrollView>
           )}
-        </>
+        </Reveal>
       )}
 
-      {later.length > 0 && (
+      {next && (
+        <Reveal index={0} style={{ gap: 16 }}>
+          <SectionHeader title="Next up" />
+          <Txt variant="muted" style={{ marginTop: -8 }}>Nothing starts in the next 2 hours. This is what is coming.</Txt>
+          <NextUpCard a={next} />
+        </Reveal>
+      )}
+
+      {next ? (
         <>
-          <SectionHeader title="More around you" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }} snapToInterval={CARD + 12} snapToAlignment="start" disableIntervalMomentum decelerationRate="fast">
-            {later.slice(0, MAX_LATER).map((a) => (
-              <FeatureCard key={a.id} a={a} width={CARD} />
-            ))}
-            {/* after the fourth card (or after the last one, if there are fewer): the way to the full list */}
-            <ShowMoreCard width={CARD - 56} onPress={() => go('/activities')} />
-          </ScrollView>
+          {tonight.length > 0 && <SidewaysRow index={1} title="Tonight" list={tonight} card={CARD} gutter={gutter} max={MAX_LATER} onMore={() => go('/activities')} />}
+          {tomorrow.length > 0 && <SidewaysRow index={2} title="Tomorrow" list={tomorrow} card={CARD} gutter={gutter} max={MAX_LATER} onMore={() => go('/activities')} />}
         </>
+      ) : (
+        later.length > 0 && <SidewaysRow index={1} title="More around you" list={later} card={CARD} gutter={gutter} max={MAX_LATER} onMore={() => go('/activities')} />
       )}
 
+      <Reveal index={3}>
       <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.sand, borderWidth: 0, borderRadius: 20, padding: 16 }}>
         <View style={{ flex: 1, paddingRight: 12 }}>
-          <Txt variant="h3" style={{ fontSize: 17 }}>Nothing planned?</Txt>
+          <Txt variant="h3" style={{ fontSize: 15 }}>Nothing planned?</Txt>
           <Txt variant="muted">Start an activity in minutes.</Txt>
         </View>
         <Btn title="Create +" small onPress={() => go('/create')} />
       </Card>
+      </Reveal>
 
     </Screen>
+  );
+}
+
+/** A titled sideways row: up to `max` cards, then the "SHOW MORE" card that opens the full list. */
+function SidewaysRow({ index, title, list, card, gutter, max, onMore }: { index: number; title: string; list: Activity[]; card: number; gutter: number; max: number; onMore: () => void }) {
+  return (
+    <Reveal index={index} style={{ gap: 16 }}>
+      <SectionHeader title={title} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }} snapToInterval={card + 12} snapToAlignment="start" disableIntervalMomentum decelerationRate="fast">
+        {list.slice(0, max).map((a) => (
+          <FeatureCard key={a.id} a={a} width={card} />
+        ))}
+        <ShowMoreCard onPress={onMore} />
+      </ScrollView>
+    </Reveal>
   );
 }

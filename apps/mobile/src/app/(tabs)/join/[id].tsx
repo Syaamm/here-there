@@ -1,6 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { CatPhoto } from '@/components/CatPhoto';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '@/components/ScaledText';
 import { CheckLine } from '@/components/CheckLine';
 import { Btn, Card, CheckRow, ErrorBanner, Field, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, post, type Activity } from '@/lib/api';
@@ -34,9 +36,7 @@ export default function Join() {
   return (
     <Screen hasHeader>
       {/* cover block: a stand-in for the activity photo */}
-      <View style={{ height: 190, borderRadius: 24, backgroundColor: catColor(a.category), alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontSize: 64, opacity: 0.45 }} accessibilityElementsHidden>{CATS[a.category]?.emoji ?? '📍'}</Text>
-      </View>
+      <CatPhoto category={a.category} style={{ height: 190, borderRadius: 24 }} />
       <View>
         <Txt variant="h1" style={{ fontSize: 30, lineHeight: 36 }}>{a.title}</Txt>
         <Txt variant="muted">{when(a.startsAt)} · {a.venueName} · {a.going}/{a.capacity} going</Txt>

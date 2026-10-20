@@ -61,3 +61,12 @@ export const EXPERIENCE: [string, string][] = [
   ['intermediate', 'Intermediate'],
   ['experienced', 'Experienced'],
 ];
+
+/** One photo per category (webp, ~30 KB each). Decorative: the category is always also named in text. */
+export const CAT_IMAGES: Record<string, number> = {
+  coffee: require('../../assets/categories/coffee.webp'),
+  drinks: require('../../assets/categories/drinks.webp'),
+  food: require('../../assets/categories/food.webp'),
+  sports: require('../../assets/categories/sports.webp'),
+  culture: require('../../assets/categories/culture.webp'),
+};

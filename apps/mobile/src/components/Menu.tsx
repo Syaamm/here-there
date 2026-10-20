@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable } from 'react-native';
+import { Text } from './ScaledText';
 import { FloatingButton } from './Hero';
 import { Btn, Sheet } from './ui';
 import { useTheme } from '@/lib/theme';

@@ -256,6 +256,35 @@ describe('auth, eligibility and verification', () => {
     assert.equal((await post(`/v1/conversations/${conv.id}/messages`, lurker.token, { body: 'hi' })).body.code, 'VERIFICATION_REQUIRED');
   });
 
+  it('keeps the group and the activity together: leave one, leave both; cancelled activities end their chat', async () => {
+    const host = await verified('TogetherHost');
+    const a = await verified('TogetherA');
+    const b = await verified('TogetherB');
+    const id = (await post('/v1/activities', host.token, activityBody())).body.id;
+    const conv = await prisma.conversation.findUnique({ where: { activityId: id } });
+    for (const u of [a, b]) {
+      const req = await post(`/v1/activities/${id}/requests`, u.token, {});
+      await post(`/v1/activities/${id}/requests/${req.body.id}/decision`, host.token, { decision: 'approve' });
+    }
+    assert.equal((await post(`/v1/conversations/${conv.id}/messages`, a.token, { body: 'hi all' })).status, 201);
+
+    // leaving the activity also takes you out of the group: no chat, not in the member list, not in your chats
+    assert.equal((await post(`/v1/activities/${id}/leave`, a.token)).status, 201);
+    assert.equal((await get(`/v1/conversations/${conv.id}/messages`, a.token)).status, 403);
+    assert.equal((await post(`/v1/conversations/${conv.id}/messages`, a.token, { body: 'let me back' })).status, 403);
+    assert.equal((await get('/v1/me/conversations', a.token)).body.items.length, 0);
+    const names = (await get(`/v1/conversations/${conv.id}/info`, b.token)).body.members.map((m: any) => m.displayName);
+    assert.deepEqual(names, ['TogetherHost', 'TogetherB']);
+
+    // the host cancels: the chat ends for everyone left, even though they are still listed as members of the activity
+    assert.equal((await post(`/v1/activities/${id}/cancel`, host.token)).status, 201);
+    const gone = await get(`/v1/conversations/${conv.id}/messages`, b.token);
+    assert.deepEqual([gone.body.ended, gone.body.writable, gone.body.items.length], [true, false, 0]);
+    assert.equal((await post(`/v1/conversations/${conv.id}/messages`, b.token, { body: 'anyone?' })).status, 409);
+    assert.equal((await get('/v1/me/conversations', b.token)).body.items.length, 0);
+    assert.equal((await get('/v1/me/conversations', host.token)).body.items.length, 0);
+  });
+
   it('cuts chat access the moment an approved member stops being verified', async () => {
     const host = await verified('RevokeHost');
     const member = await verified('RevokeMember');
@@ -264,6 +293,14 @@ describe('auth, eligibility and verification', () => {
     const req = await post(`/v1/activities/${id}/requests`, member.token, {});
     await post(`/v1/activities/${id}/requests/${req.body.id}/decision`, host.token, { decision: 'approve' });
     assert.equal((await post(`/v1/conversations/${conv.id}/messages`, member.token, { body: 'hello' })).status, 201);
+
+    // group info: the host is first and marked as host; the member sees both, an outsider sees nothing
+    const info = await get(`/v1/conversations/${conv.id}/info`, member.token);
+    assert.equal(info.status, 200);
+    assert.deepEqual(info.body.members.map((m: any) => [m.displayName, m.role, m.isMe]), [['RevokeHost', 'host', false], ['RevokeMember', 'member', true]]);
+    assert.equal(info.body.scope, 'activity');
+    const outsider = await verified('RevokeOutsider');
+    assert.equal((await get(`/v1/conversations/${conv.id}/info`, outsider.token)).status, 403);
 
     await prisma.user.update({ where: { id: member.id }, data: { eligibility: 'rejected' } });
     const r = await get(`/v1/conversations/${conv.id}/messages`, member.token);
@@ -914,6 +951,41 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
       await rejectNow(u.id, 'document');
     }
     assert.equal((await post('/v1/me/verification', u.token, { consent: true })).status, 429);
+  });
+
+  it('stores one cropped webp profile picture per person and shows it on their activities', async () => {
+    const sharp = require('sharp');
+    const png = await sharp({ create: { width: 900, height: 500, channels: 3, background: { r: 40, g: 120, b: 90 } } }).png().toBuffer();
+    const u = await verified('Pic');
+    const put = (token: string, body: Buffer, type = 'image/png') => fetch(`${base}/v1/me/photo`, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': type }, body: new Uint8Array(body) });
+
+    // upload: re-encoded as a square webp, and the profile points at it
+    const ok = await put(u.token, png);
+    assert.equal(ok.status, 200);
+    const { photoUrl } = (await ok.json()) as any;
+    assert.ok(photoUrl.startsWith(`/v1/users/${u.id}/photo?v=`), photoUrl);
+    const img = await fetch(base + photoUrl);
+    assert.equal(img.status, 200);
+    assert.equal(img.headers.get('content-type'), 'image/webp');
+    const meta = await sharp(Buffer.from(await img.arrayBuffer())).metadata();
+    assert.deepEqual([meta.format, meta.width, meta.height], ['webp', 384, 384]);
+    assert.equal((await get('/v1/me', u.token)).body.profile.photoUrl, photoUrl);
+
+    // other people see it on the host of an activity
+    const viewer = await verified('Viewer');
+    const a = await post('/v1/activities', u.token, activityBody({}));
+    assert.equal((await get(`/v1/activities/${a.body.id}`, viewer.token)).body.host.photoUrl, photoUrl);
+
+    // not an image, too big, guests: refused
+    assert.equal((await put(u.token, Buffer.from('not an image'))).status, 400);
+    assert.equal((await put(u.token, Buffer.alloc(7 * 1024 * 1024, 1))).status, 413);
+    const guest = await post('/v1/auth/guest');
+    assert.equal((await put(guest.body.token, png)).status, 403);
+
+    // removing it clears the picture
+    assert.equal((await call('DELETE', '/v1/me/photo', u.token)).status, 200);
+    assert.equal((await fetch(base + photoUrl)).status, 404);
+    assert.equal((await get('/v1/me', u.token)).body.profile.photoUrl, null);
   });
 
   it('refuses development-only verification modes in production', () => {

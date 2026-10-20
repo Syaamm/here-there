@@ -100,10 +100,10 @@ export class TripsService {
   ) {}
 
   private readonly hostInclude = {
-    host: { select: { id: true, eligibility: true, profile: { select: { displayName: true } } } },
+    host: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } },
   } as const;
 
-  private dto(t: Trip & { host: { id: string; eligibility: string; profile: { displayName: string } | null } }, members: number, extra: Record<string, unknown> = {}) {
+  private dto(t: Trip & { host: { id: string; eligibility: string; profile: { displayName: string; photoUrl: string | null } | null } }, members: number, extra: Record<string, unknown> = {}) {
     return {
       id: t.id,
       title: t.title,
@@ -130,7 +130,7 @@ export class TripsService {
       status: t.status,
       kind: 'trip_proposal', // proposal, not a booking or confirmed itinerary
       disclaimer: BUDGET_DISCLAIMER,
-      host: { id: t.host.id, displayName: t.host.profile?.displayName ?? 'Organizer', verifiedAdult: t.host.eligibility === 'verified' },
+      host: { id: t.host.id, displayName: t.host.profile?.displayName ?? 'Organizer', photoUrl: t.host.profile?.photoUrl ?? null, verifiedAdult: t.host.eligibility === 'verified' },
       ...extra,
     };
   }
@@ -228,7 +228,7 @@ export class TripsService {
     const [members, app, conv] = await Promise.all([
       this.prisma.tripMembership.findMany({
         where: { tripId: id, state: 'approved' },
-        include: { user: { select: { id: true, eligibility: true, profile: { select: { displayName: true } } } } },
+        include: { user: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } } },
       }),
       this.prisma.tripApplication.findUnique({ where: { tripId_applicantId: { tripId: id, applicantId: me.id } } }),
       isMember ? this.prisma.conversation.findUnique({ where: { tripId: id } }) : null,
@@ -253,6 +253,7 @@ export class TripsService {
       participants: members.map((x) => ({
         id: x.user.id,
         displayName: x.user.profile?.displayName ?? 'Member',
+        photoUrl: x.user.profile?.photoUrl ?? null,
         verifiedAdult: x.user.eligibility === 'verified',
         role: x.role,
       })),
@@ -428,6 +429,7 @@ export class TripsService {
         applicant: {
           id: a.applicant.id,
           displayName: a.applicant.profile?.displayName,
+          photoUrl: a.applicant.profile?.photoUrl ?? null,
           verifiedAdult: a.applicant.eligibility === 'verified', // organizer sees the badge, never documents
           languages: a.applicant.profile?.languages ? a.applicant.profile.languages.split(',') : [],
           interests: a.applicant.profile?.interests ? a.applicant.profile.interests.split(',') : [],

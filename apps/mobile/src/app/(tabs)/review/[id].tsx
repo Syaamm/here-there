@@ -12,7 +12,7 @@ type App = {
   intro: string;
   experience: string | null;
   createdAt: string;
-  applicant: { id: string; displayName?: string; verifiedAdult: boolean; languages: string[]; interests: string[] };
+  applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; languages: string[]; interests: string[] };
 };
 const ORDER: Record<string, number> = { pending: 0, waitlisted: 1, approved: 2, declined: 3, withdrawn: 4, expired: 5 };
 
@@ -58,7 +58,7 @@ export default function ReviewTrip() {
         <Card key={a.id}>
           <Between>
             <Row>
-              <Avatar name={a.applicant.displayName} />
+              <Avatar name={a.applicant.displayName} uri={a.applicant.photoUrl} />
               <View>
                 <Txt variant="h3">{a.applicant.displayName ?? 'Traveler'} {a.applicant.verifiedAdult ? '✓' : ''}</Txt>
                 <Txt variant="small">

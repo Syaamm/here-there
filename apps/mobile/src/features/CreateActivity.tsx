@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CatPhoto } from '@/components/CatPhoto';
 import { useEffect, useState } from 'react';
-import { Switch, Text, View } from 'react-native';
+import { Switch, View } from 'react-native';
+import { Text } from '@/components/ScaledText';
 import { TabHeader } from '@/components/TabHeader';
 import { Banner, Between, Btn, CheckRow, Chip, ErrorBanner, Field, Pill, PillRow, Screen, Stepper, Txt, useGo } from '@/components/ui';
 import { post, type Activity } from '@/lib/api';
@@ -109,17 +111,14 @@ export function CreateActivity() {
   };
 
   return (
-    <Screen tabBar>
-      <TabHeader />
+    <Screen tabBar header={<TabHeader />}>
       <Between>
         <Txt variant="h1">Create an activity</Txt>
         {saved ? <Chip label="DRAFT" tone="info" /> : null}
       </Between>
 
-      {/* cover: a stand-in for the activity photo, tinted by the chosen category */}
-      <View style={{ height: 170, borderRadius: 24, backgroundColor: catColor(f.category), alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontSize: 60, opacity: 0.45 }} accessibilityElementsHidden>{CATS[f.category]?.emoji}</Text>
-      </View>
+      {/* cover: the photo of the chosen category */}
+      <CatPhoto category={f.category} style={{ height: 170, borderRadius: 24 }} />
 
       {!verified && <Banner onPress={() => go('/verify')}>You need a verified identity to publish. You can fill this in now and it is kept as a draft. Verify ›</Banner>}
       <ErrorBanner message={act.error} />

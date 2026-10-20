@@ -6,13 +6,17 @@ import { useAction } from '@/lib/hooks';
 import { Btn, ErrorBanner, Field, Pill, Sheet, Txt } from './ui';
 
 /** Report a user, activity, trip or message. Reports land in the staff moderation queue. */
-export function ReportSheet({ target, onClose }: { target: { type: 'user' | 'activity' | 'trip' | 'message'; id: string } | null; onClose: () => void }) {
-  const [category, setCategory] = useState('harassment');
+export function ReportSheet({ target, onClose }: { target: { type: 'user' | 'activity' | 'trip' | 'message'; id: string; category?: string } | null; onClose: () => void }) {
+  const [picked, setCategory] = useState('harassment');
+  // a report can open on a reason chosen elsewhere ("Report as spam"), until the person picks another
+  const [touched, setTouched] = useState(false);
+  const category = touched ? picked : (target?.category ?? picked);
   const [details, setDetails] = useState('');
   const [sent, setSent] = useState(false);
   const act = useAction();
 
   const close = () => {
+    setTouched(false);
     setSent(false);
     setDetails('');
     act.setError(null);
@@ -37,7 +41,7 @@ export function ReportSheet({ target, onClose }: { target: { type: 'user' | 'act
           <Txt variant="label">What is the problem?</Txt>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {REPORT_CATEGORIES.map(([v, l]) => (
-              <Pill key={v} label={l} active={category === v} onPress={() => setCategory(v)} />
+              <Pill key={v} label={l} active={category === v} onPress={() => (setTouched(true), setCategory(v))} />
             ))}
           </View>
           <Field label="Details (optional)" multiline maxLength={1000} value={details} onChangeText={setDetails} />

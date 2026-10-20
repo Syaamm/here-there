@@ -1,9 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from './ScaledText';
 import type { Activity, Trip } from '@/lib/api';
 import { catColor, CATS } from '@/lib/constants';
 import { dateSpan, money, when } from '@/lib/format';
 import { useTheme } from '@/lib/theme';
+import { CatPhoto } from './CatPhoto';
+import { sc } from '@/lib/scale';
 import { Card, Chip, Row, Txt, useGo } from './ui';
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -14,8 +17,8 @@ const place = (venue: string) => /\(([^)]+)\)\s*$/.exec(venue)?.[1] ?? venue;
 function Pill({ text }: { text: string }) {
   const { c } = useTheme();
   return (
-    <View style={{ position: 'absolute', left: 10, bottom: 10, backgroundColor: c.forest, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5, maxWidth: '90%' }}>
-      <Text numberOfLines={1} style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+    <View style={{ position: 'absolute', left: 8, bottom: 8, backgroundColor: c.forest, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, maxWidth: '90%' }}>
+      <Text numberOfLines={1} style={{ color: '#fff', fontWeight: '700', fontSize: 10.5 }}>
         {text}
       </Text>
     </View>
@@ -32,61 +35,92 @@ export function FeatureCard({ a, width }: { a: Activity; width?: number }) {
     <Card
       onPress={() => go(`/activity/${a.id}`)}
       accessibilityLabel={`${a.title}, ${when(a.startsAt)}, ${a.venueName}, ${a.going} of ${a.capacity} going${full ? ', full' : `, ${a.spotsLeft} spots left`}`}
-      style={{ width, padding: 0, gap: 0, borderRadius: 20, overflow: 'hidden' }}
+      style={{ width, padding: 0, gap: 0, borderRadius: 14, overflow: 'hidden' }}
     >
-      <View style={{ height: 104, backgroundColor: catColor(a.category), alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontSize: 40, opacity: 0.5 }} accessibilityElementsHidden>
-          {cat?.emoji ?? '📍'}
-        </Text>
-        <Pill text={`${clock(a.startsAt)} · ${place(a.venueName)}`} />
-      </View>
-      <View style={{ padding: 14, gap: 8 }}>
-        <Txt variant="h3" numberOfLines={2} style={{ fontSize: 17, lineHeight: 22 }}>{a.title}</Txt>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Txt variant="muted">{a.going} of {a.capacity} going</Txt>
-          {full ? <Chip label="Full" tone="warn" /> : <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 3 }}><Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 12 }}>{cat?.label ?? a.category}</Text></View>}
+      <CatPhoto category={a.category} style={{ height: sc(64) }} />
+      <View style={{ padding: 9, gap: 4 }}>
+        {/* two lines of height reserved, so cards side by side stay level */}
+        <Txt variant="h3" numberOfLines={2} style={{ fontSize: 12.5, lineHeight: 16, minHeight: 32 }}>{a.title}</Txt>
+        <Txt variant="small" numberOfLines={1} color={c.forest} bold style={{ fontSize: 11, lineHeight: 15 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
+        <Row style={{ justifyContent: 'space-between', gap: 4 }}>
+          <Txt variant="small" numberOfLines={1} style={{ flexShrink: 1 }}>{a.going} of {a.capacity} going</Txt>
+          {full ? <Chip label="Full" tone="warn" /> : <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 1 }}><Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 10 }}>{cat?.label ?? a.category}</Text></View>}
         </Row>
       </View>
     </Card>
   );
 }
 
-/** The last card of a sideways row: an arrow and "SHOW MORE", same width as the cards beside it. */
-export function ShowMoreCard({ width, onPress, label = 'Show more' }: { width?: number; onPress: () => void; label?: string }) {
-  const { c } = useTheme();
-  return (
-    <Card onPress={onPress} accessibilityLabel={`${label}: see every activity`} style={{ width, borderRadius: 20, alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: c.accentSoft, borderWidth: 0, minHeight: 160 }}>
-      <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name="arrow-forward" size={24} color="#fff" />
-      </View>
-      <Text style={{ color: c.text, fontWeight: '800', fontSize: 14, letterSpacing: 1 }}>{label.toUpperCase()}</Text>
-    </Card>
-  );
+/** "in 45 min" / "in 1 h 20 min" / "in 3 h" */
+function startsIn(iso: string) {
+  const min = Math.max(1, Math.round((+new Date(iso) - Date.now()) / 60000));
+  if (min < 60) return `in ${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `in ${h} h ${m} min` : `in ${h} h`;
 }
 
-/** Compact row card for "More around you" and lists: coloured thumbnail, title, time and place, who's going. */
-export function ActivityCard({ a }: { a: Activity }) {
+/** A wide card for the one activity that starts next, used when nothing starts within two hours. */
+export function NextUpCard({ a }: { a: Activity }) {
   const go = useGo();
+  const { c } = useTheme();
   const cat = CATS[a.category];
   const full = a.spotsLeft === 0;
   return (
     <Card
       onPress={() => go(`/activity/${a.id}`)}
-      accessibilityLabel={`${a.title}, ${when(a.startsAt)}, ${a.venueName}, ${a.spotsLeft} spots left`}
-      style={{ flexDirection: 'row', gap: 14, alignItems: 'center', borderRadius: 20, padding: 12 }}
+      accessibilityLabel={`Next up: ${a.title}, ${when(a.startsAt)}, ${startsIn(a.startsAt)}, ${a.venueName}, ${a.going} of ${a.capacity} going`}
+      style={{ padding: 0, gap: 0, borderRadius: 18, overflow: 'hidden' }}
     >
-      <View style={{ width: 68, height: 68, borderRadius: 16, backgroundColor: catColor(a.category), alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontSize: 28, opacity: 0.55 }} accessibilityElementsHidden>
-          {cat?.emoji ?? '📍'}
-        </Text>
+      <CatPhoto category={a.category} style={{ height: 104 }} />
+      <View style={{ padding: 11, gap: 4 }}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <Txt variant="h3" numberOfLines={2} style={{ flex: 1, fontSize: 14, lineHeight: 19 }}>{a.title}</Txt>
+          <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
+            <Text style={{ color: c.onAccent, fontWeight: '800', fontSize: 11 }}>{startsIn(a.startsAt)}</Text>
+          </View>
+        </Row>
+        <Txt variant="small" numberOfLines={1} color={c.forest} bold>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <Txt variant="muted">{a.going} of {a.capacity} going · {cat?.label ?? a.category}</Txt>
+          {full ? <Chip label="Full" tone="warn" /> : <Txt variant="label" color={c.forest}>See details ›</Txt>}
+        </Row>
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Txt variant="h3" numberOfLines={2} style={{ fontSize: 17, lineHeight: 22 }}>{a.title}</Txt>
-        <Txt variant="muted" numberOfLines={1}>
+    </Card>
+  );
+}
+
+/** The end of a sideways row: just a round arrow, centred against the card before it. Opens the full list. */
+export function ShowMoreCard({ width = 56, onPress, label = 'Show more' }: { width?: number; onPress: () => void; label?: string }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: see every activity`} hitSlop={6} onPress={onPress} style={({ pressed }) => [{ width, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8, transform: [{ scale: 0.95 }] }]}>
+      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name="arrow-forward" size={20} color="#fff" />
+      </View>
+    </Pressable>
+  );
+}
+
+/** Compact row card for "More around you" and lists: coloured thumbnail, title, time and place, who's going. */
+export function ActivityCard({ a, onPress }: { a: Activity; onPress?: () => void }) {
+  const go = useGo();
+  const cat = CATS[a.category];
+  const full = a.spotsLeft === 0;
+  return (
+    <Card
+      onPress={onPress ?? (() => go(`/activity/${a.id}`))}
+      accessibilityLabel={`${a.title}, ${when(a.startsAt)}, ${a.venueName}, ${a.spotsLeft} spots left${onPress ? '. Show on the map' : ''}`}
+      style={{ flexDirection: 'row', gap: 10, alignItems: 'center', borderRadius: 12, padding: 8 }}
+    >
+      <CatPhoto category={a.category} style={{ width: 42, height: 42, borderRadius: 10 }} />
+      <View style={{ flex: 1, gap: 1 }}>
+        <Txt variant="h3" numberOfLines={1} style={{ fontSize: 13, lineHeight: 17 }}>{a.title}</Txt>
+        <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
           {clock(a.startsAt)} · {a.venueName}
           {a.distanceKm !== undefined ? ` · ${a.distanceKm} km` : ''}
         </Txt>
-        <Txt variant="muted">
+        <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
           {a.going} going · {full ? 'Full' : `${a.spotsLeft} ${a.spotsLeft === 1 ? 'spot' : 'spots'} left`} · {cat?.label ?? a.category}
         </Txt>
       </View>
@@ -105,20 +139,20 @@ export function TripFeatureCard({ t, width }: { t: Trip; width?: number }) {
     <Card
       onPress={() => go(`/trip/${t.id}`)}
       accessibilityLabel={`${t.title}, ${dateSpan(t.dateStart, t.dateEnd)}, estimated ${money(t.budget.min, t.budget.currency)} to ${money(t.budget.max, t.budget.currency)} per person, ${t.members} of ${t.maxCapacity} travelers`}
-      style={{ width, padding: 0, gap: 0, borderRadius: 20, overflow: 'hidden' }}
+      style={{ width, padding: 0, gap: 0, borderRadius: 16, overflow: 'hidden' }}
     >
-      <View style={{ height: 104, backgroundColor: tripColor(t), alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontSize: 40, opacity: 0.5 }} accessibilityElementsHidden>✈️</Text>
+      <View style={{ height: 84, backgroundColor: tripColor(t), alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontSize: 32, opacity: 0.5 }} accessibilityElementsHidden>✈️</Text>
         <Pill text={`${dateSpan(t.dateStart, t.dateEnd).replace(/ \d{4}$/, '')}${t.dateFlexibility !== 'exact' ? ' · flexible' : ''}`} />
       </View>
-      <View style={{ padding: 14, gap: 8 }}>
-        <Txt variant="h3" numberOfLines={2} style={{ fontSize: 17, lineHeight: 22 }}>{t.destination}</Txt>
+      <View style={{ padding: 11, gap: 6 }}>
+        <Txt variant="h3" numberOfLines={2} style={{ fontSize: 14, lineHeight: 19 }}>{t.destination}</Txt>
         <Txt variant="muted" numberOfLines={1}>
           {money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)} pp {t.budget.includesTransport ? 'incl. travel' : 'excl. travel'}
         </Txt>
         <Row style={{ justifyContent: 'space-between' }}>
           <Txt variant="muted">{t.members} of {t.maxCapacity} travelers</Txt>
-          {full ? <Chip label="Full" tone="warn" /> : <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 3 }}><Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 12 }}>{t.spotsLeft} open</Text></View>}
+          {full ? <Chip label="Full" tone="warn" /> : <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2 }}><Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 11 }}>{t.spotsLeft} open</Text></View>}
         </Row>
       </View>
     </Card>

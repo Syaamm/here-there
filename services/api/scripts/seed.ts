@@ -5,6 +5,9 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import sharp from 'sharp';
 
 const prisma = new PrismaClient();
 const hours = (h: number) => new Date(Date.now() + h * 3600 * 1000);
@@ -76,6 +79,15 @@ async function main() {
     await mk(marco.id, 'Morning yoga in the park', 'sports', 'Giardini Pubblici (Centro)', 45.473, 9.2, at(1, 8, 0), 1, 12, 'Beginner-friendly flow on the lawn. Bring a mat or a towel.');
   }
 
+  // Repeated seeding must not pile up copies: keep the first of any upcoming demo activity with the same host and title.
+  const upcomingAll = await prisma.activity.findMany({ where: { status: 'published', startsAt: { gt: new Date() } }, orderBy: { createdAt: 'asc' } });
+  const seen = new Set<string>();
+  for (const a of upcomingAll) {
+    const key = `${a.hostId}|${a.title}`;
+    if (seen.has(key)) await prisma.activity.update({ where: { id: a.id }, data: { status: 'cancelled' } });
+    else seen.add(key);
+  }
+
   // Always keep a couple of plans that start within two hours, so "Happening soon" is never empty in the demo.
   const soonCount = await prisma.activity.count({ where: { status: 'published', startsAt: { gt: new Date(), lt: hours(2) } } });
   if (soonCount < 3) {
@@ -91,8 +103,73 @@ async function main() {
       await prisma.activityMembership.create({ data: { activityId: a.id, userId: hostId, role: 'host' } });
       await prisma.conversation.create({ data: { scopeType: 'activity', activityId: a.id } });
     };
-    await quick(alex.id, 'Quick espresso break', 'coffee', 'Bar near Duomo (Centro)', 45.464, 9.19, in5(40), 4, 'Short and friendly: one espresso, good company.');
-    await quick(sofia.id, 'Aperitivo on the terrace', 'drinks', 'Rooftop bar (Navigli)', 45.45, 9.17, in5(85), 6, 'Early spritz before the evening crowd arrives.');
+    const has = (title: string) => seen.has(`${title}`) || upcomingAll.some((x) => x.title === title && x.status === 'published');
+    if (!has('Quick espresso break')) await quick(alex.id, 'Quick espresso break', 'coffee', 'Bar near Duomo (Centro)', 45.464, 9.19, in5(40), 4, 'Short and friendly: one espresso, good company.');
+    if (!has('Aperitivo on the terrace')) await quick(sofia.id, 'Aperitivo on the terrace', 'drinks', 'Rooftop bar (Navigli)', 45.45, 9.17, in5(85), 6, 'Early spritz before the evening crowd arrives.');
+  }
+
+  // Make the demo activities look lived-in: a few approved attendees each (never more than the capacity allows).
+  // Any extra picture dropped in seed-assets/avatars (cristiano.webp, ...) gets its own demo person, named after the file.
+  const known = ['sofia', 'marco', 'alex', 'giulia', 'luca', 'anna', 'tom', 'mei', 'naomi', 'kenji'];
+  const avatarFiles = existsSync(path.resolve(__dirname, '..', '..', 'seed-assets', 'avatars')) ? readdirSync(path.resolve(__dirname, '..', '..', 'seed-assets', 'avatars')) : [];
+  const extraNames = avatarFiles.map((x) => /^([a-z]+)\.(jpe?g|png|webp)$/i.exec(x)?.[1]?.toLowerCase()).filter((n): n is string => !!n && !known.includes(n));
+  const extras = [];
+  for (const n of extraNames) extras.push(await user(`${n}@demo.local`, n[0].toUpperCase() + n.slice(1), 'demo-password-1'));
+  const guests = [
+    ...extras,
+    await user('giulia@demo.local', 'Giulia', 'demo-password-1'),
+    await user('luca@demo.local', 'Luca', 'demo-password-1'),
+    await user('anna@demo.local', 'Anna', 'demo-password-1'),
+    await user('tom@demo.local', 'Tom', 'demo-password-1'),
+    await user('mei@demo.local', 'Mei', 'demo-password-1'),
+    await user('naomi@demo.local', 'Naomi', 'demo-password-1'),
+    await user('kenji@demo.local', 'Kenji', 'demo-password-1'),
+  ];
+  const open = await prisma.activity.findMany({ where: { status: 'published', startsAt: { gt: new Date() } }, include: { memberships: { where: { state: 'approved' } } } });
+  for (const [i, a] of open.entries()) {
+    // demo data should never leave an activity full: free two places by dropping demo guests if needed
+    let kept = a.memberships;
+    for (const m of [...a.memberships].reverse()) {
+      if (kept.length <= a.capacity - 2) break;
+      if (guests.some((g) => g.id === m.userId)) {
+        await prisma.activityMembership.delete({ where: { id: m.id } });
+        kept = kept.filter((k) => k.id !== m.id);
+      }
+    }
+    const have = new Set(kept.map((m) => m.userId));
+    const want = Math.min(a.capacity - 2, [3, 4, 2, 5, 1, 3, 2, 4][i % 8]) - (have.size - 1);
+    for (const g of guests) {
+      if (want <= 0 || have.size >= a.capacity) break;
+      if (have.has(g.id) || g.id === a.hostId) continue;
+      await prisma.activityMembership.create({ data: { activityId: a.id, userId: g.id, role: 'attendee', state: 'approved' } });
+      have.add(g.id);
+      if (have.size - 1 >= Math.min(a.capacity - 2, [3, 4, 2, 5, 1, 3, 2, 4][i % 8])) break;
+    }
+  }
+
+  // Extra people from dropped-in pictures should be visible: put each in up to three upcoming activities that still have room.
+  for (const x of extras) {
+    const roomy = await prisma.activity.findMany({ where: { status: 'published', startsAt: { gt: new Date() }, hostId: { not: x.id }, memberships: { none: { userId: x.id } } }, include: { _count: { select: { memberships: { where: { state: 'approved' } } } } }, orderBy: { startsAt: 'asc' } });
+    for (const a of roomy.filter((r) => r._count.memberships < r.capacity - 1).slice(0, 3))
+      await prisma.activityMembership.create({ data: { activityId: a.id, userId: x.id, role: 'attendee', state: 'approved' } });
+  }
+
+  // Demo profile pictures: any image in seed-assets/avatars named after a demo person (sofia.jpg, marco.png, ...).
+  const avatarDir = path.resolve(__dirname, '..', '..', 'seed-assets', 'avatars');
+  if (existsSync(avatarDir)) {
+    for (const file of readdirSync(avatarDir)) {
+      const m = /^([a-z]+)\.(jpe?g|png|webp)$/i.exec(file);
+      if (!m) continue;
+      const u = await prisma.user.findUnique({ where: { email: `${m[1].toLowerCase()}@demo.local` } });
+      if (!u) {
+        console.log(`avatars: no demo user for ${file}`);
+        continue;
+      }
+      const data = await sharp(readFileSync(path.join(avatarDir, file))).rotate().resize(384, 384, { fit: 'cover' }).webp({ quality: 80 }).toBuffer();
+      await prisma.profilePhoto.upsert({ where: { userId: u.id }, create: { userId: u.id, data: new Uint8Array(data) }, update: { data: new Uint8Array(data) } });
+      await prisma.profile.update({ where: { userId: u.id }, data: { photoUrl: `/v1/users/${u.id}/photo?v=${Date.now()}` } });
+      console.log(`avatars: ${file} -> ${m[1]}@demo.local`);
+    }
   }
 
   if ((await prisma.trip.count()) === 0) {

@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useRef } from 'react';
-import { Animated, Easing, Text, useWindowDimensions } from 'react-native';
+import { Animated, Easing, useWindowDimensions } from 'react-native';
+import { Text } from './ScaledText';
 import type { Mode } from '@/lib/theme';
 
 const LOOK = {

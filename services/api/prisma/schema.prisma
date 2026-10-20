@@ -39,6 +39,7 @@ model User {
   updatedAt         DateTime @updatedAt
 
   profile           Profile?
+  photo             ProfilePhoto?
   verifications     VerificationCheck[]
   contactCodes      ContactCode[]
   activitiesHosted  Activity[]
@@ -53,6 +54,15 @@ model User {
   blocksReceived    Block[]  @relation("blocked")
   reportsMade       Report[] @relation("reporter")
   favorites         Favorite[]
+}
+
+// One small webp per person (about 20-40 KB), re-encoded on upload so it carries no camera or location metadata.
+model ProfilePhoto {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  data      Bytes
+  mime      String   @default("image/webp")
+  updatedAt DateTime @updatedAt
 }
 
 model Profile {

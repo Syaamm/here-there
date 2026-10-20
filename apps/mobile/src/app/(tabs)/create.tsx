@@ -11,8 +11,7 @@ export default function CreateTab() {
   const { isGuest } = useMe();
   if (isGuest)
     return (
-      <Screen tabBar>
-        <TabHeader />
+      <Screen tabBar header={<TabHeader />}>
         <GuestWall title={mode === 'here' ? 'Host an activity' : 'Propose a trip'}>
           Create a free account to {mode === 'here' ? 'host activities' : 'propose trips'} and meet people. You can keep exploring as a guest in the meantime.
         </GuestWall>

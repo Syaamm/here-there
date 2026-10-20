@@ -14,6 +14,7 @@ import { AuthGuard } from './common/auth';
 import { PrismaService } from './common/prisma.service';
 import { RateLimiter } from './common/rate-limiter';
 import { ConversationsController, ConversationsService } from './conversations/conversations.controller';
+import { PhotoController } from './profile/photo.controller';
 import { NotificationsController } from './notifications/notifications.controller';
 import { NotificationsService } from './notifications/notifications.service';
 import { SafetyController } from './safety/safety.controller';
@@ -41,6 +42,7 @@ function jwtSecret() {
     NotificationsController,
     SafetyController,
     VerificationController,
+    PhotoController,
     AdminController,
   ],
   providers: [

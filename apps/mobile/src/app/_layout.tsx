@@ -1,21 +1,29 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Logo } from '@/components/TabHeader';
+import { InnerHeader, Logo } from '@/components/TabHeader';
 import { AuthProvider, useMe } from '@/lib/auth';
+import { PhoneFrame } from '@/components/PhoneFrame';
+import { ScaleProvider } from '@/lib/scale';
+import { installWebScrolling } from '@/lib/webScroll';
 import { ThemeProvider, useTheme } from '@/lib/theme';
 
 export default function RootLayout() {
+  useEffect(() => installWebScrolling(), []);
   return (
+    <PhoneFrame>
     <SafeAreaProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <Gate />
-        </AuthProvider>
-      </ThemeProvider>
+      <ScaleProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <Gate />
+          </AuthProvider>
+        </ThemeProvider>
+      </ScaleProvider>
     </SafeAreaProvider>
+    </PhoneFrame>
   );
 }
 
@@ -45,13 +53,16 @@ function Gate() {
           headerStyle: { backgroundColor: c.bg },
           headerTintColor: c.text,
           headerBackTitle: 'Back',
+          // pages pushed on top (verify) slide in smoothly
+          animation: 'slide_from_right',
+          animationDuration: 240,
           contentStyle: { backgroundColor: c.bg },
         }}
       >
         <Stack.Protected guard={!!me} redirectTo="/welcome">
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           {/* activity, trip, join, apply, host, review, chat and safety live inside (tabs), so the tab bar stays visible */}
-          <Stack.Screen name="verify" options={{ title: 'Verify your identity' }} />
+          <Stack.Screen name="verify" options={{ title: 'Verify your identity', header: ({ options }) => <InnerHeader options={options} /> }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!me} redirectTo="/">

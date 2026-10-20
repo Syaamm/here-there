@@ -8,8 +8,7 @@ export default function InboxTab() {
   const { isGuest } = useMe();
   if (isGuest)
     return (
-      <Screen tabBar>
-        <TabHeader />
+      <Screen tabBar header={<TabHeader />}>
         <GuestWall title="Your inbox">Create a free account to get join decisions, plan changes and group chats here.</GuestWall>
       </Screen>
     );

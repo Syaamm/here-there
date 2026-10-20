@@ -39,7 +39,6 @@ const profileSchema = z.object({
   languages: z.array(z.string().trim().min(2).max(20)).max(8).optional(),
   interests: z.array(z.string().trim().min(2).max(24)).max(15).optional(),
   bio: z.string().trim().max(300).nullable().optional(),
-  photoUrl: z.url().nullable().optional(),
 });
 
 type UserWithProfile = User & { profile: { displayName: string; homeCity: string | null; languages: string; interests: string; bio: string | null; photoUrl: string | null } | null };
@@ -149,7 +148,6 @@ export class AuthController {
         ...(dto.languages && { languages: csv(dto.languages) }),
         ...(dto.interests && { interests: csv(dto.interests) }),
         ...(dto.bio !== undefined && { bio: dto.bio }),
-        ...(dto.photoUrl !== undefined && { photoUrl: dto.photoUrl }),
       },
     });
     return this.getMe(u);

@@ -89,6 +89,24 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
 
 export const get = <T = any>(p: string) => api<T>('GET', p);
 export const post = <T = any>(p: string, b: unknown = {}) => api<T>('POST', p, b);
+/** A profile picture's address as the API returns it ("/v1/users/…/photo?v=…") turned into a full URL. */
+export const photoSrc = (p?: string | null) => (p ? (/^https?:/.test(p) ? p : API_URL + p) : undefined);
+
+/** Sends a picked image to the API, which crops it square, shrinks it and stores it as webp. */
+export async function uploadPhoto(uri: string): Promise<{ photoUrl: string }> {
+  const blob = await (await fetch(uri)).blob();
+  let res: Response;
+  try {
+    res = await fetch(API_URL + '/v1/me/photo', { method: 'PUT', headers: { 'content-type': blob.type || 'image/jpeg', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: blob });
+  } catch {
+    throw new ApiError(0, 'NETWORK', "Can't reach the server right now. Check your connection and try again.");
+  }
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new ApiError(res.status, data?.code ?? 'ERROR', data?.message ?? 'Could not upload the picture.');
+  return data;
+}
+
 export const patch = <T = any>(p: string, b: unknown = {}) => api<T>('PATCH', p, b);
 export const del = <T = any>(p: string) => api<T>('DELETE', p);
 
@@ -110,8 +128,8 @@ export type Me = {
   profile: { displayName: string; homeCity: string | null; languages: string[]; interests: string[]; bio: string | null; photoUrl: string | null } | null;
 };
 
-type HostInfo = { id: string; displayName: string; verifiedAdult: boolean };
-type Participant = { id: string; displayName: string; verifiedAdult: boolean; role: string };
+type HostInfo = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean };
+type Participant = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean; role: string };
 
 export type Activity = {
   id: string;
@@ -139,6 +157,8 @@ export type Activity = {
   myRequest?: { id: string; state: string } | null;
   conversationId?: string | null;
   participants?: Participant[];
+  /** how many activities the host has run or has coming up (cancelled ones excluded) */
+  activitiesHosted?: number;
 };
 
 export type Trip = {
@@ -181,4 +201,19 @@ export type Notif = {
   createdAt: string;
 };
 
-export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip'; scopeId: string; title: string };
+/** "Group info": what the group is and who is in it. The host is the group admin. */
+export type GroupInfo = {
+  id: string;
+  scope: 'activity' | 'trip';
+  scopeId: string;
+  title: string;
+  category: string | null;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  place: string;
+  capacity: number;
+  members: { id: string; displayName: string; photoUrl: string | null; verifiedAdult: boolean; role: 'host' | 'member'; isMe: boolean }[];
+};
+
+export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip'; scopeId: string; title: string; category?: string | null; startsAt?: string };

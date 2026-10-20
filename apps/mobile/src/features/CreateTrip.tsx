@@ -59,8 +59,7 @@ export function CreateTrip() {
   };
 
   return (
-    <Screen tabBar>
-      <TabHeader />
+    <Screen tabBar header={<TabHeader />}>
       <Txt variant="h1">Propose a trip</Txt>
       <Row>
         {STEPS.map((s, i) => (

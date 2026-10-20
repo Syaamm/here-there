@@ -1,25 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { Children, useState, type ReactNode } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  type StyleProp,
-  type TextInputProps,
-  type TextStyle,
-  type ViewStyle,
-} from 'react-native';
+import { Children, useEffect, useRef, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { Text, TextInput } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { photoSrc } from '@/lib/api';
 import { useLayout } from '@/lib/layout';
+import { sc, useScale } from '@/lib/scale';
+import { PageTransition } from './PageTransition';
 import { useTheme } from '@/lib/theme';
 
 // ---------------------------------------------------------------- layout
@@ -27,7 +15,7 @@ import { useTheme } from '@/lib/theme';
 export const pressed = (p: boolean) => (p ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null);
 
 export function Screen({
-  children,
+  header, children,
   hasHeader = false,
   scroll = true,
   tabBar = false,
@@ -41,6 +29,8 @@ export function Screen({
   children: ReactNode;
   /** a full-bleed picture area above the padded content (detail screens) */
   hero?: ReactNode;
+  /** stays put at the top while the content scrolls beneath it (the HERE/THERE header on the main tabs) */
+  header?: ReactNode;
   /** true when a native header already sits above the content */
   hasHeader?: boolean;
   scroll?: boolean;
@@ -57,10 +47,12 @@ export function Screen({
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
-  const pad = { paddingTop: hasHeader ? 12 : insets.top + 8, paddingBottom: tabBar ? 24 : insets.bottom + 24, paddingHorizontal: gutter };
+  // never closer to the top than a phone's status bar needs (a browser reports no inset, a real phone does)
+  const top = Math.max(insets.top, 20);
+  const pad = { paddingTop: hasHeader ? 12 : header ? 8 : top + 8, paddingBottom: tabBar ? 24 : insets.bottom + 24, paddingHorizontal: gutter };
   // The content sits in a centred column: full width on phones, a comfortable measure on tablets and desktops.
   const columnWidth = maxWidth ?? (wide ? 1180 : 760);
-  const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 14 };
+  const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 16 };
   const body = scroll ? (
     <ScrollView
       contentContainerStyle={[{ flexGrow: 1 }, hero ? { paddingBottom: pad.paddingBottom } : pad, style]}
@@ -78,7 +70,12 @@ export function Screen({
   );
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      {body}
+      {header ? (
+        <View style={{ paddingTop: top + 14, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, borderBottomWidth: 1, borderBottomColor: c.line, zIndex: 2 }}>
+          <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{header}</View>
+        </View>
+      ) : null}
+      <PageTransition>{body}</PageTransition>
     </KeyboardAvoidingView>
   );
 }
@@ -128,19 +125,19 @@ type Variant = 'h1' | 'h2' | 'h3' | 'body' | 'small' | 'muted' | 'label';
 export function Txt({ children, variant = 'body', style, bold, color, numberOfLines, accessibilityRole }: { children: ReactNode; variant?: Variant; style?: StyleProp<TextStyle>; bold?: boolean; color?: string; numberOfLines?: number; accessibilityRole?: 'header' }) {
   const { c } = useTheme();
   return (
-    <Text accessibilityRole={accessibilityRole} numberOfLines={numberOfLines} style={[{ color: c.text, fontSize: 16, lineHeight: 22 }, textStyles[variant], variant === 'muted' || variant === 'small' ? { color: c.muted } : null, bold ? { fontWeight: '700' } : null, color ? { color } : null, style]}>
+    <Text accessibilityRole={accessibilityRole} numberOfLines={numberOfLines} style={[{ color: c.text, fontSize: 14, lineHeight: 20 }, textStyles[variant], variant === 'muted' || variant === 'small' ? { color: c.muted } : null, bold ? { fontWeight: '700' } : null, color ? { color } : null, style]}>
       {children}
     </Text>
   );
 }
 const textStyles: Record<Variant, TextStyle> = {
-  h1: { fontSize: 28, lineHeight: 34, fontWeight: '800' },
-  h2: { fontSize: 20, lineHeight: 26, fontWeight: '800' },
-  h3: { fontSize: 16, fontWeight: '700' },
+  h1: { fontSize: 24, lineHeight: 30, fontWeight: '800' },
+  h2: { fontSize: 17, lineHeight: 23, fontWeight: '800' },
+  h3: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
   body: {},
-  label: { fontSize: 14, fontWeight: '600' },
-  small: { fontSize: 13, lineHeight: 18 },
-  muted: { fontSize: 14, lineHeight: 20 },
+  label: { fontSize: 13, fontWeight: '600' },
+  small: { fontSize: 12, lineHeight: 17 },
+  muted: { fontSize: 13, lineHeight: 18 },
 };
 
 // ---------------------------------------------------------------- buttons & inputs
@@ -165,10 +162,11 @@ export function Btn({ title, onPress, variant = 'primary', disabled, loading, sm
       accessibilityRole="button"
       accessibilityState={{ disabled: !!off, busy: !!loading }}
       disabled={off}
+      hitSlop={3}
       onPress={onPress}
-      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { backgroundColor: v.bg, borderColor: v.border, opacity: off ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
+      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { minHeight: sc(small ? 34 : 42) }, { backgroundColor: v.bg, borderColor: v.border, opacity: off ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
     >
-      {loading ? <ActivityIndicator color={v.fg} /> : <Text style={{ color: v.fg, fontWeight: '700', fontSize: small ? 14 : 16 }}>{title}</Text>}
+      {loading ? <ActivityIndicator color={v.fg} /> : <Text style={{ color: v.fg, fontWeight: '700', fontSize: small ? 13 : 14 }}>{title}</Text>}
     </Pressable>
   );
 }
@@ -183,7 +181,7 @@ export function Field({ label, hint, error, icon, style, ...rest }: TextInputPro
           accessibilityLabel={label}
           placeholderTextColor={c.muted}
           {...rest}
-          style={[s.input, { backgroundColor: c.surface, borderColor: error ? c.danger : c.line, color: c.text }, icon ? { paddingRight: 44 } : null, rest.multiline && { minHeight: 92, textAlignVertical: 'top' }, style]}
+          style={[s.input, { minHeight: sc(42) }, { backgroundColor: c.surface, borderColor: error ? c.danger : c.line, color: c.text }, icon ? { paddingRight: 44 } : null, rest.multiline && { minHeight: 92, textAlignVertical: 'top' }, style]}
         />
         {/* a small icon on the right edge of the field (clock, people, pin…) */}
         {icon ? <Ionicons name={icon} size={22} color={c.muted} style={{ position: 'absolute', right: 14, top: 13 }} pointerEvents="none" /> : null}
@@ -195,10 +193,11 @@ export function Field({ label, hint, error, icon, style, ...rest }: TextInputPro
 }
 
 /** A tinted rounded square holding an icon: the leading element of list rows. */
-export function IconTile({ name, size = 44 }: { name: React.ComponentProps<typeof Ionicons>['name']; size?: number }) {
+export function IconTile({ name, size: base = 36 }: { name: React.ComponentProps<typeof Ionicons>['name']; size?: number }) {
   const { c } = useTheme();
+  const size = base * useScale();
   return (
-    <View style={{ width: size, height: size, borderRadius: 14, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: size, height: size, borderRadius: 11, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
       <Ionicons name={name} size={size * 0.5} color={c.forest} />
     </View>
   );
@@ -208,11 +207,11 @@ export function IconTile({ name, size = 44 }: { name: React.ComponentProps<typeo
 export function ListRow({ icon, title, subtitle, right, onPress, last }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; subtitle?: string; right?: ReactNode; onPress?: () => void; last?: boolean }) {
   const { c } = useTheme();
   const body = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
       <IconTile name={icon} />
       <View style={{ flex: 1 }}>
-        <Txt variant="h3" style={{ fontSize: 17 }}>{title}</Txt>
-        {subtitle ? <Txt variant="muted">{subtitle}</Txt> : null}
+        <Txt variant="h3" style={{ fontSize: 14, lineHeight: 19 }}>{title}</Txt>
+        {subtitle ? <Txt variant="small" numberOfLines={2}>{subtitle}</Txt> : null}
       </View>
       {right}
     </View>
@@ -238,8 +237,8 @@ export function ProgressBar({ value, max }: { value: number; max: number }) {
 export function SearchBar({ value, onChangeText, placeholder }: { value: string; onChangeText: (v: string) => void; placeholder: string }) {
   const { c } = useTheme();
   return (
-    <View style={[s.search, { backgroundColor: c.surface, borderColor: c.line }]}>
-      <Ionicons name="search-outline" size={20} color={c.muted} />
+    <View style={[s.search, { minHeight: sc(42), backgroundColor: c.surface, borderColor: c.line }]}>
+      <Ionicons name="search-outline" size={17} color={c.muted} />
       <TextInput
         accessibilityLabel={placeholder}
         value={value}
@@ -248,7 +247,7 @@ export function SearchBar({ value, onChangeText, placeholder }: { value: string;
         placeholderTextColor={c.muted}
         returnKeyType="search"
         clearButtonMode="while-editing"
-        style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: 28 }}
+        style={{ flex: 1, fontSize: 14, color: c.text, paddingVertical: 0, minHeight: 24 }}
       />
     </View>
   );
@@ -267,8 +266,8 @@ export function SectionHeader({ title, right }: { title: string; right?: ReactNo
 export function Pill({ label, active, onPress }: { label: string; active?: boolean; onPress: () => void }) {
   const { c } = useTheme();
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, { backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
-      <Text style={{ color: active ? '#fff' : c.text, fontWeight: '600', fontSize: 14 }}>{label}</Text>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} hitSlop={6} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, { minHeight: sc(32), backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
+      <Text style={{ color: active ? '#fff' : c.text, fontWeight: '600', fontSize: 13 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -360,11 +359,22 @@ export const Spinner = ({ label }: { label?: string }) => (
   </View>
 );
 
-export function Avatar({ name, size = 44 }: { name?: string; size?: number }) {
+/** Soft green-led tints behind the initial, picked from the name so each person keeps the same colour everywhere. */
+const AVATAR_TINTS = ['#D9EBE2', '#CFE3DA', '#DCE8D2', '#D3E4E6', '#E2E4EF', '#E6E9D8'];
+/** A person's picture when they have one, otherwise their initial. */
+export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: number; uri?: string | null }) {
   const { c } = useTheme();
+  const size = base * useScale();
+  const [failed, setFailed] = useState(false);
+  const tint = AVATAR_TINTS[[...(name ?? '?')].reduce((n, ch) => n + ch.charCodeAt(0), 0) % AVATAR_TINTS.length];
+  const src = photoSrc(uri);
   return (
-    <View accessibilityElementsHidden style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: c.ivory, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: c.forest, fontWeight: '800', fontSize: size * 0.4 }}>{name?.[0]?.toUpperCase() ?? '?'}</Text>
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: tint, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+      {src && !failed ? (
+        <Image source={{ uri: src }} resizeMode="cover" onError={() => setFailed(true)} style={{ width: size, height: size }} />
+      ) : (
+        <Text style={{ color: c.forest, fontWeight: '800', fontSize: size * 0.42 }}>{name?.[0]?.toUpperCase() ?? '?'}</Text>
+      )}
     </View>
   );
 }
@@ -374,15 +384,61 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const { isTablet } = useLayout();
+  const { height } = useWindowDimensions();
+  const [mounted, setMounted] = useState(visible);
+  const slide = useRef(new Animated.Value(0)).current; // 0 away, 1 in place
+  const shade = useRef(new Animated.Value(0)).current; // the dark backdrop, separate from the sheet
+  const reduce = useRef(false);
+  // what the sheet showed while open, so it does not change or empty out while it slides away
+  const shown = useRef({ title, children });
+  if (visible) shown.current = { title, children };
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((r) => (reduce.current = r))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const t = (ms: number) => (reduce.current ? 1 : ms);
+    if (visible) {
+      setMounted(true);
+      slide.setValue(0);
+      shade.setValue(0);
+      Animated.parallel([
+        // the sheet rises from the bottom edge...
+        Animated.timing(slide, { toValue: 1, duration: t(300), easing: Easing.bezier(0.22, 0.9, 0.28, 1), useNativeDriver: true }),
+        // ...and the dark shade only fades in during its last stretch, so nothing dark slides up with it
+        Animated.timing(shade, { toValue: 1, duration: t(200), delay: reduce.current ? 0 : 150, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]).start();
+    } else if (mounted) {
+      Animated.parallel([
+        Animated.timing(slide, { toValue: 0, duration: t(230), easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(shade, { toValue: 0, duration: t(170), useNativeDriver: true }),
+      ]).start(({ finished }) => finished && setMounted(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  if (!mounted) return null;
+  const rise = isTablet ? slide.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) : slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] });
   return (
-    <Modal visible={visible} transparent animationType={isTablet ? 'fade' : 'slide'} onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)' }]} onPress={onClose} accessibilityLabel="Close" />
+        <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)', opacity: shade }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+        </Animated.View>
         {/* a bottom sheet on phones; a centred dialog on tablets and desktops */}
-        <View style={[s.sheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + 16 }, isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 22, paddingBottom: 18 }]}>
-          <Txt variant="h2">{title}</Txt>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>{children}</ScrollView>
-        </View>
+        <Animated.View
+          style={[
+            s.sheet,
+            { backgroundColor: c.surface, paddingBottom: insets.bottom + 16, transform: [{ translateY: rise }] },
+            isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 22, paddingBottom: 18, opacity: slide },
+          ]}
+        >
+          <Txt variant="h2">{shown.current.title}</Txt>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>{shown.current.children}</ScrollView>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -398,15 +454,15 @@ const s = StyleSheet.create({
   screen: { paddingHorizontal: 16, gap: 14 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   between: { justifyContent: 'space-between' },
-  btn: { minHeight: 48, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  btnSmall: { minHeight: 38, paddingVertical: 6, paddingHorizontal: 14 },
-  input: { minHeight: 48, borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 16 },
-  pill: { minHeight: 40, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  btn: { minHeight: 42, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  btnSmall: { minHeight: 34, paddingVertical: 5, paddingHorizontal: 12 },
+  input: { minHeight: 42, borderWidth: 1.5, borderRadius: 11, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
+  pill: { minHeight: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   check: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 54, borderWidth: 1, borderRadius: 18, paddingHorizontal: 16 },
-  stepBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 42, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12 },
+  stepBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   stepTxt: { fontSize: 22, fontWeight: '700' },
-  card: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 8 },
+  card: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 6 },
   banner: { padding: 12, borderRadius: 12 },
   chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
   empty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 16, padding: 24, alignItems: 'center', gap: 8 },

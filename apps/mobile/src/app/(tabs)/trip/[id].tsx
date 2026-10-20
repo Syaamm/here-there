@@ -22,10 +22,10 @@ export default function TripDetail() {
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'trip' | 'user'; id: string } | null>(null);
 
-  if (loading && !t) return <Screen hero={<Hero color="#C8C2E2" emoji="✈️" />}><Spinner /></Screen>;
+  if (loading && !t) return <Screen hero={<Hero plain color="#C8C2E2" emoji="✈️" />}><Spinner /></Screen>;
   if (error || !t)
     return (
-      <Screen hero={<Hero color="#C8C2E2" emoji="✈️" />}>
+      <Screen hero={<Hero plain color="#C8C2E2" emoji="✈️" />}>
         <Empty title="Trip not found">It may have been cancelled or is no longer available.</Empty>
       </Screen>
     );
@@ -53,8 +53,8 @@ export default function TripDetail() {
       ];
 
   return (
-    <Screen hero={<Hero color="#C8C2E2" emoji="✈️" right={menu.length ? <Menu floating items={menu} /> : undefined} />}>
-      <Stack.Screen options={{ headerShown: false }} />
+    <Screen hero={<Hero plain color="#C8C2E2" emoji="✈️" />}>
+      <Stack.Screen options={{ title: 'Trip', headerRight: menu.length ? () => <Menu items={menu} /> : undefined }} />
       <Between>
         <Chip label="✈ Trip proposal" tone="neutral" />
         {t.status === 'cancelled' ? <Chip label="Cancelled" tone="bad" /> : full ? <Chip label="Group full" tone="warn" /> : <Chip label={`${t.spotsLeft} places open`} tone="ok" />}
@@ -91,12 +91,12 @@ export default function TripDetail() {
           </View>
           <Row style={{ gap: 4 }}>
             {t.participants?.slice(0, 4).map((p) => (
-              <Avatar key={p.id} name={p.displayName} size={30} />
+              <Avatar key={p.id} name={p.displayName} uri={p.photoUrl} size={30} />
             ))}
           </Row>
         </Between>
         <Row>
-          <Avatar name={t.host.displayName} size={36} />
+          <Avatar name={t.host.displayName} uri={t.host.photoUrl} size={36} />
           <View>
             <Txt variant="h3">{t.host.displayName} {t.host.verifiedAdult ? '✓' : ''}</Txt>
             <Txt variant="small">Organizer{t.host.verifiedAdult ? ' · verified adult' : ''}</Txt>

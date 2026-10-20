@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { ActivityCard, TripCard } from '@/components/Cards';
 import { TabHeader } from '@/components/TabHeader';
 import { Avatar, Between, Btn, Card, Chip, Empty, ErrorBanner, Field, Grid, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, patch, type Activity, type Trip } from '@/lib/api';
+import { myActivityItems } from '@/lib/myActivities';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
@@ -19,12 +20,12 @@ export function Profile() {
   const { me, reload, logout } = useMe();
   const { mode, switchMode, c } = useTheme();
   const go = useGo();
-  const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState<'activities' | 'trips' | 'saved'>(mode === 'here' ? 'activities' : 'trips');
   const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number } }>(`/v1/users/${me!.id}`), [me?.id]);
   const acts = useLoad(() => get<MyActivities>('/v1/me/activities'), []);
   const trips = useLoad(() => get<MyTrips>('/v1/me/trips'), []);
   const favs = useLoad(() => get<{ items: Activity[] }>('/v1/me/favorites'), []);
+  const all = myActivityItems(acts.data);
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([reload(), stats.reload(), acts.reload(), trips.reload(), favs.reload()]));
 
   if (!me?.profile) return <Spinner />;
@@ -32,12 +33,16 @@ export function Profile() {
   const v = me.eligibility;
 
   return (
-    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing}>
-      <TabHeader subtitle={p.homeCity ? `${p.homeCity} · Around you` : undefined} />
+    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader subtitle={p.homeCity ? `${p.homeCity} · Around you` : undefined} />}>
       <Txt variant="h1" style={{ fontSize: 34, lineHeight: 40 }}>Your profile</Txt>
 
       <View style={{ alignItems: 'center', gap: 6 }}>
-        <Avatar name={p.displayName} size={104} />
+        <View>
+          <Avatar name={p.displayName} uri={p.photoUrl} size={96} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Edit profile and photo" hitSlop={8} onPress={() => go('/edit-profile')} style={{ position: 'absolute', right: -2, bottom: -2, width: 32, height: 32, borderRadius: 16, backgroundColor: c.forest, borderWidth: 2.5, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="pencil" size={14} color="#fff" />
+          </Pressable>
+        </View>
         <Txt variant="h2" style={{ fontSize: 26 }}>{p.displayName} {v === 'verified' ? <Ionicons name="checkmark" size={22} color={c.green} /> : null}</Txt>
         <Txt variant="muted">{p.homeCity ?? 'No city set'} · {v === 'verified' ? 'Verified adult' : v === 'pending' ? 'Identity check pending' : v === 'expired' ? 'Verification expired' : v === 'reverification_required' ? 'Re-check needed' : 'Not verified yet'}</Txt>
       </View>
@@ -57,7 +62,8 @@ export function Profile() {
       </View>
       <Txt variant="small" style={{ textAlign: 'center' }}>No reviews yet. Feedback only comes from confirmed experiences.</Txt>
 
-      {p.bio ? <Txt style={{ textAlign: 'center' }}>{p.bio}</Txt> : null}
+      <Txt variant="h3">About</Txt>
+      {p.bio ? <Txt style={{ lineHeight: 21 }}>{p.bio}</Txt> : <Txt variant="muted">Tell people a little about yourself. It helps hosts say yes.</Txt>}
       <Txt variant="h3">Interests</Txt>
       {p.interests.length ? (
         <Row style={{ flexWrap: 'wrap', gap: 6 }}>
@@ -77,9 +83,6 @@ export function Profile() {
           onPress={() => go('/verify')}
         />
       )}
-      <Btn title={editing ? 'Close editor' : 'Edit profile'} variant="secondary" onPress={() => setEditing((e) => !e)} />
-      {editing && <EditForm onDone={() => (setEditing(false), void reload())} />}
-      <Btn title="Safety & privacy" variant="secondary" onPress={() => go('/safety')} />
       {/* HERE and THERE are one app: this flips between them */}
       <Btn title={mode === 'here' ? 'Switch to There ↗' : 'Switch to Here ↗'} onPress={() => switchMode(mode === 'here' ? 'there' : 'here')} />
 
@@ -91,24 +94,19 @@ export function Profile() {
 
       {tab === 'activities' && (
         <>
-          {acts.data && acts.data.joined.length + acts.data.requests.length === 0 && <Empty title="No activities yet">Join or host an activity and it shows up here.</Empty>}
+          {acts.data && all.length === 0 && <Empty title="No activities yet">Join or host an activity and it shows up here.</Empty>}
           <Grid>
-          {acts.data?.joined.map((a) => (
-            <View key={a.id} style={{ gap: 6 }}>
-              <ActivityCard a={a} />
-              <Row>
-                <Chip label={a.role === 'host' ? 'You host this' : 'Going'} tone="ok" />
-                {a.role === 'host' && <Btn title="Manage requests ›" variant="ghost" small onPress={() => go(`/host/${a.id}`)} />}
-              </Row>
-            </View>
-          ))}
-          {acts.data?.requests.map((r) => (
-            <View key={r.requestId} style={{ gap: 6 }}>
-              <ActivityCard a={r.activity} />
-              <Chip label={r.state === 'requested' ? 'Request pending' : 'Not approved'} tone={r.state === 'declined' ? 'bad' : 'warn'} />
-            </View>
-          ))}
+            {all.slice(0, 3).map((x) => (
+              <View key={x.key} style={{ gap: 6 }}>
+                <ActivityCard a={x.activity} />
+                <Row>
+                  <Chip label={x.label} tone={x.tone} />
+                  {x.hostOf && <Btn title="Manage requests ›" variant="ghost" small onPress={() => go(`/host/${x.activity.id}`)} />}
+                </Row>
+              </View>
+            ))}
           </Grid>
+          {all.length > 0 && <Btn title={all.length > 3 ? `View more (${all.length - 3})  ›` : 'View all  ›'} variant="secondary" onPress={() => go('/my-activities')} />}
         </>
       )}
 
@@ -146,36 +144,10 @@ export function Profile() {
         </>
       )}
 
-      <Btn title="Sign out" variant="ghost" onPress={() => logout()} />
+      <Row style={{ justifyContent: 'center', gap: 8 }}>
+        <Btn title="Safety & privacy" variant="ghost" small onPress={() => go('/safety')} />
+        <Btn title="Sign out" variant="ghost" small onPress={() => logout()} />
+      </Row>
     </Screen>
-  );
-}
-
-function EditForm({ onDone }: { onDone: () => void }) {
-  const { me } = useMe();
-  const p = me!.profile!;
-  const [f, setF] = useState({ displayName: p.displayName, homeCity: p.homeCity ?? '', languages: p.languages.join(', '), interests: p.interests.join(', '), bio: p.bio ?? '' });
-  const act = useAction(onDone);
-  const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
-  const submit = () =>
-    act.run(() =>
-      patch('/v1/me/profile', {
-        displayName: f.displayName,
-        homeCity: f.homeCity.trim() || null,
-        languages: csv(f.languages),
-        interests: csv(f.interests),
-        bio: f.bio.trim() || null,
-      }),
-    );
-  return (
-    <Card style={{ gap: 12 }}>
-      <ErrorBanner message={act.error} />
-      <Field label="Display name" value={f.displayName} onChangeText={set('displayName')} maxLength={40} />
-      <Field label="Home city (city only)" value={f.homeCity} onChangeText={set('homeCity')} maxLength={60} />
-      <Field label="Languages" hint="Comma separated" value={f.languages} onChangeText={set('languages')} />
-      <Field label="Interests" hint="Comma separated" value={f.interests} onChangeText={set('interests')} />
-      <Field label="Bio" multiline value={f.bio} onChangeText={set('bio')} maxLength={300} />
-      <Btn title="Save changes" onPress={submit} loading={act.busy} disabled={f.displayName.trim().length < 2} />
-    </Card>
   );
 }
