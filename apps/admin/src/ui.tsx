@@ -44,25 +44,35 @@ export function useAction(after: () => void) {
 }
 
 // ---------------------------------------------------------------- reason dialog
-type Ask = { title: string; label: string; confirm: string; required: boolean; resolve: (v: string | null) => void };
+type Ask = { title: string; label: string; confirm: string; required: boolean; choices?: [string, string][]; resolve: (v: string | null) => void };
 let openAsk: ((a: Ask) => void) | null = null;
 
 /** Promise-based replacement for window.prompt. Resolves null when cancelled. */
-export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean } = {}) {
+export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean; choices?: [string, string][] } = {}) {
   return new Promise<string | null>((resolve) => {
     if (!openAsk) return resolve(null);
-    openAsk({ title, label: opts.label ?? 'Reason (kept in the audit log)', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, resolve });
+    openAsk({ title, label: opts.label ?? 'Reason (kept in the audit log)', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, resolve });
   });
+}
+
+/** Like askText, but the person must also pick one of `choices`. Resolves null when cancelled. */
+export async function askChoiceText(title: string, choices: [string, string][], opts: { label?: string; confirm?: string } = {}) {
+  const r = await askText(title, { ...opts, choices });
+  if (r === null) return null;
+  const i = r.indexOf('|');
+  return { choice: r.slice(0, i), text: r.slice(i + 1) };
 }
 
 export function DialogHost() {
   const [ask, setAsk] = useState<Ask | null>(null);
   const [value, setValue] = useState('');
+  const [choice, setChoice] = useState('');
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     openAsk = (a) => {
       setValue('');
+      setChoice(a.choices?.[0]?.[0] ?? '');
       setAsk(a);
     };
     return () => {
@@ -86,10 +96,22 @@ export function DialogHost() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!tooShort) close(value.trim());
+          if (!tooShort) close(ask.choices ? `${choice}|${value.trim()}` : value.trim());
         }}
       >
         <h2 id="dlg-title">{ask.title}</h2>
+        {ask.choices && (
+          <label>
+            Reason
+            <select value={choice} onChange={(e) => setChoice(e.target.value)}>
+              {ask.choices.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           {ask.label}
           <textarea autoFocus rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} />

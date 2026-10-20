@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Injectable, Param, Post, Query } from '@nestjs/common';
 import { Conversation, User } from '@prisma/client';
 import { z } from 'zod';
-import { CurrentUser } from '../common/auth';
+import { CurrentUser, requireVerified } from '../common/auth';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -26,6 +26,8 @@ export class ConversationsService {
    * Returns whether the scope is still writable.
    */
   private async assertAccess(me: User, conversationId: string): Promise<{ conv: Conversation; writable: boolean }> {
+    // Chatting is for verified adults only, even for an approved member whose verification was later revoked.
+    requireVerified(me);
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conv) throw E.notFound('Conversation');
 

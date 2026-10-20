@@ -1,7 +1,40 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { del, get, post } from '../api';
 import { useMe } from '../auth';
 import { Chip, ErrorBanner, TopBar, useAction, useLoad } from '../ui';
+
+/** Confirms the user's email with a 6-digit code. The identity check can only start after this. */
+function EmailCard({ email, onDone }: { email?: string; onDone: () => Promise<void> }) {
+  const [code, setCode] = useState('');
+  const [devCode, setDevCode] = useState<string | null>(null);
+  const verify = useAction(() => void onDone());
+  const send = useAction();
+  return (
+    <section className="card stack" aria-labelledby="em">
+      <h3 id="em">✉ Confirm your email</h3>
+      <p className="muted small">We emailed a 6-digit code to {email}. It expires in 15 minutes.</p>
+      <ErrorBanner message={verify.error ?? send.error} />
+      {devCode && <p className="banner warn">Dev mode: no mail server is connected, so your code is {devCode}.</p>}
+      <label>
+        6-digit code
+        <input inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+      </label>
+      <button className="btn primary block" disabled={verify.busy || code.length !== 6} onClick={() => verify.run(() => post('/v1/me/email/verify', { code }))}>
+        Confirm email
+      </button>
+      <button
+        className="btn block"
+        disabled={send.busy}
+        onClick={async () => {
+          const r = await send.run(() => post<{ devCode?: string }>('/v1/me/email/send-code'));
+          if (r) setDevCode(r.devCode ?? null);
+        }}
+      >
+        Send a new code
+      </button>
+    </section>
+  );
+}
 
 /** Screen 10: safety controls, identity verification and blocked people. */
 export function Safety() {
@@ -10,6 +43,7 @@ export function Safety() {
   const verify = useAction(reload);
   const unblock = useAction(blocks.reload);
   const e = me?.eligibility;
+  const [consent, setConsent] = useState(false);
 
   // opening this screen always re-checks the latest verification result
   useEffect(() => {
@@ -22,6 +56,8 @@ export function Safety() {
       <h2 className="big">Feel confident meeting people.</h2>
       <p className="muted">HERE and THERE provide safety features, not a guarantee of personal safety. Choose public places and trust your judgment.</p>
 
+      {!me?.emailVerified && <EmailCard email={me?.email} onDone={reload} />}
+
       <section className="card stack" aria-labelledby="idv">
         <div className="row between">
           <h3 id="idv">🪪 Identity verification</h3>
@@ -31,10 +67,16 @@ export function Safety() {
         <ErrorBanner message={verify.error} />
         {e === 'pending' && <p className="banner warn">Your check is being reviewed. We'll notify you as soon as there's a decision.</p>}
         {e === 'verified' && <p className="banner ok">You're verified. You can host and join activities.</p>}
-        {(e === 'unverified' || e === 'rejected') && (
-          <button className="btn primary block" disabled={verify.busy} onClick={() => verify.run(() => post('/v1/me/verification'))}>
-            {e === 'rejected' ? 'Try verification again' : 'Start verification'}
-          </button>
+        {e && e !== 'verified' && e !== 'pending' && (
+          <>
+            <label className="check">
+              <input type="checkbox" checked={consent} onChange={(ev) => setConsent(ev.target.checked)} />
+              <span>I agree that a specialist provider checks my ID document and compares a live selfie with it. This involves biometric data, used only to confirm I'm a real adult.</span>
+            </label>
+            <button className="btn primary block" disabled={verify.busy || !consent} onClick={() => verify.run(() => post('/v1/me/verification', { consent: true }))}>
+              {e === 'unverified' ? 'Start verification' : 'Verify again'}
+            </button>
+          </>
         )}
       </section>
 

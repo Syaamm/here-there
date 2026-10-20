@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Ip, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Ip, Param, Patch, Post, Req } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import type { Request } from 'express';
 import { z } from 'zod';
 import { CurrentUser, Public } from '../common/auth';
 import { E } from '../common/errors';
@@ -9,6 +10,12 @@ import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
 import { VerificationService } from '../verification/verification.service';
+import { ContactVerificationService } from './contact-verification.service';
+import { GUEST_TTL_MS, GuestService } from './guest.service';
+
+/** Where the app reached the API, so provider-hosted pages can link back to it. */
+const baseUrlOf = (req: Request) => `${req.protocol}://${req.get('host')}`;
+const maskPhone = (p: string) => `${p.slice(0, 3)}••••${p.slice(-2)}`;
 
 const csv = (a: string[]) => a.join(',');
 const list = (s: string) => (s ? s.split(',') : []);
@@ -42,8 +49,15 @@ function me(u: UserWithProfile) {
     id: u.id,
     email: u.email,
     role: u.role,
-    adultConfirmed: u.adultConfirmed,
-    eligibility: u.eligibility,
+    // Three separate statuses. None of them implies another.
+    emailVerified: !!u.emailVerifiedAt, // 1. email: the user controls this address
+    adultConfirmed: u.adultConfirmed, // 2. adult: self-declared at sign-up ...
+    adultVerified: !!u.adultVerifiedAt, //    ... and confirmed (18+) by the provider or staff. No birth date is kept.
+    eligibility: u.eligibility, // 3. identity: unverified | pending | verified | rejected | expired | reverification_required
+    verifiedUntil: u.eligibility === 'verified' ? u.verifiedUntil : null,
+    reverifyReason: u.reverifyReason,
+    phoneVerified: !!u.phoneVerifiedAt, // optional, gates nothing
+    phone: u.phoneNumber && u.phoneVerifiedAt ? maskPhone(u.phoneNumber) : null,
     profile: u.profile && {
       displayName: u.profile.displayName,
       homeCity: u.profile.homeCity,
@@ -62,6 +76,8 @@ export class AuthController {
     private readonly jwt: JwtService,
     private readonly limiter: RateLimiter,
     private readonly verification: VerificationService,
+    private readonly contact: ContactVerificationService,
+    private readonly guests: GuestService,
   ) {}
 
   private token(userId: string) {
@@ -84,7 +100,22 @@ export class AuthController {
       },
       include: { profile: true },
     });
-    return { token: await this.token(user.id), user: me(user) };
+    // Send the confirmation code right away. If delivery fails the account still exists and the user can re-send.
+    const sent = await this.contact.sendEmailCode(user).catch((e) => {
+      console.error('Could not send verification email:', e?.message ?? e);
+      return {} as { devCode?: string };
+    });
+    return { token: await this.token(user.id), user: me(user), ...sent };
+  }
+
+  /** "Explore demo": a temporary read-only guest session, no sign-up. See GuestService. */
+  @Public()
+  @Post('auth/guest')
+  async guest(@Ip() ip: string) {
+    this.limiter.hit(`guest:${ip}`, Number(process.env.GUEST_LIMIT_PER_HOUR ?? 30), 60 * 60 * 1000);
+    const user = await this.guests.create();
+    const token = await this.jwt.signAsync({ sub: user.id }, { expiresIn: Math.floor(GUEST_TTL_MS / 1000) });
+    return { token, user: me(user) };
   }
 
   @Public()
@@ -124,9 +155,54 @@ export class AuthController {
     return this.getMe(u);
   }
 
+  /** Emails a fresh 6-digit code (also used for "resend"). */
+  @Post('me/email/send-code')
+  async sendEmailCode(@CurrentUser() u: User) {
+    return { emailVerified: !!u.emailVerifiedAt, ...(await this.contact.sendEmailCode(u)) };
+  }
+
+  /** Body: { code: "123456" } */
+  @Post('me/email/verify')
+  verifyEmail(@CurrentUser() u: User, @Body() body: unknown) {
+    return this.contact.verifyEmail(u, body);
+  }
+
+  /** Optional mobile number. Body: { phone: "+393331234567" }. Nothing in the app is gated on it. */
+  @Post('me/phone/send-code')
+  sendPhoneCode(@CurrentUser() u: User, @Body() body: unknown) {
+    return this.contact.sendPhoneCode(u, body);
+  }
+
+  /** Body: { code: "123456" } */
+  @Post('me/phone/verify')
+  verifyPhone(@CurrentUser() u: User, @Body() body: unknown) {
+    return this.contact.verifyPhone(u, body);
+  }
+
+  @Delete('me/phone')
+  removePhone(@CurrentUser() u: User) {
+    return this.contact.removePhone(u);
+  }
+
+  @Get('me/verification')
+  verificationStatus(@CurrentUser() u: User, @Req() req: Request) {
+    return this.verification.status(u, baseUrlOf(req));
+  }
+
+  /** Abandon an in-progress check and start over. */
+  @Delete('me/verification')
+  cancelVerification(@CurrentUser() u: User) {
+    return this.verification.cancel(u);
+  }
+
+  /**
+   * Body: { consent: true }. Explicit consent to the identity document + facial check is mandatory.
+   * Returns { eligibility, url? }: url is the provider's hosted page (ID photo + selfie with liveness) to open.
+   * A verified, unexpired user gets { eligibility: "verified" } and is never asked again.
+   */
   @Post('me/verification')
-  startVerification(@CurrentUser() u: User) {
-    return this.verification.start(u);
+  startVerification(@CurrentUser() u: User, @Body() body: { consent?: unknown } | undefined, @Req() req: Request) {
+    return this.verification.start(u, body?.consent, baseUrlOf(req));
   }
 
   /** Public profile: no email, no internal fields, only the verified-adult badge. */

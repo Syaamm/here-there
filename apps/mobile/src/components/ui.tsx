@@ -1,0 +1,414 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
+import { Children, useState, type ReactNode } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type StyleProp,
+  type TextInputProps,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLayout } from '@/lib/layout';
+import { useTheme } from '@/lib/theme';
+
+// ---------------------------------------------------------------- layout
+/** Shared press feedback: a crisp 3% shrink and a light dim. Transform and opacity only, so it never reflows. */
+export const pressed = (p: boolean) => (p ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null);
+
+export function Screen({
+  children,
+  hasHeader = false,
+  scroll = true,
+  tabBar = false,
+  wide = false,
+  maxWidth,
+  hero,
+  onRefresh,
+  refreshing = false,
+  style,
+}: {
+  children: ReactNode;
+  /** a full-bleed picture area above the padded content (detail screens) */
+  hero?: ReactNode;
+  /** true when a native header already sits above the content */
+  hasHeader?: boolean;
+  scroll?: boolean;
+  /** true on tab screens, where the tab bar already handles the bottom inset */
+  tabBar?: boolean;
+  /** feeds and two-pane screens: let the content use up to 1180 px instead of a 760 px reading column */
+  wide?: boolean;
+  /** override the content column's maximum width (e.g. 520 for sign-in forms) */
+  maxWidth?: number;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { c } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { gutter } = useLayout();
+  const pad = { paddingTop: hasHeader ? 12 : insets.top + 8, paddingBottom: tabBar ? 24 : insets.bottom + 24, paddingHorizontal: gutter };
+  // The content sits in a centred column: full width on phones, a comfortable measure on tablets and desktops.
+  const columnWidth = maxWidth ?? (wide ? 1180 : 760);
+  const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 14 };
+  const body = scroll ? (
+    <ScrollView
+      contentContainerStyle={[{ flexGrow: 1 }, hero ? { paddingBottom: pad.paddingBottom } : pad, style]}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined}
+    >
+      {hero ? <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{hero}</View> : null}
+      <View style={[column, hero ? { paddingHorizontal: gutter, paddingTop: 16 } : null]}>{children}</View>
+    </ScrollView>
+  ) : (
+    <View style={[{ flex: 1 }, pad, style]}>
+      <View style={[column, { flex: 1 }]}>{children}</View>
+    </View>
+  );
+  return (
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {body}
+    </KeyboardAvoidingView>
+  );
+}
+
+/**
+ * Cards in as many columns as fit: one on phones, two on tablets, three on wide screens.
+ * It measures its own width, so it also adapts when a side navigation rail takes some space.
+ */
+export function Grid({ children, min = 330, gap = 12 }: { children: ReactNode; min?: number; gap?: number }) {
+  const [w, setW] = useState(0);
+  const cols = w ? Math.max(1, Math.min(3, Math.floor((w + gap) / (min + gap)))) : 1;
+  const itemWidth = cols === 1 ? '100%' : (w - gap * (cols - 1)) / cols;
+  return (
+    <View onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', gap }}>
+      {Children.toArray(children).map((child, i) => (
+        <View key={i} style={{ width: itemWidth as number }}>
+          {child}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Two panes on wide screens (filters | results), stacked on phones and small tablets. */
+export function Split({ left, right, leftWidth = 380 }: { left: ReactNode; right: ReactNode; leftWidth?: number }) {
+  const { isWide } = useLayout();
+  if (!isWide)
+    return (
+      <>
+        {left}
+        {right}
+      </>
+    );
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 20 }}>
+      <View style={{ width: leftWidth, gap: 14 }}>{left}</View>
+      <View style={{ flex: 1, gap: 12 }}>{right}</View>
+    </View>
+  );
+}
+
+export const Row = ({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) => <View style={[s.row, style]}>{children}</View>;
+export const Between = ({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) => <View style={[s.row, s.between, style]}>{children}</View>;
+
+// ---------------------------------------------------------------- text
+type Variant = 'h1' | 'h2' | 'h3' | 'body' | 'small' | 'muted' | 'label';
+export function Txt({ children, variant = 'body', style, bold, color, numberOfLines, accessibilityRole }: { children: ReactNode; variant?: Variant; style?: StyleProp<TextStyle>; bold?: boolean; color?: string; numberOfLines?: number; accessibilityRole?: 'header' }) {
+  const { c } = useTheme();
+  return (
+    <Text accessibilityRole={accessibilityRole} numberOfLines={numberOfLines} style={[{ color: c.text, fontSize: 16, lineHeight: 22 }, textStyles[variant], variant === 'muted' || variant === 'small' ? { color: c.muted } : null, bold ? { fontWeight: '700' } : null, color ? { color } : null, style]}>
+      {children}
+    </Text>
+  );
+}
+const textStyles: Record<Variant, TextStyle> = {
+  h1: { fontSize: 28, lineHeight: 34, fontWeight: '800' },
+  h2: { fontSize: 20, lineHeight: 26, fontWeight: '800' },
+  h3: { fontSize: 16, fontWeight: '700' },
+  body: {},
+  label: { fontSize: 14, fontWeight: '600' },
+  small: { fontSize: 13, lineHeight: 18 },
+  muted: { fontSize: 14, lineHeight: 20 },
+};
+
+// ---------------------------------------------------------------- buttons & inputs
+type BtnVariant = 'primary' | 'accent' | 'secondary' | 'danger' | 'ghost' | 'light' | 'mint' | 'outlineLight' | 'ghostLight';
+export function Btn({ title, onPress, variant = 'primary', disabled, loading, small, style }: { title: string; onPress?: () => void; variant?: BtnVariant; disabled?: boolean; loading?: boolean; small?: boolean; style?: StyleProp<ViewStyle> }) {
+  const { c } = useTheme();
+  const look: Record<BtnVariant, { bg: string; fg: string; border: string }> = {
+    primary: { bg: c.forest, fg: '#fff', border: c.forest },
+    accent: { bg: c.accent, fg: c.onAccent, border: c.accent },
+    secondary: { bg: c.surface, fg: c.text, border: c.line },
+    danger: { bg: c.surface, fg: c.danger, border: c.danger },
+    ghost: { bg: 'transparent', fg: c.muted, border: 'transparent' },
+    light: { bg: '#fff', fg: c.forest, border: '#fff' },
+    mint: { bg: '#A6E1C8', fg: c.forest, border: '#A6E1C8' },
+    outlineLight: { bg: 'transparent', fg: '#fff', border: '#8FB3A8' },
+    ghostLight: { bg: 'transparent', fg: '#B9CFC8', border: 'transparent' },
+  };
+  const v = look[variant];
+  const off = disabled || loading;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!off, busy: !!loading }}
+      disabled={off}
+      onPress={onPress}
+      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { backgroundColor: v.bg, borderColor: v.border, opacity: off ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
+    >
+      {loading ? <ActivityIndicator color={v.fg} /> : <Text style={{ color: v.fg, fontWeight: '700', fontSize: small ? 14 : 16 }}>{title}</Text>}
+    </Pressable>
+  );
+}
+
+export function Field({ label, hint, error, icon, style, ...rest }: TextInputProps & { label: string; hint?: string; error?: string | null; icon?: React.ComponentProps<typeof Ionicons>['name'] }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ gap: 4 }}>
+      <Txt variant="label">{label}</Txt>
+      <View>
+        <TextInput
+          accessibilityLabel={label}
+          placeholderTextColor={c.muted}
+          {...rest}
+          style={[s.input, { backgroundColor: c.surface, borderColor: error ? c.danger : c.line, color: c.text }, icon ? { paddingRight: 44 } : null, rest.multiline && { minHeight: 92, textAlignVertical: 'top' }, style]}
+        />
+        {/* a small icon on the right edge of the field (clock, people, pin…) */}
+        {icon ? <Ionicons name={icon} size={22} color={c.muted} style={{ position: 'absolute', right: 14, top: 13 }} pointerEvents="none" /> : null}
+      </View>
+      {hint && !error ? <Txt variant="small">{hint}</Txt> : null}
+      {error ? <Txt variant="small" color={c.danger}>{error}</Txt> : null}
+    </View>
+  );
+}
+
+/** A tinted rounded square holding an icon: the leading element of list rows. */
+export function IconTile({ name, size = 44 }: { name: React.ComponentProps<typeof Ionicons>['name']; size?: number }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ width: size, height: size, borderRadius: 14, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name={name} size={size * 0.5} color={c.forest} />
+    </View>
+  );
+}
+
+/** Flat list row: icon tile, title, subtitle, optional trailing element, hairline below. */
+export function ListRow({ icon, title, subtitle, right, onPress, last }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; subtitle?: string; right?: ReactNode; onPress?: () => void; last?: boolean }) {
+  const { c } = useTheme();
+  const body = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
+      <IconTile name={icon} />
+      <View style={{ flex: 1 }}>
+        <Txt variant="h3" style={{ fontSize: 17 }}>{title}</Txt>
+        {subtitle ? <Txt variant="muted">{subtitle}</Txt> : null}
+      </View>
+      {right}
+    </View>
+  );
+  return onPress ? (
+    <Pressable accessibilityRole="button" onPress={onPress}>{body}</Pressable>
+  ) : (
+    body
+  );
+}
+
+/** Thin filled bar: "4 of 6 approved". */
+export function ProgressBar({ value, max }: { value: number; max: number }) {
+  const { c } = useTheme();
+  return (
+    <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max, now: value }} style={{ height: 8, borderRadius: 4, backgroundColor: c.accentSoft, overflow: 'hidden' }}>
+      <View style={{ width: `${Math.min(100, (value / Math.max(1, max)) * 100)}%`, height: 8, backgroundColor: c.green }} />
+    </View>
+  );
+}
+
+/** Rounded search field with a magnifier, no visible label (the accessibility label still names it). */
+export function SearchBar({ value, onChangeText, placeholder }: { value: string; onChangeText: (v: string) => void; placeholder: string }) {
+  const { c } = useTheme();
+  return (
+    <View style={[s.search, { backgroundColor: c.surface, borderColor: c.line }]}>
+      <Ionicons name="search-outline" size={20} color={c.muted} />
+      <TextInput
+        accessibilityLabel={placeholder}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={c.muted}
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+        style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: 28 }}
+      />
+    </View>
+  );
+}
+
+/** Section title with an optional action on the right ("Happening soon" … "Next 2 hours ⌄"). */
+export function SectionHeader({ title, right }: { title: string; right?: ReactNode }) {
+  return (
+    <View style={[s.row, s.between]}>
+      <Txt variant="h2" accessibilityRole="header">{title}</Txt>
+      {right}
+    </View>
+  );
+}
+
+export function Pill({ label, active, onPress }: { label: string; active?: boolean; onPress: () => void }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, { backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
+      <Text style={{ color: active ? '#fff' : c.text, fontWeight: '600', fontSize: 14 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** Horizontal scrolling row of pills (category filters, time chips…). */
+export function PillRow({ children }: { children: ReactNode }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 2 }} keyboardShouldPersistTaps="handled">
+      {children}
+    </ScrollView>
+  );
+}
+
+export function CheckRow({ checked, onChange, children, disabled }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode; disabled?: boolean }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start', opacity: disabled ? 0.6 : 1 }}>
+      <View style={[s.check, { borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : 'transparent' }]}>{checked ? <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>✓</Text> : null}</View>
+      <View style={{ flex: 1 }}>{children}</View>
+    </Pressable>
+  );
+}
+
+export function Stepper({ value, onChange, min, max, label }: { value: number; onChange: (n: number) => void; min: number; max: number; label: string }) {
+  const { c } = useTheme();
+  const bump = (d: number) => onChange(Math.min(max, Math.max(min, value + d)));
+  return (
+    <View style={{ gap: 4 }}>
+      <Txt variant="label">{label}</Txt>
+      <View style={[s.row, { gap: 14 }]}>
+        <Pressable accessibilityLabel={`Decrease ${label}`} onPress={() => bump(-1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>−</Text></Pressable>
+        <Txt variant="h2">{value}</Txt>
+        <Pressable accessibilityLabel={`Increase ${label}`} onPress={() => bump(1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>+</Text></Pressable>
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------- surfaces
+export function Card({ children, style, onPress, accessibilityLabel }: { children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; accessibilityLabel?: string }) {
+  const { c } = useTheme();
+  const look = [s.card, { backgroundColor: c.surface, borderColor: c.line }, style];
+  return onPress ? (
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed: isPressed }) => [look, pressed(isPressed)]}>
+      {children}
+    </Pressable>
+  ) : (
+    <View style={look}>{children}</View>
+  );
+}
+
+type Tone = 'info' | 'ok' | 'warn' | 'bad';
+export function Banner({ children, tone = 'info', onPress }: { children: ReactNode; tone?: Tone; onPress?: () => void }) {
+  const { c } = useTheme();
+  const t = { info: [c.infoBg, c.infoFg], ok: [c.okBg, c.okFg], warn: [c.warnBg, c.warnFg], bad: [c.badBg, c.badFg] }[tone];
+  const body = <Text style={{ color: t[1], fontSize: 14, lineHeight: 20 }}>{children}</Text>;
+  return onPress ? (
+    <Pressable accessibilityRole="button" onPress={onPress} style={[s.banner, { backgroundColor: t[0] }]}>{body}</Pressable>
+  ) : (
+    <View accessibilityRole={tone === 'bad' ? 'alert' : undefined} style={[s.banner, { backgroundColor: t[0] }]}>{body}</View>
+  );
+}
+export const ErrorBanner = ({ message }: { message?: string | null }) => (message ? <Banner tone="bad">{message}</Banner> : null);
+
+export function Chip({ label, tone = 'info' }: { label: string; tone?: Tone | 'neutral' }) {
+  const { c } = useTheme();
+  const t = { neutral: [c.infoBg, c.infoFg], info: [c.infoBg, c.infoFg], ok: [c.okBg, c.okFg], warn: [c.warnBg, c.warnFg], bad: [c.badBg, c.badFg] }[tone];
+  return (
+    <View style={[s.chip, { backgroundColor: t[0] }]}>
+      <Text style={{ color: t[1], fontSize: 12, fontWeight: '700' }}>{label}</Text>
+    </View>
+  );
+}
+
+export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+  const { c } = useTheme();
+  return (
+    <View style={[s.empty, { borderColor: c.line }]}>
+      <Txt variant="h3">{title}</Txt>
+      {children ? <Txt variant="muted" style={{ textAlign: 'center' }}>{children}</Txt> : null}
+    </View>
+  );
+}
+
+export const Spinner = ({ label }: { label?: string }) => (
+  <View style={{ padding: 24, alignItems: 'center', gap: 8 }} accessibilityRole="progressbar">
+    <ActivityIndicator />
+    {label ? <Txt variant="muted">{label}</Txt> : null}
+  </View>
+);
+
+export function Avatar({ name, size = 44 }: { name?: string; size?: number }) {
+  const { c } = useTheme();
+  return (
+    <View accessibilityElementsHidden style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: c.ivory, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: c.forest, fontWeight: '800', fontSize: size * 0.4 }}>{name?.[0]?.toUpperCase() ?? '?'}</Text>
+    </View>
+  );
+}
+
+/** Bottom sheet. Closes on backdrop tap or the Android back button. */
+export function Sheet({ visible, title, onClose, children }: { visible: boolean; title: string; onClose: () => void; children: ReactNode }) {
+  const { c } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { isTablet } = useLayout();
+  return (
+    <Modal visible={visible} transparent animationType={isTablet ? 'fade' : 'slide'} onRequestClose={onClose} statusBarTranslucent>
+      <KeyboardAvoidingView style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)' }]} onPress={onClose} accessibilityLabel="Close" />
+        {/* a bottom sheet on phones; a centred dialog on tablets and desktops */}
+        <View style={[s.sheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + 16 }, isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 22, paddingBottom: 18 }]}>
+          <Txt variant="h2">{title}</Txt>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>{children}</ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+/** Navigate by path string, e.g. go(`/activity/${id}`). */
+export function useGo() {
+  const r = useRouter();
+  return (path: string) => r.push(path as never);
+}
+
+const s = StyleSheet.create({
+  screen: { paddingHorizontal: 16, gap: 14 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  between: { justifyContent: 'space-between' },
+  btn: { minHeight: 48, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  btnSmall: { minHeight: 38, paddingVertical: 6, paddingHorizontal: 14 },
+  input: { minHeight: 48, borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 16 },
+  pill: { minHeight: 40, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  check: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 54, borderWidth: 1, borderRadius: 18, paddingHorizontal: 16 },
+  stepBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  stepTxt: { fontSize: 22, fontWeight: '700' },
+  card: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 8 },
+  banner: { padding: 12, borderRadius: 12 },
+  chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
+  empty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 16, padding: 24, alignItems: 'center', gap: 8 },
+  sheet: { borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, gap: 12, maxHeight: '88%' },
+});

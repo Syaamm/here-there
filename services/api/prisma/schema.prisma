@@ -18,13 +18,29 @@ model User {
   passwordHash      String
   role              String   @default("user") // user | support | moderator | trust_lead | admin
   state             String   @default("active") // active | suspended
+  // Three separate statuses (never merged into one flag):
+  //   1. email:    emailVerifiedAt
+  //   2. adult:    adultConfirmed (self-declared at sign-up) + adultVerifiedAt (provider/staff confirmed 18+; no birth date kept)
+  //   3. identity: eligibility (+ verifiedUntil)
   adultConfirmed    Boolean  @default(false)
-  eligibility       String   @default("unverified") // unverified | pending | verified | rejected
+  adultVerifiedAt   DateTime?
+  // Set when the user proves they control this email address (spec 3.1 step 2).
+  emailVerifiedAt   DateTime?
+  // Optional mobile number, confirmed by SMS code. Nothing is gated on it.
+  phoneNumber       String?
+  phoneVerifiedAt   DateTime?
+  // unverified | pending | verified | rejected | expired | reverification_required
+  eligibility       String   @default("unverified")
+  // Identity verification is one-time: valid until this moment, then re-verification is needed.
+  verifiedUntil     DateTime?
+  // Why a new check is required: expired | security | fraud_suspected | provider_required | other
+  reverifyReason    String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   profile           Profile?
   verifications     VerificationCheck[]
+  contactCodes      ContactCode[]
   activitiesHosted  Activity[]
   activityRequests  ActivityRequest[]  @relation("applicant")
   activityMemberships ActivityMembership[]
@@ -50,16 +66,41 @@ model Profile {
   photoUrl    String?
 }
 
-// Never stores identity documents - only provider reference + outcome.
+// One-time confirmation codes for email and mobile. Only a keyed hash of the code is stored, never the code itself.
+model ContactCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   String    // email | phone
+  target    String?   // the phone number being confirmed (email uses the account address)
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, channel, createdAt])
+}
+
+// Data minimisation: only the outcome, a provider reference and timestamps live here.
+// Never identity documents, selfies, face data, names or birth dates.
 model VerificationCheck {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  providerRef   String
-  eligibility   String   // pending | verified | rejected
-  expiresAt     DateTime?
-  createdAt     DateTime @default(now())
-  reviewedBy    String?
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        String   @default("manual") // manual | auto | sandbox | (veriff | sumsub | persona ...)
+  providerRef     String
+  eligibility     String   // pending | verified | rejected
+  // underage | document | liveness | resubmission | other (set when rejected)
+  rejectionReason String?
+  // When the user explicitly agreed to the identity + facial check (GDPR Art. 9 explicit consent).
+  consentAt       DateTime?
+  expiresAt       DateTime?
+  decidedAt       DateTime?
+  createdAt       DateTime @default(now())
+  reviewedBy      String?
+
+  @@index([providerRef])
 }
 
 model Activity {

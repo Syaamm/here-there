@@ -16,7 +16,16 @@ const MOD = ['moderator', 'trust_lead', 'admin'];
 const TRUST = ['trust_lead', 'admin'];
 
 const reasonSchema = z.object({ reason: z.string().trim().min(3).max(500) });
-const verificationDecisionSchema = z.object({ decision: z.enum(['verified', 'rejected']) });
+const verificationDecisionSchema = z.object({
+  decision: z.enum(['verified', 'rejected']),
+  reason: z.enum(['document', 'liveness', 'underage', 'other']).optional(), // when rejecting
+});
+const noteSchema = z.object({ note: z.string().trim().min(3).max(500) });
+// Why a verified person must verify again. Expiry is automatic; these are the staff-triggered cases.
+const reverifySchema = z.object({
+  reason: z.enum(['security', 'fraud_suspected', 'other']),
+  note: z.string().trim().min(3).max(500),
+});
 const resolveSchema = z.object({
   status: z.enum(['resolved', 'dismissed', 'in_review']),
   resolution: z.string().trim().max(1000).optional(),
@@ -60,7 +69,10 @@ export class AdminController {
       where,
       orderBy: { createdAt: 'desc' },
       take: 100,
-      include: { profile: { select: { displayName: true, homeCity: true } } },
+      include: {
+        profile: { select: { displayName: true, homeCity: true } },
+        verifications: { orderBy: { createdAt: 'desc' }, take: 1, select: { rejectionReason: true } },
+      },
     });
     return {
       items: rows.map((u) => ({
@@ -69,6 +81,12 @@ export class AdminController {
         role: u.role,
         state: u.state,
         eligibility: u.eligibility,
+        emailVerified: !!u.emailVerifiedAt,
+        adultVerified: !!u.adultVerifiedAt,
+        phoneVerified: !!u.phoneVerifiedAt,
+        verifiedUntil: u.verifiedUntil,
+        reverifyReason: u.reverifyReason,
+        lastRejectionReason: u.eligibility === 'rejected' ? (u.verifications[0]?.rejectionReason ?? null) : null,
         displayName: u.profile?.displayName,
         homeCity: u.profile?.homeCity,
         createdAt: u.createdAt,
@@ -90,8 +108,9 @@ export class AdminController {
       this.prisma.activityMembership.count({ where: { userId: id, role: 'attendee' } }),
       this.prisma.auditEvent.findMany({ where: { objectType: 'user', objectId: id }, orderBy: { createdAt: 'desc' }, take: 20 }),
     ]);
-    const { passwordHash: _omit, ...safe } = u;
-    return { ...safe, stats: { reportsAgainst, hosted, joined }, history };
+    // never the password hash, and the mobile number is masked even for staff
+    const { passwordHash: _omit, phoneNumber, ...safe } = u;
+    return { ...safe, phone: phoneNumber ? `${phoneNumber.slice(0, 3)}••••${phoneNumber.slice(-2)}` : null, stats: { reportsAgainst, hosted, joined }, history };
   }
 
   @Staff(...MOD)
@@ -141,6 +160,7 @@ export class AdminController {
     return {
       items: rows.map((c) => ({
         id: c.id,
+        provider: c.provider,
         providerRef: c.providerRef,
         eligibility: c.eligibility,
         createdAt: c.createdAt,
@@ -152,8 +172,37 @@ export class AdminController {
   @Staff(...TRUST)
   @Post('verifications/:id/decision')
   async decideVerification(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
-    const { decision } = parse(verificationDecisionSchema, body);
-    return this.verification.decide(id, decision, actor.id);
+    const { decision, reason } = parse(verificationDecisionSchema, body);
+    // A staff approval is the human confirmation that the person is an adult with a genuine ID.
+    return this.verification.decide(id, decision, actor.id, { adult: decision === 'verified' ? true : undefined, reason });
+  }
+
+  /** Reopen verification for someone (rejected, stuck, or a reviewed under-18 flag). They start again from the beginning. */
+  @Staff(...TRUST)
+  @Post('users/:id/reset-verification')
+  async resetVerification(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
+    const { note } = parse(noteSchema, body);
+    return this.verification.resetVerification(actor.id, id, note);
+  }
+
+  /** Appeal outcome: a human reviewer decides a rejection was wrong and approves the person. */
+  @Staff(...TRUST)
+  @Post('users/:id/overturn-rejection')
+  async overturnRejection(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
+    const { note } = parse(noteSchema, body);
+    return this.verification.overturnRejection(actor, id, note);
+  }
+
+  /**
+   * Force a new identity check: a security concern or suspected fraud. Takes effect immediately: the user can
+   * still browse but cannot create, join or chat until they verify again.
+   */
+  @Staff(...TRUST)
+  @Post('users/:id/require-reverification')
+  async requireReverification(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
+    const { reason, note } = parse(reverifySchema, body);
+    if (id === actor.id) throw E.badRequest('INVALID_TARGET', 'You cannot require re-verification of yourself');
+    return this.verification.requireReverification(actor.id, id, reason, note);
   }
 
   // ------------------------------------------------------------ moderation: reports

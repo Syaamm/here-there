@@ -12,6 +12,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 
 const HOUR = 3600 * 1000;
+const MIN_LEAD = 9 * 60 * 1000; // "at least 10 minutes" in the app, minus a minute of grace for the submit
 
 const createSchema = z.object({
   title: z.string().trim().min(2).max(80),
@@ -231,12 +232,15 @@ export class ActivitiesService {
     const dto = parse(createSchema, body);
     const now = new Date();
 
-    if (dto.startsAt <= now) throw E.badRequest('INVALID_SCHEDULE', 'Start time must be in the future');
+    // HERE is for plans within a day: starting at least 10 minutes from now (1 minute of grace for a slow submit),
+    // and no later than the end of tomorrow. 48 hours is the widest that can be, whatever the person's time zone.
+    if (dto.startsAt.getTime() < now.getTime() + MIN_LEAD)
+      throw E.badRequest('INVALID_SCHEDULE', 'Start time must be at least 10 minutes from now');
+    if (dto.startsAt.getTime() - now.getTime() > 48 * HOUR)
+      throw E.badRequest('INVALID_SCHEDULE', 'HERE activities are for today or tomorrow');
     if (dto.endsAt <= dto.startsAt) throw E.badRequest('INVALID_SCHEDULE', 'End time must be after start time');
     if (dto.endsAt.getTime() - dto.startsAt.getTime() > 12 * HOUR)
       throw E.badRequest('INVALID_SCHEDULE', 'Activities can last at most 12 hours');
-    if (dto.startsAt.getTime() - now.getTime() > 60 * 24 * HOUR)
-      throw E.badRequest('INVALID_SCHEDULE', 'Activities can be scheduled at most 60 days ahead');
     for (const t of [dto.title, dto.description, dto.venueName]) {
       const bad = contentProblem(t);
       if (bad) throw E.badRequest('CONTENT_REJECTED', bad);

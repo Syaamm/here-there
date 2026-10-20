@@ -1,5 +1,15 @@
 {
   "name": "here-there",
   "private": true,
-  "workspaces": ["services/*", "apps/*", "packages/*"]
+  "workspaces": ["services/*", "apps/*", "packages/*"],
+  "scripts": {
+    "api": "npm start -w @here-there/api",
+    "admin": "npm run dev -w @here-there/admin",
+    "web": "npm run dev -w @here-there/here",
+    "mobile": "npm start -w @here-there/mobile"
+  },
+  "overrides": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
 }

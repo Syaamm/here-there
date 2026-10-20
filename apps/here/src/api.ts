@@ -65,7 +65,8 @@ export type Me = {
   email: string;
   role: string;
   adultConfirmed: boolean;
-  eligibility: 'unverified' | 'pending' | 'verified' | 'rejected';
+  emailVerified: boolean;
+  eligibility: 'unverified' | 'pending' | 'verified' | 'rejected' | 'expired' | 'reverification_required';
   profile: { displayName: string; homeCity: string | null; languages: string[]; interests: string[]; bio: string | null; photoUrl: string | null } | null;
 };
 

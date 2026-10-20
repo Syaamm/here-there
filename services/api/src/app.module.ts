@@ -5,7 +5,11 @@ import { ActivitiesController } from './activities/activities.controller';
 import { ActivitiesService } from './activities/activities.service';
 import { AdminController } from './admin/admin.controller';
 import { AuthController } from './auth/auth.controller';
+import { ContactVerificationService } from './auth/contact-verification.service';
+import { GuestService } from './auth/guest.service';
 import { AuditService } from './common/audit.service';
+import { EmailService } from './common/email.service';
+import { SmsService } from './common/sms.service';
 import { AuthGuard } from './common/auth';
 import { PrismaService } from './common/prisma.service';
 import { RateLimiter } from './common/rate-limiter';
@@ -16,6 +20,7 @@ import { SafetyController } from './safety/safety.controller';
 import { SafetyService } from './safety/safety.service';
 import { TripsController } from './trips/trips.controller';
 import { TripsService } from './trips/trips.service';
+import { VerificationController } from './verification/verification.controller';
 import { VerificationService } from './verification/verification.service';
 
 function jwtSecret() {
@@ -35,12 +40,17 @@ function jwtSecret() {
     ConversationsController,
     NotificationsController,
     SafetyController,
+    VerificationController,
     AdminController,
   ],
   providers: [
     PrismaService,
     RateLimiter,
     AuditService,
+    EmailService,
+    SmsService,
+    ContactVerificationService,
+    GuestService,
     NotificationsService,
     SafetyService,
     VerificationService,
