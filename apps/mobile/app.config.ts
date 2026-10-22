@@ -64,7 +64,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...(hasMapKeys ? ([['react-native-maps', mapKeys]] as NonNullable<ExpoConfig['plugins']>) : []),
   ],
   extra: {
-    // Filled in by `eas init`. Needed for cloud builds.
-    eas: { projectId: process.env.EAS_PROJECT_ID },
+    // The Expo (EAS) project for cloud builds, from `eas init` (@syammns/here-there). The id is not a secret.
+    // EAS_PROJECT_ID overrides it, e.g. for a different Expo account.
+    eas: { projectId: process.env.EAS_PROJECT_ID ?? 'a1eb28f5-2384-410f-959f-b1876bfedc25' },
   },
 });

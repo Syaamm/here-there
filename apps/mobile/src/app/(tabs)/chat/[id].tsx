@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Menu } from '@/components/Menu';
@@ -36,9 +36,15 @@ export default function Chat() {
   const dock = useDockSpace();
 
   const convs = useLoad(() => get<{ items: ConversationRef[] }>('/v1/me/conversations'), [id]);
-  const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[] }>(`/v1/conversations/${id}/messages`), [id], 30_000);
+  // Only a chat that is the screen in front counts as read. This screen stays loaded behind others, and a reload there
+  // (the app opening, a message arriving) must not clear the alert.
+  const focused = useIsFocused();
+  const inFront = useRef(focused);
+  inFront.current = focused;
+  const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[] }>(`/v1/conversations/${id}/messages${inFront.current ? '?read=1' : ''}`), [id], 30_000);
   // a new message for this chat (or a reconnect) loads at once; the 30-second poll above is only the safety net
   useLiveEvents((e) => {
+    if (!inFront.current) return; // not on screen: it loads when you open it
     if (e.type === 'ready' || (e.type === 'message' && e.conversationId === id)) void msgs.reload();
   });
   // fetching the messages reads this chat's alert on the server: ask for the new badge number each time something arrives
@@ -54,7 +60,7 @@ export default function Chat() {
   const [note, setNote] = useState<string | null>(null);
   const send = useAction(() => void msgs.reload());
   const safety = useAction(() => void msgs.reload());
-  const list = useRef<ScrollViewInstance>(null);
+  const list = useRef<ScrollView>(null);
   const stick = useRef(true);
   const loaded = useRef(false);
 

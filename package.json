@@ -9,7 +9,7 @@
     "mobile": "npm start -w @here-there/mobile"
   },
   "overrides": {
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   }
 }

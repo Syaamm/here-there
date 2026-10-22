@@ -71,10 +71,10 @@ function Page({ mode, active, onSwitch, onCreate, onSignIn, onExplore, busy, err
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: look.bg }} pointerEvents={active ? 'auto' : 'none'} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!active}>
       <View style={{ flex: 1, width: '100%', maxWidth: 520 }}>
         {/* the photo melts into the page colour */}
-        <View style={{ flex: 1, overflow: 'hidden' }}>
+        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: look.bg }}>
           <Image source={look.photo} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' }} accessibilityLabel="" />
           <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.38)', 'rgba(0,0,0,0)']} locations={[0, 1]} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: insets.top + 90 }} />
-          <LinearGradient pointerEvents="none" colors={[`${look.bg}00`, `${look.bg}00`, `${look.bg}CC`, look.bg]} locations={[0, 0.45, 0.85, 1]} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
+          <LinearGradient pointerEvents="none" colors={[`${look.bg}00`, `${look.bg}00`, `${look.bg}CC`, look.bg]} locations={[0, 0.4, 0.8, 0.97]} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: -2 }} />
         </View>
         <View style={{ paddingHorizontal: 24, paddingBottom: insets.bottom + 48, gap: 16 }}>
           <View style={{ gap: 2 }}>
@@ -124,10 +124,11 @@ export default function Welcome() {
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <StatusBar style="light" />
-      <Animated.View pointerEvents={mode === 'here' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: hereOpacity }}>
+      {/* needsOffscreenAlphaCompositing: on Android, fading a view with overlapping children fades each child on its own, which let the photo's hard lower edge show through its colour fade. This fades the page as one picture. */}
+      <Animated.View needsOffscreenAlphaCompositing pointerEvents={mode === 'here' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: hereOpacity }}>
         <Page mode="here" active={mode === 'here'} onSwitch={() => setMode('there')} {...common} />
       </Animated.View>
-      <Animated.View pointerEvents={mode === 'there' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: thereOpacity }}>
+      <Animated.View needsOffscreenAlphaCompositing pointerEvents={mode === 'there' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: thereOpacity }}>
         <Page mode="there" active={mode === 'there'} onSwitch={() => setMode('here')} {...common} />
       </Animated.View>
     </View>

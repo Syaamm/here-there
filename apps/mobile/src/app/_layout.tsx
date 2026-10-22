@@ -59,13 +59,13 @@ function Gate() {
           contentStyle: { backgroundColor: c.bg },
         }}
       >
-        <Stack.Protected guard={!!me} redirectTo="/welcome">
+        <Stack.Protected guard={!!me}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           {/* activity, trip, join, apply, host, review, chat and safety live inside (tabs), so the tab bar stays visible */}
           <Stack.Screen name="verify" options={{ title: 'Verify your identity', header: ({ options }) => <InnerHeader options={options} /> }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack.Protected>
-        <Stack.Protected guard={!me} redirectTo="/">
+        <Stack.Protected guard={!me}>
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>

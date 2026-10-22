@@ -22,8 +22,12 @@ export class NotificationsController {
   }
 
   @Post('read-all')
-  async readAll(@CurrentUser() me: User) {
-    await this.prisma.notification.updateMany({ where: { userId: me.id, readAt: null }, data: { readAt: new Date() } });
+  async readAll(@CurrentUser() me: User, @Query('scope') scope?: string) {
+    // scope=alerts: everything except new-message alerts, which belong to the Chats tab and are read by opening the chat
+    await this.prisma.notification.updateMany({
+      where: { userId: me.id, readAt: null, ...(scope === 'alerts' ? { type: { not: 'chat_message' } } : {}) },
+      data: { readAt: new Date() },
+    });
     return { ok: true };
   }
 

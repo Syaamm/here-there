@@ -57,12 +57,13 @@ export class ConversationsService {
     throw E.forbidden('NOT_A_MEMBER', 'Chat is only available to approved members');
   }
 
-  async messages(me: User, id: string, cursor?: string, limit = 50) {
+  async messages(me: User, id: string, cursor?: string, limit = 50, markRead = false) {
     const { writable, ended } = await this.assertAccess(me, id);
     // The host cancelled: the chat is terminated. Members get nothing back (the rows stay server-side for moderation).
     if (ended) return { writable: false, ended: true, items: [], nextCursor: null };
-    // opening the chat reads it: this chat's unread alert is cleared, so the badge on the Message tab can go
-    if (!cursor)
+    // Only when the app says the chat is open in front of the person (?read=1): its unread alert is cleared and the badge
+    // can go. A background reload, or a screen kept loaded behind another one, must NOT read it.
+    if (markRead && !cursor)
       await this.prisma.notification.updateMany({
         where: { userId: me.id, type: 'chat_message', readAt: null, data: { contains: `"conversationId":"${id}"` } },
         data: { readAt: new Date() },
@@ -270,8 +271,9 @@ export class ConversationsController {
     @Param('id') id: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
+    @Query('read') read?: string,
   ) {
-    return this.conversations.messages(me, id, cursor, limit ? Number(limit) || 50 : 50);
+    return this.conversations.messages(me, id, cursor, limit ? Number(limit) || 50 : 50, read === '1');
   }
 
   @Get('conversations/:id/info')

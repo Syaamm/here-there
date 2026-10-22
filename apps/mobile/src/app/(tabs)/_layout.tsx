@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Tabs, usePathname, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, View, type ColorValue } from 'react-native';
+import { Animated, Easing, Platform, Pressable, View, type ColorValue } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { get } from '@/lib/api';
@@ -32,14 +32,15 @@ function TabGlyph({ size, focused, render }: { size: number; focused: boolean; r
       first.current = false;
       return;
     }
-    Animated.timing(fill, { toValue: focused ? 1 : 0, duration: focused ? 340 : 200, delay: focused ? 120 : 0, easing: focused ? Easing.out(Easing.cubic) : Easing.in(Easing.quad), useNativeDriver: false }).start();
+    Animated.timing(fill, { toValue: focused ? 1 : 0, duration: focused ? 340 : 200, delay: focused ? 120 : 0, easing: focused ? Easing.out(Easing.cubic) : Easing.in(Easing.quad), useNativeDriver: true }).start();
   }, [focused, fill]);
   return (
-    <View style={{ width: size, height: size }}>
+    <View style={{ width: size, height: size, overflow: 'hidden' }}>
       {/* the outline fades as the solid rises, so its lines never show through the solid's cut-outs (the + in Create) */}
-      <Animated.View style={{ position: 'absolute', left: 0, top: 0, width: size, height: size, opacity: fill.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>{render(false)}</Animated.View>
-      <Animated.View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: fill.interpolate({ inputRange: [0, 1], outputRange: [0, size] }), overflow: 'hidden' }}>
-        <View style={{ position: 'absolute', left: 0, bottom: 0, width: size, height: size }}>{render(true)}</View>
+      <Animated.View renderToHardwareTextureAndroid style={{ position: 'absolute', left: 0, top: 0, width: size, height: size, opacity: fill.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>{render(false)}</Animated.View>
+      {/* the solid rises from the bottom: a window slides up while the icon inside slides down by the same amount, so the icon stays put. Both are transforms, so they run on the native thread (a height animation would run on the JS thread and lag on Android). */}
+      <Animated.View renderToHardwareTextureAndroid style={{ position: 'absolute', left: 0, top: 0, width: size, height: size, overflow: 'hidden', transform: [{ translateY: fill.interpolate({ inputRange: [0, 1], outputRange: [size, 0] }) }] }}>
+        <Animated.View style={{ width: size, height: size, transform: [{ translateY: fill.interpolate({ inputRange: [0, 1], outputRange: [-size, 0] }) }] }}>{render(true)}</Animated.View>
       </Animated.View>
     </View>
   );
@@ -85,16 +86,14 @@ function DockButton(props: any) {
   const lift = useRef(new Animated.Value(0)).current; // 0 on the ground, 1 at the top of the jump
   const down = () => {
     lift.stopAnimation();
-    Animated.timing(squash, { toValue: 0.86, duration: 80, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+    Animated.timing(squash, { toValue: 0.88, duration: 60, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
   };
+  // quick and stiff: back to rest in about a tenth of a second, with just a hint of bounce (a soft spring felt laggy on Android)
   const up = () => {
+    Animated.spring(squash, { toValue: 1, friction: 12, tension: 420, useNativeDriver: true }).start();
     Animated.sequence([
-      Animated.timing(squash, { toValue: 1.04, duration: 70, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(squash, { toValue: 1, friction: 7, tension: 220, useNativeDriver: true }),
-    ]).start();
-    Animated.sequence([
-      Animated.timing(lift, { toValue: 1, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(lift, { toValue: 0, friction: 7, tension: 200, useNativeDriver: true }),
+      Animated.timing(lift, { toValue: 1, duration: 50, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(lift, { toValue: 0, friction: 14, tension: 420, useNativeDriver: true }),
     ]).start();
   };
   return (
@@ -103,7 +102,8 @@ function DockButton(props: any) {
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ ...accessibilityState, selected }}
       testID={testID}
-      onPress={onPress}
+      // Android: let the press animation draw its first frame before the new page starts rendering (which keeps the JS thread busy)
+      onPress={Platform.OS === 'android' && onPress ? (e: unknown) => requestAnimationFrame(() => onPress(e)) : onPress}
       onLongPress={onLongPress}
       onPressIn={down}
       onPressOut={up}
@@ -111,6 +111,7 @@ function DockButton(props: any) {
     >
       {glass ? (
         <Animated.View
+          renderToHardwareTextureAndroid
           pointerEvents="none"
           style={{
             position: 'absolute',
@@ -133,7 +134,7 @@ function DockButton(props: any) {
           </View>
         </Animated.View>
       ) : null}
-      <Animated.View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transformOrigin: 'center bottom', transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }, { scaleY: squash }] }}>{children}</Animated.View>
+      <Animated.View renderToHardwareTextureAndroid style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transformOrigin: 'center bottom', transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }, { scaleY: squash }] }}>{children}</Animated.View>
     </Pressable>
   );
 }
@@ -160,6 +161,7 @@ function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel="Create" accessibilityState={{ selected }} onPress={onPress} onPressIn={() => setDown(true)} onPressOut={() => setDown(false)} style={{ flex: 1, alignItems: 'center' }}>
       <Animated.View
+        renderToHardwareTextureAndroid
         style={{
           marginTop: -20,
           width: 52,
@@ -194,9 +196,12 @@ export default function TabsLayout() {
   const { isWide } = useLayout();
   const insets = useSafeAreaInsets();
   // lift the dock a little off the bottom edge: a phone's gesture bar, home indicator and rounded corners sit there
-  const dockBottom = Math.max(insets.bottom, 12) + 6;
+  // (on iPhones the home-indicator inset is large, so the dock sits closer to the edge and is a touch taller)
+  const ios = Platform.OS === 'ios';
+  const dockBottom = ios ? Math.max(insets.bottom - 6, 12) : Math.max(insets.bottom, 12) + 6;
+  const dockH = Math.max(ios ? 58 : 56, sc(ios ? 58 : 56));
   // the dock floats over the pages (phones), so they leave this much room at the bottom
-  const dockSpace = isWide ? 0 : Math.max(56, sc(56)) + dockBottom;
+  const dockSpace = isWide ? 0 : dockH + dockBottom;
   // the Message badge: asked of the server every 10 s, and changed at once by the screens that read things (lib/unread)
   const polled = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true'), [], 10_000);
   useEffect(() => {
@@ -259,7 +264,7 @@ export default function TabsLayout() {
           ? { backgroundColor: c.surface, borderRightColor: c.line, width: 232, minWidth: 232, maxWidth: 232, flexGrow: 0, flexShrink: 0, paddingTop: 16, paddingHorizontal: 10 }
           : // a floating pill: the bar itself is see-through, the pill is drawn by tabBarBackground below.
             // Room for the raised Create button and for the labels, plus the phone's home-indicator inset.
-            { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0, height: Math.max(56, sc(56)) + dockBottom, paddingTop: 0, paddingBottom: dockBottom, paddingHorizontal: 18 },
+            { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0, height: dockH + dockBottom, paddingTop: 0, paddingBottom: dockBottom, paddingHorizontal: 18 },
         tabBarBackground: isWide
           ? undefined
           : () => (

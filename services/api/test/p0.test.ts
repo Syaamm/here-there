@@ -575,6 +575,24 @@ describe('HERE: create, discover, request, approve, chat', () => {
     }
   });
 
+  it('only reads a chat alert when the app says the chat is open in front of the person', async () => {
+    const host = await verified('ReadHost');
+    const member = await verified('ReadMember');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 3 }))).body.id;
+    const joined = await post(`/v1/activities/${id}/requests`, member.token, {});
+    await post(`/v1/activities/${id}/requests/${joined.body.id}/decision`, host.token, { decision: 'approve' });
+    const conv = await prisma.conversation.findUnique({ where: { activityId: id } });
+    await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'ping' });
+    const unread = async () => (await get('/v1/notifications', member.token)).body.items.filter((n: { type: string; readAt: string | null }) => n.type === 'chat_message' && !n.readAt).length;
+    assert.equal(await unread(), 1);
+    // a background load (the app opening, a reload behind another screen) leaves the alert alone
+    assert.equal((await get(`/v1/conversations/${conv.id}/messages`, member.token)).status, 200);
+    assert.equal(await unread(), 1);
+    // the chat open in front of the person clears it
+    assert.equal((await get(`/v1/conversations/${conv.id}/messages?read=1`, member.token)).status, 200);
+    assert.equal(await unread(), 0);
+  });
+
   it('supports favorites and a user-specific activity list', async () => {
     const host = await verified('Host3');
     const u = await verified('Fan');

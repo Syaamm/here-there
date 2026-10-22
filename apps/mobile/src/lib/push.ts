@@ -1,10 +1,25 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { api } from './api';
+
+type NotificationsModule = typeof import('expo-notifications');
+let notificationsModule: NotificationsModule | null | undefined;
+/** The phone's notifications module, or null where it is missing (Expo Go on some Android versions): importing it up front would crash the whole app. */
+function loadNotifications(): NotificationsModule | null {
+  if (notificationsModule === undefined) {
+    // Expo Go on Android has no push support at all, so do not even try to load it there
+    if (Platform.OS === 'android' && Constants.executionEnvironment === 'storeClient') return (notificationsModule = null);
+    try {
+      notificationsModule = require('expo-notifications') as NotificationsModule;
+    } catch {
+      notificationsModule = null;
+    }
+  }
+  return notificationsModule;
+}
 
 /** unsupported: this browser or device cannot do it. default: not asked yet. granted / denied: the person's answer. */
 export type PushState = 'unsupported' | 'default' | 'granted' | 'denied';
@@ -15,6 +30,8 @@ export async function pushState(): Promise<PushState> {
   try {
     if (Platform.OS === 'web') return webReady() ? (Notification.permission as PushState) : 'unsupported';
     if (!Device.isDevice) return 'unsupported';
+    const Notifications = loadNotifications();
+    if (!Notifications) return 'unsupported';
     const p = await Notifications.getPermissionsAsync();
     return p.granted ? 'granted' : p.canAskAgain ? 'default' : 'denied';
   } catch {
@@ -39,6 +56,8 @@ async function subscribeWeb() {
 
 /** Phone: get this device's Expo push token and give it to the server. */
 async function subscribeNative() {
+  const Notifications = loadNotifications();
+  if (!Notifications) return;
   if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('default', { name: 'Messages and requests', importance: Notifications.AndroidImportance.DEFAULT });
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
   const t = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
@@ -53,6 +72,8 @@ export async function enablePush(): Promise<PushState> {
       const perm = await Notification.requestPermission();
       if (perm === 'granted') await subscribeWeb();
     } else {
+      const Notifications = loadNotifications();
+      if (!Notifications) return 'unsupported';
       const r = await Notifications.requestPermissionsAsync();
       if (r.granted) await subscribeNative();
     }
@@ -78,10 +99,16 @@ export function usePushTaps() {
   const router = useRouter();
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    const sub = Notifications.addNotificationResponseReceivedListener((r) => {
-      const url = (r.notification.request.content.data as { url?: string } | undefined)?.url;
-      if (typeof url === 'string') router.push(url as never);
-    });
-    return () => sub.remove();
+    const Notifications = loadNotifications();
+    if (!Notifications) return;
+    try {
+      const sub = Notifications.addNotificationResponseReceivedListener((r) => {
+        const url = (r.notification.request.content.data as { url?: string } | undefined)?.url;
+        if (typeof url === 'string') router.push(url as never);
+      });
+      return () => sub.remove();
+    } catch {
+      /* push is optional */
+    }
   }, [router]);
 }

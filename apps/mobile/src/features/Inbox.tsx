@@ -64,6 +64,7 @@ export function Inbox() {
 
   const all = notifs.data?.items ?? [];
   const alerts = all.filter((n) => n.type !== 'chat_message');
+  const alertsUnread = alerts.filter((n) => !n.readAt).length; // chat alerts are counted on the Chats tab, not here
   const unreadChats = new Set(all.filter((n) => n.type === 'chat_message' && !n.readAt).map((n) => n.data?.conversationId));
 
   // Join requests that are still waiting: for each activity you host that has a join-request alert, ask the server who is pending now
@@ -164,10 +165,10 @@ export function Inbox() {
     <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader />}>
       <Row style={{ justifyContent: 'space-between' }}>
         <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>Your inbox</Txt>
-        {tab === 'alerts' && !!notifs.data?.unreadCount ? (
+        {tab === 'alerts' && alertsUnread > 0 ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Mark all read" hitSlop={10} onPress={() => {
-              setUnread(0);
-              void act.run(() => post('/v1/notifications/read-all')).then(refreshUnread);
+              bumpUnread(-alertsUnread); // the Message badge drops by the alerts cleared; chats keep theirs
+              void act.run(() => post('/v1/notifications/read-all?scope=alerts')).then(refreshUnread);
             }}>
             <Txt variant="label" color={c.forest} style={{ fontSize: 12 }}>Mark all read</Txt>
           </Pressable>
@@ -178,7 +179,7 @@ export function Inbox() {
       <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 14, borderWidth: 1, borderColor: c.line, padding: 3 }}>
         {(
           [
-            ['alerts', 'Alerts', notifs.data?.unreadCount ?? 0],
+            ['alerts', 'Alerts', alertsUnread],
             ['chats', 'Chats', unreadChats.size],
           ] as const
         ).map(([k, label, n]) => {
