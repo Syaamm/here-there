@@ -8,6 +8,7 @@ import { photoSrc } from '@/lib/api';
 import { useLayout } from '@/lib/layout';
 import { sc, useScale } from '@/lib/scale';
 import { PageTransition } from './PageTransition';
+import { useDockSpace } from '@/lib/dock';
 import { useTheme } from '@/lib/theme';
 
 // ---------------------------------------------------------------- layout
@@ -22,13 +23,17 @@ export function Screen({
   wide = false,
   maxWidth,
   hero,
+  stickyHero,
   onRefresh,
   refreshing = false,
+  onScrollY,
   style,
 }: {
   children: ReactNode;
   /** a full-bleed picture area above the padded content (detail screens) */
   hero?: ReactNode;
+  /** a picture area in two pieces: `scrolling` scrolls away with the page, `pinned` scrolls until it reaches the top and then stays there while the rest of the page slides under it. Both are laid out by the system's own sticky header, so they never lag the scroll. */
+  stickyHero?: { scrolling: ReactNode; pinned: ReactNode };
   /** stays put at the top while the content scrolls beneath it (the HERE/THERE header on the main tabs) */
   header?: ReactNode;
   /** true when a native header already sits above the content */
@@ -40,6 +45,8 @@ export function Screen({
   wide?: boolean;
   /** override the content column's maximum width (e.g. 520 for sign-in forms) */
   maxWidth?: number;
+  /** reports how far the page has scrolled (px), for effects that follow the scroll */
+  onScrollY?: (y: number) => void;
   onRefresh?: () => void;
   refreshing?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -49,19 +56,29 @@ export function Screen({
   const { gutter } = useLayout();
   // never closer to the top than a phone's status bar needs (a browser reports no inset, a real phone does)
   const top = Math.max(insets.top, 20);
-  const pad = { paddingTop: hasHeader ? 12 : header ? 8 : top + 8, paddingBottom: tabBar ? 24 : insets.bottom + 24, paddingHorizontal: gutter };
+  const dock = useDockSpace(); // the floating dock covers the bottom of the page, so leave room under the content
+  const pad = { paddingTop: hasHeader ? 12 : header ? 8 : top + 8, paddingBottom: (tabBar ? 24 : insets.bottom + 24) + dock, paddingHorizontal: gutter };
   // The content sits in a centred column: full width on phones, a comfortable measure on tablets and desktops.
   const columnWidth = maxWidth ?? (wide ? 1180 : 760);
   const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 16 };
   const body = scroll ? (
     <ScrollView
-      contentContainerStyle={[{ flexGrow: 1 }, hero ? { paddingBottom: pad.paddingBottom } : pad, style]}
+      contentContainerStyle={[{ flexGrow: 1 }, hero || stickyHero ? { paddingBottom: pad.paddingBottom } : pad, style]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
+      stickyHeaderIndices={stickyHero ? [1] : undefined}
+      scrollEventThrottle={16}
+      onScroll={onScrollY ? (e) => onScrollY(e.nativeEvent.contentOffset.y) : undefined}
       refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined}
     >
-      {hero ? <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{hero}</View> : null}
-      <View style={[column, hero ? { paddingHorizontal: gutter, paddingTop: 16 } : null]}>{children}</View>
+      {/* an array, not a fragment: the ScrollView counts its direct children to find the sticky one */}
+      {stickyHero ? [
+        <View key="scrolling" style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{stickyHero.scrolling}</View>,
+        <View key="pinned" style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{stickyHero.pinned}</View>,
+      ] : hero ? (
+        <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{hero}</View>
+      ) : null}
+      <View style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: 16 } : null]}>{children}</View>
     </ScrollView>
   ) : (
     <View style={[{ flex: 1 }, pad, style]}>
@@ -71,7 +88,7 @@ export function Screen({
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       {header ? (
-        <View style={{ paddingTop: top + 14, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, borderBottomWidth: 1, borderBottomColor: c.line, zIndex: 2 }}>
+        <View style={{ paddingTop: top + 14, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
           <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{header}</View>
         </View>
       ) : null}
@@ -234,7 +251,7 @@ export function ProgressBar({ value, max }: { value: number; max: number }) {
 }
 
 /** Rounded search field with a magnifier, no visible label (the accessibility label still names it). */
-export function SearchBar({ value, onChangeText, placeholder }: { value: string; onChangeText: (v: string) => void; placeholder: string }) {
+export function SearchBar({ value, onChangeText, placeholder, onFilter, filterActive }: { value: string; onChangeText: (v: string) => void; placeholder: string; /** shows a round filter button at the right end */ onFilter?: () => void; filterActive?: boolean }) {
   const { c } = useTheme();
   return (
     <View style={[s.search, { minHeight: sc(42), backgroundColor: c.surface, borderColor: c.line }]}>
@@ -249,6 +266,11 @@ export function SearchBar({ value, onChangeText, placeholder }: { value: string;
         clearButtonMode="while-editing"
         style={{ flex: 1, fontSize: 14, color: c.text, paddingVertical: 0, minHeight: 24 }}
       />
+      {onFilter ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? 'Filters, on' : 'Filters'} onPress={onFilter} hitSlop={6} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: filterActive ? c.forest : c.sand, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="options-outline" size={18} color={filterActive ? '#fff' : c.forest} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -263,10 +285,11 @@ export function SectionHeader({ title, right }: { title: string; right?: ReactNo
   );
 }
 
-export function Pill({ label, active, onPress }: { label: string; active?: boolean; onPress: () => void }) {
+export function Pill({ label, active, onPress, icon }: { label: string; active?: boolean; onPress: () => void; icon?: React.ComponentProps<typeof Ionicons>['name'] }) {
   const { c } = useTheme();
   return (
     <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} hitSlop={6} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, { minHeight: sc(32), backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
+      {icon ? <Ionicons name={icon} size={15} color={active ? '#fff' : c.text} style={{ marginRight: 6 }} /> : null}
       <Text style={{ color: active ? '#fff' : c.text, fontWeight: '600', fontSize: 13 }}>{label}</Text>
     </Pressable>
   );
@@ -457,7 +480,7 @@ const s = StyleSheet.create({
   btn: { minHeight: 42, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   btnSmall: { minHeight: 34, paddingVertical: 5, paddingHorizontal: 12 },
   input: { minHeight: 42, borderWidth: 1.5, borderRadius: 11, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
-  pill: { minHeight: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  pill: { minHeight: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   check: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 42, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12 },
   stepBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },

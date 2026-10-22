@@ -8,6 +8,7 @@ export type MyActivityItem = {
   kind: 'mine' | 'pending' | 'rejected';
   label: string;
   tone: 'ok' | 'warn' | 'bad';
+  /** the person hosts it and it is still upcoming, so there are requests to manage */
   hostOf: boolean;
 };
 
@@ -15,15 +16,15 @@ export type MyActivityItem = {
 export function myActivityItems(d: MyActivitiesData | null | undefined): MyActivityItem[] {
   if (!d) return [];
   const items: MyActivityItem[] = [
-    ...d.joined.map((a): MyActivityItem => ({ key: `j-${a.id}`, activity: a, kind: 'mine', label: a.role === 'host' ? 'You host this' : 'Going', tone: 'ok', hostOf: a.role === 'host' })),
+    ...d.joined.map((a): MyActivityItem => ({ key: `j-${a.id}`, activity: a, kind: 'mine', label: a.role === 'host' ? 'You host this' : 'Going', tone: 'ok', hostOf: a.role === 'host' && !['completed', 'archived', 'cancelled', 'in_progress'].includes(a.status) })),
     ...d.requests
-      .filter((r) => r.state === 'requested' || r.state === 'declined')
+      .filter((r) => r.state === 'requested' || r.state === 'waitlisted' || r.state === 'declined')
       .map((r): MyActivityItem => ({
         key: `r-${r.requestId}`,
         activity: r.activity,
-        kind: r.state === 'requested' ? 'pending' : 'rejected',
-        label: r.state === 'requested' ? 'Request pending' : 'Not approved',
-        tone: r.state === 'requested' ? 'warn' : 'bad',
+        kind: r.state === 'declined' ? 'rejected' : 'pending',
+        label: r.state === 'requested' ? 'Request pending' : r.state === 'waitlisted' ? 'On the waiting list' : 'Rejected',
+        tone: r.state === 'declined' ? 'bad' : 'warn',
         hostOf: false,
       })),
   ];

@@ -374,11 +374,13 @@ describe('HERE: create, discover, request, approve, chat', () => {
     assert.equal((await get(`/v1/activities/${id}`, a.token)).body.conversationId, conv.id);
     assert.ok((await get('/v1/notifications', a.token)).body.items.some((x: any) => x.type === 'request_approved'));
 
-    // fill the activity: second approval makes it full, third request fails
+    // fill the activity: second approval makes it full, a third request goes on the waiting list
     const reqB = await post(`/v1/activities/${id}/requests`, b.token, {});
     await post(`/v1/activities/${id}/requests/${reqB.body.id}/decision`, host.token, { decision: 'approve' });
     assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'full');
-    assert.equal((await post(`/v1/activities/${id}/requests`, c.token, {})).body.code, 'ACTIVITY_FULL');
+    const waitC = await post(`/v1/activities/${id}/requests`, c.token, {});
+    assert.equal(waitC.status, 201);
+    assert.equal(waitC.body.state, 'waitlisted');
 
     // venue/time change notifies attendees with previous/new values
     const upd = await call('PATCH', `/v1/activities/${id}`, host.token, { venueName: 'Caffe Navigli', startsAt: hours(2), endsAt: hours(4) });
@@ -388,18 +390,20 @@ describe('HERE: create, discover, request, approve, chat', () => {
     assert.equal(changed.data.previous.venueName, 'Bar Brera');
     assert.equal(changed.data.next.venueName, 'Caffe Navigli');
 
-    // leaving revokes chat access immediately and frees a spot
+    // leaving revokes chat access immediately; the freed place goes to the first person on the waiting list (c)
     assert.equal((await post(`/v1/activities/${id}/leave`, b.token)).status, 201);
     assert.equal((await post(`/v1/conversations/${conv.id}/messages`, b.token, { body: 'x' })).status, 403);
-    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'published');
+    assert.equal((await get(`/v1/activities/${id}`, c.token)).body.isMember, true);
+    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'full');
 
-    // host removal revokes access immediately
+    // host removal revokes access immediately and, with nobody waiting, frees the place
     assert.equal((await call('DELETE', `/v1/activities/${id}/members/${a.id}`, host.token)).status, 200);
     assert.equal((await get(`/v1/conversations/${conv.id}/messages`, a.token)).status, 403);
+    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'published');
 
     // cancel: closes registration, notifies, keeps audit
-    const reqC = await post(`/v1/activities/${id}/requests`, c.token, {});
-    assert.equal(reqC.status, 201);
+    const reqB2 = await post(`/v1/activities/${id}/requests`, b.token, {});
+    assert.equal(reqB2.status, 201);
     assert.equal((await post(`/v1/activities/${id}/cancel`, host.token)).status, 201);
     assert.equal((await post(`/v1/activities/${id}/requests`, a.token, {})).body.code, 'ACTIVITY_CANCELLED');
     assert.equal((await get('/v1/activities?city=milan', c.token)).body.items.some((x: any) => x.id === id), false);
@@ -420,6 +424,36 @@ describe('HERE: create, discover, request, approve, chat', () => {
     ]);
     assert.deepEqual(res.map((r) => r.status).sort(), [201, 409]);
     assert.equal((await get(`/v1/activities/${id}`, host.token)).body.going, 2);
+  });
+
+  it('keeps a waiting list for a full activity and lets the first person in when a member leaves', async () => {
+    const host = await verified('WHost');
+    const member = await verified('WMember');
+    const first = await verified('WFirst');
+    const second = await verified('WSecond');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 2 }))).body.id;
+    const joined = await post(`/v1/activities/${id}/requests`, member.token, {});
+    await post(`/v1/activities/${id}/requests/${joined.body.id}/decision`, host.token, { decision: 'approve' });
+    // the host and one member fill both places: further requests join the waiting list, in order
+    const a = await post(`/v1/activities/${id}/requests`, first.token, {});
+    assert.equal(a.status, 201);
+    assert.equal(a.body.state, 'waitlisted');
+    assert.equal(a.body.position, 1);
+    const b = await post(`/v1/activities/${id}/requests`, second.token, {});
+    assert.equal(b.body.state, 'waitlisted');
+    assert.equal(b.body.position, 2);
+    assert.equal((await get(`/v1/activities/${id}`, second.token)).body.myRequest.position, 2);
+    // the member leaves: the first in line gets in and is told, the second moves up
+    assert.ok((await post(`/v1/activities/${id}/leave`, member.token)).status < 300);
+    const d1 = (await get(`/v1/activities/${id}`, first.token)).body;
+    assert.equal(d1.isMember, true);
+    assert.equal(d1.myRequest.state, 'approved');
+    assert.equal(d1.going, 2);
+    assert.ok((await get('/v1/notifications', first.token)).body.items.some((n: { type: string }) => n.type === 'waitlist_promoted'));
+    const d2 = (await get(`/v1/activities/${id}`, second.token)).body;
+    assert.equal(d2.isMember, false);
+    assert.equal(d2.myRequest.state, 'waitlisted');
+    assert.equal(d2.myRequest.position, 1);
   });
 
   it('supports favorites and a user-specific activity list', async () => {

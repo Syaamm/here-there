@@ -1,29 +1,32 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMemo, useState } from 'react';
-import { ScrollView, View } from 'react-native';
-import { FeatureCard, NextUpCard, ShowMoreCard } from '@/components/Cards';
+import { Pressable, View } from 'react-native';
+import { ActivityRow, NextUpCard } from '@/components/Cards';
 import { Reveal } from '@/components/Reveal';
 import { CityPicker } from '@/components/CityPicker';
-import { TabHeader } from '@/components/TabHeader';
+import { Brand, ModeTabs } from '@/components/TabHeader';
 import { VerifyBanner } from '@/components/VerifyBanner';
-import { Btn, Card, Empty, ErrorBanner, Grid, Pill, PillRow, Screen, SearchBar, SectionHeader, Spinner, Txt, useGo } from '@/components/ui';
+import { Between, Btn, Card, Empty, ErrorBanner, Pill, PillRow, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type Activity } from '@/lib/api';
+import { myActivityItems, type MyActivitiesData } from '@/lib/myActivities';
 import { useCity } from '@/lib/city';
 import { CATS } from '@/lib/constants';
 import { feedRange, splitFeed } from '@/lib/feed';
 import { useLoad, useRefresh } from '@/lib/hooks';
-import { useLayout } from '@/lib/layout';
-import { useScale } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
+
+const CAT_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = { coffee: 'cafe-outline', drinks: 'wine-outline', food: 'restaurant-outline', sports: 'basketball-outline', culture: 'color-palette-outline' };
 
 /** HERE · Explore: a time-sensitive feed of what is happening nearby. */
 export function ExploreHere() {
   const go = useGo();
   const { c } = useTheme();
-  const { isTablet, gutter } = useLayout();
-  const k = useScale();
   const [city, setCity] = useCity();
   const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
+  // the filter button: which part of the day to show
+  const [when, setWhen] = useState<'any' | 'soon' | 'tonight' | 'tomorrow'>('any');
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const feed = useLoad(
     () => {
@@ -34,7 +37,9 @@ export function ExploreHere() {
     [city, cat],
     60_000,
   );
-  const { refreshing, onRefresh } = useRefresh(feed.reload);
+  // Next up is about YOU: the soonest upcoming activity you host, are going to, or have asked to join
+  const mine = useLoad(() => get<MyActivitiesData>('/v1/me/activities'), []);
+  const { refreshing, onRefresh } = useRefresh(() => Promise.all([feed.reload(), mine.reload()]));
 
   // The API has no free-text search yet, so search filters the loaded feed on the device.
   const items = useMemo(() => {
@@ -43,29 +48,28 @@ export function ExploreHere() {
     return t ? all.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')}`.toLowerCase().includes(t)) : all;
   }, [feed.data, q]);
 
-  // "Happening soon" = the next 2 hours. Everything after that sits in one sideways row, four cards and then Show more.
   const sections = splitFeed(items);
   const soon = sections[0].items;
-  const later = [...sections[1].items, ...sections[2].items];
-  // Quiet next two hours: lead with the one that starts next, then Tonight and Tomorrow as their own rows, so the page is never bare.
-  const next = soon.length === 0 ? later[0] : undefined;
-  const tonight = sections[1].items.filter((a) => a !== next);
-  const tomorrow = sections[2].items.filter((a) => a !== next);
-  const CARD = Math.round(148 * k);
-  const MAX_LATER = 4;
+  const now = Date.now();
+  const mineNext = myActivityItems(mine.data)
+    .filter((x) => x.kind !== 'rejected' && !['cancelled', 'completed', 'archived'].includes(x.activity.status) && +new Date(x.activity.endsAt) > now)
+    .sort((x, y) => +new Date(x.activity.startsAt) - +new Date(y.activity.startsAt))[0];
+  const MAX = 4;
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader><CityPicker city={city} onPick={setCity} /></TabHeader>}>
+    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<Between><Brand /><CityPicker city={city} onPick={setCity} pill /></Between>}>
 
       <VerifyBanner />
 
-      <Txt variant="h1" style={{ fontSize: 24, lineHeight: 30 }}>What are you up for?</Txt>
-      <SearchBar value={q} onChangeText={setQ} placeholder="Search activities or neighborhoods" />
+      <ModeTabs />
+
+      <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>What are you up for?</Txt>
+      <SearchBar value={q} onChangeText={setQ} placeholder="Search activities or neighborhoods" onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
 
       <PillRow>
-        <Pill label="All" active={cat === ''} onPress={() => setCat('')} />
+        <Pill label="All" icon="apps-outline" active={cat === ''} onPress={() => setCat('')} />
         {Object.entries(CATS).map(([k, v]) => (
-          <Pill key={k} label={v.label} active={cat === k} onPress={() => setCat(k)} />
+          <Pill key={k} label={v.label} icon={CAT_ICON[k]} active={cat === k} onPress={() => setCat(k)} />
         ))}
       </PillRow>
 
@@ -78,68 +82,75 @@ export function ExploreHere() {
         </Empty>
       )}
 
-      {soon.length > 0 && (
-        <Reveal index={0} style={{ gap: 16 }}>
-          <SectionHeader title="Happening soon" />
-          {/* swipe sideways on phones, a grid of the same cards on tablets */}
-          {isTablet ? (
-            <Grid min={280}>
-              {soon.map((a) => (
-                <FeatureCard key={a.id} a={a} />
-              ))}
-            </Grid>
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }} snapToInterval={CARD + 12} snapToAlignment="start" disableIntervalMomentum decelerationRate="fast">
-              {soon.map((a) => (
-                <FeatureCard key={a.id} a={a} width={CARD} />
-              ))}
-            </ScrollView>
-          )}
-        </Reveal>
-      )}
-
-      {next && (
+      {mineNext && (
         <Reveal index={0} style={{ gap: 16 }}>
           <SectionHeader title="Next up" />
-          <Txt variant="muted" style={{ marginTop: -8 }}>Nothing starts in the next 2 hours. This is what is coming.</Txt>
-          <NextUpCard a={next} />
+          <View style={{ width: '100%', maxWidth: 480 }}>
+            <NextUpCard a={mineNext.activity} status={{ label: mineNext.label, tone: mineNext.tone }} />
+          </View>
         </Reveal>
       )}
 
-      {next ? (
-        <>
-          {tonight.length > 0 && <SidewaysRow index={1} title="Tonight" list={tonight} card={CARD} gutter={gutter} max={MAX_LATER} onMore={() => go('/activities')} />}
-          {tomorrow.length > 0 && <SidewaysRow index={2} title="Tomorrow" list={tomorrow} card={CARD} gutter={gutter} max={MAX_LATER} onMore={() => go('/activities')} />}
-        </>
-      ) : (
-        later.length > 0 && <SidewaysRow index={1} title="More around you" list={later} card={CARD} gutter={gutter} max={MAX_LATER} onMore={() => go('/activities')} />
-      )}
+      <ListSection index={1} title="Happening soon" list={when === 'any' || when === 'soon' ? soon : []} max={MAX} onMore={() => go('/activities')} />
+      <ListSection index={2} title="Tonight" list={when === 'any' || when === 'tonight' ? sections[1].items : []} max={MAX} onMore={() => go('/activities')} />
+      <ListSection index={3} title="Tomorrow" list={when === 'any' || when === 'tomorrow' ? sections[2].items : []} max={MAX} onMore={() => go('/activities')} />
 
-      <Reveal index={3}>
-      <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.sand, borderWidth: 0, borderRadius: 20, padding: 16 }}>
-        <View style={{ flex: 1, paddingRight: 12 }}>
-          <Txt variant="h3" style={{ fontSize: 15 }}>Nothing planned?</Txt>
-          <Txt variant="muted">Start an activity in minutes.</Txt>
-        </View>
-        <Btn title="Create +" small onPress={() => go('/create')} />
-      </Card>
+      <Reveal index={4}>
+        <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.sand, borderWidth: 0, borderRadius: 20, padding: 16 }}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20 }}>Nothing you fancy?</Txt>
+            <Txt variant="muted">Host your own plan in a public place. Takes a minute.</Txt>
+          </View>
+          <Btn title="Host" small onPress={() => go('/create')} />
+        </Card>
       </Reveal>
+
+      <Sheet visible={filterOpen} title="Show" onClose={() => setFilterOpen(false)}>
+        <Txt variant="small">Pick the part of the day you want to see.</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {(
+            [
+              ['any', 'Everything'],
+              ['soon', 'Next 2 hours'],
+              ['tonight', 'Tonight'],
+              ['tomorrow', 'Tomorrow'],
+            ] as const
+          ).map(([k, label]) => (
+            <Pill key={k} label={label} active={when === k} onPress={() => setWhen(k)} />
+          ))}
+        </View>
+        <Btn title="Done" onPress={() => setFilterOpen(false)} />
+      </Sheet>
 
     </Screen>
   );
 }
 
-/** A titled sideways row: up to `max` cards, then the "SHOW MORE" card that opens the full list. */
-function SidewaysRow({ index, title, list, card, gutter, max, onMore }: { index: number; title: string; list: Activity[]; card: number; gutter: number; max: number; onMore: () => void }) {
+/** A titled list of rows (up to `max`), with "See all" on the right. Nothing is drawn when the list is empty. */
+function ListSection({ index, title, list, max, onMore }: { index: number; title: string; list: Activity[]; max: number; onMore: () => void }) {
+  const { c } = useTheme();
+  if (list.length === 0) return null;
   return (
-    <Reveal index={index} style={{ gap: 16 }}>
-      <SectionHeader title={title} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }} snapToInterval={card + 12} snapToAlignment="start" disableIntervalMomentum decelerationRate="fast">
-        {list.slice(0, max).map((a) => (
-          <FeatureCard key={a.id} a={a} width={card} />
-        ))}
-        <ShowMoreCard onPress={onMore} />
-      </ScrollView>
+    <Reveal index={index} style={{ gap: 12 }}>
+      <SectionHeader
+        title={title}
+        right={
+          // a padded pill, so it looks like something you can press (and is easy to hit with a thumb)
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`See all: ${title}`}
+            hitSlop={6}
+            onPress={onMore}
+            style={({ pressed }) => [{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 }, pressed && { opacity: 0.8, transform: [{ scale: 0.97 }] }]}
+          >
+            <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>See all</Txt>
+            <Ionicons name="chevron-forward" size={13} color={c.forest} />
+          </Pressable>
+        }
+      />
+      {list.slice(0, max).map((a) => (
+        <ActivityRow key={a.id} a={a} />
+      ))}
     </Reveal>
   );
 }

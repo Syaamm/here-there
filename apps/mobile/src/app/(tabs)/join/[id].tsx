@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { CheckLine } from '@/components/CheckLine';
-import { Btn, Card, CheckRow, ErrorBanner, Field, Screen, Spinner, Txt, useGo } from '@/components/ui';
+import { Banner, Btn, Card, CheckRow, ErrorBanner, Field, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { catColor, CATS } from '@/lib/constants';
@@ -43,6 +43,7 @@ export default function Join() {
       </View>
 
       <ErrorBanner message={act.error} />
+      {a.spotsLeft === 0 ? <Banner tone="warn">This activity is full. Join the waiting list: if a place opens up, the first person in line is let in automatically and told straight away.</Banner> : null}
       <Field label="Introduce yourself to the host" placeholder="Hi! I'm new to town and would love to join." multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length} / 500`} />
 
       <Card style={{ borderRadius: 20, paddingVertical: 6 }}>
@@ -56,7 +57,7 @@ export default function Join() {
         </View>
       </Card>
 
-      <Btn title="Send request" onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree} />
+      <Btn title={a.spotsLeft === 0 ? 'Join the waiting list' : 'Send request'} onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree} />
       <Txt variant="muted" style={{ textAlign: 'center' }}>Chat access opens only after the host approves.</Txt>
     </Screen>
   );

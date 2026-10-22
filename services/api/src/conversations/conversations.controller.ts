@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Injectable, Param, Post, Query } from '@nestjs/common';
 import { Conversation, User } from '@prisma/client';
 import { z } from 'zod';
+import { effectiveStatus } from '../activities/activities.service';
 import { CurrentUser, requireVerified } from '../common/auth';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
@@ -37,7 +38,9 @@ export class ConversationsService {
       });
       if (!m || m.state !== 'approved') throw E.forbidden('NOT_A_MEMBER', 'Chat is only available to approved members');
       const a = await this.prisma.activity.findUniqueOrThrow({ where: { id: conv.activityId } });
-      return { conv, writable: !['cancelled', 'archived'].includes(a.status), ended: a.status === 'cancelled' };
+      // open for a day after the planned end (time to say thanks), then read-only
+      const finishedLongAgo = Date.now() >= +a.endsAt + 24 * 3600e3;
+      return { conv, writable: !['cancelled', 'archived'].includes(a.status) && !finishedLongAgo, ended: a.status === 'cancelled' };
     }
     if (conv.scopeType === 'trip' && conv.tripId) {
       const m = await this.prisma.tripMembership.findUnique({
@@ -54,6 +57,12 @@ export class ConversationsService {
     const { writable, ended } = await this.assertAccess(me, id);
     // The host cancelled: the chat is terminated. Members get nothing back (the rows stay server-side for moderation).
     if (ended) return { writable: false, ended: true, items: [], nextCursor: null };
+    // opening the chat reads it: this chat's unread alert is cleared, so the badge on the Message tab can go
+    if (!cursor)
+      await this.prisma.notification.updateMany({
+        where: { userId: me.id, type: 'chat_message', readAt: null, data: { contains: `"conversationId":"${id}"` } },
+        data: { readAt: new Date() },
+      });
     const blocked = await this.safety.blockedWith(me.id);
     const take = Math.min(Math.max(limit, 1), 100);
     const rows = await this.prisma.message.findMany({
@@ -113,7 +122,7 @@ export class ConversationsService {
         scopeId: a.id,
         title: a.title,
         category: a.category,
-        status: a.status,
+        status: effectiveStatus(a),
         startsAt: a.startsAt,
         endsAt: a.endsAt,
         place: `${a.venueName}, ${a.city}`,
@@ -202,6 +211,7 @@ export class ConversationsService {
         title: m.activity.title,
         category: m.activity.category as string | null,
         startsAt: m.activity.startsAt,
+        endsAt: m.activity.endsAt,
       })),
       ...trips.filter((m) => m.trip.conversation).map((m) => ({
         conversationId: m.trip.conversation!.id,
@@ -210,12 +220,28 @@ export class ConversationsService {
         title: m.trip.title,
         category: null as string | null,
         startsAt: m.trip.dateStart,
+        endsAt: m.trip.dateEnd,
       })),
     ];
-    // Soonest first: what is coming up next leads, then what has already started, most recent first.
+    // The newest message of each conversation (hidden ones left out), so the app can order chats by recent activity and
+    // show a preview. One query for all of them.
+    const ids = items.map((i) => i.conversationId);
+    const newest = ids.length
+      ? await this.prisma.message.findMany({
+          where: { conversationId: { in: ids }, moderationState: { not: 'removed' } },
+          orderBy: { createdAt: 'desc' },
+          distinct: ['conversationId'],
+          include: { sender: { select: { id: true, profile: { select: { displayName: true } } } } },
+        })
+      : [];
+    const last = new Map(newest.map((m) => [m.conversationId, { body: m.body.slice(0, 140), at: m.createdAt, from: m.senderId === me.id ? 'You' : (m.sender.profile?.displayName ?? null) }]));
+    const withLast = items.map((i) => ({ ...i, lastMessage: last.get(i.conversationId) ?? null }));
+    // Chats with messages first, newest message first; the ones nobody has written in yet follow, soonest event first.
     const now = Date.now();
     const rank = (x: { startsAt: Date }) => (+x.startsAt >= now ? +x.startsAt - now : Number.MAX_SAFE_INTEGER / 2 + (now - +x.startsAt));
-    return { items: items.sort((x, y) => rank(x) - rank(y)) };
+    return {
+      items: withLast.sort((x, y) => (x.lastMessage && y.lastMessage ? +y.lastMessage.at - +x.lastMessage.at : x.lastMessage ? -1 : y.lastMessage ? 1 : rank(x) - rank(y))),
+    };
   }
 }
 

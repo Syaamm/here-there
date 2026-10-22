@@ -6,7 +6,7 @@ import { HeaderBar, TabHeader } from '@/components/TabHeader';
 import { Btn, Empty } from '@/components/ui';
 import { CATS } from '@/lib/constants';
 import { useTheme } from '@/lib/theme';
-import { MapOverlay, useMapData, type Group } from './mapShared';
+import { MapOverlay, PIN_PATH, pinWidth, useMapData, type Group } from './mapShared';
 
 const CSS_ID = 'leaflet-css';
 /** Leaflet's own stylesheet, added once (the app is bundled by Metro, which has no CSS import for packages here). */
@@ -17,20 +17,24 @@ function ensureCss() {
   link.rel = 'stylesheet';
   link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
   document.head.appendChild(link);
-  // soften the tiles towards the app's pale green-grey look, so the icons are what stand out
+  // a light, flat, grey base map: the colour drained from the tiles so the pins are what stand out
   const style = document.createElement('style');
-  style.textContent = '.leaflet-tile-pane{filter:grayscale(.55) saturate(.7) brightness(1.06) contrast(.92)}';
+  style.textContent = '.leaflet-tile-pane{filter:grayscale(1) brightness(1.07) contrast(.88)}';
   document.head.appendChild(style);
 }
 
+/** The same pin as PinIcon: red teardrop; the selected one fills green from the bottom up. A badge shows the count. */
 const icon = (g: Group, active: boolean, green: string, forest: string) => {
   const full = g.items.every((a) => a.spotsLeft === 0);
-  const badge = g.items.length > 1 ? `<div style="position:absolute;top:1px;right:1px;min-width:18px;height:18px;border-radius:9px;padding:0 4px;box-sizing:border-box;background:#0F2F28;border:1.5px solid #fff;color:#fff;font:800 10px/15px sans-serif;text-align:center">${g.items.length}</div>` : '';
+  const count = g.items.length;
+  const w = pinWidth(count);
+  const id = 'pin' + Math.random().toString(36).slice(2);
+  const grow = active ? '<animate attributeName="y" from="24" to="0" dur=".35s" fill="freeze"/><animate attributeName="height" from="0" to="24" dur=".35s" fill="freeze"/>' : '';
   return L.divIcon({
     className: '',
-    iconSize: [44, 44],
-    iconAnchor: [22, 22],
-    html: `<div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer"><div style="width:36px;height:36px;border-radius:18px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-size:17px;background:${active ? forest : '#fff'};border:3px solid ${active ? '#fff' : full ? '#999' : green};box-shadow:0 2px 6px rgba(0,0,0,.25)">${CATS[g.items[0].category]?.emoji ?? '📍'}</div>${badge}</div>`,
+    iconSize: [w, w],
+    iconAnchor: [w / 2, w - 1],
+    html: `<div style="position:relative;width:${w}px;height:${w}px;cursor:pointer;filter:drop-shadow(0 2px 3px rgba(0,0,0,.3))"><svg width="${w}" height="${w}" viewBox="0 0 24 24"><defs><clipPath id="${id}"><rect x="0" width="24" y="${active ? 0 : 24}" height="${active ? 24 : 0}">${grow}</rect></clipPath></defs><path d="${PIN_PATH}" fill="${full ? '#9A9A9A' : '#D32F2F'}"/><path d="${PIN_PATH}" fill="${green}" clip-path="url(#${id})"/><circle cx="12" cy="9.8" r="3.2" fill="#fff"/></svg><div style="position:absolute;top:-2px;right:-6px;min-width:18px;height:18px;border-radius:9px;padding:0 4px;box-sizing:border-box;background:${forest};border:1.5px solid #fff;color:#fff;font:800 10px/15px sans-serif;text-align:center">${count}</div></div>`,
   });
 };
 
@@ -41,7 +45,7 @@ const icon = (g: Group, active: boolean, green: string, forest: string) => {
 export function MapHere() {
   const { c } = useTheme();
   const data = useMapData();
-  const { center, groups, selected, setSelected, target } = data;
+  const { center, groups, selected, setSelected, target, zoomCmd } = data;
   const box = useRef<HTMLDivElement | null>(null);
   const map = useRef<L.Map | null>(null);
   const layer = useRef<L.LayerGroup | null>(null);
@@ -61,7 +65,8 @@ export function MapHere() {
       setBroken(true);
       return;
     }
-    // no tile ever loaded (offline or blocked) after several attempts: show the designed unavailable state
+    // OpenStreetMap tiles (no key needed), softened to a light flat grey by the stylesheet filter above.
+    // No tile ever loaded (offline or blocked) after several attempts: show the designed unavailable state.
     let loaded = 0;
     let failed = 0;
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -73,7 +78,6 @@ export function MapHere() {
         if (++failed >= 4 && loaded === 0) setBroken(true);
       })
       .addTo(m);
-    L.control.zoom({ position: 'bottomright' }).addTo(m);
     m.on('click', () => pick.current(null));
     layer.current = L.layerGroup().addTo(m);
     map.current = m;
@@ -106,8 +110,15 @@ export function MapHere() {
     return () => clearTimeout(t);
   }, [focused]);
 
+  // the +/− buttons in the overlay
   useEffect(() => {
-    if (target) map.current?.flyTo([target.lat, target.lng], target.zoom === 'venue' ? 16 : 14, { duration: 0.6 });
+    if (!zoomCmd) return;
+    if (zoomCmd.d > 0) map.current?.zoomIn();
+    else map.current?.zoomOut();
+  }, [zoomCmd]);
+
+  useEffect(() => {
+    if (target) map.current?.flyTo([target.lat, target.lng], target.zoom === 'venue' ? 16 : target.zoom === 'near' ? 14 : 13, { duration: 0.6 });
   }, [target]);
 
   if (broken)

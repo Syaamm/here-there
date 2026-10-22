@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Activity, Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
@@ -72,7 +72,37 @@ export function effectiveStatus(a: Pick<Activity, 'status' | 'startsAt' | 'endsA
 }
 
 @Injectable()
-export class ActivitiesService {
+export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
+  private sweeper?: NodeJS.Timeout;
+
+  /** Pending requests are closed the moment an activity starts; this sweep makes that happen on time even if nobody opens the app. */
+  onModuleInit() {
+    if (process.env.NODE_ENV === 'test') return;
+    this.sweeper = setInterval(() => void this.expirePendingRequests().catch(() => undefined), 15_000);
+    this.sweeper.unref();
+  }
+
+  onModuleDestroy() {
+    if (this.sweeper) clearInterval(this.sweeper);
+  }
+
+  /**
+   * Once an activity has started nobody can join it, so every request the host never answered is declined, and the
+   * person is told. Run by the sweep above and also whenever requests or activities are read, so it is never late.
+   */
+  async expirePendingRequests(activityId?: string) {
+    const now = new Date();
+    const stale = await this.prisma.activityRequest.findMany({
+      where: { state: { in: ['requested', 'waitlisted'] }, activity: { startsAt: { lte: now }, ...(activityId ? { id: activityId } : {}) } },
+      include: { activity: { select: { title: true } } },
+    });
+    if (stale.length === 0) return 0;
+    await this.prisma.activityRequest.updateMany({ where: { id: { in: stale.map((r) => r.id) } }, data: { state: 'declined', decidedAt: now } });
+    for (const r of stale)
+      await this.notifications.notify(r.applicantId, 'request_declined', 'Request not approved', `The host did not answer before ${r.activity.title} started, so your request was closed.`, { activityId: r.activityId });
+    return stale.length;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
@@ -125,7 +155,8 @@ export class ActivitiesService {
     const blocked = await this.safety.blockedWith(me.id);
     const and: Prisma.ActivityWhereInput[] = [
       { status: { in: ['published', 'full', 'confirmed'] } },
-      { startsAt: { gte: from, lte: to } },
+      // coming up in the window, or already started and not over yet (shown as "Happening now")
+      { OR: [{ startsAt: { gte: from, lte: to } }, { startsAt: { lt: now }, endsAt: { gt: now } }] },
       { hostId: { notIn: blocked } },
       {
         OR: [
@@ -187,6 +218,7 @@ export class ActivitiesService {
   }
 
   async detail(me: User, id: string) {
+    await this.expirePendingRequests(id);
     const a = await this.prisma.activity.findUnique({ where: { id }, include: this.hostInclude });
     if (!a) throw E.notFound('Activity');
     if (await this.safety.isBlocked(me.id, a.hostId)) throw E.notFound('Activity');
@@ -217,7 +249,7 @@ export class ActivitiesService {
       isHost: a.hostId === me.id,
       isMember,
       activitiesHosted,
-      myRequest: request ? { id: request.id, state: request.state } : null,
+      myRequest: request ? { id: request.id, state: request.state, position: request.state === 'waitlisted' ? await this.waitlistPosition(id, request.createdAt) : undefined } : null,
       favorited: !!fav,
       // chat id is withheld until the server has approved this user
       conversationId: conv?.id ?? null,
@@ -354,6 +386,7 @@ export class ActivitiesService {
       );
       await this.audit.log(me.id, 'activity.material_change', 'activity', id, { venueChanged, timeChanged });
     }
+    if (dto.capacity !== undefined) await this.fillFromWaitlist(id); // a higher limit lets people in off the waiting list
     return this.detail(me, id);
   }
 
@@ -361,6 +394,8 @@ export class ActivitiesService {
     const a = byStaff ? await this.prisma.activity.findUnique({ where: { id } }) : await this.hostOwned(me, id);
     if (!a) throw E.notFound('Activity');
     if (a.status === 'cancelled') return { ok: true };
+    // a finished activity is history: it stays "Completed", it cannot be cancelled afterwards (staff removal still can)
+    if (!byStaff && effectiveStatus(a) === 'completed') throw E.conflict('ACTIVITY_FINISHED', 'This activity has already finished');
     await this.prisma.activity.update({ where: { id }, data: { status: 'cancelled' } });
     // close registration: pending requests are declined, accepted attendees notified
     await this.prisma.activityRequest.updateMany({
@@ -390,8 +425,9 @@ export class ActivitiesService {
     const status = effectiveStatus(a);
     if (status === 'cancelled') throw E.conflict('ACTIVITY_CANCELLED', 'This activity was cancelled');
     if (['in_progress', 'completed', 'archived'].includes(status)) throw E.conflict('ACTIVITY_CLOSED', 'This activity has already started');
-    if (status === 'full' || (await this.goingCount(id)) >= a.capacity)
-      throw E.conflict('ACTIVITY_FULL', 'This activity is full');
+    // full: the person joins the waiting list (in order of asking) instead of being turned away
+    const full = status === 'full' || (await this.goingCount(id)) >= a.capacity;
+    const target = full ? 'waitlisted' : 'requested';
 
     this.limiter.hit(`activity-request:${me.id}`, 20, 24 * HOUR);
 
@@ -402,10 +438,10 @@ export class ActivitiesService {
       if (existing.state === 'withdrawn') {
         const r = await this.prisma.activityRequest.update({
           where: { id: existing.id },
-          data: { state: 'requested', intro: dto.intro, decidedAt: null, reviewedBy: null },
+          data: { state: target, intro: dto.intro, decidedAt: null, reviewedBy: null, createdAt: new Date() },
         });
-        await this.notifyHost(a, me);
-        return { id: r.id, state: r.state };
+        if (!full) await this.notifyHost(a, me);
+        return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt) : undefined };
       }
       throw E.conflict('ALREADY_REQUESTED', `You already have a request (${existing.state}) for this activity`, {
         state: existing.state,
@@ -413,10 +449,10 @@ export class ActivitiesService {
     }
 
     const r = await this.prisma.activityRequest.create({
-      data: { activityId: id, applicantId: me.id, intro: dto.intro },
+      data: { activityId: id, applicantId: me.id, intro: dto.intro, state: target },
     });
-    await this.notifyHost(a, me);
-    return { id: r.id, state: r.state };
+    if (!full) await this.notifyHost(a, me);
+    return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt) : undefined };
   }
 
   private async notifyHost(a: Activity, applicant: User) {
@@ -426,16 +462,62 @@ export class ActivitiesService {
     });
   }
 
+  /** 1 = first in line. */
+  private async waitlistPosition(activityId: string, createdAt: Date) {
+    return this.prisma.activityRequest.count({ where: { activityId, state: 'waitlisted', createdAt: { lte: createdAt } } });
+  }
+
+  /**
+   * A place opened up (someone left or was removed, or the host raised the limit): the first person on the waiting list
+   * (the oldest request) is let in and told. Repeats while places remain. Skips anyone whose account is no longer active
+   * or who the host has blocked.
+   */
+  async fillFromWaitlist(activityId: string) {
+    for (let i = 0; i < 20; i++) {
+      const a = await this.prisma.activity.findUnique({ where: { id: activityId } });
+      if (!a || ['cancelled', 'archived'].includes(a.status) || ['in_progress', 'completed'].includes(effectiveStatus(a))) return;
+      if ((await this.goingCount(activityId)) >= a.capacity) return;
+      const waiting = await this.prisma.activityRequest.findMany({
+        where: { activityId, state: 'waitlisted' },
+        orderBy: { createdAt: 'asc' },
+        take: 10,
+        include: { applicant: { select: { state: true } } },
+      });
+      let next: (typeof waiting)[number] | undefined;
+      for (const r of waiting) {
+        if (r.applicant.state !== 'active') continue;
+        if (await this.safety.isBlocked(a.hostId, r.applicantId)) continue;
+        next = r;
+        break;
+      }
+      if (!next) return;
+      const who = next;
+      await this.prisma.$transaction(async (tx) => {
+        await tx.activityMembership.upsert({
+          where: { activityId_userId: { activityId, userId: who.applicantId } },
+          create: { activityId, userId: who.applicantId, role: 'attendee', state: 'approved' },
+          update: { state: 'approved' },
+        });
+        await tx.activityRequest.update({ where: { id: who.id }, data: { state: 'approved', decidedAt: new Date() } });
+        const total = await tx.activityMembership.count({ where: { activityId, state: 'approved' } });
+        if (total >= a.capacity) await tx.activity.update({ where: { id: activityId }, data: { status: 'full' } });
+      });
+      await this.notifications.notify(who.applicantId, 'waitlist_promoted', "A place opened up. You're in!", `You moved off the waiting list and into ${a.title}. You can chat with the group now.`, { activityId });
+      await this.audit.log(a.hostId, 'activity.waitlist_promoted', 'activity_request', who.id, { activityId, applicantId: who.applicantId });
+    }
+  }
+
   async withdraw(me: User, id: string) {
     const r = await this.prisma.activityRequest.findUnique({
       where: { activityId_applicantId: { activityId: id, applicantId: me.id } },
     });
-    if (!r || r.state !== 'requested') throw E.notFound('Pending request');
+    if (!r || !['requested', 'waitlisted'].includes(r.state)) throw E.notFound('Pending request');
     await this.prisma.activityRequest.update({ where: { id: r.id }, data: { state: 'withdrawn' } });
     return { ok: true };
   }
 
   async listRequests(me: User, id: string) {
+    await this.expirePendingRequests(id);
     await this.hostOwned(me, id);
     const rows = await this.prisma.activityRequest.findMany({
       where: { activityId: id },
@@ -462,6 +544,7 @@ export class ActivitiesService {
 
   async decide(me: User, activityId: string, requestId: string, body: unknown) {
     const { decision } = parse(decisionSchema, body);
+    await this.expirePendingRequests(activityId);
     const a = await this.hostOwned(me, activityId);
     const r = await this.prisma.activityRequest.findFirst({ where: { id: requestId, activityId } });
     if (!r) throw E.notFound('Request');
@@ -471,8 +554,8 @@ export class ActivitiesService {
     if (!applicant || applicant.state !== 'active') throw E.conflict('APPLICANT_UNAVAILABLE', 'Applicant account is unavailable');
 
     if (decision === 'approve') {
-      if (['cancelled', 'archived'].includes(a.status) || effectiveStatus(a) === 'completed')
-        throw E.conflict('ACTIVITY_CLOSED', 'This activity is closed');
+      if (['cancelled', 'archived'].includes(a.status) || ['in_progress', 'completed'].includes(effectiveStatus(a)))
+        throw E.conflict('ACTIVITY_CLOSED', 'This activity has already started, so nobody new can be approved');
       // capacity check + membership creation are atomic so two approvals cannot overfill
       await this.prisma.$transaction(async (tx) => {
         const already = await tx.activityMembership.findUnique({
@@ -512,6 +595,7 @@ export class ActivitiesService {
       await this.notifications.notify(r.applicantId, 'request_declined', 'Request declined', `Your request for ${a.title} was not approved.`, {
         activityId,
       });
+      await this.fillFromWaitlist(activityId); // a reversed approval frees a place too
     }
     await this.audit.log(me.id, `activity.request.${decision}`, 'activity_request', r.id, { activityId, applicantId: r.applicantId });
     return { id: r.id, state: decision === 'approve' ? 'approved' : 'declined' };
@@ -547,6 +631,7 @@ export class ActivitiesService {
   private async setMemberGone(a: Activity, membershipId: string, state: 'withdrawn' | 'removed') {
     await this.prisma.activityMembership.update({ where: { id: membershipId }, data: { state } });
     if (a.status === 'full') await this.prisma.activity.update({ where: { id: a.id }, data: { status: 'published' } });
+    await this.fillFromWaitlist(a.id); // the first person waiting takes the place
   }
 
   // ---------------------------------------------------------------- favorites & "mine"
@@ -577,6 +662,7 @@ export class ActivitiesService {
   }
 
   async mine(me: User) {
+    await this.expirePendingRequests();
     const [memberships, requests] = await Promise.all([
       this.prisma.activityMembership.findMany({
         where: { userId: me.id, state: 'approved' },
@@ -584,7 +670,7 @@ export class ActivitiesService {
         orderBy: { activity: { startsAt: 'desc' } },
       }),
       this.prisma.activityRequest.findMany({
-        where: { applicantId: me.id, state: { in: ['requested', 'declined'] } },
+        where: { applicantId: me.id, state: { in: ['requested', 'waitlisted', 'declined'] } },
         include: { activity: { include: this.hostInclude } },
         orderBy: { createdAt: 'desc' },
       }),

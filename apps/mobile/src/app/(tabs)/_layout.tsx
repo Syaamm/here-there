@@ -1,56 +1,137 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Tabs, usePathname, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, type ColorValue } from 'react-native';
+import { Animated, Easing, Pressable, View, type ColorValue } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { get } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useLoad } from '@/lib/hooks';
+import { DockSpace } from '@/lib/dock';
+import { onUnreadRefresh, setUnread, useUnread } from '@/lib/unread';
 import { useLayout } from '@/lib/layout';
 import { sc } from '@/lib/scale';
 import { InnerHeader } from '@/components/TabHeader';
+import { HomeIcon, MessageIcon, SearchIcon } from '@/components/DockIcons';
+import { Avatar } from '@/components/ui';
 import { useTheme } from '@/lib/theme';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
-/** Tab icon that pops up a little when its tab becomes the selected one, and settles back when it is left. */
-function TabGlyph({ on, off, color, size, focused }: { on: IconName; off: IconName; color: string; size: number; focused: boolean }) {
-  const v = useRef(new Animated.Value(focused ? 1 : 0)).current;
+/**
+ * Dock icon that fills in when its tab opens: it rests as an outline; on selection the solid version rises from the
+ * bottom, and leaving the tab drains it again. `render(true)` is the solid icon. (The press squash is in DockButton.)
+ */
+function TabGlyph({ size, focused, render }: { size: number; focused: boolean; render: (solid: boolean) => React.ReactElement }) {
+  const fill = useRef(new Animated.Value(focused ? 1 : 0)).current; // height of the solid layer, 0..1 (JS-driven)
+  const first = useRef(true);
   useEffect(() => {
-    Animated.timing(v, { toValue: focused ? 1 : 0, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [focused, v]);
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    Animated.timing(fill, { toValue: focused ? 1 : 0, duration: focused ? 340 : 200, delay: focused ? 120 : 0, easing: focused ? Easing.out(Easing.cubic) : Easing.in(Easing.quad), useNativeDriver: false }).start();
+  }, [focused, fill]);
   return (
-    <Animated.View style={{ transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] }) }, { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, -1.5] }) }] }}>
-      <Ionicons name={focused ? on : off} size={size} color={color} />
-    </Animated.View>
+    <View style={{ width: size, height: size }}>
+      {/* the outline fades as the solid rises, so its lines never show through the solid's cut-outs (the + in Create) */}
+      <Animated.View style={{ position: 'absolute', left: 0, top: 0, width: size, height: size, opacity: fill.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>{render(false)}</Animated.View>
+      <Animated.View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: fill.interpolate({ inputRange: [0, 1], outputRange: [0, size] }), overflow: 'hidden' }}>
+        <View style={{ position: 'absolute', left: 0, bottom: 0, width: size, height: size }}>{render(true)}</View>
+      </Animated.View>
+    </View>
+  );
+}
+/** The same fill, for the hand-drawn SVG icons in DockIcons. */
+const svgIcon = (Custom: (p: { size: number; color: string; focused: boolean }) => React.ReactElement) =>
+  function TabSvgIcon({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) {
+    return <TabGlyph size={size} focused={focused} render={(solid) => <Custom size={size} color={color as string} focused={solid} />} />;
+  };
+/** Profile tab: the member's own round photo (initial when there is none), ringed while the tab is open. */
+function ProfileGlyph({ focused, size }: { focused: boolean; size: number }) {
+  const { c } = useTheme();
+  const { me } = useMe();
+  return (
+    <View style={{ borderRadius: 99, borderWidth: 2, borderColor: focused ? c.text : 'transparent', padding: 1.5 }}>
+      <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={size - 4} />
+    </View>
   );
 }
 const icon = (on: IconName, off: IconName) =>
   function TabIcon({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) {
-    return <TabGlyph on={on} off={off} color={color as string} size={size} focused={focused} />;
+    return <TabGlyph size={size} focused={focused} render={(solid) => <Ionicons name={solid ? on : off} size={size} color={color as string} />} />;
   };
 
 /**
- * Every dock item reacts to a touch: the icon and label swell a little while pressed and settle on release, the same
- * feel as the Create button. (The selected tab additionally pops, see TabGlyph.)
+ * Every dock item reacts to a touch, in one motion: while the finger is down the icon squashes flat from the top;
+ * on release it springs a little taller than normal, jumps up, and drops back to rest with a small bounce.
+ * (The selected tab's icon also fills in, see TabGlyph.)
  */
 function DockButton(props: any) {
-  const { children, onPress, onLongPress, style, accessibilityLabel, accessibilityState, testID } = props;
-  const press = useRef(new Animated.Value(0)).current;
-  const to = (v: number) => Animated.timing(press, { toValue: v, duration: v ? 110 : 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  const { children, onPress, onLongPress, style, accessibilityLabel, accessibilityState, testID, glass } = props;
+  // this navigator reports the open tab as `aria-selected` (older ones used accessibilityState)
+  const selected = !!(props['aria-selected'] ?? accessibilityState?.selected);
+  // the liquid-glass highlight behind the open tab: it swells in with a little overshoot, like a drop settling
+  const drop = useRef(new Animated.Value(selected ? 1 : 0)).current;
+  const seen = useRef(selected);
+  useEffect(() => {
+    if (seen.current === selected) return;
+    seen.current = selected;
+    Animated.spring(drop, { toValue: selected ? 1 : 0, friction: selected ? 5 : 9, tension: selected ? 150 : 200, useNativeDriver: true }).start();
+  }, [selected, drop]);
+  const squash = useRef(new Animated.Value(1)).current; // vertical scale: below 1 squashed, above 1 stretched
+  const lift = useRef(new Animated.Value(0)).current; // 0 on the ground, 1 at the top of the jump
+  const down = () => {
+    lift.stopAnimation();
+    Animated.timing(squash, { toValue: 0.86, duration: 80, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+  };
+  const up = () => {
+    Animated.sequence([
+      Animated.timing(squash, { toValue: 1.04, duration: 70, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(squash, { toValue: 1, friction: 7, tension: 220, useNativeDriver: true }),
+    ]).start();
+    Animated.sequence([
+      Animated.timing(lift, { toValue: 1, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(lift, { toValue: 0, friction: 7, tension: 200, useNativeDriver: true }),
+    ]).start();
+  };
   return (
     <Pressable
       accessibilityRole="tab"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={accessibilityState}
+      accessibilityState={{ ...accessibilityState, selected }}
       testID={testID}
       onPress={onPress}
       onLongPress={onLongPress}
-      onPressIn={() => to(1)}
-      onPressOut={() => to(0)}
+      onPressIn={down}
+      onPressOut={up}
       style={style}
     >
-      <Animated.View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transform: [{ scale: press.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) }] }}>{children}</Animated.View>
+      {glass ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: drop.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' }),
+            transform: [{ scaleX: drop.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }) }, { scaleY: drop.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) }],
+          }}
+        >
+          {/* liquid glass: a tall frosted capsule filling the tab, with a fine rim, a bright top edge and a green glow below */}
+          <View style={{ position: 'absolute', left: 2, right: 2, top: 5, bottom: 5, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(47,125,101,0.14)', backgroundColor: 'rgba(47,125,101,0.05)', shadowColor: '#2F7D65', shadowOpacity: 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
+            <View style={{ flex: 1, margin: 1, borderRadius: 999, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)' }}>
+              <LinearGradient colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0)']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 0.6 }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
+              <LinearGradient colors={['rgba(47,125,101,0)', 'rgba(47,125,101,0.09)']} start={{ x: 0.5, y: 0.35 }} end={{ x: 0.5, y: 1 }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
+            </View>
+          </View>
+        </Animated.View>
+      ) : null}
+      <Animated.View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transformOrigin: 'center bottom', transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }, { scaleY: squash }] }}>{children}</Animated.View>
     </Pressable>
   );
 }
@@ -112,7 +193,15 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   // lift the dock a little off the bottom edge: a phone's gesture bar, home indicator and rounded corners sit there
   const dockBottom = Math.max(insets.bottom, 12) + 6;
-  const unread = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true'), [], 30_000).data?.unreadCount ?? 0;
+  // the dock floats over the pages (phones), so they leave this much room at the bottom
+  const dockSpace = isWide ? 0 : Math.max(56, sc(56)) + dockBottom;
+  // the Message badge: asked of the server every 10 s, and changed at once by the screens that read things (lib/unread)
+  const polled = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true'), [], 10_000);
+  useEffect(() => {
+    if (polled.data) setUnread(polled.data.unreadCount);
+  }, [polled.data]);
+  useEffect(() => onUnreadRefresh(() => void polled.reload()), [polled.reload]);
+  const unread = useUnread();
 
   // right after sign-up: confirm email + profile once, then the tabs
   if (onboarding) return <Redirect href={'/onboarding' as never} />;
@@ -132,6 +221,7 @@ export default function TabsLayout() {
   });
 
   return (
+    <DockSpace.Provider value={dockSpace}>
     <Tabs
       backBehavior="history"
       screenOptions={{
@@ -139,35 +229,65 @@ export default function TabsLayout() {
         // no cross-fade: with two pages fading at once the old one shows through the new one as a ghost.
         // The page you leave disappears, and the new one eases in by itself (PageTransition).
         animation: 'none',
-        tabBarButton: (p) => <DockButton {...p} />,
+        tabBarButton: (p) => <DockButton {...p} glass={!isWide} />,
         freezeOnBlur: true,
         // bottom tabs on phones; a navigation rail down the left edge on iPads, tablets and desktop browsers
         tabBarPosition: isWide ? 'left' : 'bottom',
-        tabBarActiveTintColor: c.green,
+        // active item is dark and bold (filled icon), the rest soft grey
+        tabBarActiveTintColor: isWide ? c.green : c.text,
         tabBarInactiveTintColor: c.muted,
         // The active item gets a soft green highlight on the side rail (never the system blue).
         tabBarActiveBackgroundColor: isWide ? c.accentSoft : 'transparent',
         tabBarItemStyle: isWide ? { borderRadius: 12, marginVertical: 2, paddingVertical: 4 } : undefined,
         tabBarStyle: isWide
           ? { backgroundColor: c.surface, borderRightColor: c.line, width: 232, minWidth: 232, maxWidth: 232, flexGrow: 0, flexShrink: 0, paddingTop: 16, paddingHorizontal: 10 }
-          : // room for the raised Create button and for the labels, plus the phone's home-indicator inset
-            { backgroundColor: c.surface, borderTopColor: c.line, height: Math.max(62, sc(62)) + dockBottom, paddingTop: 8, paddingBottom: dockBottom },
-        tabBarLabelStyle: { fontWeight: '600', fontSize: isWide ? 14 : 10 },
+          : // a floating pill: the bar itself is see-through, the pill is drawn by tabBarBackground below.
+            // Room for the raised Create button and for the labels, plus the phone's home-indicator inset.
+            { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0, height: Math.max(56, sc(56)) + dockBottom, paddingTop: 0, paddingBottom: dockBottom, paddingHorizontal: 18 },
+        tabBarBackground: isWide
+          ? undefined
+          : () => (
+              <>
+              <LinearGradient pointerEvents="none" colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.78)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  left: 14,
+                  right: 14,
+                  top: 0,
+                  bottom: dockBottom,
+                  borderRadius: 999,
+                  // frosted glass: slightly see-through white with a fine rim, so the capsule inside it reads as glass on glass
+                  backgroundColor: 'rgba(255,255,255,0.88)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(16,47,41,0.08)',
+                  elevation: 10,
+                  shadowColor: '#0B2620',
+                  shadowOpacity: 0.12,
+                  shadowRadius: 18,
+                  shadowOffset: { width: 0, height: 4 },
+                }}
+              />
+              </>
+            ),
+        // icons only on the phone dock (screen readers still hear each tab's name); the side rail keeps its words
+        tabBarShowLabel: isWide,
+        tabBarLabelStyle: { fontWeight: '600', fontSize: isWide ? 14 : 11 },
         tabBarBadgeStyle: { backgroundColor: c.danger, color: '#fff' },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Explore', tabBarIcon: icon('home', 'home-outline') }} />
-      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? 'Map' : 'Search', tabBarIcon: mode === 'here' ? icon('location', 'location-outline') : icon('search', 'search-outline') }} />
+      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: svgIcon(HomeIcon) }} />
+      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? 'Map' : 'Explore', tabBarIcon: svgIcon(SearchIcon) }} />
       <Tabs.Screen
         name="create"
         options={{
           title: 'Create',
           tabBarIcon: icon('add-circle', 'add-circle-outline'),
-          tabBarButton: isWide ? undefined : (p) => <CreateButton onPress={p.onPress ?? undefined} />,
         }}
       />
-      <Tabs.Screen name="inbox" options={{ title: 'Inbox', tabBarIcon: icon('mail', 'mail-outline'), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: icon('person', 'person-outline') }} />
+      <Tabs.Screen name="inbox" options={{ title: 'Message', tabBarIcon: svgIcon(MessageIcon), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ size, focused }) => <ProfileGlyph focused={focused} size={size} /> }} />
 
       {/* Inner screens: no tab of their own (href: null), but the tab bar stays visible underneath them. */}
       <Tabs.Screen name="activity/[id]" options={inner('Activity')} />
@@ -176,7 +296,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="apply/[id]" options={inner('Apply to join')} />
       <Tabs.Screen name="host/[id]" options={inner('Manage join requests')} />
       <Tabs.Screen name="review/[id]" options={inner('Review travelers')} />
-      <Tabs.Screen name="chat/[id]" options={inner('Chat')} />
+      {/* inside a chat there is no app header: the conversation has its own back arrow and title */}
+      <Tabs.Screen name="chat/[id]" options={{ ...inner('Chat'), headerShown: false }} />
       <Tabs.Screen name="safety" options={inner('Safety & privacy')} />
       <Tabs.Screen name="activities" options={inner('All activities')} />
       <Tabs.Screen name="edit-profile" options={inner('Edit profile')} />
@@ -184,5 +305,6 @@ export default function TabsLayout() {
       <Tabs.Screen name="group/[id]" options={inner('Group info')} />
       <Tabs.Screen name="user/[id]" options={inner('Profile')} />
     </Tabs>
+    </DockSpace.Provider>
   );
 }

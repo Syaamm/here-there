@@ -14,6 +14,9 @@ import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { dayLabel, hhmm } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
+import { BackArrow } from '@/components/TabHeader';
+import { useDockSpace } from '@/lib/dock';
+import { refreshUnread } from '@/lib/unread';
 import { useTheme } from '@/lib/theme';
 
 type Msg = { id: string; body: string; createdAt: string; sender: { id: string; displayName: string; photoUrl?: string | null } };
@@ -29,9 +32,15 @@ export default function Chat() {
   const router = useRouter();
   const go = useGo();
   const insets = useSafeAreaInsets();
+  const dock = useDockSpace();
 
   const convs = useLoad(() => get<{ items: ConversationRef[] }>('/v1/me/conversations'), [id]);
   const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[] }>(`/v1/conversations/${id}/messages`), [id], 3000);
+  // fetching the messages reads this chat's alert on the server: ask for the new badge number each time something arrives
+  const arrived = msgs.data?.items.length ?? -1;
+  useEffect(() => {
+    if (arrived >= 0) refreshUnread();
+  }, [arrived]);
   const [text, setText] = useState('');
   const info = useLoad(() => get<GroupInfo>(`/v1/conversations/${id}/info`), [id], 30_000);
   const [reportMsg, setReportMsg] = useState<{ id: string; category?: string } | null>(null);
@@ -122,29 +131,28 @@ export default function Chat() {
   const closedText =
     info.data?.status === 'archived'
       ? 'This chat is archived. The activity has ended, so you can read it but not write.'
-      : 'This conversation is closed. The activity or trip was cancelled.';
+      : info.data?.status === 'completed'
+        ? 'This activity has ended, so the chat is read-only now.'
+        : 'This conversation is closed. The activity or trip was cancelled.';
 
   return (
     // on tablets and desktops the conversation is a centred, readable column rather than edge to edge
     <PageTransition>
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: c.bg }}>
     <KeyboardAvoidingView style={{ flex: 1, width: '100%', maxWidth: 760, backgroundColor: c.bg }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}>
-      <Stack.Screen
-        options={{
-          title: conv?.title ?? 'Group chat',
-          headerTitleAlign: 'left',
-          headerTitle: () => (
-            <Pressable accessibilityRole="button" accessibilityLabel={`${conv?.title ?? 'Group'}. Open group info`} onPress={() => go(`/group/${id}`)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              {info.data?.category ? <CatPhoto category={info.data.category} style={{ width: 38, height: 38, borderRadius: 19 }} /> : <Avatar name={conv?.title} size={38} />}
-              <View>
-                <Text numberOfLines={1} style={{ color: c.text, fontWeight: '800', fontSize: 16, maxWidth: 200 }}>{conv?.title ?? 'Group chat'}</Text>
-                <Text style={{ color: c.muted, fontSize: 12 }}>{info.data ? `${info.data.members.length} ${info.data.members.length === 1 ? 'person' : 'people'} · tap for group info` : conv?.scope === 'trip' ? 'Trip group' : 'Activity group'}</Text>
-              </View>
-            </Pressable>
-          ),
-          headerRight: () => <Menu items={menu} />,
-        }}
-      />
+      <Stack.Screen options={{ title: conv?.title ?? 'Group chat' }} />
+      {/* the chat's own top row: back, who it is (tap for group info), and the menu */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: Math.max(insets.top, 20) + 8, paddingBottom: 6, paddingHorizontal: 12 }}>
+        <BackArrow />
+        <Pressable accessibilityRole="button" accessibilityLabel={`${conv?.title ?? 'Group'}. Open group info`} onPress={() => go(`/group/${id}`)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          {info.data?.category ? <CatPhoto category={info.data.category} style={{ width: 38, height: 38, borderRadius: 19 }} /> : <Avatar name={conv?.title} size={38} />}
+          <View style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ color: c.text, fontWeight: '800', fontSize: 16 }}>{conv?.title ?? 'Group chat'}</Text>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{info.data ? `${info.data.members.length} ${info.data.members.length === 1 ? 'person' : 'people'} · tap for group info` : conv?.scope === 'trip' ? 'Trip group' : 'Activity group'}</Text>
+          </View>
+        </Pressable>
+        <Menu items={menu} />
+      </View>
       <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: c.sand, borderRadius: 14, padding: 12 }}>
           <Ionicons name="lock-closed-outline" size={18} color={c.forest} />
@@ -202,7 +210,7 @@ export default function Chat() {
         <ErrorBanner message={send.error ?? safety.error ?? (msgs.error && !locked ? msgs.error.message : null)} />
       </View>
       {msgs.data && !msgs.data.writable ? (
-        <View style={{ padding: 16, paddingBottom: insets.bottom + 16 }}>
+        <View style={{ padding: 16, paddingBottom: dock + 16 }}>
           <Banner>{closedText}</Banner>
         </View>
       ) : (
@@ -231,7 +239,7 @@ export default function Chat() {
         </View>
       )}
       {/* quiet footer: where the safety tools live */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: insets.bottom + 6 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: dock + 6 }}>
         <Text style={{ color: c.muted, fontSize: 12 }}>Hold a message to report or block</Text>
         <Pressable accessibilityRole="button" onPress={() => go('/safety')} hitSlop={8}>
           <Text style={{ color: c.green, fontWeight: '800', fontSize: 14 }}>Safety →</Text>

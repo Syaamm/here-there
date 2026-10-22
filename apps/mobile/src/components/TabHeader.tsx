@@ -38,6 +38,35 @@ export function ModeSwitch() {
   );
 }
 
+/**
+ * The big two-part switch under the home header: HERE (Today & tomorrow) and THERE (Plan a trip), the open one filled.
+ * It does what the small HERE | THERE switch does.
+ */
+export function ModeTabs() {
+  const { mode, switchMode, c } = useTheme();
+  const router = useRouter();
+  const path = usePathname();
+  const flip = (m: Mode) => {
+    if (m === mode) return;
+    switchMode(m);
+    if (!MAIN_TABS.includes(path)) setTimeout(() => router.replace('/'), 800);
+  };
+  const opts: [Mode, string, string][] = [['here', 'HERE', 'Today & tomorrow'], ['there', 'THERE', 'Plan a trip']];
+  return (
+    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 14, borderWidth: 1, borderColor: c.line, padding: 3 }}>
+      {opts.map(([m, label, sub]) => {
+        const on = mode === m;
+        return (
+          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`Switch to ${label}: ${sub}`} onPress={() => flip(m)} style={{ flex: 1, minHeight: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.accentSoft : 'transparent' }}>
+            <Text style={{ color: on ? c.forest : c.muted, fontWeight: on ? '800' : '600', fontSize: 12, letterSpacing: 0.8, lineHeight: 16 }}>{label}</Text>
+            <Text style={{ color: c.muted, fontSize: 10, lineHeight: 13 }}>{sub}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 /** The wordmark shows only the product you are in: HERE or THERE, with the green accent dot. */
 export function Wordmark({ size = 20, light }: { size?: number; light?: boolean }) {
   const { c, mode } = useTheme();
@@ -47,6 +76,17 @@ export function Wordmark({ size = 20, light }: { size?: number; light?: boolean 
     <Text accessibilityRole="header" accessibilityLabel={name} style={{ fontSize: size, fontWeight: '800', letterSpacing: -0.8, color: ink }}>
       {name}<Text style={{ color: light ? '#5FC29F' : c.accent }}>.</Text>
     </Text>
+  );
+}
+
+/** The wordmark with its tagline under it: "Be here. Be together." in HERE, "Go there. Together." in THERE. */
+export function Brand() {
+  const { mode, c } = useTheme();
+  return (
+    <View style={{ gap: 1 }}>
+      <Wordmark />
+      <Text style={{ color: c.muted, fontSize: 11, lineHeight: 14 }}>{mode === 'here' ? 'Be here. Be together.' : 'Go there. Together.'}</Text>
+    </View>
   );
 }
 
@@ -60,15 +100,15 @@ export function Logo({ size = 28, light }: { size?: number; light?: boolean }) {
  * line underneath (the city picker in HERE, a tagline elsewhere).
  */
 export function TabHeader({ subtitle, children, compact }: { subtitle?: string; children?: React.ReactNode; /** only the wordmark and the switch, no line underneath */ compact?: boolean }) {
-  const { mode, c } = useTheme();
+  const { c } = useTheme();
   return (
     <View style={{ gap: 6 }}>
-      {/* top row: the wordmark on the left, a small quiet HERE | THERE switch in the top-right corner */}
+      {/* top row: the wordmark and its tagline on the left, a small quiet HERE | THERE switch in the top-right corner */}
       <Between>
-        <Wordmark />
+        <Brand />
         <ModeSwitch />
       </Between>
-      {compact ? null : (children ?? <Text style={{ color: c.muted, fontSize: 12 }}>{subtitle ?? (mode === 'here' ? 'Be here. Be together.' : 'Go there. Together.')}</Text>)}
+      {compact ? null : (children ?? (subtitle ? <Text style={{ color: c.muted, fontSize: 12 }}>{subtitle}</Text> : null))}
     </View>
   );
 }
@@ -79,7 +119,7 @@ export function HeaderBar({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   return (
-    <View style={{ paddingTop: Math.max(insets.top, 20) + 14, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, borderBottomWidth: 1, borderBottomColor: c.line, zIndex: 2 }}>
+    <View style={{ paddingTop: Math.max(insets.top, 20) + 14, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
       {children}
     </View>
   );
@@ -113,7 +153,7 @@ export function InnerHeader({ options }: { options: { title?: string; headerTitl
         <Between>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <BackArrow />
-            <Wordmark />
+            <Brand />
           </View>
           <ModeSwitch />
         </Between>

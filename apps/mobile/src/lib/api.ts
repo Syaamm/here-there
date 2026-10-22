@@ -154,7 +154,7 @@ export type Activity = {
   // detail only
   isHost?: boolean;
   isMember?: boolean;
-  myRequest?: { id: string; state: string } | null;
+  myRequest?: { id: string; state: string; /** 1 = first in line, when state is waitlisted */ position?: number } | null;
   conversationId?: string | null;
   participants?: Participant[];
   /** how many activities the host has run or has coming up (cancelled ones excluded) */
@@ -216,4 +216,4 @@ export type GroupInfo = {
   members: { id: string; displayName: string; photoUrl: string | null; verifiedAdult: boolean; role: 'host' | 'member'; isMe: boolean }[];
 };
 
-export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip'; scopeId: string; title: string; category?: string | null; startsAt?: string };
+export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip'; scopeId: string; title: string; category?: string | null; startsAt?: string; endsAt?: string; /** the newest message: who wrote it ("You" for yours), the first 140 characters and when */ lastMessage?: { body: string; at: string; from: string | null } | null };

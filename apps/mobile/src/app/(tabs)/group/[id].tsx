@@ -39,6 +39,7 @@ export default function GroupInfoScreen() {
   const trip = g.scope === 'trip';
   const me = g.members.find((m) => m.isMe);
   const closed = ['cancelled', 'archived'].includes(g.status);
+  const finished = g.status === 'completed'; // it took place: history now, so nothing to cancel
   const open = () => go(trip ? `/trip/${g.scopeId}` : `/activity/${g.scopeId}`);
 
   const leave = async () => {
@@ -62,6 +63,7 @@ export default function GroupInfoScreen() {
         <Txt variant="muted">{trip ? 'Trip group' : 'Activity group'} · {g.members.length} {g.members.length === 1 ? 'person' : 'people'}</Txt>
       </View>
 
+      {finished && <Banner tone="ok">This activity has ended. Thanks for being part of it.</Banner>}
       {closed && <Banner tone="warn">{g.status === 'archived' ? 'This group is archived: read only.' : `This ${trip ? 'trip' : 'activity'} was cancelled, so its chat has ended.`}</Banner>}
       <ErrorBanner message={act.error} />
 
@@ -105,7 +107,7 @@ export default function GroupInfoScreen() {
       {me?.role === 'host' ? (
         <View style={{ gap: 10 }}>
           <Banner>You are the {trip ? 'organizer' : 'host'} and the group admin. A {trip ? 'organizer' : 'host'} cannot leave their own group: cancel the {trip ? 'trip' : 'activity'} to close it.</Banner>
-          {!closed && <Btn title={`Cancel ${trip ? 'trip' : 'activity'}`} variant="danger" loading={act.busy} onPress={cancel} />}
+          {!closed && !finished && <Btn title={`Cancel ${trip ? 'trip' : 'activity'}`} variant="danger" loading={act.busy} onPress={cancel} />}
         </View>
       ) : (
         !closed && <>

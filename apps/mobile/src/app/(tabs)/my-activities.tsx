@@ -36,7 +36,7 @@ export default function MyActivities() {
       <Grid>
         {shown.map((x, i) => (
           <Reveal key={x.key} index={i} style={{ gap: 6 }}>
-            <ActivityCard a={x.activity} />
+            <ActivityCard a={x.activity} plain={x.kind === 'rejected'} />
             <Row>
               <Chip label={x.label} tone={x.tone} />
               {x.hostOf && <Btn title="Manage requests ›" variant="ghost" small onPress={() => go(`/host/${x.activity.id}`)} />}

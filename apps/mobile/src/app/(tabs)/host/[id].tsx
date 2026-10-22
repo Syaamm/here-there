@@ -16,7 +16,7 @@ type Req = {
   createdAt: string;
   applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; languages: string[]; interests: string[] };
 };
-const ORDER: Record<string, number> = { requested: 0, approved: 1, declined: 2, withdrawn: 3 };
+const ORDER: Record<string, number> = { requested: 0, waitlisted: 1, approved: 2, declined: 3, withdrawn: 4 };
 
 /** HERE · Host reviews applicants. The server creates membership only on approval. */
 export default function HostReview() {
@@ -106,6 +106,12 @@ export default function HostReview() {
             <Between>
               <Chip label="Declined" tone="bad" />
               <Btn title="Approve instead" variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} />
+            </Between>
+          )}
+          {r.state === 'waitlisted' && (
+            <Between>
+              <Chip label="On the waiting list" tone="warn" />
+              <Btn title="Approve now" variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} />
             </Between>
           )}
           {r.state === 'withdrawn' && <Chip label="Withdrawn by the applicant" tone="neutral" />}

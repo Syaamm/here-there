@@ -20,7 +20,7 @@ export function Profile() {
   const { me, reload, logout } = useMe();
   const { mode, switchMode, c } = useTheme();
   const go = useGo();
-  const [tab, setTab] = useState<'activities' | 'trips' | 'saved'>(mode === 'here' ? 'activities' : 'trips');
+  const [tab, setTab] = useState<'activities' | 'trips' | 'favourites'>(mode === 'here' ? 'activities' : 'trips');
   const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number } }>(`/v1/users/${me!.id}`), [me?.id]);
   const acts = useLoad(() => get<MyActivities>('/v1/me/activities'), []);
   const trips = useLoad(() => get<MyTrips>('/v1/me/trips'), []);
@@ -33,9 +33,7 @@ export function Profile() {
   const v = me.eligibility;
 
   return (
-    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader subtitle={p.homeCity ? `${p.homeCity} · Around you` : undefined} />}>
-      <Txt variant="h1" style={{ fontSize: 34, lineHeight: 40 }}>Your profile</Txt>
-
+    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader />}>
       <View style={{ alignItems: 'center', gap: 6 }}>
         <View>
           <Avatar name={p.displayName} uri={p.photoUrl} size={96} />
@@ -89,7 +87,7 @@ export function Profile() {
       <PillRow>
         <Pill label="My activities" active={tab === 'activities'} onPress={() => setTab('activities')} />
         <Pill label="My trips" active={tab === 'trips'} onPress={() => setTab('trips')} />
-        <Pill label="Saved" active={tab === 'saved'} onPress={() => setTab('saved')} />
+        <Pill label="Favourites" active={tab === 'favourites'} onPress={() => setTab('favourites')} />
       </PillRow>
 
       {tab === 'activities' && (
@@ -98,7 +96,7 @@ export function Profile() {
           <Grid>
             {all.slice(0, 3).map((x) => (
               <View key={x.key} style={{ gap: 6 }}>
-                <ActivityCard a={x.activity} />
+                <ActivityCard a={x.activity} plain={x.kind === 'rejected'} />
                 <Row>
                   <Chip label={x.label} tone={x.tone} />
                   {x.hostOf && <Btn title="Manage requests ›" variant="ghost" small onPress={() => go(`/host/${x.activity.id}`)} />}
@@ -133,9 +131,9 @@ export function Profile() {
         </>
       )}
 
-      {tab === 'saved' && (
+      {tab === 'favourites' && (
         <>
-          {favs.data && favs.data.items.length === 0 && <Empty title="No saved activities">Use ⋯ on an activity to save it for later.</Empty>}
+          {favs.data && favs.data.items.length === 0 && <Empty title="No favourites yet">Tap the heart on an activity to add it to your favourites.</Empty>}
           <Grid>
             {favs.data?.items.map((a) => (
               <ActivityCard key={a.id} a={a} />

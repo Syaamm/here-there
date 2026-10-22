@@ -8,13 +8,13 @@ import { useTheme } from '@/lib/theme';
 export type MenuItem = { label: string; onSelect: () => void; danger?: boolean };
 
 /** The ⋯ button. Opens a sheet of actions. `floating` renders it as the white square used on hero images. */
-export function Menu({ items, floating }: { items: MenuItem[]; floating?: boolean }) {
+export function Menu({ items, floating, round, size }: { items: MenuItem[]; floating?: boolean; round?: boolean; size?: number }) {
   const { c } = useTheme();
   const [open, setOpen] = useState(false);
   return (
     <>
       {floating ? (
-        <FloatingButton icon="ellipsis-horizontal" label="More options" onPress={() => setOpen(true)} />
+        <FloatingButton round={round} size={size} icon="ellipsis-horizontal" label="More options" onPress={() => setOpen(true)} />
       ) : (
         <Pressable accessibilityRole="button" accessibilityLabel="More options" onPress={() => setOpen(true)} hitSlop={10} style={{ paddingHorizontal: 8 }}>
           <Text style={{ fontSize: 26, color: c.text, lineHeight: 28 }}>⋯</Text>
