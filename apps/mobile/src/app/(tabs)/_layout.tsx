@@ -9,7 +9,9 @@ import { get } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useLoad } from '@/lib/hooks';
 import { DockSpace } from '@/lib/dock';
-import { onUnreadRefresh, setUnread, useUnread } from '@/lib/unread';
+import { startLive, stopLive, useLiveEvents } from '@/lib/live';
+import { resyncPush, usePushTaps } from '@/lib/push';
+import { bumpUnread, onUnreadRefresh, refreshUnread, setUnread, useUnread } from '@/lib/unread';
 import { useLayout } from '@/lib/layout';
 import { sc } from '@/lib/scale';
 import { InnerHeader } from '@/components/TabHeader';
@@ -202,6 +204,20 @@ export default function TabsLayout() {
   }, [polled.data]);
   useEffect(() => onUnreadRefresh(() => void polled.reload()), [polled.reload]);
   const unread = useUnread();
+
+  // live connection while signed in: new alerts move the badge at once; push is re-registered quietly
+  const { me: signedIn } = useMe();
+  useEffect(() => {
+    if (!signedIn) return;
+    startLive();
+    void resyncPush();
+    return () => stopLive();
+  }, [signedIn?.id]);
+  useLiveEvents((e) => {
+    if (e.type === 'notification') bumpUnread(1);
+    if (e.type === 'notification' || e.type === 'ready') refreshUnread();
+  });
+  usePushTaps();
 
   // right after sign-up: confirm email + profile once, then the tabs
   if (onboarding) return <Redirect href={'/onboarding' as never} />;

@@ -16,6 +16,7 @@ import { dayLabel, hhmm } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { BackArrow } from '@/components/TabHeader';
 import { useDockSpace } from '@/lib/dock';
+import { useLiveEvents } from '@/lib/live';
 import { refreshUnread } from '@/lib/unread';
 import { useTheme } from '@/lib/theme';
 
@@ -35,7 +36,11 @@ export default function Chat() {
   const dock = useDockSpace();
 
   const convs = useLoad(() => get<{ items: ConversationRef[] }>('/v1/me/conversations'), [id]);
-  const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[] }>(`/v1/conversations/${id}/messages`), [id], 3000);
+  const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[] }>(`/v1/conversations/${id}/messages`), [id], 30_000);
+  // a new message for this chat (or a reconnect) loads at once; the 30-second poll above is only the safety net
+  useLiveEvents((e) => {
+    if (e.type === 'ready' || (e.type === 'message' && e.conversationId === id)) void msgs.reload();
+  });
   // fetching the messages reads this chat's alert on the server: ask for the new badge number each time something arrives
   const arrived = msgs.data?.items.length ?? -1;
   useEffect(() => {

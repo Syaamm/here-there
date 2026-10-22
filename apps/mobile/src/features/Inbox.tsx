@@ -11,6 +11,8 @@ import { useMe } from '@/lib/auth';
 import { ago, when } from '@/lib/format';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
+import { useLiveEvents } from '@/lib/live';
+import { enablePush, pushState, type PushState } from '@/lib/push';
 import { bumpUnread, refreshUnread, setUnread } from '@/lib/unread';
 
 type Tab = 'alerts' | 'chats';
@@ -96,6 +98,14 @@ export function Inbox() {
 
   const refreshAll = () => Promise.all([notifs.reload(), convs.reload(), waiting.reload()]);
   const { refreshing, onRefresh } = useRefresh(refreshAll);
+  // a new alert or message arrives while this screen is open: the lists update at once
+  useLiveEvents((e) => {
+    if (e.type === 'notification' || e.type === 'message' || e.type === 'ready') void refreshAll();
+  });
+  const [push, setPush] = useState<PushState>('unsupported');
+  useEffect(() => {
+    void pushState().then(setPush);
+  }, []);
   const act = useAction(() => void refreshAll());
 
   const stale = me?.eligibility === 'expired' || me?.eligibility === 'reverification_required' || me?.eligibility === 'rejected';
@@ -186,6 +196,26 @@ export function Inbox() {
         })}
       </View>
       <ErrorBanner message={act.error ?? notifs.error?.message} />
+
+      {push === 'default' ? (
+        <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
+          <Row style={{ gap: 12, alignItems: 'flex-start' }}>
+            <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="notifications-outline" size={18} color={c.forest} />
+            </View>
+            <View style={{ flex: 1, gap: 1 }}>
+              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>Turn on notifications</Txt>
+              <Txt variant="small" style={{ lineHeight: 17 }}>Get a ping for new messages, join requests and when a place opens up, even when the app is closed.</Txt>
+            </View>
+          </Row>
+          <Btn title="Turn on" onPress={() => void enablePush().then(setPush)} />
+        </Card>
+      ) : push === 'denied' ? (
+        <Row style={{ gap: 8, backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, alignItems: 'flex-start' }}>
+          <Ionicons name="notifications-off-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
+          <Txt variant="small" style={{ flex: 1, lineHeight: 17, color: c.text }}>Notifications are blocked. You can allow them in your browser or phone settings.</Txt>
+        </Row>
+      ) : null}
 
       {tab === 'chats' ? (
         <Reveal key="chats" from={10} style={{ gap: 16 }}>
@@ -293,7 +323,7 @@ export function Inbox() {
 
       <Row style={{ gap: 8, backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, alignItems: 'flex-start' }}>
         <Ionicons name="information-circle-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
-        <Txt variant="small" style={{ flex: 1, lineHeight: 17, color: c.text }}>These alerts are in-app for now. Push notifications and quiet hours aren't set up yet. Operational notices are never mixed with marketing.</Txt>
+        <Txt variant="small" style={{ flex: 1, lineHeight: 17, color: c.text }}>Alerts only ever cover your plans and your chats. They are never mixed with marketing.</Txt>
       </Row>
     </Screen>
   );

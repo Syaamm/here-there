@@ -54,6 +54,7 @@ export class ApiError extends Error {
 let token: string | null = null;
 let onUnauthorized: () => void = () => {};
 export const setToken = (t: string | null) => (token = t);
+export const getToken = () => token;
 export const setUnauthorizedHandler = (fn: () => void) => (onUnauthorized = fn);
 
 export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {

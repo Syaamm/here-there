@@ -15,7 +15,10 @@ import { PrismaService } from './common/prisma.service';
 import { RateLimiter } from './common/rate-limiter';
 import { ConversationsController, ConversationsService } from './conversations/conversations.controller';
 import { PhotoController } from './profile/photo.controller';
+import { LiveService } from './common/live.service';
+import { PushService } from './common/push.service';
 import { NotificationsController } from './notifications/notifications.controller';
+import { PushController } from './notifications/push.controller';
 import { NotificationsService } from './notifications/notifications.service';
 import { SafetyController } from './safety/safety.controller';
 import { SafetyService } from './safety/safety.service';
@@ -40,6 +43,7 @@ function jwtSecret() {
     TripsController,
     ConversationsController,
     NotificationsController,
+    PushController,
     SafetyController,
     VerificationController,
     PhotoController,
@@ -53,6 +57,8 @@ function jwtSecret() {
     SmsService,
     ContactVerificationService,
     GuestService,
+    LiveService,
+    PushService,
     NotificationsService,
     SafetyService,
     VerificationService,

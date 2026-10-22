@@ -4,7 +4,9 @@ import { z } from 'zod';
 import { effectiveStatus } from '../activities/activities.service';
 import { CurrentUser, requireVerified } from '../common/auth';
 import { E } from '../common/errors';
+import { LiveService } from '../common/live.service';
 import { PrismaService } from '../common/prisma.service';
+import { PushService } from '../common/push.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -19,6 +21,8 @@ export class ConversationsService {
     private readonly safety: SafetyService,
     private readonly limiter: RateLimiter,
     private readonly notifications: NotificationsService,
+    private readonly live: LiveService,
+    private readonly push: PushService,
   ) {}
 
   /**
@@ -160,7 +164,7 @@ export class ConversationsService {
     this.limiter.hit(`msg:${me.id}`, isNew ? 10 : 30, 60 * 1000);
 
     const m = await this.prisma.message.create({ data: { conversationId: id, senderId: me.id, body: dto.body } });
-    await this.notifyOthers(me, conv, dto.body);
+    await this.notifyOthers(me, conv, dto.body, m);
     return { id: m.id, body: m.body, createdAt: m.createdAt };
   }
 
@@ -169,7 +173,7 @@ export class ConversationsService {
    * one unread "chat_message" alert per person per conversation until they read it.
    * People who blocked the sender (or were blocked by them) are skipped.
    */
-  private async notifyOthers(sender: User, conv: Conversation, body: string) {
+  private async notifyOthers(sender: User, conv: Conversation, body: string, m: { id: string; createdAt: Date }) {
     let userIds: string[] = [];
     let title = 'your group';
     if (conv.scopeType === 'activity' && conv.activityId) {
@@ -180,10 +184,16 @@ export class ConversationsService {
       title = (await this.prisma.trip.findUnique({ where: { id: conv.tripId } }))?.title ?? title;
     }
     const blocked = new Set(await this.safety.blockedWith(sender.id));
-    const name = (await this.prisma.profile.findUnique({ where: { userId: sender.id } }))?.displayName ?? 'Someone';
+    const profile = await this.prisma.profile.findUnique({ where: { userId: sender.id } });
+    const name = profile?.displayName ?? 'Someone';
     const marker = `"conversationId":"${conv.id}"`;
+    // live: the message reaches every open app of every member at once (the sender's other devices too)
+    const event = { type: 'message' as const, conversationId: conv.id, message: { id: m.id, body, createdAt: m.createdAt, sender: { id: sender.id, displayName: name, photoUrl: profile?.photoUrl ?? null } } };
+    for (const userId of userIds) if (userId === sender.id || !blocked.has(userId)) this.live.send(userId, event);
     for (const userId of userIds) {
       if (userId === sender.id || blocked.has(userId)) continue;
+      // push: every message, to people who are not in the app right now
+      void this.push.send(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}` });
       const alreadyUnread = await this.prisma.notification.findFirst({
         where: { userId, type: 'chat_message', readAt: null, data: { contains: marker } },
       });

@@ -456,6 +456,125 @@ describe('HERE: create, discover, request, approve, chat', () => {
     assert.equal(d2.myRequest.position, 1);
   });
 
+  it('delivers chat messages live over the WebSocket and pushes to members who are away', async () => {
+    const { WebSocket } = await import('ws');
+    const waitFor = async (ok: () => boolean) => {
+      for (let i = 0; i < 60 && !ok(); i++) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(ok(), 'timed out');
+    };
+    const host = await verified('LiveHost');
+    const member = await verified('LiveMember');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 3 }))).body.id;
+    const joined = await post(`/v1/activities/${id}/requests`, member.token, {});
+    await post(`/v1/activities/${id}/requests/${joined.body.id}/decision`, host.token, { decision: 'approve' });
+    const conv = await prisma.conversation.findUnique({ where: { activityId: id } });
+
+    // the member opens the app: a live connection, signed in by its first message (never by the address)
+    const events: any[] = [];
+    const ws = new WebSocket(base.replace('http', 'ws') + '/v1/live');
+    let ready = false;
+    ws.on('message', (raw) => {
+      const e = JSON.parse(raw.toString());
+      if (e.type === 'ready') ready = true;
+      else events.push(e);
+    });
+    await new Promise<void>((res) => ws.on('open', () => res()));
+    ws.send(JSON.stringify({ type: 'auth', token: member.token }));
+    await waitFor(() => ready);
+
+    // the host writes: the member's open app hears it at once, with the alert
+    assert.equal((await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'hello live' })).status, 201);
+    await waitFor(() => events.some((e) => e.type === 'message'));
+    const live = events.find((e) => e.type === 'message');
+    assert.equal(live.conversationId, conv.id);
+    assert.equal(live.message.body, 'hello live');
+    assert.equal(live.message.sender.id, host.id);
+    assert.ok(events.some((e) => e.type === 'notification'));
+
+    // a connection with a bad token is turned away
+    const bad = new WebSocket(base.replace('http', 'ws') + '/v1/live');
+    await new Promise<void>((res) => bad.on('open', () => res()));
+    const closed = new Promise<number>((res) => bad.on('close', (code) => res(code)));
+    bad.send(JSON.stringify({ type: 'auth', token: 'not-a-real-token' }));
+    assert.equal(await closed, 4003);
+
+    // push: an address is stored per device; a member who is away gets every message pushed (Expo's service is stubbed here)
+    assert.equal((await post('/v1/push/subscribe', member.token, { kind: 'expo', token: 'ExponentPushToken[abcdefghijkl]' })).status, 201);
+    assert.equal(await prisma.pushSubscription.count({ where: { userId: member.id } }), 1);
+    assert.equal((await get('/v1/push/config', member.token)).status, 200);
+    ws.close();
+    await waitFor(() => ws.readyState === WebSocket.CLOSED);
+    await new Promise((r) => setTimeout(r, 200)); // the server notices the close
+    const pushed: any[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any, init?: any) => {
+      if (String(url).startsWith('https://exp.host/')) {
+        pushed.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ data: { status: 'ok' } }), { status: 200 });
+      }
+      return realFetch(url, init);
+    }) as typeof fetch;
+    try {
+      assert.equal((await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'hello push' })).status, 201);
+      await waitFor(() => pushed.length > 0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    assert.equal(pushed[0].to, 'ExponentPushToken[abcdefghijkl]');
+    assert.ok(pushed[0].body.includes('hello push'));
+    assert.equal(pushed[0].data.url, `/chat/${conv.id}`);
+  });
+
+  it('pushes to a member whose app is open but not on screen, and not to one who is looking at it', async () => {
+    const { WebSocket } = await import('ws');
+    const waitFor = async (ok: () => boolean) => {
+      for (let i = 0; i < 60 && !ok(); i++) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(ok(), 'timed out');
+    };
+    const host = await verified('PresHost');
+    const member = await verified('PresMember');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 3 }))).body.id;
+    const joined = await post(`/v1/activities/${id}/requests`, member.token, {});
+    await post(`/v1/activities/${id}/requests/${joined.body.id}/decision`, host.token, { decision: 'approve' });
+    const conv = await prisma.conversation.findUnique({ where: { activityId: id } });
+    await post('/v1/push/subscribe', member.token, { kind: 'expo', token: 'ExponentPushToken[presencetest01]' });
+
+    const ws = new WebSocket(base.replace('http', 'ws') + '/v1/live');
+    let ready = false;
+    ws.on('message', (raw) => {
+      if (JSON.parse(raw.toString()).type === 'ready') ready = true;
+    });
+    await new Promise<void>((res) => ws.on('open', () => res()));
+    ws.send(JSON.stringify({ type: 'auth', token: member.token }));
+    await waitFor(() => ready);
+
+    const pushed: any[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any, init?: any) => {
+      if (String(url).startsWith('https://exp.host/')) {
+        pushed.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ data: { status: 'ok' } }), { status: 200 });
+      }
+      return realFetch(url, init);
+    }) as typeof fetch;
+    try {
+      // open but hidden (another tab, or behind another window): the push still goes out
+      ws.send(JSON.stringify({ type: 'presence', visible: false }));
+      await new Promise((r) => setTimeout(r, 150));
+      await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'while hidden' });
+      await waitFor(() => pushed.some((p) => p.body.includes('while hidden')));
+      // on screen: they see it live, so no push
+      ws.send(JSON.stringify({ type: 'presence', visible: true }));
+      await new Promise((r) => setTimeout(r, 150));
+      await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'while looking' });
+      await new Promise((r) => setTimeout(r, 400));
+      assert.equal(pushed.some((p) => p.body.includes('while looking')), false);
+    } finally {
+      globalThis.fetch = realFetch;
+      ws.close();
+    }
+  });
+
   it('supports favorites and a user-specific activity list', async () => {
     const host = await verified('Host3');
     const u = await verified('Fan');

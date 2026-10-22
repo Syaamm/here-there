@@ -51,6 +51,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     'expo-router',
     'expo-secure-store',
+    ['expo-notifications', { color: '#102F29' }],
     [
       'expo-location',
       {

@@ -39,6 +39,7 @@ model User {
   updatedAt         DateTime @updatedAt
 
   profile           Profile?
+  pushSubscriptions PushSubscription[]
   photo             ProfilePhoto?
   verifications     VerificationCheck[]
   contactCodes      ContactCode[]
@@ -273,6 +274,19 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+/// One device that can be sent a push notification: a browser (Web Push subscription as JSON) or a phone (Expo push token).
+model PushSubscription {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String   // web | expo
+  token      String   @unique
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Favorite {
