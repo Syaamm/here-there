@@ -36,6 +36,7 @@ export class SafetyController {
     const { userId } = parse(blockSchema, body);
     if (userId === me.id) throw E.badRequest('INVALID_TARGET', 'You cannot block yourself');
     if (!(await this.prisma.user.findUnique({ where: { id: userId } }))) throw E.notFound('User');
+    await this.prisma.follow.deleteMany({ where: { OR: [{ followerId: me.id, followingId: userId }, { followerId: userId, followingId: me.id }] } }); // blocking ends any follow, both ways
     await this.prisma.block.upsert({
       where: { blockerId_blockedId: { blockerId: me.id, blockedId: userId } },
       create: { blockerId: me.id, blockedId: userId },

@@ -55,6 +55,8 @@ model User {
   blocksReceived    Block[]  @relation("blocked")
   reportsMade       Report[] @relation("reporter")
   favorites         Favorite[]
+  following         Follow[] @relation("follower")
+  followers         Follow[] @relation("followed")
 }
 
 // One small webp per person (about 20-40 KB), re-encoded on upload so it carries no camera or location metadata.
@@ -305,6 +307,19 @@ model Favorite {
   createdAt  DateTime @default(now())
 
   @@id([userId, activityId])
+}
+
+// One person following another. Two people who follow each other are "buddies". Never visible to anyone but the two of them.
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("followed", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
 }
 
 model Block {

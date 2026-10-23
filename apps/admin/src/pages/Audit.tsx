@@ -1,32 +1,61 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { get } from '../api';
-import { Empty, ErrorBanner, fmt, Page, useLoad } from '../ui';
+import { Chip, Empty, ErrorBanner, Icon, Page, shortId, useLoad, type IconName } from '../ui';
 
 type E = { id: string; actorId: string | null; action: string; objectType: string; objectId: string; metadata: unknown; createdAt: string };
+
+const STEP = 50;
+const cap = (s: string) => s.replace(/_/g, ' ').replace(/^./, (x) => x.toUpperCase());
+
+/** "activity.cancel" becomes a plain label and colour, so the log reads at a glance. */
+export function actionLabel(action: string): { text: string; tone: 'ok' | 'warn' | 'bad' | 'info'; icon: IconName } {
+  const verb = action.split('.').pop() ?? action;
+  if (/cancel|remove/.test(verb)) return { text: 'Cancelled', tone: 'bad', icon: 'x' };
+  if (/suspend/.test(verb)) return { text: 'Suspended', tone: 'bad', icon: 'x' };
+  if (/reject|decline/.test(verb)) return { text: 'Rejected', tone: 'bad', icon: 'x' };
+  if (/dismiss/.test(verb)) return { text: 'Dismissed', tone: 'bad', icon: 'x' };
+  if (/approve/.test(verb)) return { text: 'Approved', tone: 'ok', icon: 'check' };
+  if (/verif/.test(verb)) return { text: 'Verified', tone: 'ok', icon: 'check' };
+  if (/resolve/.test(verb)) return { text: 'Resolved', tone: 'ok', icon: 'check' };
+  if (/restore/.test(verb)) return { text: 'Restored', tone: 'ok', icon: 'check' };
+  return { text: cap(verb), tone: 'info', icon: 'clock' };
+}
+
+const dayTitle = (iso: string) => {
+  const d = new Date(iso);
+  const long = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (d.toDateString() === new Date().toDateString()) return `Today · ${long}`;
+  if (d.toDateString() === new Date(Date.now() - 864e5).toDateString()) return `Yesterday · ${long}`;
+  return long;
+};
 
 export function AuditPage() {
   const [objectType, setObjectType] = useState('');
   const [objectId, setObjectId] = useState('');
   const [applied, setApplied] = useState({ objectType: '', objectId: '' });
+  const [shown, setShown] = useState(STEP);
+  const [open, setOpen] = useState<string | null>(null);
   const { data, error, loading, reload } = useLoad(
     () => get<{ items: E[] }>(`/v1/admin/audit?${new URLSearchParams({ ...(applied.objectType && { objectType: applied.objectType }), ...(applied.objectId && { objectId: applied.objectId }) })}`),
     [applied],
   );
 
+  const items = (data?.items ?? []).slice(0, shown);
+  const days: { key: string; title: string; rows: E[] }[] = [];
+  for (const e of items) {
+    const key = new Date(e.createdAt).toDateString();
+    const last = days[days.length - 1];
+    if (last?.key === key) last.rows.push(e);
+    else days.push({ key, title: dayTitle(e.createdAt), rows: [e] });
+  }
+
   return (
-    <Page
-      title="Audit log"
-      actions={
-        <button className="btn" onClick={reload} disabled={loading}>
-          Refresh
-        </button>
-      }
-    >
-      <p className="muted">Read-only history of admin, moderation and membership decisions. Newest 200 events.</p>
+    <Page title="Audit log" sub="Read-only history of admin, moderation and membership decisions. Newest 200 events.">
       <form
         className="toolbar"
         onSubmit={(e) => {
           e.preventDefault();
+          setShown(STEP);
           setApplied({ objectType, objectId: objectId.trim() });
         }}
       >
@@ -41,40 +70,77 @@ export function AuditPage() {
             ))}
           </select>
         </label>
-        <label className="grow">
-          <span className="sr">Object ID</span>
-          <input placeholder="Object ID (optional)" value={objectId} onChange={(e) => setObjectId(e.target.value)} />
+        <label className="search grow">
+          <span className="sr">Object or actor ID</span>
+          <Icon name="search" />
+          <input className="mono" placeholder="Object or actor ID" value={objectId} onChange={(e) => setObjectId(e.target.value)} />
         </label>
-        <button className="btn primary">Filter</button>
+        <button className="btn primary">Apply filters</button>
+        <button type="button" className="icon-btn" onClick={reload} disabled={loading} aria-label="Refresh" title="Refresh">
+          <Icon name="refresh" />
+        </button>
       </form>
       <ErrorBanner message={error} />
       {data?.items.length === 0 && <Empty>No events.</Empty>}
-      {!!data?.items.length && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Action</th>
-                <th>Object</th>
-                <th>Actor</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((e) => (
-                <tr key={e.id}>
-                  <td className="nowrap">{fmt(e.createdAt)}</td>
-                  <td className="mono small">{e.action}</td>
-                  <td className="small">
-                    {e.objectType} <span className="mono muted">{e.objectId}</span>
-                  </td>
-                  <td className="mono small muted">{e.actorId ?? 'system'}</td>
-                  <td className="mono small">{e.metadata ? JSON.stringify(e.metadata) : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {days.map((d) => (
+        <div className="table-wrap" key={d.key} style={{ marginBottom: 16 }}>
+          <div className="day">
+            <span>{d.title}</span>
+            <span>{d.rows.length} events shown</span>
+          </div>
+          <div className="audit-row audit-head" aria-hidden="true">
+            <span>Time</span>
+            <span>Action</span>
+            <span>Object</span>
+            <span>Actor</span>
+            <span />
+          </div>
+          {d.rows.map((e) => {
+            const l = actionLabel(e.action);
+            const isOpen = open === e.id;
+            return (
+              <Fragment key={e.id}>
+                <div className="audit-row">
+                  <span>{new Date(e.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}</span>
+                  <span className="act">
+                    <Chip value={l.text} tone={l.tone} icon={l.icon} />
+                    <span className="mono">{e.action}</span>
+                  </span>
+                  <span className="obj">
+                    <b>{cap(e.objectType)}</b>
+                    <span className="mono" title={e.objectId}>
+                      {shortId(e.objectId)}
+                    </span>
+                  </span>
+                  <span className="who2">
+                    <span className="avatar sm" aria-hidden="true">
+                      <Icon name="users" />
+                    </span>
+                    <span className="mono small" title={e.actorId ?? 'system'}>
+                      {shortId(e.actorId)}
+                    </span>
+                  </span>
+                  <button className="icon-btn" aria-expanded={isOpen} aria-label={isOpen ? 'Hide details' : 'Show details'} onClick={() => setOpen(isOpen ? null : e.id)}>
+                    <span className={isOpen ? 'rotate' : ''} style={{ display: 'grid' }}>
+                      <Icon name="chevron" />
+                    </span>
+                  </button>
+                </div>
+                {isOpen && (
+                  <div className="audit-meta">
+                    <pre>{JSON.stringify({ object: e.objectId, actor: e.actorId, ...(e.metadata ? { details: e.metadata } : {}) }, null, 2)}</pre>
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
+        </div>
+      ))}
+      {(data?.items.length ?? 0) > shown && (
+        <div className="row end">
+          <button className="btn" onClick={() => setShown(shown + STEP)}>
+            Load older events
+          </button>
         </div>
       )}
     </Page>

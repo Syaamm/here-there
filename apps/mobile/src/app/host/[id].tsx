@@ -8,6 +8,7 @@ import { catColor, CATS } from '@/lib/constants';
 import { get, post, type Activity } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { ago, when } from '@/lib/format';
+import { Paged } from '@/lib/paged';
 import { useAction, useLoad } from '@/lib/hooks';
 
 type Req = {
@@ -64,7 +65,7 @@ export default function HostReview() {
       <Txt variant="h2" style={{ fontSize: 22 }}>Pending requests · {pending}</Txt>
       {reqs.data && items.length === 0 && <Empty title="No requests yet">When people ask to join, you'll see them here.</Empty>}
 
-      {items.map((r) => (
+      <Paged items={items} render={(r) => (
         <Card key={r.id}>
           <Between>
             <Row>
@@ -117,7 +118,7 @@ export default function HostReview() {
           )}
           {r.state === 'withdrawn' && <Chip label="Withdrawn by the applicant" tone="neutral" />}
         </Card>
-      ))}
+      )} />
       <Banner>Chat access is granted only after a real server-side approval, and removed the moment you reverse it.</Banner>
     </Screen>
   );

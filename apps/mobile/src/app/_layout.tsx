@@ -86,8 +86,12 @@ function Gate() {
           <Stack.Screen name="safety" options={inner('Safety & privacy')} />
           <Stack.Screen name="settings" options={inner('Settings')} />
           <Stack.Screen name="activities" options={inner('All activities')} />
+          <Stack.Screen name="trips" options={inner('All trips')} />
           <Stack.Screen name="edit-profile" options={inner('Edit profile')} />
           <Stack.Screen name="my-activities" options={inner('My activities')} />
+          <Stack.Screen name="my-trips" options={inner('My trips')} />
+          <Stack.Screen name="favourites" options={inner('Favourites')} />
+          <Stack.Screen name="connections" options={inner('Buddies')} />
           {/* a chat is its own screen above the tabs, like a chat in any messaging app: the iPhone's own swipe-back shows the inbox underneath as you drag */}
           <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="verify" options={{ title: 'Verify your identity', header: ({ options }) => <InnerHeader options={options} /> }} />

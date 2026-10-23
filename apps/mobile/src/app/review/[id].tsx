@@ -5,6 +5,7 @@ import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, Row, Scre
 import { get, post, type Trip } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { ago, dateSpan } from '@/lib/format';
+import { Paged } from '@/lib/paged';
 import { useAction, useLoad } from '@/lib/hooks';
 
 type App = {
@@ -55,7 +56,7 @@ export default function ReviewTrip() {
       <Txt variant="h2">Pending applications · {pending}</Txt>
       {apps.data && items.length === 0 && <Empty title="No applications yet">Travelers who want to join will appear here.</Empty>}
 
-      {items.map((a) => (
+      <Paged items={items} render={(a) => (
         <Card key={a.id}>
           <Between>
             <Row>
@@ -106,7 +107,7 @@ export default function ReviewTrip() {
           )}
           {['withdrawn', 'expired'].includes(a.state) && <Chip label={a.state === 'withdrawn' ? 'Withdrawn by the applicant' : 'Expired'} tone="neutral" />}
         </Card>
-      ))}
+      )} />
       <Banner>Only accepted members receive private planning and chat access. Never ask applicants for identity documents or money.</Banner>
     </Screen>
   );

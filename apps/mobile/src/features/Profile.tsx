@@ -26,12 +26,17 @@ export function Profile() {
   const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number } }>(`/v1/users/${me!.id}`), [me?.id], undefined, 'me:stats');
   const acts = useLoad(() => get<MyActivities>('/v1/me/activities'), [], undefined, 'me:activities');
   const trips = useLoad(() => get<MyTrips>('/v1/me/trips'), [], undefined, 'me:trips');
+  const conns = useLoad(() => get<{ counts: { following: number; followers: number; buddies: number } }>('/v1/me/connections'), [], undefined, 'me:buddies2');
   const favs = useLoad(() => get<{ items: Activity[] }>('/v1/me/favorites'), [], undefined, 'me:favs');
   // the app icon chosen in Settings, shown on the Settings row
   const [icon, setIcon] = useState<AppIcon>('here');
   useFocusEffect(useCallback(() => void savedIcon().then(setIcon), []));
   const all = myActivityItems(acts.data);
-  const { refreshing, onRefresh } = useRefresh(() => Promise.all([reload(), stats.reload(), acts.reload(), trips.reload(), favs.reload()]));
+  const tripItems = [...(trips.data?.joined ?? []).map((t) => ({ key: t.id, joined: t })), ...(trips.data?.applications ?? []).map((a) => ({ key: a.applicationId, app: a }))];
+  const favItems = favs.data?.items ?? [];
+  const TRIPS_SHOWN = 2; // trip cards are taller, so Profile shows 2 of them
+  const SHOWN = 3; // Profile only shows the 3 most recent of each list; the full list is one tap away
+  const { refreshing, onRefresh } = useRefresh(() => Promise.all([reload(), stats.reload(), conns.reload(), acts.reload(), trips.reload(), favs.reload()]));
 
   if (!me?.profile) return <Spinner />;
   const p = me.profile;
@@ -63,6 +68,11 @@ export function Profile() {
           </View>
         ))}
       </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Buddies and followers: ${conns.data?.counts.buddies ?? 0} buddies, ${conns.data?.counts.following ?? 0} following, ${conns.data?.counts.followers ?? 0} followers`} onPress={() => go('/connections')} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 6 }}>
+        <Ionicons name="people-outline" size={16} color={c.forest} />
+        <Txt variant="small" style={{ color: c.forest }}>{conns.data ? `${conns.data.counts.buddies} buddies · ${conns.data.counts.following} following · ${conns.data.counts.followers} followers` : 'Buddies and followers'}</Txt>
+        <Ionicons name="chevron-forward" size={14} color={c.muted} />
+      </Pressable>
       <Txt variant="small" style={{ textAlign: 'center' }}>No reviews yet. Feedback only comes from confirmed experiences.</Txt>
 
       <Txt variant="h3">About</Txt>
@@ -99,7 +109,7 @@ export function Profile() {
         <>
           {acts.data && all.length === 0 && <Empty title="No activities yet">Join or host an activity and it shows up here.</Empty>}
           <Grid>
-            {all.slice(0, 3).map((x) => (
+            {all.slice(0, SHOWN).map((x) => (
               <View key={x.key} style={{ gap: 6 }}>
                 <ActivityCard a={x.activity} plain={x.kind === 'rejected'} />
                 <Row>
@@ -109,7 +119,7 @@ export function Profile() {
               </View>
             ))}
           </Grid>
-          {all.length > 0 && <Btn title={all.length > 3 ? `View more (${all.length - 3})  ›` : 'View all  ›'} variant="secondary" onPress={() => go('/my-activities')} />}
+          {all.length > SHOWN && <Btn title={`More activities (${all.length - SHOWN} more)  ›`} variant="secondary" onPress={() => go('/my-activities')} />}
         </>
       )}
 
@@ -117,22 +127,24 @@ export function Profile() {
         <>
           {trips.data && trips.data.joined.length + trips.data.applications.length === 0 && <Empty title="No trips yet">Propose a trip or apply to one and it shows up here.</Empty>}
           <Grid>
-          {trips.data?.joined.map((t) => (
-            <View key={t.id} style={{ gap: 6 }}>
-              <TripCard t={t} />
-              <Row>
-                <Chip label={t.role === 'organizer' ? 'You organize this' : 'In the group'} tone="ok" />
-                {t.role === 'organizer' && <Btn title="Review applications ›" variant="ghost" small onPress={() => go(`/review/${t.id}`)} />}
-              </Row>
-            </View>
-          ))}
-          {trips.data?.applications.map((a) => (
-            <View key={a.applicationId} style={{ gap: 6 }}>
-              <TripCard t={a.trip} />
-              <Chip label={a.state === 'pending' ? 'Pending organizer review' : a.state === 'waitlisted' ? 'Waitlisted' : 'Not approved'} tone={a.state === 'declined' ? 'bad' : 'warn'} />
-            </View>
-          ))}
+            {tripItems.slice(0, TRIPS_SHOWN).map((x) =>
+              'joined' in x ? (
+                <View key={x.key} style={{ gap: 6 }}>
+                  <TripCard t={x.joined} />
+                  <Row>
+                    <Chip label={x.joined.role === 'organizer' ? 'You organize this' : 'In the group'} tone="ok" />
+                    {x.joined.role === 'organizer' && <Btn title="Review applications ›" variant="ghost" small onPress={() => go(`/review/${x.joined.id}`)} />}
+                  </Row>
+                </View>
+              ) : (
+                <View key={x.key} style={{ gap: 6 }}>
+                  <TripCard t={x.app.trip} />
+                  <Chip label={x.app.state === 'pending' ? 'Pending organizer review' : x.app.state === 'waitlisted' ? 'Waitlisted' : 'Not approved'} tone={x.app.state === 'declined' ? 'bad' : 'warn'} />
+                </View>
+              ),
+            )}
           </Grid>
+          {tripItems.length > TRIPS_SHOWN && <Btn title={`More trips (${tripItems.length - TRIPS_SHOWN} more)  ›`} variant="secondary" onPress={() => go('/my-trips')} />}
         </>
       )}
 
@@ -140,10 +152,11 @@ export function Profile() {
         <>
           {favs.data && favs.data.items.length === 0 && <Empty title="No favourites yet">Tap the heart on an activity to add it to your favourites.</Empty>}
           <Grid>
-            {favs.data?.items.map((a) => (
+            {favItems.slice(0, SHOWN).map((a) => (
               <ActivityCard key={a.id} a={a} />
             ))}
           </Grid>
+          {favItems.length > SHOWN && <Btn title={`More favourites (${favItems.length - SHOWN} more)  ›`} variant="secondary" onPress={() => go('/favourites')} />}
         </>
       )}
 

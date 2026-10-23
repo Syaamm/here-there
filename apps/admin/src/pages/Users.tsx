@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { can, get, post, STAFF, type Role, type Session } from '../api';
-import { askChoiceText, askText, Chip, Empty, ErrorBanner, fmt, Page, useAction, useLoad } from '../ui';
+import { askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, Page, RowMenu, Search, Segmented, useAction, useLoad, usePages } from '../ui';
 
 type U = { id: string; email: string; role: Role; state: string; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; homeCity?: string; createdAt: string };
 type Detail = {
@@ -10,17 +10,23 @@ type Detail = {
   history: { id: string; action: string; createdAt: string; metadata: string | null }[];
   verifications: { id: string; eligibility: string; createdAt: string }[];
 };
+type State = '' | 'active' | 'suspended';
+
+const isGuest = (u: U) => u.email.startsWith('guest-') || u.displayName === 'Guest';
 
 export function UsersPage({ me }: { me: Session }) {
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
-  const [state, setState] = useState('');
+  const [state, setState] = useState<State>('');
+  const [identity, setIdentity] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const users = useLoad(
     () => get<{ items: U[] }>(`/v1/admin/users?${new URLSearchParams({ ...(term && { q: term }), ...(state && { state }) })}`),
     [term, state],
   );
   const act = useAction(users.reload);
+  const rows = (users.data?.items ?? []).filter((u) => !identity || u.eligibility === identity);
+  const pages = usePages(rows, `${term}|${state}|${identity}`);
 
   const suspend = async (u: U) => {
     const reason = await askText(`Suspend ${u.displayName ?? u.email}?`, { confirm: 'Suspend' });
@@ -53,7 +59,7 @@ export function UsersPage({ me }: { me: Session }) {
   };
 
   return (
-    <Page title="Users">
+    <Page title="Users" sub={users.data ? `${users.data.items.length} registered accounts` : undefined}>
       <form
         className="toolbar"
         onSubmit={(e) => {
@@ -61,43 +67,56 @@ export function UsersPage({ me }: { me: Session }) {
           setTerm(q.trim());
         }}
       >
-        <label className="grow">
-          <span className="sr">Search users</span>
-          <input type="search" placeholder="Search by email, name or user ID" value={q} onChange={(e) => setQ(e.target.value)} />
-        </label>
+        <Search label="Search users" placeholder="Search by email, name or user ID" value={q} onChange={setQ} />
+        <Segmented
+          label="State"
+          value={state}
+          onChange={setState}
+          options={[
+            { id: '', label: 'All' },
+            { id: 'active', label: 'Active' },
+            { id: 'suspended', label: 'Suspended' },
+          ]}
+        />
         <label>
-          <span className="sr">State</span>
-          <select value={state} onChange={(e) => setState(e.target.value)}>
-            <option value="">All states</option>
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
+          <span className="sr">Identity</span>
+          <select value={identity} onChange={(e) => setIdentity(e.target.value)}>
+            <option value="">Any identity</option>
+            {['unverified', 'pending', 'verified', 'rejected', 'expired', 'reverification_required'].map((s) => (
+              <option key={s} value={s}>
+                {s.replace(/_/g, ' ')}
+              </option>
+            ))}
           </select>
         </label>
         <button className="btn primary">Search</button>
       </form>
       <ErrorBanner message={users.error ?? act.error} />
-      {users.data?.items.length === 0 && <Empty>No users match.</Empty>}
-      {!!users.data?.items.length && (
+      {users.data && rows.length === 0 && <Empty>No users match.</Empty>}
+      {rows.length > 0 && (
         <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Role</th>
-                <th>State</th>
-                <th>Identity</th>
-                <th>Joined</th>
-                <th>
-                  <span className="sr">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.data.items.map((u) => (
-                <UserRow key={u.id} u={u} me={me} open={open === u.id} onToggle={() => setOpen(open === u.id ? null : u.id)} onSuspend={suspend} onRestore={restore} onRole={setRole} onReverify={reverify} onReset={reset} onOverturn={overturn} busy={act.busy} />
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>State</th>
+                  <th>Identity</th>
+                  <th>Joined</th>
+                  <th>
+                    <span className="sr">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pages.shown.map((u) => (
+                  <UserRow key={u.id} u={u} me={me} open={open === u.id} onToggle={() => setOpen(open === u.id ? null : u.id)} onSuspend={suspend} onRestore={restore} onRole={setRole} onReverify={reverify} onReset={reset} onOverturn={overturn} busy={act.busy} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {pages.foot}
         </div>
       )}
     </Page>
@@ -108,18 +127,33 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
   const { u, me } = p;
   // moderators cannot touch staff accounts; the server enforces this too
   const canActOn = can.moderate(me.role) && (u.role === 'user' || me.role === 'admin') && u.email !== me.email;
+  const trust = can.trust(me.role) && u.role === 'user';
+  const more = [
+    ...(trust && u.state === 'active' && ['verified', 'pending'].includes(u.eligibility) ? [{ label: 'Require re-verification', onSelect: () => p.onReverify(u) }] : []),
+    // a rejection or a stuck check can be reopened or, as an appeal, overturned by a reviewer
+    ...(trust && ['rejected', 'pending', 'reverification_required'].includes(u.eligibility) ? [{ label: 'Allow another attempt', onSelect: () => p.onReset(u) }] : []),
+    ...(trust && u.eligibility === 'rejected' && !['superseded', 'cancelled'].includes(u.lastRejectionReason ?? '') && !(u.lastRejectionReason === 'underage' && !can.admin(me.role)) ? [{ label: 'Approve after review', onSelect: () => p.onOverturn(u) }] : []),
+  ];
   return (
     <>
       <tr>
         <td>
-          <button className="link" onClick={p.onToggle} aria-expanded={p.open}>
-            {u.displayName ?? '(no name)'}
-          </button>
-          <div className="muted small">{u.email}</div>
+          <div className="person">
+            <Avatar name={u.displayName ?? u.email} size="lg" />
+            <div style={{ minWidth: 0 }}>
+              <div className="name">
+                <button className="link" style={{ color: 'inherit' }} onClick={p.onToggle} aria-expanded={p.open}>
+                  {u.displayName ?? '(no name)'}
+                </button>
+                {isGuest(u) && <Chip value="Guest" tone="plain" />}
+              </div>
+              <div className="sub">{u.email}</div>
+            </div>
+          </div>
         </td>
         <td>
           {can.admin(me.role) && u.email !== me.email ? (
-            <select aria-label={`Role for ${u.email}`} value={u.role} onChange={(e) => p.onRole(u, e.target.value)} disabled={p.busy}>
+            <select aria-label={`Role for ${u.email}`} value={u.role} onChange={(e) => p.onRole(u, e.target.value)} disabled={p.busy} style={{ minWidth: 112 }}>
               {(['user', ...STAFF] as Role[]).map((r) => (
                 <option key={r} value={r}>
                   {r.replace('_', ' ')}
@@ -135,47 +169,28 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
         </td>
         <td>
           <Chip value={u.eligibility} />
-          <div className="muted small">
-            Email {u.emailVerified ? '✓' : '✗'} · Adult {u.adultVerified ? '✓' : '✗'} · Mobile {u.phoneVerified ? '✓' : '–'}
+          <div className="muted small nowrap" style={{ marginTop: 4 }}>
+            Email {u.emailVerified ? '✓' : '✗'} &nbsp;Adult {u.adultVerified ? '✓' : '✗'} &nbsp;Mobile {u.phoneVerified ? '✓' : '–'}
           </div>
           {u.eligibility === 'verified' && u.verifiedUntil && <div className="muted small">Valid until {new Date(u.verifiedUntil).toLocaleDateString()}</div>}
           {u.reverifyReason && u.eligibility !== 'verified' && <div className="muted small">Re-check: {u.reverifyReason.replace(/_/g, ' ')}</div>}
           {u.eligibility === 'rejected' && <div className="muted small">Rejected: {(u.lastRejectionReason ?? 'other').replace(/_/g, ' ')}</div>}
         </td>
         <td className="nowrap">{fmt(u.createdAt)}</td>
-        <td className="end">
-          {can.trust(me.role) && u.role === 'user' && u.state === 'active' && ['verified', 'pending'].includes(u.eligibility) && (
-            <>
-              <button className="btn" onClick={() => p.onReverify(u)} disabled={p.busy}>
-                Require re-verification
-              </button>{' '}
-            </>
-          )}
-          {/* a rejection or a stuck check can be reopened or, as an appeal, overturned by a reviewer */}
-          {can.trust(me.role) && u.role === 'user' && ['rejected', 'pending', 'reverification_required'].includes(u.eligibility) && (
-            <>
-              <button className="btn" onClick={() => p.onReset(u)} disabled={p.busy}>
-                Allow another attempt
-              </button>{' '}
-            </>
-          )}
-          {can.trust(me.role) && u.role === 'user' && u.eligibility === 'rejected' && !['superseded', 'cancelled'].includes(u.lastRejectionReason ?? '') && (
-            <>
-              <button className="btn primary" onClick={() => p.onOverturn(u)} disabled={p.busy || (u.lastRejectionReason === 'underage' && !can.admin(me.role))} title={u.lastRejectionReason === 'underage' && !can.admin(me.role) ? 'Only an admin can overturn an under-18 rejection' : undefined}>
-                Approve after review
-              </button>{' '}
-            </>
-          )}
-          {canActOn &&
-            (u.state === 'suspended' ? (
-              <button className="btn" onClick={() => p.onRestore(u)} disabled={p.busy}>
-                Restore
-              </button>
-            ) : (
-              <button className="btn danger" onClick={() => p.onSuspend(u)} disabled={p.busy}>
-                Suspend
-              </button>
-            ))}
+        <td>
+          <div className="cell-actions">
+            {canActOn &&
+              (u.state === 'suspended' ? (
+                <button className="btn" onClick={() => p.onRestore(u)} disabled={p.busy}>
+                  Restore
+                </button>
+              ) : (
+                <button className="btn danger" onClick={() => p.onSuspend(u)} disabled={p.busy}>
+                  Suspend
+                </button>
+              ))}
+            <RowMenu label={`More actions for ${u.displayName ?? u.email}`} items={more} />
+          </div>
         </td>
       </tr>
       {p.open && (

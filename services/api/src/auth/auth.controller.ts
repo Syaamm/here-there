@@ -205,14 +205,19 @@ export class AuthController {
 
   /** Public profile: no email, no internal fields, only the verified-adult badge. */
   @Get('users/:id')
-  async publicProfile(@Param('id') id: string) {
+  async publicProfile(@CurrentUser() me: User, @Param('id') id: string) {
     const u = await this.prisma.user.findUnique({ where: { id }, include: { profile: true } });
     if (!u || u.state !== 'active' || !u.profile) throw E.notFound('User');
     const [hosted, joined] = await Promise.all([
       this.prisma.activity.count({ where: { hostId: id, status: { notIn: ['cancelled', 'draft'] }, endsAt: { lt: new Date() } } }),
       this.prisma.activityMembership.count({ where: { userId: id, role: 'attendee', state: 'approved', activity: { endsAt: { lt: new Date() } } } }),
     ]);
+    const [iFollow, followsMe] = await Promise.all([
+      this.prisma.follow.findUnique({ where: { followerId_followingId: { followerId: me.id, followingId: id } } }),
+      this.prisma.follow.findUnique({ where: { followerId_followingId: { followerId: id, followingId: me.id } } }),
+    ]);
     return {
+      relation: { following: !!iFollow, followsYou: !!followsMe, buddy: !!iFollow && !!followsMe },
       id: u.id,
       displayName: u.profile.displayName,
       homeCity: u.profile.homeCity,

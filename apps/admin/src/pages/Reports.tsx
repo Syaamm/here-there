@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Chip, Empty, ErrorBanner, fmt, Page, useAction, useLoad } from '../ui';
+import { askText, Chip, Empty, ErrorBanner, fmt, Icon, Page, Segmented, shortId, useAction, useLoad } from '../ui';
 
 type R = {
   id: string;
@@ -14,17 +14,19 @@ type R = {
   createdAt: string;
   reporter: { id: string; profile?: { displayName: string } | null };
 };
+type Status = 'open' | 'in_review' | 'resolved' | 'dismissed';
 
 const CATEGORIES = ['harassment', 'fraud', 'inappropriate_content', 'underage', 'physical_safety', 'spam', 'financial_solicitation'];
 
-export function ReportsPage({ me }: { me: Session }) {
-  const [status, setStatus] = useState('open');
+export function ReportsPage({ me, go }: { me: Session; go?: (p: string) => void }) {
+  const [status, setStatus] = useState<Status>('open');
   const [category, setCategory] = useState('');
   const { data, error, loading, reload } = useLoad(
-    () => get<{ items: R[] }>(`/v1/admin/reports?${new URLSearchParams({ ...(status && { status }), ...(category && { category }) })}`),
+    () => get<{ items: R[] }>(`/v1/admin/reports?${new URLSearchParams({ status, ...(category && { category }) })}`),
     [status, category],
   );
-  const act = useAction(reload);
+  const open = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=open'), [status]);
+  const act = useAction(() => (reload(), open.reload()));
   const mod = can.moderate(me.role);
 
   const resolve = async (r: R, s: 'resolved' | 'dismissed') => {
@@ -36,76 +38,88 @@ export function ReportsPage({ me }: { me: Session }) {
   };
 
   return (
-    <Page
-      title="Reports queue"
-      actions={
-        <>
-          <label>
-            <span className="sr">Status</span>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">All statuses</option>
-              <option value="open">Open</option>
-              <option value="in_review">In review</option>
-              <option value="resolved">Resolved</option>
-              <option value="dismissed">Dismissed</option>
-            </select>
-          </label>
-          <label>
-            <span className="sr">Category</span>
-            <select value={category} onChange={(e) => setCategory(e.target.value)}>
-              <option value="">All categories</option>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c.replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      }
-    >
-      <p className="muted">Physical-safety and underage reports are always listed first.</p>
+    <Page title="Reports queue" sub="Physical-safety and underage reports are always listed first.">
+      <div className="toolbar" style={{ justifyContent: 'space-between' }}>
+        <Segmented
+          label="Status"
+          value={status}
+          onChange={setStatus}
+          options={[
+            { id: 'open', label: 'Open', count: open.data?.items.length },
+            { id: 'in_review', label: 'In review' },
+            { id: 'resolved', label: 'Resolved' },
+            { id: 'dismissed', label: 'Dismissed' },
+          ]}
+        />
+        <label className="row">
+          <span className="muted">Category</span>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">All categories</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c.replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <ErrorBanner message={error ?? act.error} />
       {loading && !data && <p className="muted">Loading…</p>}
       {data?.items.length === 0 && <Empty>No reports for this filter.</Empty>}
       <ul className="stack">
-        {data?.items.map((r) => (
-          <li key={r.id} className="card">
-            <div className="row between wrap">
-              <div className="row wrap">
-                <Chip value={r.category} />
-                <Chip value={r.status} />
-                <span className="muted small">
-                  {r.targetType} <span className="mono">{r.targetId}</span>
-                </span>
-              </div>
-              <span className="muted small">{fmt(r.createdAt)}</span>
-            </div>
-            <p className="report-details">{r.details || <span className="muted">No details given.</span>}</p>
-            <div className="row between wrap">
-              <span className="muted small">
-                Reported by {r.reporter.profile?.displayName ?? r.reporter.id}
-                {r.assignedTo && ' · assigned'}
-              </span>
-              {r.resolution && <span className="small">Resolution: {r.resolution}</span>}
-              {mod && ['open', 'in_review'].includes(r.status) && (
-                <div className="row">
-                  {r.status === 'open' && (
-                    <button className="btn" onClick={() => act.run(() => post(`/v1/admin/reports/${r.id}/assign`))} disabled={act.busy}>
-                      Assign to me
-                    </button>
-                  )}
-                  <button className="btn" onClick={() => resolve(r, 'dismissed')} disabled={act.busy}>
-                    Dismiss
-                  </button>
-                  <button className="btn primary" onClick={() => resolve(r, 'resolved')} disabled={act.busy}>
-                    Resolve
-                  </button>
+        {data?.items.map((r) => {
+          const priority = r.category === 'physical_safety' || r.category === 'underage';
+          return (
+            <li key={r.id} className="card report">
+              <div className="row between wrap">
+                <div className="row wrap">
+                  <Chip value={r.category} icon={priority ? 'alert' : undefined} />
+                  <Chip value={r.status} />
+                  {priority && <span className="small" style={{ color: 'var(--orange)', fontWeight: 700 }}>Priority</span>}
                 </div>
-              )}
-            </div>
-          </li>
-        ))}
+                <span className="muted small">{fmt(r.createdAt)}</span>
+              </div>
+              <h3>“{r.details || 'No details given'}”</h3>
+              <dl className="meta">
+                <div>
+                  <dt>Reported {r.targetType}</dt>
+                  <dd>
+                    <span className="mono">{shortId(r.targetId)}</span>{' '}
+                    {r.targetType === 'user' && go && (
+                      <button className="link" onClick={() => go('users')}>
+                        View user
+                      </button>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Reported by</dt>
+                  <dd>{r.reporter.profile?.displayName ?? shortId(r.reporter.id)}</dd>
+                </div>
+                <div>
+                  <dt>Assignee</dt>
+                  <dd>{r.assignedTo ? 'Assigned' : 'Unassigned'}</dd>
+                </div>
+                {mod && ['open', 'in_review'].includes(r.status) && (
+                  <div className="cell-actions">
+                    {r.status === 'open' && (
+                      <button className="btn" onClick={() => act.run(() => post(`/v1/admin/reports/${r.id}/assign`))} disabled={act.busy}>
+                        Assign to me
+                      </button>
+                    )}
+                    <button className="btn" onClick={() => resolve(r, 'dismissed')} disabled={act.busy}>
+                      Dismiss
+                    </button>
+                    <button className="btn primary" onClick={() => resolve(r, 'resolved')} disabled={act.busy}>
+                      <Icon name="check" /> Resolve
+                    </button>
+                  </div>
+                )}
+              </dl>
+              {r.resolution && <p className="small muted" style={{ margin: '12px 0 0' }}>Resolution: {r.resolution}</p>}
+            </li>
+          );
+        })}
       </ul>
     </Page>
   );

@@ -6,6 +6,7 @@ import { get, type Trip } from '@/lib/api';
 import { FLEX, GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
 import { parseDay } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
+import { PagedTail, usePaged } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 import { Choice, Section } from './CreateActivity';
 import { View } from 'react-native';
@@ -26,6 +27,7 @@ export function SearchThere() {
   const [openOnly, setOpenOnly] = useState(true);
   const [result, setResult] = useState<Result | null>(null);
   const act = useAction();
+  const results = usePaged(result?.items ?? [], String(result?.total ?? ''));
   const { c } = useTheme();
 
   const fromD = from ? parseDay(from) : null;
@@ -133,10 +135,11 @@ export function SearchThere() {
                 </Between>
                 {result.items.length === 0 && <Empty title="No trips match">Try wider dates, a higher budget or fewer filters.</Empty>}
                 <View style={{ gap: 12 }}>
-                  {result.items.map((t) => (
+                  {results.shown.map((t) => (
                     <TripRow key={t.id} t={t} />
                   ))}
                 </View>
+                <PagedTail paged={results} />
               </>
             )}
           </>

@@ -105,9 +105,9 @@ export function ExploreThere() {
         </Reveal>
       )}
 
-      <ListSection index={1} title="Leaving soon" list={when === 'any' || when === 'month' ? soon : []} max={MAX} onMore={() => go('/discover')} />
-      <ListSection index={2} title="In the next few months" list={when === 'any' || when === 'quarter' ? season : []} max={MAX} onMore={() => go('/discover')} />
-      <ListSection index={3} title="Later" list={when === 'any' || when === 'later' ? later : []} max={MAX} onMore={() => go('/discover')} />
+      <ListSection index={1} title="Leaving soon" list={when === 'any' || when === 'month' ? soon : []} max={MAX} onMore={() => go('/trips?section=soon')} />
+      <ListSection index={2} title="In the next few months" list={when === 'any' || when === 'quarter' ? season : []} max={MAX} onMore={() => go('/trips?section=season')} />
+      <ListSection index={3} title="Later" list={when === 'any' || when === 'later' ? later : []} max={MAX} onMore={() => go('/trips?section=later')} />
 
       <Txt variant="small">Budgets are indicative estimates, not bookable prices. Trips are proposals: everyone books suppliers independently.</Txt>
 
@@ -145,26 +145,28 @@ export function ExploreThere() {
 function ListSection({ index, title, list, max, onMore }: { index: number; title: string; list: Trip[]; max: number; onMore: () => void }) {
   const { c } = useTheme();
   if (list.length === 0) return null;
+  // a group with more than 20 shows only 3, with a hint for the rest; "See all" opens just this group
+  const over = list.length > 20;
+  const count = over ? 3 : max;
+  const hidden = list.length - count; // how many are not on this page: "See all" opens them
   return (
     <Reveal index={index} style={{ gap: 12 }}>
-      <SectionHeader
-        title={title}
-        right={
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`See all: ${title}`}
-            hitSlop={6}
-            onPress={onMore}
-            style={({ pressed }) => [{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 }, pressed && { opacity: 0.8, transform: [{ scale: 0.97 }] }]}
-          >
-            <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>See all</Txt>
-            <Ionicons name="chevron-forward" size={13} color={c.forest} />
-          </Pressable>
-        }
-      />
-      {list.slice(0, max).map((t) => (
+      <SectionHeader title={title} />
+      {list.slice(0, count).map((t) => (
         <TripRow key={t.id} t={t} />
       ))}
+      {hidden > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Plus ${hidden} more ${title.toLowerCase()}. See all`}
+          hitSlop={6}
+          onPress={onMore}
+          style={({ pressed }) => [{ alignSelf: 'flex-start', minHeight: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', gap: 4 }, pressed && { opacity: 0.8 }]}
+        >
+          <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>+{hidden} more trips · See all</Txt>
+          <Ionicons name="chevron-forward" size={13} color={c.forest} />
+        </Pressable>
+      ) : null}
     </Reveal>
   );
 }

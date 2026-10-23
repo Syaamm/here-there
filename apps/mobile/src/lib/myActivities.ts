@@ -12,6 +12,29 @@ export type MyActivityItem = {
   hostOf: boolean;
 };
 
+const HOUR = 3600e3;
+const FINISHED = ['cancelled', 'completed', 'archived'];
+
+/**
+ * What is coming up for the person: happening right now, or starting within `hours`. Soonest start first; at the same
+ * start, what they host comes before what they are going to, and that before what they have only asked for.
+ */
+export function comingUp(d: MyActivitiesData | null | undefined, now = Date.now(), hours = 3): MyActivityItem[] {
+  const rank = (x: MyActivityItem) => (x.label === 'You host this' ? 0 : x.kind === 'mine' ? 1 : 2);
+  return myActivityItems(d)
+    .filter((x) => x.kind !== 'rejected' && !FINISHED.includes(x.activity.status) && +new Date(x.activity.endsAt) > now && +new Date(x.activity.startsAt) <= now + hours * HOUR)
+    .sort((x, y) => +new Date(x.activity.startsAt) - +new Date(y.activity.startsAt) || rank(x) - rank(y));
+}
+
+/** The plans the person already has (hosting, going, or asked) whose time overlaps this activity's. */
+export function clashesWith(d: MyActivitiesData | null | undefined, a: Pick<Activity, 'id' | 'startsAt' | 'endsAt'>, now = Date.now()): MyActivityItem[] {
+  const start = +new Date(a.startsAt);
+  const end = +new Date(a.endsAt);
+  return myActivityItems(d).filter(
+    (x) => x.activity.id !== a.id && x.kind !== 'rejected' && !FINISHED.includes(x.activity.status) && +new Date(x.activity.endsAt) > now && +new Date(x.activity.startsAt) < end && start < +new Date(x.activity.endsAt),
+  );
+}
+
 /** Everything the person hosts, joined or asked to join, newest start first. Withdrawn requests are not listed. */
 export function myActivityItems(d: MyActivitiesData | null | undefined): MyActivityItem[] {
   if (!d) return [];

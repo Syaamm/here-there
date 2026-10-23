@@ -6,16 +6,16 @@ import { OverviewPage } from './pages/Overview';
 import { ReportsPage } from './pages/Reports';
 import { UsersPage } from './pages/Users';
 import { VerificationsPage } from './pages/Verifications';
-import { DialogHost, errMsg, ErrorBanner } from './ui';
+import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, type IconName } from './ui';
 
 type PageId = 'overview' | 'verifications' | 'reports' | 'content' | 'users' | 'audit';
-const NAV: { id: PageId; label: string; show: (r: Role) => boolean }[] = [
-  { id: 'overview', label: 'Overview', show: () => true },
-  { id: 'verifications', label: 'Verification', show: () => true },
-  { id: 'reports', label: 'Reports', show: () => true },
-  { id: 'content', label: 'Content', show: () => true },
-  { id: 'users', label: 'Users', show: () => true },
-  { id: 'audit', label: 'Audit log', show: can.trust },
+const NAV: { id: PageId; label: string; icon: IconName; show: (r: Role) => boolean }[] = [
+  { id: 'overview', label: 'Overview', icon: 'overview', show: () => true },
+  { id: 'verifications', label: 'Verification', icon: 'shield', show: () => true },
+  { id: 'reports', label: 'Reports', icon: 'flag', show: () => true },
+  { id: 'content', label: 'Content', icon: 'layers', show: () => true },
+  { id: 'users', label: 'Users', icon: 'users', show: () => true },
+  { id: 'audit', label: 'Audit log', icon: 'clock', show: can.trust },
 ];
 
 export default function App() {
@@ -28,6 +28,16 @@ export default function App() {
     setSession(null);
   };
   useEffect(() => setUnauthorizedHandler(logout), []);
+
+  // the orange numbers beside Verification and Reports: what is waiting for a decision
+  const [counts, setCounts] = useState<{ pendingVerifications: number; openReports: number } | null>(null);
+  useEffect(() => {
+    if (!session) return;
+    const load = () => api<{ pendingVerifications: number; openReports: number }>('GET', '/v1/admin/overview').then(setCounts, () => {});
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [session, page]);
 
   if (!session)
     return (
@@ -46,26 +56,38 @@ export default function App() {
           <small>Admin console</small>
         </div>
         <nav aria-label="Main">
-          {nav.map((n) => (
-            <button key={n.id} className={page === n.id ? 'nav active' : 'nav'} aria-current={page === n.id ? 'page' : undefined} onClick={() => setPage(n.id)}>
-              {n.label}
-            </button>
-          ))}
+          {nav.map((n) => {
+            const badge = n.id === 'verifications' ? counts?.pendingVerifications : n.id === 'reports' ? counts?.openReports : 0;
+            return (
+              <button key={n.id} className={page === n.id ? 'nav active' : 'nav'} aria-current={page === n.id ? 'page' : undefined} onClick={() => setPage(n.id)}>
+                <Icon name={n.icon} />
+                {n.label}
+                {!!badge && (
+                  <span className="badge" aria-label={`${badge} waiting`}>
+                    {badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </nav>
         <div className="who">
-          <div>{session.name}</div>
-          <div className="muted small">
-            {session.email} · {session.role.replace('_', ' ')}
+          <Avatar name={session.name} />
+          <div className="info">
+            <div className="name">{session.name}</div>
+            <div className="mail" title={`${session.email} · ${session.role.replace('_', ' ')}`}>
+              {session.email}
+            </div>
           </div>
-          <button className="btn" onClick={logout}>
-            Sign out
+          <button className="icon-btn" onClick={logout} aria-label="Sign out" title="Sign out">
+            <Icon name="logout" />
           </button>
         </div>
       </aside>
       <main className="main">
         {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} />}
         {page === 'verifications' && <VerificationsPage me={session} />}
-        {page === 'reports' && <ReportsPage me={session} />}
+        {page === 'reports' && <ReportsPage me={session} go={(p) => setPage(p as PageId)} />}
         {page === 'content' && <ContentPage me={session} />}
         {page === 'users' && <UsersPage me={session} />}
         {page === 'audit' && can.trust(session.role) && <AuditPage />}

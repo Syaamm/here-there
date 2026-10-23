@@ -5,6 +5,7 @@ import { Reveal } from '@/components/Reveal';
 import { Btn, Chip, Empty, ErrorBanner, Grid, Pill, PillRow, Row, Screen, Spinner, useGo } from '@/components/ui';
 import { get } from '@/lib/api';
 import { useLoad, useRefresh } from '@/lib/hooks';
+import { PagedTail, usePaged } from '@/lib/paged';
 import { myActivityItems, type MyActivitiesData } from '@/lib/myActivities';
 
 const TABS = [
@@ -21,7 +22,9 @@ export default function MyActivities() {
   const { refreshing, onRefresh } = useRefresh(acts.reload);
   const all = myActivityItems(acts.data);
   const count = (k: string) => all.filter((x) => x.kind === k).length;
-  const shown = all.filter((x) => x.kind === tab);
+  const list = all.filter((x) => x.kind === tab);
+  const paged = usePaged(list, tab);
+  const shown = paged.shown;
 
   return (
     <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>
@@ -32,7 +35,7 @@ export default function MyActivities() {
       </PillRow>
       <ErrorBanner message={acts.error?.message} />
       {acts.loading && !acts.data && <Spinner />}
-      {acts.data && shown.length === 0 && <Empty title={`Nothing in ${TABS.find((t) => t.id === tab)!.label}`}>{TABS.find((t) => t.id === tab)!.empty}</Empty>}
+      {acts.data && list.length === 0 && <Empty title={`Nothing in ${TABS.find((t) => t.id === tab)!.label}`}>{TABS.find((t) => t.id === tab)!.empty}</Empty>}
       <Grid>
         {shown.map((x, i) => (
           <Reveal key={x.key} index={i} style={{ gap: 6 }}>
@@ -44,6 +47,7 @@ export default function MyActivities() {
           </Reveal>
         ))}
       </Grid>
+      <PagedTail paged={paged} />
     </Screen>
   );
 }

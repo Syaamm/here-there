@@ -9,6 +9,7 @@
     "db:push": "node ../../node_modules/prisma/build/index.js db push",
     "seed": "node dist/scripts/seed.js",
     "demo:waitlist": "node dist/scripts/waitlist-demo.js",
+    "demo:overlap": "node dist/scripts/overlap-demo.js",
     "test": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json && node --test \"dist/test/*.test.js\""
   },
   "dependencies": {

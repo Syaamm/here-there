@@ -8,6 +8,7 @@ import { get, post, type GroupInfo } from '@/lib/api';
 import { useTheme } from '@/lib/theme';
 import { confirmAsync } from '@/lib/confirm';
 import { timeRange } from '@/lib/format';
+import { Paged } from '@/lib/paged';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 
 /**
@@ -86,7 +87,7 @@ export default function GroupInfoScreen() {
 
       <Txt variant="h2" accessibilityRole="header">{g.members.length} {g.members.length === 1 ? 'person' : 'people'}</Txt>
       <View style={{ gap: 2 }}>
-        {g.members.map((m) => (
+        <Paged items={g.members} render={(m) => (
           <Pressable
             key={m.id}
             accessibilityRole="button"
@@ -102,7 +103,7 @@ export default function GroupInfoScreen() {
             {m.role === 'host' ? <Chip label={trip ? 'Organizer · admin' : 'Host · admin'} tone="ok" /> : null}
             <Ionicons name="chevron-forward" size={18} color={c.muted} />
           </Pressable>
-        ))}
+        )} />
       </View>
 
       {me?.role === 'host' ? (

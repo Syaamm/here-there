@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useIsFocused, useRouter } from 'expo-router';
-import { Children, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Text, TextInput } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,6 +16,20 @@ import { useTheme } from '@/lib/theme';
 // ---------------------------------------------------------------- layout
 /** Shared press feedback: a crisp 3% shrink and a light dim. Transform and opacity only, so it never reflows. */
 export const pressed = (p: boolean) => (p ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null);
+
+// Lists ask to be told when the reader gets near the end of the page, so they can draw the next batch (see lib/paged).
+// One shared signal: the page that is in front sends it (a page out of sight never does).
+const endListeners = new Set<() => void>();
+/** Calls `fn` whenever the page in front is scrolled close to its end, or is too short to scroll at all. */
+export function useOnScrollEnd(fn: () => void) {
+  const latest = useRef(fn);
+  latest.current = fn;
+  useEffect(() => {
+    const f = () => latest.current();
+    endListeners.add(f);
+    return () => void endListeners.delete(f);
+  }, []);
+}
 
 export function Screen({
   header, children,
@@ -61,6 +75,12 @@ export function Screen({
   const typing = useKeyboardShown();
   const keyboard = useKeyboardInset(); // the page ends at the bottom edge: the keyboard pushes it up by exactly its height
   const scroller = useRef<ScrollView>(null);
+  const viewH = useRef(0);
+  const contentH = useRef(0);
+  const lastFire = useRef(0);
+  const fireEnd = () => {
+    if (onScreen) endListeners.forEach((f) => f());
+  };
   const scrolled = useRef(0);
   const savedTop = useRef(0);
   const onScreen = useIsFocused();
@@ -78,6 +98,12 @@ export function Screen({
   const body = scroll ? (
     <ScrollView
       ref={scroller}
+      // a page too short to scroll (a big screen, a short list) asks for more at once, until it is full. Both sizes are
+      // needed, and either can arrive first, so the check runs when either one is known.
+      onLayout={(e) => {
+        viewH.current = e.nativeEvent.layout.height;
+        if (contentH.current && contentH.current < viewH.current) fireEnd();
+      }}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[{ flexGrow: 1 }, hero || stickyHero ? { paddingBottom: pad.paddingBottom } : pad, style]}
       keyboardShouldPersistTaps="handled"
@@ -86,6 +112,11 @@ export function Screen({
       scrollEventThrottle={16}
       onScroll={(e) => {
         scrolled.current = e.nativeEvent.contentOffset.y;
+        const m = e.nativeEvent;
+        if (m.contentSize.height - m.contentOffset.y - m.layoutMeasurement.height < 600 && Date.now() - lastFire.current > 150) {
+          lastFire.current = Date.now();
+          fireEnd(); // near the end: the next batch is shown before the reader gets there
+        }
         if (onScreen) savedTop.current = scrolled.current; // only while the page is in front: a reset after it left must not overwrite it
         onScrollY?.(scrolled.current);
       }}
@@ -98,7 +129,17 @@ export function Screen({
       ] : hero ? (
         <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{hero}</View>
       ) : null}
-      <View style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: 16 } : null]}>{children}</View>
+      {/* its own height is the real height of the content (the scroll area itself is stretched to fill the screen, so it
+          cannot tell a short page from a full one): whenever it changes, a short page asks for more */}
+      <View
+        onLayout={(e) => {
+          contentH.current = e.nativeEvent.layout.height;
+          if (viewH.current && contentH.current < viewH.current) fireEnd();
+        }}
+        style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: 16 } : null]}
+      >
+        {children}
+      </View>
     </ScrollView>
   ) : (
     <View style={[{ flex: 1 }, pad, style]}>

@@ -6,7 +6,7 @@ import { View } from 'react-native';
 import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
 import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
-import { get, post } from '@/lib/api';
+import { del, get, post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { useAction, useLoad } from '@/lib/hooks';
@@ -22,6 +22,7 @@ type PublicProfile = {
   photoUrl: string | null;
   verifiedAdult: boolean;
   stats: { activitiesHosted: number; activitiesJoined: number };
+  relation: { following: boolean; followsYou: boolean; buddy: boolean };
 };
 
 /** Another person's public profile: picture, About, interests. No email, no documents, only the verified-adult badge. */
@@ -36,6 +37,8 @@ export default function UserProfile() {
   const [report, setReport] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const p = user.data;
+  const [rel, setRel] = useState<PublicProfile['relation'] | null>(null);
+  const relation = rel ?? p?.relation;
   const mine = me?.id === id;
 
   if (user.loading && !p)
@@ -59,6 +62,15 @@ export default function UserProfile() {
         router.back();
       }
     }
+  };
+
+  // the button changes at once; the server's answer (which also says if you are now buddies) settles it
+  const toggleFollow = async () => {
+    if (!relation) return;
+    const was = relation;
+    setRel({ ...was, following: !was.following, buddy: !was.following && was.followsYou });
+    const r = await act.run(() => (was.following ? del<PublicProfile['relation']>(`/v1/follows/${p.id}`) : post<PublicProfile['relation']>('/v1/follows', { userId: p.id })));
+    setRel(r ?? was);
   };
 
   return (
@@ -100,6 +112,12 @@ export default function UserProfile() {
       {p.languages.length > 0 && <Txt variant="small">Languages: {p.languages.join(', ')}</Txt>}
 
       {mine ? <Btn title="Edit my profile" variant="secondary" onPress={() => go('/edit-profile')} /> : null}
+      {!mine && relation ? (
+        <>
+          <Btn title={relation.buddy ? 'Buddies ✓' : relation.following ? 'Following ✓' : relation.followsYou ? 'Follow back' : 'Follow'} variant={relation.following ? 'secondary' : 'primary'} onPress={toggleFollow} />
+          {relation.buddy ? <Txt variant="small" style={{ textAlign: 'center' }}>You follow each other.</Txt> : relation.followsYou && !relation.following ? <Txt variant="small" style={{ textAlign: 'center' }}>{p.displayName} follows you.</Txt> : null}
+        </>
+      ) : null}
       {!p.verifiedAdult && <Banner tone="warn">This person has not completed identity verification.</Banner>}
       <ReportSheet target={report ? { type: 'user', id: p.id } : null} onClose={() => setReport(false)} />
     </Screen>

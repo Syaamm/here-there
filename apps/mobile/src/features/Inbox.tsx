@@ -12,6 +12,7 @@ import { useMe } from '@/lib/auth';
 import { ago, when } from '@/lib/format';
 import { primeCache, useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { entersFresh } from '@/lib/nav';
+import { PagedTail, usePaged } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 import { useLiveEvents } from '@/lib/live';
 import { enablePush, pushState, type PushState } from '@/lib/push';
@@ -22,6 +23,7 @@ type PendingReq = { id: string; state: string; applicant: { id: string; displayN
 
 const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   join_request: 'person-add-outline',
+  follow: 'people-outline',
   request_approved: 'checkmark-circle-outline',
   waitlist_promoted: 'sparkles-outline',
   request_declined: 'close-circle-outline',
@@ -124,6 +126,7 @@ export function Inbox() {
   }, [focused]);
   // the chats most likely to be opened next are fetched quietly while the list is in front, so opening one shows its
   // messages at once instead of waiting for them (this never marks anything as read)
+  const chatPage = usePaged(chatRows, 'chats');
   const topChats = chatRows.slice(0, 6).map((cv) => cv.conversationId + (cv.lastMessage?.at ?? '')).join(',');
   useEffect(() => {
     if (!focused || !topChats) return;
@@ -158,6 +161,7 @@ export function Inbox() {
     else if (n.type === 'trip_application' && d?.tripId) go(`/review/${d.tripId}`);
     else if (d?.activityId) go(`/activity/${d.activityId}`);
     else if (d?.tripId) go(`/trip/${d.tripId}`);
+    else if (n.type === 'follow' && (d as { userId?: string } | null)?.userId) go(`/user/${(d as { userId: string }).userId}`);
     else if (n.type === 'verification_result') go('/safety');
   };
   const decide = (activityId: string, r: PendingReq, decision: 'approve' | 'decline') => act.run(() => post(`/v1/activities/${activityId}/requests/${r.id}/decision`, { decision }));
@@ -191,8 +195,10 @@ export function Inbox() {
     </Card>
   );
 
-  const today = rest.filter((n) => isToday(n.createdAt));
-  const earlier = rest.filter((n) => !isToday(n.createdAt));
+  // 6 alerts at first, more as you scroll (newest first, so Today comes before Earlier)
+  const alertPage = usePaged(rest, 'alerts');
+  const today = alertPage.shown.filter((n) => isToday(n.createdAt));
+  const earlier = alertPage.shown.filter((n) => !isToday(n.createdAt));
 
   return (
     <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader />}>
@@ -257,7 +263,7 @@ export function Inbox() {
           {convs.data && convs.data.items.length === 0 && <Empty title="No group chats yet">Chats open once a host approves you.</Empty>}
           {chatRows.length > 0 ? (
             <Card style={{ padding: 0, borderRadius: 18, overflow: 'hidden' }}>
-              {chatRows.map((cv, i) => (
+              {chatPage.shown.map((cv, i) => (
                 <View key={cv.conversationId}>
                   <Pressable
                     accessibilityRole="button"
@@ -285,6 +291,7 @@ export function Inbox() {
               ))}
             </Card>
           ) : null}
+          <PagedTail paged={chatPage} />
         </Reveal>
       ) : (
         <Reveal key={`alerts-${visit}`} from={10} style={{ gap: 16 }}>
@@ -351,6 +358,7 @@ export function Inbox() {
               {notifRows(earlier)}
             </>
           )}
+          <PagedTail paged={alertPage} />
           {notifs.data && needs === 0 && rest.length === 0 && <Empty title="You're all caught up">Join requests, approvals and changes to your plans show up here.</Empty>}
         </Reveal>
       )}

@@ -334,7 +334,7 @@ function Chat({ id }: { id: string }) {
         }} keyboardShouldPersistTaps="handled">
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: c.sand, borderRadius: 14, padding: 10, marginBottom: 6 }}>
           <Ionicons name="lock-closed-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
-          <Text style={{ flex: 1, color: c.text, fontSize: 12.5, lineHeight: 17 }}>Only approved members can see this chat. Meet at public venues, and report anything that feels wrong.</Text>
+          <Text style={{ flex: 1, color: c.text, fontSize: 12.5, lineHeight: 17 }}>Only approved members can see this chat. Meet at public venues, and report anything that feels wrong. Hold a message to report or block.</Text>
         </View>
         {msgs.loading && !msgs.data && <SkeletonChat />}
         {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>No messages yet. Say hi 👋</Txt>}
@@ -400,7 +400,7 @@ function Chat({ id }: { id: string }) {
           <Banner>{closedText}</Banner>
         </View>
       ) : (
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', paddingHorizontal: 12, paddingTop: 6, paddingBottom: 4 }}>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', paddingHorizontal: 12, paddingTop: 6, paddingBottom: bottomGap + 8 }}>
           {amHost && conv?.scope === 'trip' ? (
             <Pressable accessibilityRole="button" accessibilityLabel="Add a date poll" onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
               <Ionicons name="add" size={22} color={c.forest} />
@@ -429,13 +429,6 @@ function Chat({ id }: { id: string }) {
           </Pressable>
         </View>
       )}
-      {/* quiet footer: where the safety tools live */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: bottomGap + 6 }}>
-        <Text style={{ color: c.muted, fontSize: 12 }}>Hold a message to report or block</Text>
-        <Pressable accessibilityRole="button" onPress={() => go('/safety')} hitSlop={8}>
-          <Text style={{ color: c.green, fontWeight: '800', fontSize: 14 }}>Safety →</Text>
-        </Pressable>
-      </View>
       <ReportSheet target={reportMsg ? { type: 'message', id: reportMsg.id, category: reportMsg.category } : null} onClose={() => setReportMsg(null)} />
       <Sheet visible={adding === 'poll'} title="Date poll" onClose={() => setAdding(null)}>
         <Field label="Question" placeholder="Can everyone travel on these dates?" value={pollTitle} onChangeText={setPollTitle} maxLength={120} />

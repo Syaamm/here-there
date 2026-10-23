@@ -20,6 +20,7 @@ import { PushService } from './common/push.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { PushController } from './notifications/push.controller';
 import { NotificationsService } from './notifications/notifications.service';
+import { FollowsController } from './safety/follows.controller';
 import { SafetyController } from './safety/safety.controller';
 import { SafetyService } from './safety/safety.service';
 import { TripsController } from './trips/trips.controller';
@@ -45,6 +46,7 @@ function jwtSecret() {
     NotificationsController,
     PushController,
     SafetyController,
+    FollowsController,
     VerificationController,
     PhotoController,
     AdminController,
