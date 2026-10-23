@@ -57,7 +57,12 @@ export const setToken = (t: string | null) => (token = t);
 export const getToken = () => token;
 export const setUnauthorizedHandler = (fn: () => void) => (onUnauthorized = fn);
 
+// how many changes (anything but a read) this person has made: screens use it to know whether what they show can be stale
+let writes = 0;
+export const writeCount = () => writes;
+
 export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+  if (method !== 'GET') writes++;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
   let res: Response;
@@ -158,6 +163,12 @@ export type Activity = {
   myRequest?: { id: string; state: string; /** 1 = first in line, when state is waitlisted */ position?: number } | null;
   conversationId?: string | null;
   participants?: Participant[];
+  /** the host changed the time or place: this member is asked to confirm they can still come */
+  needsReconfirm?: boolean;
+  /** hosting was offered to someone: to me (accept or decline) or, for the host, to whom */
+  handover?: { toMe: boolean; toName?: string } | null;
+  /** my own, voluntary answer once it ended */
+  myAttendance?: 'unknown' | 'attended' | 'no_show';
   /** how many activities the host has run or has coming up (cancelled ones excluded) */
   activitiesHosted?: number;
 };
@@ -170,6 +181,8 @@ export type Trip = {
   dateStart: string;
   dateEnd: string;
   dateFlexibility: string;
+  /** tentative, or proposed: the final dates were put to the group and every member must still confirm them */
+  datesState?: string;
   budget: { label: string; currency: string; min: number; max: number; includesTransport: boolean; scope: string };
   tags: string[];
   description: string | null;
@@ -190,6 +203,8 @@ export type Trip = {
   myApplication?: { id: string; state: string; message: string } | null;
   conversationId?: string | null;
   participants?: Participant[];
+  datesConfirmedCount?: number;
+  myDatesConfirmed?: boolean;
 };
 
 export type Notif = {

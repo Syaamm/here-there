@@ -6,7 +6,7 @@ import type { Mode } from '@/lib/theme';
 
 const LOOK = {
   here: { fill: '#102F29', ink: '#FFFFFF', icon: 'people' as const, word: 'HERE' },
-  there: { fill: '#FFFFFF', ink: '#143A30', icon: 'airplane' as const, word: 'THERE' },
+  there: { fill: '#E9E5DD', ink: '#102F29', icon: 'airplane' as const, word: 'THERE' },
 };
 
 /**

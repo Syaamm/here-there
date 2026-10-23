@@ -276,3 +276,107 @@ export function TripCard({ t }: { t: Trip }) {
     </Card>
   );
 }
+
+/** "in 5 days", "in 3 weeks", "in 2 months", or "under way" once the trip has begun. */
+function tripStartsIn(iso: string) {
+  const days = Math.ceil((+new Date(iso) - Date.now()) / 864e5);
+  if (days <= 0) return 'under way';
+  if (days === 1) return 'tomorrow';
+  if (days < 14) return `in ${days} days`;
+  if (days < 60) return `in ${Math.round(days / 7)} weeks`;
+  return `in ${Math.round(days / 30)} months`;
+}
+
+/** The trip's stand-in picture (until real photos exist): a soft green tile with a plane. */
+function TripThumb({ style, size }: { style: object; size: number }) {
+  const { c } = useTheme();
+  return (
+    <View accessibilityElementsHidden importantForAccessibility="no" style={[{ backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }, style]}>
+      <Ionicons name="airplane" size={size} color={c.forest} />
+    </View>
+  );
+}
+
+/** THERE's version of ActivityRow: a compact row for one trip proposal. */
+export function TripRow({ t }: { t: Trip }) {
+  const go = useGo();
+  const { c } = useTheme();
+  const full = t.spotsLeft === 0 || t.status === 'full';
+  return (
+    <Card
+      onPress={() => go(`/trip/${t.id}`)}
+      accessibilityLabel={`${t.title}, ${dateSpan(t.dateStart, t.dateEnd)}, estimated ${money(t.budget.min, t.budget.currency)} to ${money(t.budget.max, t.budget.currency)} per person, ${t.members} of ${t.maxCapacity} travelers${full ? ', full' : `, ${t.spotsLeft} places open`}`}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 11, padding: 9, borderRadius: 16 }}
+    >
+      <TripThumb size={22} style={{ width: 52, height: 52, borderRadius: 12 }} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{t.destination}</Txt>
+        <Txt variant="small" numberOfLines={1} style={{ fontSize: 12, lineHeight: 16 }}>
+          {dateSpan(t.dateStart, t.dateEnd)}
+          {t.dateFlexibility !== 'exact' ? ' (flexible)' : ''}
+        </Txt>
+        <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
+          {t.match?.dates === 'approximate' ? <Text style={{ color: c.warnFg, fontWeight: '800' }}>Approximate dates · </Text> : null}
+          {t.members} of {t.maxCapacity} going · {money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)}
+          {full ? <Text style={{ color: c.danger, fontWeight: '800' }}> · Full</Text> : null}
+        </Txt>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={c.muted} />
+    </Card>
+  );
+}
+
+/** THERE's version of NextUpCard: the soonest trip that is yours (organising, going or applied to). */
+export function TripNextUpCard({ t, status }: { t: Trip; status?: { label: string; tone: 'ok' | 'warn' | 'bad' } }) {
+  const go = useGo();
+  const { c } = useTheme();
+  const full = t.spotsLeft === 0 || t.status === 'full';
+  return (
+    <Card style={{ padding: 0, gap: 0, borderRadius: 20, overflow: 'hidden' }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Next up: ${t.destination}, ${dateSpan(t.dateStart, t.dateEnd)}, leaves ${tripStartsIn(t.dateStart)}, ${t.members} of ${t.maxCapacity} travelers`} onPress={() => go(`/trip/${t.id}`)}>
+        <View>
+          <TripThumb size={44} style={{ height: 120 }} />
+          <View style={{ position: 'absolute', left: 10, top: 10, backgroundColor: c.surface, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
+            <Text style={{ color: c.text, fontWeight: '700', fontSize: 11 }}>{+new Date(t.dateStart) <= Date.now() ? 'Under way' : `Leaves ${tripStartsIn(t.dateStart)}`}</Text>
+          </View>
+          {status ? (
+            <View style={{ position: 'absolute', right: 10, top: 10 }}>
+              <Chip label={status.label} tone={status.tone} />
+            </View>
+          ) : null}
+        </View>
+        <View style={{ padding: 12, paddingBottom: 0, gap: 9 }}>
+          <Row style={{ justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+            <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 17, lineHeight: 22 }}>{t.destination}</Txt>
+            <Chip label="Trip" tone="ok" />
+          </Row>
+          <Row style={{ gap: 16, flexWrap: 'wrap' }}>
+            <Row style={{ gap: 6 }}>
+              <Ionicons name="calendar-outline" size={16} color={c.muted} />
+              <Txt variant="muted">{dateSpan(t.dateStart, t.dateEnd)}</Txt>
+            </Row>
+            <Row style={{ gap: 6, flexShrink: 1 }}>
+              <Ionicons name="location-outline" size={16} color={c.muted} />
+              <Txt variant="muted" numberOfLines={1} style={{ flexShrink: 1 }}>From {t.originCity}</Txt>
+            </Row>
+          </Row>
+          <Txt variant="small">
+            {t.members} of {t.maxCapacity} going ·{' '}
+            <Text style={{ color: full ? c.danger : c.text, fontWeight: '700' }}>{full ? 'Full' : `${t.spotsLeft} ${t.spotsLeft === 1 ? 'place' : 'places'} open`}</Text>
+          </Txt>
+        </View>
+      </Pressable>
+      <View style={{ padding: 12 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`See details: ${t.destination}`}
+          onPress={() => go(`/trip/${t.id}`)}
+          style={({ pressed }) => [{ height: 40, borderRadius: 999, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+        >
+          <Txt variant="h3" color={c.forest} style={{ fontSize: 13 }}>See details</Txt>
+          <Ionicons name="chevron-forward" size={16} color={c.forest} />
+        </Pressable>
+      </View>
+    </Card>
+  );
+}

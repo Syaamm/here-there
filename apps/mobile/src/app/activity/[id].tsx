@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { SkeletonDetail } from '@/components/Skeleton';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
@@ -6,15 +7,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FloatingButton, Hero } from '@/components/Hero';
 import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
-import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
+import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Sheet, Txt, useGo } from '@/components/ui';
 import { del, get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { catColor, CATS } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
 import { hhmm, when as whenLabel } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
-import { useDockSpace } from '@/lib/dock';
-import { useLayout } from '@/lib/layout';
+import { statusTop, useLayout } from '@/lib/layout';
 import { useTheme } from '@/lib/theme';
 
 /** "Starts in 40 min", "Starts in 3 hrs", "Tomorrow", ... and how it ended once it is over. */
@@ -39,12 +39,12 @@ export default function ActivityDetail() {
   const router = useRouter();
   const go = useGo();
   const insets = useSafeAreaInsets();
-  const dock = useDockSpace();
   const { gutter } = useLayout();
   const [expanded, setExpanded] = useState(false);
+  const [handing, setHanding] = useState(false); // the host's "hand over hosting" list of members
   // the heart answers at once; the server confirms a moment later (a failed save puts it back)
   const [favNow, setFavNow] = useState<boolean | null>(null);
-  const { data: a, error, loading, reload } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id]);
+  const { data: a, error, loading, reload } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'activity' | 'user'; id: string } | null>(null);
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function ActivityDetail() {
   if (loading && !a)
     return (
       <Screen hero={<Hero plain color="#D3EADD" />}>
-        <Spinner />
+        <SkeletonDetail />
       </Screen>
     );
   if (error || !a)
@@ -70,7 +70,9 @@ export default function ActivityDetail() {
   const closed = ['in_progress', 'completed', 'cancelled', 'archived'].includes(a.status);
   const over = a.status === 'completed' || a.status === 'archived';
 
+  const canHandOver = a.isHost && !over && a.status !== 'cancelled' && !a.handover && (a.participants ?? []).some((p) => p.role !== 'host' && p.verifiedAdult);
   const menu = [
+    ...(canHandOver ? [{ label: 'Hand over hosting', onSelect: () => setHanding(true) }] : []),
     { label: a.favorited ? 'Remove from favourites' : 'Add to favourites', onSelect: () => void act.run(() => (a.favorited ? del(`/v1/activities/${id}/favorite`) : post(`/v1/activities/${id}/favorite`))) },
     ...(a.isHost
       ? []
@@ -104,7 +106,7 @@ export default function ActivityDetail() {
   const longText = (a.description?.length ?? 0) > 130;
   const soon = startsIn(a);
 
-  const top = Math.max(insets.top, 20) + 8;
+  const top = statusTop(insets.top) + 8;
   const PHOTO = 250 + top; // the picture's full height
   const STRIP = top + 84; // what is left of it once collapsed: the button row (44) plus the sheet's 28 px rounded edge and a little air, so the white stays below the buttons
   const fav = favNow ?? !!a.favorited;
@@ -227,6 +229,16 @@ export default function ActivityDetail() {
         {over ? (
           // finished: only who took part, for everyone (the host included). No requests, chat, join or leave.
           <View style={{ gap: 10 }}>
+            {a.isMember && a.status !== 'cancelled' ? (
+              <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
+                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{a.myAttendance === 'attended' ? 'You said you were there' : a.myAttendance === 'no_show' ? "You said you weren't there" : 'Were you there?'}</Txt>
+                <Txt variant="small">Optional, and only you see your answer. It helps keep fake sign-ups out. We never track your location.</Txt>
+                <Row style={{ gap: 8 }}>
+                  <Btn title="Yes, I went" small variant={a.myAttendance === 'attended' ? undefined : 'secondary'} style={{ flex: 1 }} loading={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/attendance`, { attended: true }))} />
+                  <Btn title="No" small variant={a.myAttendance === 'no_show' ? undefined : 'secondary'} style={{ flex: 1 }} loading={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/attendance`, { attended: false }))} />
+                </Row>
+              </View>
+            ) : null}
             <Txt variant="h2" accessibilityRole="header">Members who took part ({going.length})</Txt>
             {going.map((p) => (
               <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={`${p.displayName}${p.role === 'host' ? ', host' : ''}. Open profile`} onPress={() => go(`/user/${p.id}`)}>
@@ -269,6 +281,28 @@ export default function ActivityDetail() {
               </Row>
             </View>
 
+            {a.needsReconfirm ? (
+              <View style={{ backgroundColor: c.warnBg, borderRadius: 14, padding: 12, gap: 8 }}>
+                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>The host changed the plan</Txt>
+                <Txt variant="small">The time or place is different now. Can you still come? If not, you can leave below.</Txt>
+                <Btn title="Yes, I can still come" small loading={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/reconfirm`))} />
+              </View>
+            ) : null}
+            {a.handover?.toMe ? (
+              <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
+                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>The host asked you to take over hosting</Txt>
+                <Txt variant="small">You would become the host: you review requests and can cancel it. Nothing changes unless you accept.</Txt>
+                <Row style={{ gap: 8 }}>
+                  <Btn title="Accept" small loading={act.busy} style={{ flex: 1 }} onPress={() => void act.run(() => post(`/v1/activities/${id}/handover/answer`, { accept: true }))} />
+                  <Btn title="Decline" small variant="secondary" style={{ flex: 1 }} onPress={() => void act.run(() => post(`/v1/activities/${id}/handover/answer`, { accept: false }))} />
+                </Row>
+              </View>
+            ) : null}
+            {a.isHost && a.handover && !a.handover.toMe ? (
+              <Banner tone="warn">{`You asked ${a.handover.toName ?? 'a member'} to take over hosting. You stay the host until they accept.`}</Banner>
+            ) : null}
+            {a.isHost && a.handover && !a.handover.toMe ? <Btn title="Take the offer back" variant="secondary" loading={act.busy} onPress={() => void act.run(() => del(`/v1/activities/${id}/handover`))} /> : null}
+
             <Row style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, gap: 10, alignItems: 'flex-start' }}>
               <Ionicons name="lock-closed-outline" size={16} color={c.forest} />
               <Txt variant="small" style={{ flex: 1, color: c.text, lineHeight: 17 }}>Your exact location stays private. The group chat opens once the host approves your request.</Txt>
@@ -303,13 +337,35 @@ export default function ActivityDetail() {
         )}
 
         {/* room under the content for the fixed bar */}
-        {primary ? <View style={{ height: 64 }} /> : null}
+        {primary ? <View style={{ height: 64 + insets.bottom }} /> : null}
         <ReportSheet target={report} onClose={() => setReport(null)} />
+        <Sheet visible={handing} title="Hand over hosting" onClose={() => setHanding(false)}>
+          <Txt variant="small">Pick a verified member. They have to accept before anything changes, and you stay the host until they do.</Txt>
+          {(a.participants ?? [])
+            .filter((p) => p.role !== 'host' && p.verifiedAdult)
+            .map((p) => (
+              <Pressable
+                key={p.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Ask ${p.displayName} to take over hosting`}
+                onPress={async () => {
+                  setHanding(false);
+                  await act.run(() => post(`/v1/activities/${id}/handover`, { userId: p.id }));
+                }}
+              >
+                <Row style={{ gap: 12, paddingVertical: 6 }}>
+                  <Avatar name={p.displayName} uri={p.photoUrl} size={38} />
+                  <Txt variant="h3" style={{ flex: 1, fontSize: 15 }}>{p.displayName}</Txt>
+                  <Ionicons name="chevron-forward" size={16} color={c.muted} />
+                </Row>
+              </Pressable>
+            ))}
+        </Sheet>
       </Screen>
 
 
       {primary ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: dock, backgroundColor: c.bg, borderTopWidth: 1, borderTopColor: c.line, paddingTop: 8, paddingBottom: 8, paddingHorizontal: gutter, alignItems: 'center' }}>
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: c.bg, borderTopWidth: 1, borderTopColor: c.line, paddingTop: 8, paddingBottom: insets.bottom + 8, paddingHorizontal: gutter, alignItems: 'center' }}>
           <View style={{ width: '100%', maxWidth: 760, gap: 6 }}>
             <Btn title={primary.title} variant={primary.variant} disabled={primary.disabled} loading={primary.loading} onPress={primary.onPress} />
             {primary.caption ? <Txt variant="small" style={{ textAlign: 'center' }}>{primary.caption}</Txt> : null}

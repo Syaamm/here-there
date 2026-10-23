@@ -6,7 +6,9 @@ import { API_URL, getToken } from './api';
 export type LiveEvent =
   | { type: 'ready' }
   | { type: 'message'; conversationId: string; message: { id: string; body: string; createdAt: string; sender: { id: string; displayName: string; photoUrl: string | null } } }
-  | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: string } };
+  | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: string } }
+  | { type: 'alerts-changed' }
+  | { type: 'feed-changed' };
 
 type Listener = (e: LiveEvent) => void;
 const listeners = new Set<Listener>();

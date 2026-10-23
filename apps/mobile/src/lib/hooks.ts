@@ -1,28 +1,145 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
-import { AppState } from 'react-native';
-import { ApiError } from './api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { ApiError, writeCount } from './api';
 
 export const errMsg = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : 'Something went wrong');
 
+// Android needs this switched on before a list can slide its rows into place
+if (Platform.OS === 'android') UIManager.setLayoutAnimationEnabledExperimental?.(true);
+
+// What was loaded last time, by name, so a screen you come back to shows it at once while it refreshes quietly.
+const cache = new Map<string, unknown>();
+
+// ...and kept on the phone for the next time the app opens (one person's data only, never a chat's messages)
+const DISK = 'ht_load_cache_v1';
+let owner: string | null = null;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveSoon() {
+  if (!owner || saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    const entries: Record<string, unknown> = {};
+    cache.forEach((v, k) => {
+      if (!k.startsWith('chat:')) entries[k] = v;
+    });
+    AsyncStorage.setItem(DISK, JSON.stringify({ owner, entries })).catch(() => {});
+  }, 2000);
+}
+/** Load what was remembered last time for this person (nothing if it was someone else's). Done before the first screen. */
+export async function restoreLoadCache(userId: string) {
+  owner = userId;
+  try {
+    const raw = await AsyncStorage.getItem(DISK);
+    const saved = raw ? (JSON.parse(raw) as { owner?: string; entries?: Record<string, unknown> }) : null;
+    if (saved?.owner === userId && saved.entries) for (const [k, v] of Object.entries(saved.entries)) if (!cache.has(k)) cache.set(k, v);
+  } catch {
+    // an unreadable memory is simply an empty one
+  }
+}
+// screens showing a remembered answer, so a change made elsewhere reaches them while they are out of sight
+const watchers = new Map<string, Set<(v: unknown) => void>>();
+const keyOf = (cacheKey: string, deps: unknown[]) => `${cacheKey}|${JSON.stringify(deps)}`;
+
+/** Forget everything (when someone signs out, so the next person never sees it). */
+export const clearLoadCache = () => {
+  cache.clear();
+  owner = null;
+  AsyncStorage.removeItem(DISK).catch(() => {});
+};
+
+/** Put an answer in the memory ahead of time (a chat's messages, fetched quietly), so opening it needs no waiting. */
+export function primeCache<T>(cacheKey: string, deps: unknown[], data: T) {
+  const key = keyOf(cacheKey, deps);
+  if (JSON.stringify(cache.get(key)) === JSON.stringify(data)) return;
+  cache.set(key, data);
+  saveSoon();
+  watchers.get(key)?.forEach((f) => f(data));
+}
+
+/** Change a remembered answer from another screen (the inbox learns a message was sent), so it is already right when you get back to it. */
+export function patchCache<T>(cacheKey: string, deps: unknown[], update: (old: T) => T) {
+  const key = keyOf(cacheKey, deps);
+  if (!cache.has(key)) return;
+  primeCache(cacheKey, deps, update(cache.get(key) as T));
+}
+
 /**
- * Loads data whenever the screen is focused (so lists refresh after you come back from a detail
- * screen) and, if `pollMs` is set, keeps refreshing while the screen is visible and the app is open.
+ * Loads data whenever the screen is focused (so lists refresh after you come back from a detail screen) and, if
+ * `pollMs` is set, keeps refreshing while the screen is visible and the app is open.
+ *
+ * It never flashes: a loading state exists only while there is nothing to show yet; a refresh happens in the background
+ * and the screen re-draws only if the answer is different. Give it a `cacheKey` and the last answer is shown instantly the
+ * next time (a chat, the inbox). If what is loaded changes (the deps: another chat, another activity) the old answer is
+ * dropped straight away, so the previous page never shows for a moment inside the new one.
  */
-export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: number) {
-  const [data, setData] = useState<T | null>(null);
+export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: number, cacheKey?: string, opts?: {
+  /** when the deps change, keep showing the previous answer until the new one arrives (filters), instead of starting blank */
+  keep?: boolean;
+  /** when a refresh brings a different answer, let the rows slide into their new places (a chat moving up) */
+  animate?: boolean;
+}) {
+  const depsKey = JSON.stringify(deps);
+  const full = cacheKey ? `${cacheKey}|${depsKey}` : null;
+  const start = full && cache.has(full) ? (cache.get(full) as T) : null;
+  const [data, setData] = useState<T | null>(start);
+  const dataRef = useRef<T | null>(start);
   const [error, setError] = useState<ApiError | Error | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(start === null);
+  const have = useRef(start !== null); // is there something on screen already?
   const seq = useRef(0);
+  const lastDeps = useRef(depsKey);
+  const fetched = useRef({ at: 0, writes: -1 }); // when this was last loaded, and how many changes had been made then
+
+  // an answer put in the memory (or patched) by another screen reaches this one even while it is out of sight
+  useEffect(() => {
+    if (!full) return;
+    const f = (v: unknown) => {
+      have.current = true;
+      dataRef.current = v as T;
+      setData(v as T);
+      setLoading(false);
+    };
+    if (!watchers.has(full)) watchers.set(full, new Set());
+    watchers.get(full)!.add(f);
+    return () => {
+      watchers.get(full)?.delete(f);
+    };
+  }, [full]);
+
+  if (lastDeps.current !== depsKey) {
+    // a different thing is being loaded: show its remembered answer, or nothing (never the old thing's)
+    lastDeps.current = depsKey;
+    if (!(opts?.keep && dataRef.current !== null)) {
+      have.current = start !== null;
+      dataRef.current = start;
+      setData(start);
+      setLoading(start === null);
+    }
+    setError(null);
+  }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const reload = useCallback(() => {
     const id = ++seq.current;
-    setLoading(true);
+    if (!have.current) setLoading(true);
     return fn()
       .then((d) => {
         if (id === seq.current) {
-          setData(d);
+          have.current = true;
+          fetched.current = { at: Date.now(), writes: writeCount() };
+          if (full) {
+            cache.set(full, d);
+            saveSoon();
+          }
+          const old = dataRef.current;
+          if (old === null || JSON.stringify(old) !== JSON.stringify(d)) {
+            // a different answer while something is already on screen: rows glide to their new places
+            if (opts?.animate && old !== null) LayoutAnimation.configureNext(LayoutAnimation.create(260, 'easeInEaseOut', 'opacity'));
+            dataRef.current = d;
+            setData(d);
+          } // the same answer: nothing is redrawn at all
           setError(null);
         }
       })
@@ -32,7 +149,10 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
 
   useFocusEffect(
     useCallback(() => {
-      void reload();
+      // Coming back to a page: if it was loaded moments ago and nothing was changed since, it is still right, so do not ask
+      // again (nothing to refresh, nothing to flicker). A change made anywhere, or a few seconds more, and it is asked.
+      const fresh = have.current && Date.now() - fetched.current.at < 15_000 && fetched.current.writes === writeCount();
+      if (!fresh) void reload();
       if (!pollMs) return;
       const t = setInterval(() => AppState.currentState === 'active' && void reload(), pollMs);
       return () => clearInterval(t);

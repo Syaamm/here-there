@@ -1,14 +1,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter } from 'expo-router';
+import { useIsFocused, useRouter } from 'expo-router';
 import { Children, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Text, TextInput } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { photoSrc } from '@/lib/api';
-import { useLayout } from '@/lib/layout';
+import { headerGap, statusTop, useLayout } from '@/lib/layout';
 import { sc, useScale } from '@/lib/scale';
 import { PageTransition } from './PageTransition';
+import { SkeletonRows } from './Skeleton';
 import { useDockSpace } from '@/lib/dock';
+import { formatDay, useKeyboardInset, useKeyboardShown, useScrollFieldIntoView } from '@/lib/keyboard';
 import { useTheme } from '@/lib/theme';
 
 // ---------------------------------------------------------------- layout
@@ -55,20 +57,38 @@ export function Screen({
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   // never closer to the top than a phone's status bar needs (a browser reports no inset, a real phone does)
-  const top = Math.max(insets.top, 20);
-  const dock = useDockSpace(); // the floating dock covers the bottom of the page, so leave room under the content
+  const top = statusTop(insets.top);
+  const typing = useKeyboardShown();
+  const keyboard = useKeyboardInset(); // the page ends at the bottom edge: the keyboard pushes it up by exactly its height
+  const scroller = useRef<ScrollView>(null);
+  const scrolled = useRef(0);
+  const savedTop = useRef(0);
+  const onScreen = useIsFocused();
+  useScrollFieldIntoView(scroller, scrolled, onScreen);
+  useEffect(() => {
+    // the page came back into front: if the phone dropped its scroll position meanwhile, put it back
+    if (onScreen && savedTop.current > 40) requestAnimationFrame(() => scrolled.current < savedTop.current - 40 && scroller.current?.scrollTo({ y: savedTop.current, animated: false }));
+  }, [onScreen]); // and the field being typed in is scrolled above it
+  const dockRoom = useDockSpace();
+  const dock = typing ? 0 : dockRoom; // the floating dock covers the bottom of the page, so leave room under the content (it hides while typing)
   const pad = { paddingTop: hasHeader ? 12 : header ? 8 : top + 8, paddingBottom: (tabBar ? 24 : insets.bottom + 24) + dock, paddingHorizontal: gutter };
   // The content sits in a centred column: full width on phones, a comfortable measure on tablets and desktops.
   const columnWidth = maxWidth ?? (wide ? 1180 : 760);
   const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 16 };
   const body = scroll ? (
     <ScrollView
+      ref={scroller}
+      showsVerticalScrollIndicator={false}
       contentContainerStyle={[{ flexGrow: 1 }, hero || stickyHero ? { paddingBottom: pad.paddingBottom } : pad, style]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       stickyHeaderIndices={stickyHero ? [1] : undefined}
       scrollEventThrottle={16}
-      onScroll={onScrollY ? (e) => onScrollY(e.nativeEvent.contentOffset.y) : undefined}
+      onScroll={(e) => {
+        scrolled.current = e.nativeEvent.contentOffset.y;
+        if (onScreen) savedTop.current = scrolled.current; // only while the page is in front: a reset after it left must not overwrite it
+        onScrollY?.(scrolled.current);
+      }}
       refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined}
     >
       {/* an array, not a fragment: the ScrollView counts its direct children to find the sticky one */}
@@ -86,14 +106,14 @@ export function Screen({
     </View>
   );
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <Animated.View style={{ flex: 1, backgroundColor: c.bg, paddingBottom: keyboard }}>
       {header ? (
-        <View style={{ paddingTop: top + 14, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
+        <View style={{ paddingTop: top + headerGap, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
           <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{header}</View>
         </View>
       ) : null}
       <PageTransition>{body}</PageTransition>
-    </KeyboardAvoidingView>
+    </Animated.View>
   );
 }
 
@@ -196,7 +216,7 @@ export function Field({ label, hint, error, icon, style, ...rest }: TextInputPro
       <View>
         <TextInput
           accessibilityLabel={label}
-          placeholderTextColor={c.muted}
+          placeholderTextColor={c.placeholder}
           {...rest}
           style={[s.input, { minHeight: sc(42) }, { backgroundColor: c.surface, borderColor: error ? c.danger : c.line, color: c.text }, icon ? { paddingRight: 44 } : null, rest.multiline && { minHeight: 92, textAlignVertical: 'top' }, style]}
         />
@@ -207,6 +227,11 @@ export function Field({ label, hint, error, icon, style, ...rest }: TextInputPro
       {error ? <Txt variant="small" color={c.danger}>{error}</Txt> : null}
     </View>
   );
+}
+
+/** A date typed as digits: the dashes are put in for you (YYYY-MM-DD), on every phone's number keypad. */
+export function DateField({ onChangeText, ...rest }: Omit<React.ComponentProps<typeof Field>, 'keyboardType' | 'maxLength'>) {
+  return <Field {...rest} keyboardType="number-pad" maxLength={10} autoComplete="off" onChangeText={(v) => onChangeText?.(formatDay(v))} />;
 }
 
 /** A tinted rounded square holding an icon: the leading element of list rows. */
@@ -261,7 +286,7 @@ export function SearchBar({ value, onChangeText, placeholder, onFilter, filterAc
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={c.muted}
+        placeholderTextColor={c.placeholder}
         returnKeyType="search"
         clearButtonMode="while-editing"
         style={{ flex: 1, fontSize: 14, color: c.text, paddingVertical: 0, minHeight: 24 }}
@@ -375,12 +400,8 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   );
 }
 
-export const Spinner = ({ label }: { label?: string }) => (
-  <View style={{ padding: 24, alignItems: 'center', gap: 8 }} accessibilityRole="progressbar">
-    <ActivityIndicator />
-    {label ? <Txt variant="muted">{label}</Txt> : null}
-  </View>
-);
+/** What every page shows while its content loads: grey blocks in the shape of the content, never a spinner. */
+export const Spinner = ({ rows = 4 }: { rows?: number; label?: string }) => <SkeletonRows count={rows} />;
 
 /** Soft green-led tints behind the initial, picked from the name so each person keeps the same colour everywhere. */
 const AVATAR_TINTS = ['#D9EBE2', '#CFE3DA', '#DCE8D2', '#D3E4E6', '#E2E4EF', '#E6E9D8'];
@@ -447,7 +468,7 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
   const rise = isTablet ? slide.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) : slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] });
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end' }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
         <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)', opacity: shade }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         </Animated.View>
@@ -460,7 +481,7 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
           ]}
         >
           <Txt variant="h2">{shown.current.title}</Txt>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>{shown.current.children}</ScrollView>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>{shown.current.children}</ScrollView>
         </Animated.View>
       </KeyboardAvoidingView>
     </Modal>

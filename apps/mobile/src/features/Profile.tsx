@@ -1,11 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Image, Pressable, View } from 'react-native';
 import { ActivityCard, TripCard } from '@/components/Cards';
 import { TabHeader } from '@/components/TabHeader';
 import { Avatar, Between, Btn, Card, Chip, Empty, ErrorBanner, Field, Grid, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, patch, type Activity, type Trip } from '@/lib/api';
 import { myActivityItems } from '@/lib/myActivities';
+import { savedIcon, type AppIcon } from '@/lib/appIcon';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
@@ -17,14 +19,17 @@ const csv = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
 
 /** Shared profile across HERE and THERE: one identity, one verification, one block list. */
 export function Profile() {
-  const { me, reload, logout } = useMe();
+  const { me, reload } = useMe();
   const { mode, switchMode, c } = useTheme();
   const go = useGo();
   const [tab, setTab] = useState<'activities' | 'trips' | 'favourites'>(mode === 'here' ? 'activities' : 'trips');
-  const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number } }>(`/v1/users/${me!.id}`), [me?.id]);
-  const acts = useLoad(() => get<MyActivities>('/v1/me/activities'), []);
-  const trips = useLoad(() => get<MyTrips>('/v1/me/trips'), []);
-  const favs = useLoad(() => get<{ items: Activity[] }>('/v1/me/favorites'), []);
+  const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number } }>(`/v1/users/${me!.id}`), [me?.id], undefined, 'me:stats');
+  const acts = useLoad(() => get<MyActivities>('/v1/me/activities'), [], undefined, 'me:activities');
+  const trips = useLoad(() => get<MyTrips>('/v1/me/trips'), [], undefined, 'me:trips');
+  const favs = useLoad(() => get<{ items: Activity[] }>('/v1/me/favorites'), [], undefined, 'me:favs');
+  // the app icon chosen in Settings, shown on the Settings row
+  const [icon, setIcon] = useState<AppIcon>('here');
+  useFocusEffect(useCallback(() => void savedIcon().then(setIcon), []));
   const all = myActivityItems(acts.data);
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([reload(), stats.reload(), acts.reload(), trips.reload(), favs.reload()]));
 
@@ -142,10 +147,15 @@ export function Profile() {
         </>
       )}
 
-      <Row style={{ justifyContent: 'center', gap: 8 }}>
-        <Btn title="Safety & privacy" variant="ghost" small onPress={() => go('/safety')} />
-        <Btn title="Sign out" variant="ghost" small onPress={() => logout()} />
-      </Row>
+      {/* the last thing on the page: account, notifications, app icon, safety & privacy and sign out all live in Settings */}
+      <Card onPress={() => go('/settings')} accessibilityLabel="Settings: account, notifications, app icon, safety and privacy, sign out" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 18 }}>
+        <Image accessibilityIgnoresInvertColors source={icon === 'there' ? require('../../assets/icons/there/icon.png') : require('../../assets/icon.png')} style={{ width: 38, height: 38, borderRadius: 10 }} />
+        <View style={{ flex: 1, gap: 1 }}>
+          <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>Settings</Txt>
+          <Txt variant="small">Account, alerts, app icon, safety & privacy, sign out</Txt>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={c.muted} />
+      </Card>
     </Screen>
   );
 }

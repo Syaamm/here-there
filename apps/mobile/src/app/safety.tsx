@@ -9,7 +9,7 @@ import { useAction, useLoad } from '@/lib/hooks';
 export default function Safety() {
   const { me, reload } = useMe();
   const go = useGo();
-  const blocks = useLoad(() => get<{ items: { userId: string; displayName?: string }[] }>('/v1/blocks'), []);
+  const blocks = useLoad(() => get<{ items: { userId: string; displayName?: string }[] }>('/v1/blocks'), [], undefined, 'blocks');
   // always re-check the latest verification result when this screen is opened
   useEffect(() => {
     void reload();

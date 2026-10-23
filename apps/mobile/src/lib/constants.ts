@@ -49,9 +49,11 @@ export const GROUP_SIZES: [string, string][] = [
   ['2-3', '2–3 people'],
   ['4-6', '4–6 people'],
   ['7-10', '7–10 people'],
+  ['10+', '10+ people'],
 ];
 export const FLEX: [string, string][] = [
   ['exact', 'Exact dates'],
+  ['plus_minus_1', '± 1 day'],
   ['plus_minus_3', '± 3 days'],
   ['plus_minus_7', '± 7 days'],
   ['same_month', 'Anytime that month'],

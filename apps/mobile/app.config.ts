@@ -60,6 +60,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     // Plain HTTP to a dev machine is blocked on Android by default. Allowed only outside production.
+    // The home-screen icon can be switched to THERE in Settings (HERE is the default icon). Needs an installed build.
+    [
+      'expo-alternate-app-icons',
+      [
+        {
+          name: 'There',
+          ios: './assets/icons/there/icon.png',
+          android: { foregroundImage: './assets/icons/there/android-icon-foreground.png', backgroundColor: '#0B3226' },
+        },
+      ],
+    ],
     ['expo-build-properties', { android: { usesCleartextTraffic: !isProd } }],
     ...(hasMapKeys ? ([['react-native-maps', mapKeys]] as NonNullable<ExpoConfig['plugins']>) : []),
   ],

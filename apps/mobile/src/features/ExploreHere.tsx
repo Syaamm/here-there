@@ -13,6 +13,7 @@ import { useCity } from '@/lib/city';
 import { CATS } from '@/lib/constants';
 import { feedRange, splitFeed } from '@/lib/feed';
 import { useLoad, useRefresh } from '@/lib/hooks';
+import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
 
 const CAT_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = { coffee: 'cafe-outline', drinks: 'wine-outline', food: 'restaurant-outline', sports: 'basketball-outline', culture: 'color-palette-outline' };
@@ -35,10 +36,16 @@ export function ExploreHere() {
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
     [city, cat],
-    60_000,
+    20_000,
+    'feed:here',
+    { keep: true },
   );
   // Next up is about YOU: the soonest upcoming activity you host, are going to, or have asked to join
-  const mine = useLoad(() => get<MyActivitiesData>('/v1/me/activities'), []);
+  // an activity was created, filled or cancelled somewhere: ask again at once (the app holds one nudge per few seconds)
+  useLiveEvents((e) => {
+    if (e.type === 'feed-changed') void feed.reload();
+  });
+  const mine = useLoad(() => get<MyActivitiesData>('/v1/me/activities'), [], undefined, 'me:activities');
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([feed.reload(), mine.reload()]));
 
   // The API has no free-text search yet, so search filters the loaded feed on the device.

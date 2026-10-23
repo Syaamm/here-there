@@ -32,6 +32,31 @@ export class ActivitiesController {
     return this.activities.cancel(me, id);
   }
 
+  @Post('activities/:id/reconfirm')
+  reconfirm(@CurrentUser() me: User, @Param('id') id: string) {
+    return this.activities.reconfirm(me, id);
+  }
+
+  @Post('activities/:id/handover')
+  offerHandover(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.activities.offerHandover(me, id, body);
+  }
+
+  @Delete('activities/:id/handover')
+  withdrawHandover(@CurrentUser() me: User, @Param('id') id: string) {
+    return this.activities.withdrawHandover(me, id);
+  }
+
+  @Post('activities/:id/handover/answer')
+  answerHandover(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.activities.answerHandover(me, id, body);
+  }
+
+  @Post('activities/:id/attendance')
+  attendance(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.activities.confirmAttendance(me, id, body);
+  }
+
   @Post('activities/:id/requests')
   request(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
     return this.activities.request(me, id, body);

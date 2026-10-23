@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Tabs, usePathname, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, Easing, Platform, Pressable, View, type ColorValue } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,8 +13,8 @@ import { startLive, stopLive, useLiveEvents } from '@/lib/live';
 import { resyncPush, usePushTaps } from '@/lib/push';
 import { bumpUnread, onUnreadRefresh, refreshUnread, setUnread, useUnread } from '@/lib/unread';
 import { useLayout } from '@/lib/layout';
-import { sc } from '@/lib/scale';
-import { InnerHeader } from '@/components/TabHeader';
+import { prefetchApp } from '@/lib/prefetch';
+import { scBase, useTextBoost } from '@/lib/scale';
 import { HomeIcon, MessageIcon, SearchIcon } from '@/components/DockIcons';
 import { Avatar } from '@/components/ui';
 import { useTheme } from '@/lib/theme';
@@ -72,6 +72,7 @@ const icon = (on: IconName, off: IconName) =>
  */
 function DockButton(props: any) {
   const { children, onPress, onLongPress, style, accessibilityLabel, accessibilityState, testID, glass } = props;
+  const { c } = useTheme(); // the capsule follows the product's colours
   // this navigator reports the open tab as `aria-selected` (older ones used accessibilityState)
   const selected = !!(props['aria-selected'] ?? accessibilityState?.selected);
   // the liquid-glass highlight behind the open tab: it swells in with a little overshoot, like a drop settling
@@ -86,6 +87,7 @@ function DockButton(props: any) {
   const lift = useRef(new Animated.Value(0)).current; // 0 on the ground, 1 at the top of the jump
   const down = () => {
     lift.stopAnimation();
+    squash.stopAnimation();
     Animated.timing(squash, { toValue: 0.88, duration: 60, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
   };
   // quick and stiff: back to rest in about a tenth of a second, with just a hint of bounce (a soft spring felt laggy on Android)
@@ -99,7 +101,7 @@ function DockButton(props: any) {
   return (
     <Pressable
       accessibilityRole="tab"
-      accessibilityLabel={accessibilityLabel}
+      accessibilityLabel={props['aria-label'] ?? accessibilityLabel}
       accessibilityState={{ ...accessibilityState, selected }}
       testID={testID}
       // Android: let the press animation draw its first frame before the new page starts rendering (which keeps the JS thread busy)
@@ -126,10 +128,10 @@ function DockButton(props: any) {
           }}
         >
           {/* liquid glass: a tall frosted capsule filling the tab, with a fine rim, a bright top edge and a green glow below */}
-          <View style={{ position: 'absolute', left: 2, right: 2, top: 5, bottom: 5, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(47,125,101,0.14)', backgroundColor: 'rgba(47,125,101,0.05)', shadowColor: '#2F7D65', shadowOpacity: 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
-            <View style={{ flex: 1, margin: 1, borderRadius: 999, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)' }}>
-              <LinearGradient colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0)']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 0.6 }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
-              <LinearGradient colors={['rgba(47,125,101,0)', 'rgba(47,125,101,0.09)']} start={{ x: 0.5, y: 0.35 }} end={{ x: 0.5, y: 1 }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
+          <View style={{ position: 'absolute', left: 2, right: 2, top: 5, bottom: 5, borderRadius: 999, borderWidth: 1, borderColor: c.glassRim, backgroundColor: c.glassFill, shadowColor: c.glassGlow, shadowOpacity: 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
+            <View style={{ flex: 1, margin: 1, borderRadius: 999, overflow: 'hidden', borderWidth: 1, borderColor: c.glassEdge }}>
+              <LinearGradient colors={[c.glassShine, 'rgba(255,255,255,0)']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 0.6 }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
+              <LinearGradient colors={[c.glassTint, c.glassTintEnd]} start={{ x: 0.5, y: 0.35 }} end={{ x: 0.5, y: 1 }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
             </View>
           </View>
         </Animated.View>
@@ -145,17 +147,17 @@ function DockButton(props: any) {
  */
 function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
   const { c } = useTheme();
+  const boost = useTextBoost(); // the label under the + is part of the dock: it keeps its own size
   // the open tab, read from the address (the tab bar does not hand this button its selected state reliably)
   const selected = usePathname() === '/create';
-  const [down, setDown] = useState(false);
   const grow = useRef(new Animated.Value(0)).current; // 0 resting, 1 selected
   const press = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(grow, { toValue: selected ? 1 : 0, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, [selected, grow]);
-  useEffect(() => {
-    Animated.timing(press, { toValue: down ? 1 : 0, duration: down ? 110 : 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [down, press]);
+  // driven straight from the touch (no React state), so a press never re-renders anything on the JS thread
+  const setDown = (isDown: boolean) =>
+    Animated.timing(press, { toValue: isDown ? 1 : 0, duration: isDown ? 110 : 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   const scale = Animated.add(grow.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1.06] }), press.interpolate({ inputRange: [0, 1], outputRange: [0, 0.14] }));
   const turn = grow.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] });
   return (
@@ -184,7 +186,7 @@ function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
           <Ionicons name="add" size={30} color="#fff" />
         </Animated.View>
       </Animated.View>
-      <Text style={{ marginTop: 3, fontSize: 10, fontWeight: selected ? '800' : '600', color: selected ? c.green : c.muted }}>Create</Text>
+      <Text style={{ marginTop: 3, fontSize: 10 / boost, fontWeight: selected ? '800' : '600', color: selected ? c.green : c.muted }}>Create</Text>
     </Pressable>
   );
 }
@@ -199,7 +201,7 @@ export default function TabsLayout() {
   // (on iPhones the home-indicator inset is large, so the dock sits closer to the edge and is a touch taller)
   const ios = Platform.OS === 'ios';
   const dockBottom = ios ? Math.max(insets.bottom - 6, 12) : Math.max(insets.bottom, 12) + 6;
-  const dockH = Math.max(ios ? 58 : 56, sc(ios ? 58 : 56));
+  const dockH = Math.max(ios ? 58 : 56, scBase(ios ? 58 : 56)); // the dock does not grow with the text size
   // the dock floats over the pages (phones), so they leave this much room at the bottom
   const dockSpace = isWide ? 0 : dockH + dockBottom;
   // the Message badge: asked of the server every 10 s, and changed at once by the screens that read things (lib/unread)
@@ -220,26 +222,16 @@ export default function TabsLayout() {
   }, [signedIn?.id]);
   useLiveEvents((e) => {
     if (e.type === 'notification') bumpUnread(1);
-    if (e.type === 'notification' || e.type === 'ready') refreshUnread();
+    if (e.type === 'notification' || e.type === 'ready' || e.type === 'alerts-changed') refreshUnread();
   });
   usePushTaps();
+  // the first visit to Messages, Profile or the feeds should already have its content: load them quietly now
+  useEffect(() => {
+    if (signedIn) void prefetchApp(signedIn).catch(() => {});
+  }, [signedIn?.id]);
 
   // right after sign-up: confirm email + profile once, then the tabs
   if (onboarding) return <Redirect href={'/onboarding' as never} />;
-
-  // Inner screens have no tab button, but stay navigable (href: null would make them unreachable).
-  const hidden = { tabBarButton: () => null, tabBarItemStyle: { display: 'none' as const } };
-
-  /** Options for a screen that has a header with a back arrow but no tab of its own. */
-  const inner = (title: string) => ({
-    ...hidden,
-    // the page slides itself in (PageTransition); the navigator adds no second fade on top
-    animation: 'none' as const,
-    headerShown: true,
-    title,
-    // the same HERE. / THERE. header as the main tabs, with a back arrow (see InnerHeader)
-    header: ({ options }: { options: any }) => <InnerHeader options={options} />,
-  });
 
   return (
     <DockSpace.Provider value={dockSpace}>
@@ -247,9 +239,12 @@ export default function TabsLayout() {
       backBehavior="history"
       screenOptions={{
         headerShown: false,
+        // the dock steps aside while someone is typing, so it never rides on top of the keyboard
+        tabBarHideOnKeyboard: true,
         // no cross-fade: with two pages fading at once the old one shows through the new one as a ghost.
         // The page you leave disappears, and the new one eases in by itself (PageTransition).
         animation: 'none',
+        sceneStyle: { backgroundColor: c.bg }, // what shows behind a page being swiped away
         tabBarButton: (p) => <DockButton {...p} glass={!isWide} />,
         freezeOnBlur: true,
         // bottom tabs on phones; a navigation rail down the left edge on iPads, tablets and desktop browsers
@@ -269,7 +264,7 @@ export default function TabsLayout() {
           ? undefined
           : () => (
               <>
-              <LinearGradient pointerEvents="none" colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.78)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
+              <LinearGradient pointerEvents="none" colors={[c.fadeFrom, c.fadeTo]} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
               <View
                 pointerEvents="none"
                 style={{
@@ -280,7 +275,7 @@ export default function TabsLayout() {
                   bottom: dockBottom,
                   borderRadius: 999,
                   // frosted glass: slightly see-through white with a fine rim, so the capsule inside it reads as glass on glass
-                  backgroundColor: 'rgba(255,255,255,0.88)',
+                  backgroundColor: c.dockFill,
                   borderWidth: 1,
                   borderColor: 'rgba(16,47,41,0.08)',
                   elevation: 10,
@@ -298,33 +293,18 @@ export default function TabsLayout() {
         tabBarBadgeStyle: { backgroundColor: c.danger, color: '#fff' },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: svgIcon(HomeIcon) }} />
-      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? 'Map' : 'Explore', tabBarIcon: svgIcon(SearchIcon) }} />
+      <Tabs.Screen name="index" options={{ title: 'Home', tabBarAccessibilityLabel: 'Home', tabBarIcon: svgIcon(HomeIcon) }} />
+      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? 'Map' : 'Explore', tabBarAccessibilityLabel: mode === 'here' ? 'Map' : 'Explore', tabBarIcon: svgIcon(SearchIcon) }} />
       <Tabs.Screen
         name="create"
         options={{
           title: 'Create',
+          tabBarAccessibilityLabel: 'Create',
           tabBarIcon: icon('add-circle', 'add-circle-outline'),
         }}
       />
-      <Tabs.Screen name="inbox" options={{ title: 'Message', tabBarIcon: svgIcon(MessageIcon), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ size, focused }) => <ProfileGlyph focused={focused} size={size} /> }} />
-
-      {/* Inner screens: no tab of their own (href: null), but the tab bar stays visible underneath them. */}
-      <Tabs.Screen name="activity/[id]" options={inner('Activity')} />
-      <Tabs.Screen name="trip/[id]" options={inner('Trip')} />
-      <Tabs.Screen name="join/[id]" options={inner('Request to join')} />
-      <Tabs.Screen name="apply/[id]" options={inner('Apply to join')} />
-      <Tabs.Screen name="host/[id]" options={inner('Manage join requests')} />
-      <Tabs.Screen name="review/[id]" options={inner('Review travelers')} />
-      {/* inside a chat there is no app header: the conversation has its own back arrow and title */}
-      <Tabs.Screen name="chat/[id]" options={{ ...inner('Chat'), headerShown: false }} />
-      <Tabs.Screen name="safety" options={inner('Safety & privacy')} />
-      <Tabs.Screen name="activities" options={inner('All activities')} />
-      <Tabs.Screen name="edit-profile" options={inner('Edit profile')} />
-      <Tabs.Screen name="my-activities" options={inner('My activities')} />
-      <Tabs.Screen name="group/[id]" options={inner('Group info')} />
-      <Tabs.Screen name="user/[id]" options={inner('Profile')} />
+      <Tabs.Screen name="inbox" options={{ title: 'Message', tabBarAccessibilityLabel: 'Messages', tabBarIcon: svgIcon(MessageIcon), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarAccessibilityLabel: 'Profile', tabBarIcon: ({ size, focused }) => <ProfileGlyph focused={focused} size={size} /> }} />
     </Tabs>
     </DockSpace.Provider>
   );

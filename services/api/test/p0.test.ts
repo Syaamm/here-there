@@ -456,6 +456,86 @@ describe('HERE: create, discover, request, approve, chat', () => {
     assert.equal(d2.myRequest.position, 1);
   });
 
+  it('asks attendees to reconfirm a changed plan, and refuses duplicate activities', async () => {
+    const host = await verified('RHost');
+    const member = await verified('RMember');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 4 }))).body.id;
+    // the same plan again, at the same time, is refused
+    assert.equal((await post('/v1/activities', host.token, activityBody({ capacity: 4 }))).body.code, 'DUPLICATE_ACTIVITY');
+    const r = await post(`/v1/activities/${id}/requests`, member.token, {});
+    await post(`/v1/activities/${id}/requests/${r.body.id}/decision`, host.token, { decision: 'approve' });
+    assert.equal((await get(`/v1/activities/${id}`, member.token)).body.needsReconfirm, false);
+    // a new venue is a material change: the member is told and asked to confirm
+    assert.ok((await call('PATCH', `/v1/activities/${id}`, host.token, { venueName: 'Another Bar' })).status < 300);
+    assert.equal((await get(`/v1/activities/${id}`, member.token)).body.needsReconfirm, true);
+    assert.equal((await post(`/v1/activities/${id}/reconfirm`, member.token)).status, 201);
+    assert.equal((await get(`/v1/activities/${id}`, member.token)).body.needsReconfirm, false);
+  });
+
+  it('hands hosting over only when the member explicitly accepts, and attendance is voluntary and your own', async () => {
+    const host = await verified('HHost');
+    const member = await verified('HMember');
+    const other = await verified('HOther');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 4 }))).body.id;
+    const r = await post(`/v1/activities/${id}/requests`, member.token, {});
+    await post(`/v1/activities/${id}/requests/${r.body.id}/decision`, host.token, { decision: 'approve' });
+    // only an approved member can be offered hosting; nothing changes until they accept
+    assert.equal((await post(`/v1/activities/${id}/handover`, host.token, { userId: other.id })).status, 404);
+    assert.equal((await post(`/v1/activities/${id}/handover`, member.token, { userId: member.id })).status, 403);
+    assert.equal((await post(`/v1/activities/${id}/handover`, host.token, { userId: member.id })).status, 201);
+    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.isHost, true);
+    assert.equal((await get(`/v1/activities/${id}`, member.token)).body.handover.toMe, true);
+    assert.equal((await post(`/v1/activities/${id}/handover/answer`, other.token, { accept: true })).status, 404);
+    assert.equal((await post(`/v1/activities/${id}/handover/answer`, member.token, { accept: true })).status, 201);
+    assert.equal((await get(`/v1/activities/${id}`, member.token)).body.isHost, true);
+    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.isHost, false);
+    assert.ok((await get('/v1/notifications', host.token)).body.items.some((n: { type: string }) => n.type === 'host_handover_accepted'));
+    // the former host may now leave like anyone else
+    // attendance: not before it ends, then only for oneself, once approved
+    assert.equal((await post(`/v1/activities/${id}/attendance`, member.token, { attended: true })).body.code, 'NOT_FINISHED');
+    await prisma.activity.update({ where: { id }, data: { startsAt: new Date(Date.now() - 4 * 3600e3), endsAt: new Date(Date.now() - 3600e3) } });
+    assert.equal((await post(`/v1/activities/${id}/attendance`, member.token, { attended: true })).body.attendance, 'attended');
+    assert.equal((await post(`/v1/activities/${id}/attendance`, other.token, { attended: true })).status, 404);
+    assert.equal((await get(`/v1/activities/${id}`, member.token)).body.myAttendance, 'attended');
+  });
+
+  it('takes away the host alert for a request once that request is answered, however it was answered', async () => {
+    const host = await verified('AlertHost');
+    const eli = await verified('AlertEli');
+    const cris = await verified('AlertCris');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 5 }))).body.id;
+    const re = await post(`/v1/activities/${id}/requests`, eli.token, {});
+    const rc = await post(`/v1/activities/${id}/requests`, cris.token, {});
+    const alerts = async () => (await get('/v1/notifications', host.token)).body.items.filter((n: any) => n.type === 'join_request');
+    assert.equal((await alerts()).length, 2);
+    // answering Cristiano's request (from the list, not from his alert) clears his alert and leaves Eli's
+    assert.equal((await post(`/v1/activities/${id}/requests/${rc.body.id}/decision`, host.token, { decision: 'approve' })).status, 201);
+    const left = await alerts();
+    assert.equal(left.length, 1);
+    assert.match(left[0].body, /^AlertEli/);
+    // Eli withdrawing also clears his
+    assert.ok((await call('DELETE', `/v1/activities/${id}/requests/mine`, eli.token)).status < 300);
+    assert.equal((await alerts()).length, 0);
+    void re;
+
+    // the same for a trip application
+    const t = (await post('/v1/trips', host.token, {
+      title: 'Alert trip', destination: 'Lisbon, Portugal', originCity: 'Milan',
+      dateStart: new Date(Date.now() + 40 * 864e5).toISOString(), dateEnd: new Date(Date.now() + 46 * 864e5).toISOString(),
+      dateFlexibility: 'exact', budgetMin: 500, budgetMax: 900, budgetIncludesTransport: true, tags: [], groupSize: '4-6',
+    })).body;
+    const body = { intro: 'I love culture and food.', confirmBudget: true, confirmDates: true, confirmGuidelines: true };
+    const ae = await post(`/v1/trips/${t.id}/applications`, eli.token, body);
+    const ac = await post(`/v1/trips/${t.id}/applications`, cris.token, body);
+    const tripAlerts = async () => (await get('/v1/notifications', host.token)).body.items.filter((n: any) => n.type === 'trip_application');
+    assert.equal((await tripAlerts()).length, 2);
+    await post(`/v1/trips/${t.id}/applications/${ac.body.id}/decision`, host.token, { decision: 'decline' });
+    const rest = await tripAlerts();
+    assert.equal(rest.length, 1);
+    assert.match(rest[0].body, /^AlertEli/);
+    void ae;
+  });
+
   it('delivers chat messages live over the WebSocket and pushes to members who are away', async () => {
     const { WebSocket } = await import('ws');
     const waitFor = async (ok: () => boolean) => {
@@ -675,6 +755,10 @@ describe('THERE: trips, applications, approval, chat', () => {
     const org = await verified('Organizer');
     const bad = await post('/v1/trips', org.token, tripBody({ budgetMin: 2000, budgetMax: 1000 }));
     assert.equal(bad.status, 400);
+    // trips can only be planned six months ahead
+    const tooFar = await post("/v1/trips", org.token, tripBody({ dateStart: new Date(Date.now() + 300 * 864e5).toISOString(), dateEnd: new Date(Date.now() + 305 * 864e5).toISOString() }));
+    assert.equal(tooFar.status, 400);
+    assert.match(tooFar.body.message, /six months/);
 
     const t = await post('/v1/trips', org.token, tripBody());
     assert.equal(t.status, 201, JSON.stringify(t.body));
@@ -744,6 +828,52 @@ describe('THERE: trips, applications, approval, chat', () => {
     // material change notifies approved members
     await call('PATCH', `/v1/trips/${t.id}`, org.token, { dateStart: new Date(Date.now() + 50 * 24 * 3600 * 1000).toISOString(), dateEnd: new Date(Date.now() + 55 * 24 * 3600 * 1000).toISOString() });
     assert.ok((await get('/v1/notifications', app2.token)).body.items.some((x: any) => x.type === 'trip_changed'));
+  });
+
+  it('lets the organizer run date polls in the group chat, and needs every member to confirm the final dates', async () => {
+    const org = await verified('PollOrg');
+    const m1 = await verified('PollM1');
+    const m2 = await verified('PollM2');
+    const t = (await post('/v1/trips', org.token, tripBody({ groupSize: '4-6' }))).body;
+    const conv = await prisma.conversation.findUnique({ where: { tripId: t.id } });
+    const body = { intro: 'I love culture and food.', confirmBudget: true, confirmDates: true, confirmGuidelines: true };
+    for (const m of [m1, m2]) {
+      const ap = await post(`/v1/trips/${t.id}/applications`, m.token, body);
+      await post(`/v1/trips/${t.id}/applications/${ap.body.id}/decision`, org.token, { decision: 'approve' });
+    }
+    const day = 24 * 3600e3;
+    const poll = { title: 'Can everyone do these dates?', dateStart: new Date(Date.now() + 60 * day).toISOString(), dateEnd: new Date(Date.now() + 67 * day).toISOString() };
+
+    // only the organizer starts a poll; members can only answer
+    assert.equal((await post(`/v1/conversations/${conv.id}/polls`, m1.token, poll)).body.code, 'NOT_ORGANIZER');
+    const made = await post(`/v1/conversations/${conv.id}/polls`, org.token, poll);
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+
+    // members answer in the chat; the poll shows counts and their own answer
+    assert.equal((await post(`/v1/polls/${made.body.id}/vote`, m1.token, { vote: 'accept' })).body.accept, 1);
+    assert.equal((await post(`/v1/polls/${made.body.id}/vote`, m2.token, { vote: 'reject' })).body.reject, 1);
+    const outsider = await verified('PollOutsider');
+    assert.equal((await post(`/v1/polls/${made.body.id}/vote`, outsider.token, { vote: 'accept' })).status, 403);
+    const seen = (await get(`/v1/conversations/${conv.id}/messages`, m1.token)).body.items.find((x: any) => x.kind === 'poll');
+    assert.deepEqual([seen.poll.accept, seen.poll.reject, seen.poll.myVote], [1, 1, 'accept']);
+
+    // links are ordinary text for everyone: a member can send one like any message
+    assert.equal((await post(`/v1/conversations/${conv.id}/messages`, m1.token, { body: 'Maybe this hotel? https://example.com/hotel' })).status, 201);
+    assert.equal((await post(`/v1/conversations/${conv.id}/links`, org.token, { url: 'https://example.com/hotel' })).status, 404); // no separate share-link feature
+
+    // adopting the poll puts the dates to the group: nobody is committed until they confirm themselves
+    assert.equal((await post(`/v1/polls/${made.body.id}/close`, m1.token, { adopt: true })).body.code, 'NOT_ORGANIZER');
+    assert.equal((await post(`/v1/polls/${made.body.id}/close`, org.token, { adopt: true })).status, 201);
+    const d1 = (await get(`/v1/trips/${t.id}`, m1.token)).body;
+    assert.equal(d1.datesState, 'proposed');
+    assert.equal(d1.myDatesConfirmed, false);
+    assert.equal(d1.datesConfirmedCount, 1);
+    assert.ok((await get('/v1/notifications', m1.token)).body.items.some((n: any) => n.type === 'trip_dates_proposed'));
+    assert.equal((await post(`/v1/trips/${t.id}/confirm-dates`, m1.token)).body.confirmed, 2);
+    assert.equal((await post(`/v1/trips/${t.id}/confirm-dates`, m2.token)).body.confirmed, 3);
+    const done = (await get(`/v1/conversations/${conv.id}/messages`, org.token)).body.items.filter((x: any) => x.kind === 'system');
+    assert.ok(done.some((x: any) => /Everyone has confirmed/.test(x.body)));
+    assert.equal((await post(`/v1/polls/${made.body.id}/vote`, m1.token, { vote: 'accept' })).body.code, 'POLL_CLOSED');
   });
 
   it('cannot be approved by someone other than the organizer and a decline keeps chat closed', async () => {

@@ -1,10 +1,11 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { SkeletonDetail } from '@/components/Skeleton';
 import { CatPhoto } from '@/components/CatPhoto';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { CheckLine } from '@/components/CheckLine';
-import { Banner, Btn, Card, CheckRow, ErrorBanner, Field, Screen, Spinner, Txt, useGo } from '@/components/ui';
+import { Banner, Btn, Card, CheckRow, ErrorBanner, Field, Screen, Txt, useGo } from '@/components/ui';
 import { get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { catColor, CATS } from '@/lib/constants';
@@ -17,12 +18,12 @@ export default function Join() {
   const { me } = useMe();
   const router = useRouter();
   const go = useGo();
-  const { data: a, loading } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id]);
+  const { data: a, loading } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
   const [intro, setIntro] = useState('');
   const [agree, setAgree] = useState(false);
   const act = useAction();
 
-  if (loading && !a) return <Screen hasHeader><Spinner /></Screen>;
+  if (loading && !a) return <Screen hasHeader><SkeletonDetail /></Screen>;
   if (!a) return <Screen hasHeader><Txt>Activity not found.</Txt></Screen>;
 
   const adult = !!me?.adultConfirmed;

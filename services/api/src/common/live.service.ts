@@ -8,7 +8,11 @@ import { PrismaService } from './prisma.service';
 /** What the server tells a connected app. */
 export type LiveEvent =
   | { type: 'message'; conversationId: string; message: { id: string; body: string; createdAt: Date; sender: { id: string; displayName: string; photoUrl: string | null } } }
-  | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: Date } };
+  | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: Date } }
+  // some alerts were taken away (their request was settled): lists and the badge should be asked again
+  | { type: 'alerts-changed' }
+  // an activity or trip was created, changed, filled or cancelled: open feeds should ask again (carries no data at all)
+  | { type: 'feed-changed' };
 
 /**
  * Live connection to the apps (a WebSocket at /v1/live), so a new message or alert arrives at once instead of waiting for
@@ -98,6 +102,21 @@ export class LiveService implements OnModuleDestroy {
   isViewing(userId: string) {
     for (const ws of this.byUser.get(userId) ?? []) if ((ws as WebSocket & { visible?: boolean }).visible === true) return true;
     return false;
+  }
+
+  private feedTimer?: NodeJS.Timeout;
+  /**
+   * Tell every connected app the feeds have changed. It carries nothing, so nobody learns anything from it: each app
+   * asks again with its own sign-in and sees only what it may. Several changes close together become one nudge.
+   */
+  feedChanged() {
+    if (this.feedTimer) return;
+    this.feedTimer = setTimeout(() => {
+      this.feedTimer = undefined;
+      const text = JSON.stringify({ type: 'feed-changed' } satisfies LiveEvent);
+      for (const set of this.byUser.values()) for (const ws of set) if (ws.readyState === WebSocket.OPEN) ws.send(text);
+    }, 400);
+    this.feedTimer.unref();
   }
 
   send(userId: string, event: LiveEvent) {

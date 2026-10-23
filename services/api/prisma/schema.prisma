@@ -135,6 +135,7 @@ model Activity {
   visibility    String   @default("public") // public | invite_only
   language      String?
   status        String   @default("published") // draft | published | full | confirmed | in_progress | completed | cancelled | archived
+  pendingHostId String?  // a member the host has offered to hand the activity to (needs their acceptance)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -169,7 +170,8 @@ model ActivityMembership {
   user            User     @relation(fields: [userId], references: [id])
   role            String   @default("attendee") // host | attendee
   state           String   @default("approved") // approved | withdrawn | removed
-  attendance      String   @default("unknown") // unknown | attended | no_show
+  attendance      String   @default("unknown") // unknown | attended | no_show (only ever set by the member themselves)
+  reconfirm       String   @default("none") // none | needed (the host changed the time or place) | confirmed
   createdAt       DateTime @default(now())
 
   @@unique([activityId, userId])
@@ -203,6 +205,8 @@ model Trip {
 
   applications          TripApplication[]
   memberships           TripMembership[]
+  polls                 TripPoll[]
+  datesState            String   @default("tentative") // tentative | proposed (final dates put to the group; everyone must confirm)
   conversation          Conversation?
 
   @@index([destinationKey, dateStart])
@@ -232,6 +236,7 @@ model TripMembership {
   user      User     @relation(fields: [userId], references: [id])
   role      String   @default("member") // organizer | member
   state     String   @default("approved") // approved | left | removed
+  datesConfirmed Boolean @default(false) // said yes to the final dates
   createdAt DateTime @default(now())
 
   @@unique([tripId, userId])
@@ -256,6 +261,9 @@ model Message {
   senderId        String
   sender          User     @relation(fields: [senderId], references: [id])
   body            String
+  kind            String   @default("text") // text | poll | link | system
+  refId           String?  // the poll a poll message points at
+  meta            String?  // JSON, e.g. the url of a link message
   moderationState String   @default("ok") // ok | flagged | removed
   createdAt       DateTime @default(now())
 
@@ -335,4 +343,31 @@ model AuditEvent {
   createdAt DateTime @default(now())
 
   @@index([objectType, objectId])
+}
+
+// The organizer asks the group about dates; each member answers accept or reject.
+model TripPoll {
+  id          String   @id @default(cuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  createdById String
+  title       String
+  dateStart   DateTime?
+  dateEnd     DateTime?
+  state       String   @default("open") // open | adopted (became the trip's dates) | closed
+  createdAt   DateTime @default(now())
+  votes       TripPollVote[]
+
+  @@index([tripId, createdAt])
+}
+
+model TripPollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  poll      TripPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  userId    String
+  vote      String   // accept | reject
+  createdAt DateTime @default(now())
+
+  @@unique([pollId, userId])
 }

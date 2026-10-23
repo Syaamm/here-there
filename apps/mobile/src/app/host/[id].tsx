@@ -1,8 +1,9 @@
 import { useLocalSearchParams } from 'expo-router';
+import { SkeletonDetail } from '@/components/Skeleton';
 import { CatPhoto } from '@/components/CatPhoto';
 import { View } from 'react-native';
 import { Text } from '@/components/ScaledText';
-import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, ProgressBar, Row, Screen, Spinner, Txt } from '@/components/ui';
+import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, ProgressBar, Row, Screen, Txt } from '@/components/ui';
 import { catColor, CATS } from '@/lib/constants';
 import { get, post, type Activity } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
@@ -21,7 +22,7 @@ const ORDER: Record<string, number> = { requested: 0, waitlisted: 1, approved: 2
 /** HERE · Host reviews applicants. The server creates membership only on approval. */
 export default function HostReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const act = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id]);
+  const act = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
   const reqs = useLoad(() => get<{ items: Req[] }>(`/v1/activities/${id}/requests`), [id], 10_000);
   const refresh = () => {
     void act.reload();
@@ -30,7 +31,7 @@ export default function HostReview() {
   const mutate = useAction(refresh);
   const a = act.data;
 
-  if (act.loading && !a) return <Screen hasHeader><Spinner /></Screen>;
+  if (act.loading && !a) return <Screen hasHeader><SkeletonDetail /></Screen>;
   if (reqs.error && !reqs.data)
     return (
       <Screen hasHeader>

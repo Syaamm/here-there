@@ -3,7 +3,7 @@ import { usePathname, useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLayout } from '@/lib/layout';
+import { headerGap, statusTop, useLayout } from '@/lib/layout';
 import { type Mode, useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { Between } from './ui';
@@ -19,7 +19,7 @@ export function ModeSwitch() {
     if (m === mode) return;
     switchMode(m);
     // from a page inside HERE or THERE (an activity, a chat...) land on the other product's Explore once the wave covers the screen
-    if (!MAIN_TABS.includes(path)) setTimeout(() => router.replace('/'), 800);
+    if (!MAIN_TABS.includes(path)) setTimeout(() => router.dismissTo('/' as never), 800);
   };
   const opts: [Mode, string][] = [['here', 'HERE'], ['there', 'THERE']];
   // In THERE the switch is inverted: a dark pill with light text (in HERE it is a light pill with dark text).
@@ -49,7 +49,7 @@ export function ModeTabs() {
   const flip = (m: Mode) => {
     if (m === mode) return;
     switchMode(m);
-    if (!MAIN_TABS.includes(path)) setTimeout(() => router.replace('/'), 800);
+    if (!MAIN_TABS.includes(path)) setTimeout(() => router.dismissTo('/' as never), 800);
   };
   const opts: [Mode, string, string][] = [['here', 'HERE', 'Today & tomorrow'], ['there', 'THERE', 'Plan a trip']];
   return (
@@ -119,7 +119,7 @@ export function HeaderBar({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   return (
-    <View style={{ paddingTop: Math.max(insets.top, 20) + 14, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
+    <View style={{ paddingTop: statusTop(insets.top) + headerGap, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
       {children}
     </View>
   );

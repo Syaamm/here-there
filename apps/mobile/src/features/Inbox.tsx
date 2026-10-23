@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useEffect, useState } from 'react';
+import { useIsFocused } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { TabHeader } from '@/components/TabHeader';
@@ -9,7 +10,8 @@ import { Avatar, Btn, Card, Empty, ErrorBanner, Row, Screen, Spinner, Txt, useGo
 import { get, post, type ConversationRef, type Notif } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { ago, when } from '@/lib/format';
-import { useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { primeCache, useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { entersFresh } from '@/lib/nav';
 import { useTheme } from '@/lib/theme';
 import { useLiveEvents } from '@/lib/live';
 import { enablePush, pushState, type PushState } from '@/lib/push';
@@ -28,6 +30,11 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   application_declined: 'close-circle-outline',
   activity_changed: 'time-outline',
   activity_cancelled: 'ban-outline',
+  host_handover_offer: 'swap-horizontal-outline',
+  host_handover_accepted: 'swap-horizontal-outline',
+  host_handover_declined: 'swap-horizontal-outline',
+  trip_dates_proposed: 'calendar-outline',
+  trip_dates_confirmed: 'calendar-outline',
   trip_changed: 'time-outline',
   trip_cancelled: 'ban-outline',
   removed: 'exit-outline',
@@ -55,8 +62,8 @@ export function Inbox() {
   const { c } = useTheme();
   const { me } = useMe();
   const [tab, setTab] = useState<Tab>('alerts');
-  const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number }>('/v1/notifications'), [], 15_000);
-  const convs = useLoad(() => get<{ items: ConversationRef[] }>('/v1/me/conversations'), []);
+  const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number }>('/v1/notifications'), [], 15_000, 'inbox:notifs', { animate: true });
+  const convs = useLoad(() => get<{ items: ConversationRef[] }>('/v1/me/conversations'), [], undefined, 'inbox:convs', { animate: true });
 
   useEffect(() => {
     if (notifs.data) setUnread(notifs.data.unreadCount);
@@ -85,28 +92,52 @@ export function Inbox() {
       return rows.filter((x) => x.pending.length > 0);
     },
     [hostedIds.join(',')],
+    undefined,
+    undefined,
+    { keep: true }, // no flash of the card disappearing while it is asked again
   );
 
-  // chats like any messaging app: ones with new messages on top, then the most recent conversation first
-  const chatRows = [...(convs.data?.items ?? [])].sort((x, y) => {
-    const ux = unreadChats.has(x.conversationId) ? 1 : 0;
-    const uy = unreadChats.has(y.conversationId) ? 1 : 0;
-    if (ux !== uy) return uy - ux;
-    const tx = x.lastMessage ? +new Date(x.lastMessage.at) : 0;
-    const ty = y.lastMessage ? +new Date(y.lastMessage.at) : 0;
-    return ty - tx;
-  });
+  // Chats are in the order of their LAST MESSAGE, newest first, whoever wrote it (you included). Reading a chat, or
+  // another chat having unread messages, never moves it: it only moves when a newer message appears somewhere. Chats
+  // nobody has written in yet follow, in the order the server gives.
+  const chatRows = [...(convs.data?.items ?? [])].sort((x, y) => (y.lastMessage ? +new Date(y.lastMessage.at) : 0) - (x.lastMessage ? +new Date(x.lastMessage.at) : 0));
+
 
   const refreshAll = () => Promise.all([notifs.reload(), convs.reload(), waiting.reload()]);
   const { refreshing, onRefresh } = useRefresh(refreshAll);
   // a new alert or message arrives while this screen is open: the lists update at once
   useLiveEvents((e) => {
-    if (e.type === 'notification' || e.type === 'message' || e.type === 'ready') void refreshAll();
+    if (e.type === 'notification' || e.type === 'message' || e.type === 'ready' || e.type === 'alerts-changed') void refreshAll();
   });
   const [push, setPush] = useState<PushState>('unsupported');
   useEffect(() => {
     void pushState().then(setPush);
   }, []);
+  // coming back to this tab (say, after answering a request on another screen): ask again, so settled alerts are gone
+  const focused = useIsFocused();
+  const wasFocused = useRef(focused);
+  const [visit, setVisit] = useState(0); // counts returns to this tab: the lists ease in again each time you come back, and only then
+  useEffect(() => {
+    // the lists ease in again only when you ARRIVE (another dock tab); coming back from a chat or a page it is just there
+    if (focused && !wasFocused.current && entersFresh('/inbox', false)) setVisit((v) => v + 1);
+    wasFocused.current = focused;
+  }, [focused]);
+  // the chats most likely to be opened next are fetched quietly while the list is in front, so opening one shows its
+  // messages at once instead of waiting for them (this never marks anything as read)
+  const topChats = chatRows.slice(0, 6).map((cv) => cv.conversationId + (cv.lastMessage?.at ?? '')).join(',');
+  useEffect(() => {
+    if (!focused || !topChats) return;
+    let stale = false;
+    for (const cv of chatRows.slice(0, 6)) {
+      get<{ writable: boolean; items: unknown[] }>(`/v1/conversations/${cv.conversationId}/messages`).then((d) => !stale && primeCache('chat:msgs', [cv.conversationId], d)).catch(() => {});
+      get<unknown>(`/v1/conversations/${cv.conversationId}/info`).then((d) => !stale && primeCache('chat:info', [cv.conversationId], d)).catch(() => {});
+    }
+    return () => {
+      stale = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, topChats]);
+
   const act = useAction(() => void refreshAll());
 
   const stale = me?.eligibility === 'expired' || me?.eligibility === 'reverification_required' || me?.eligibility === 'rejected';
@@ -131,10 +162,12 @@ export function Inbox() {
   };
   const decide = (activityId: string, r: PendingReq, decision: 'approve' | 'decline') => act.run(() => post(`/v1/activities/${activityId}/requests/${r.id}/decision`, { decision }));
 
-  const NotifRows = ({ rows }: { rows: Notif[] }) => (
+  // a plain function that returns the card, NOT a component: a component declared here would be a new type on every
+  // refresh, so React would rebuild every row and each one would play its entrance animation again
+  const notifRows = (rows: Notif[]) => (
     <Card style={{ padding: 0, borderRadius: 18, overflow: 'hidden' }}>
       {rows.map((n, i) => (
-        <Reveal key={n.id} index={i}>
+        <View key={n.id}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${n.title}. ${n.body}. ${ago(n.createdAt)}${n.readAt ? '' : ', unread'}`}
@@ -153,7 +186,7 @@ export function Inbox() {
             {!n.readAt ? <View accessibilityLabel="Unread" style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
           </View>
         </Pressable>
-        </Reveal>
+        </View>
       ))}
     </Card>
   );
@@ -219,13 +252,13 @@ export function Inbox() {
       ) : null}
 
       {tab === 'chats' ? (
-        <Reveal key="chats" from={10} style={{ gap: 16 }}>
+        <Reveal key={`chats-${visit}`} from={10} style={{ gap: 16 }}>
           {convs.loading && !convs.data && <Spinner />}
           {convs.data && convs.data.items.length === 0 && <Empty title="No group chats yet">Chats open once a host approves you.</Empty>}
           {chatRows.length > 0 ? (
             <Card style={{ padding: 0, borderRadius: 18, overflow: 'hidden' }}>
               {chatRows.map((cv, i) => (
-                <Reveal key={cv.conversationId} index={i}>
+                <View key={cv.conversationId}>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`${cv.title}, ${cv.startsAt ? when(cv.startsAt) : ''}${unreadChats.has(cv.conversationId) ? ', new messages' : ''}`}
@@ -248,13 +281,13 @@ export function Inbox() {
                       {unreadChats.has(cv.conversationId) ? <View accessibilityLabel="New messages" style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
                     </View>
                   </Pressable>
-                </Reveal>
+                </View>
               ))}
             </Card>
           ) : null}
         </Reveal>
       ) : (
-        <Reveal key="alerts" from={10} style={{ gap: 16 }}>
+        <Reveal key={`alerts-${visit}`} from={10} style={{ gap: 16 }}>
           {notifs.loading && !notifs.data && <Spinner />}
 
           {needs > 0 && (
@@ -309,13 +342,13 @@ export function Inbox() {
           {today.length > 0 && (
             <>
               <SectionLabel title="Today" />
-              <NotifRows rows={today} />
+              {notifRows(today)}
             </>
           )}
           {earlier.length > 0 && (
             <>
               <SectionLabel title="Earlier" />
-              <NotifRows rows={earlier} />
+              {notifRows(earlier)}
             </>
           )}
           {notifs.data && needs === 0 && rest.length === 0 && <Empty title="You're all caught up">Join requests, approvals and changes to your plans show up here.</Empty>}

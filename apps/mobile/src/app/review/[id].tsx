@@ -1,6 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
+import { SkeletonDetail } from '@/components/Skeleton';
 import { View } from 'react-native';
-import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, Row, Screen, Spinner, Txt } from '@/components/ui';
+import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, Row, Screen, Txt } from '@/components/ui';
 import { get, post, type Trip } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { ago, dateSpan } from '@/lib/format';
@@ -19,7 +20,7 @@ const ORDER: Record<string, number> = { pending: 0, waitlisted: 1, approved: 2, 
 /** THERE · Organizer reviews applications. Private chat opens only after an approval the server records. */
 export default function ReviewTrip() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const trip = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id]);
+  const trip = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
   const apps = useLoad(() => get<{ items: App[] }>(`/v1/trips/${id}/applications`), [id], 10_000);
   const refresh = () => {
     void trip.reload();
@@ -28,7 +29,7 @@ export default function ReviewTrip() {
   const mutate = useAction(refresh);
   const t = trip.data;
 
-  if (trip.loading && !t) return <Screen hasHeader><Spinner /></Screen>;
+  if (trip.loading && !t) return <Screen hasHeader><SkeletonDetail /></Screen>;
   if (apps.error && !apps.data)
     return (
       <Screen hasHeader>

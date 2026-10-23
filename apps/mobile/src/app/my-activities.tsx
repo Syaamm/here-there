@@ -17,7 +17,7 @@ const TABS = [
 export default function MyActivities() {
   const go = useGo();
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('mine');
-  const acts = useLoad(() => get<MyActivitiesData>('/v1/me/activities'), []);
+  const acts = useLoad(() => get<MyActivitiesData>('/v1/me/activities'), [], undefined, 'me:activities');
   const { refreshing, onRefresh } = useRefresh(acts.reload);
   const all = myActivityItems(acts.data);
   const count = (k: string) => all.filter((x) => x.kind === k).length;

@@ -8,6 +8,7 @@ import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
+import { LiveService } from '../common/live.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 
@@ -94,10 +95,11 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     const stale = await this.prisma.activityRequest.findMany({
       where: { state: { in: ['requested', 'waitlisted'] }, activity: { startsAt: { lte: now }, ...(activityId ? { id: activityId } : {}) } },
-      include: { activity: { select: { title: true } } },
+      include: { activity: { select: { title: true, hostId: true } } },
     });
     if (stale.length === 0) return 0;
     await this.prisma.activityRequest.updateMany({ where: { id: { in: stale.map((r) => r.id) } }, data: { state: 'declined', decidedAt: now } });
+    for (const r of stale) await this.notifications.settleRequest(r.activity.hostId, 'join_request', { activityId: r.activityId }, r.applicantId);
     for (const r of stale)
       await this.notifications.notify(r.applicantId, 'request_declined', 'Request not approved', `The host did not answer before ${r.activity.title} started, so your request was closed.`, { activityId: r.activityId });
     return stale.length;
@@ -109,6 +111,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly limiter: RateLimiter,
+    private readonly live: LiveService,
   ) {}
 
   private dto(a: ActivityFull, going: number, extra: Record<string, unknown> = {}) {
@@ -245,9 +248,18 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     // a plain count of this host's real activities (not cancelled), shown as "N activities hosted"
     const activitiesHosted = await this.prisma.activity.count({ where: { hostId: a.hostId, status: { in: ['published', 'in_progress', 'completed'] } } });
 
+    const nominee = a.pendingHostId
+      ? await this.prisma.profile.findUnique({ where: { userId: a.pendingHostId }, select: { displayName: true } })
+      : null;
     return this.dto(a, going, {
       isHost: a.hostId === me.id,
       isMember,
+      // plan changed by the host: this member is asked to confirm or leave
+      needsReconfirm: isMember && membership?.reconfirm === 'needed',
+      // a pending hand-over of hosting: the host sees who it was offered to, that person sees an offer to accept
+      handover: a.pendingHostId ? { toMe: a.pendingHostId === me.id, toName: a.hostId === me.id ? (nominee?.displayName ?? 'a member') : undefined } : null,
+      // only ever set by the member, after it ended (voluntary)
+      myAttendance: isMember ? (membership?.attendance ?? 'unknown') : undefined,
       activitiesHosted,
       myRequest: request ? { id: request.id, state: request.state, position: request.state === 'waitlisted' ? await this.waitlistPosition(id, request.createdAt) : undefined } : null,
       favorited: !!fav,
@@ -290,6 +302,19 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     });
     if (open >= 5) throw E.conflict('TOO_MANY_OPEN_ACTIVITIES', 'You already host 5 upcoming activities');
 
+    // the same plan twice is spam: same host and same title overlapping in time, or the same place at about the same start
+    const near = await this.prisma.activity.findMany({
+      where: { hostId: me.id, status: { in: ['published', 'full', 'confirmed'] }, endsAt: { gt: now } },
+      select: { title: true, venueName: true, startsAt: true, endsAt: true },
+    });
+    const norm = (t: string) => t.trim().toLowerCase().replace(/\s+/g, ' ');
+    const dup = near.find(
+      (o) =>
+        (norm(o.title) === norm(dto.title) && o.startsAt < dto.endsAt && dto.startsAt < o.endsAt) ||
+        (norm(o.venueName) === norm(dto.venueName) && Math.abs(+o.startsAt - +dto.startsAt) < HOUR),
+    );
+    if (dup) throw E.conflict('DUPLICATE_ACTIVITY', 'You already have an activity like this at that time. Change it instead of posting it again.');
+
     const created = await this.prisma.$transaction(async (tx) => {
       const a = await tx.activity.create({
         data: {
@@ -318,6 +343,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       return a;
     });
     await this.audit.log(me.id, 'activity.create', 'activity', created.id);
+    this.live.feedChanged();
     return this.detail(me, created.id);
   }
 
@@ -377,16 +403,19 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     if (venueChanged || timeChanged) {
       // material change: tell accepted attendees what the previous and new values are (H-US03)
       const recipients = await this.attendeeIds(id, me.id);
+      // and ask each of them to reconfirm: they can say yes, or leave if the new plan does not suit them
+      await this.prisma.activityMembership.updateMany({ where: { activityId: id, state: 'approved', role: { not: 'host' } }, data: { reconfirm: 'needed' } });
       await this.notifications.notifyMany(
         recipients,
         'activity_changed',
         `Plan changed: ${updated.title}`,
-        `Time: ${a.startsAt.toISOString()} → ${startsAt.toISOString()}. Venue: ${a.venueName} → ${updated.venueName}.`,
+        `Time: ${a.startsAt.toISOString()} → ${startsAt.toISOString()}. Venue: ${a.venueName} → ${updated.venueName}. Please confirm you can still come, or leave the activity.`,
         { activityId: id, previous: { startsAt: a.startsAt, venueName: a.venueName }, next: { startsAt, venueName: updated.venueName } },
       );
       await this.audit.log(me.id, 'activity.material_change', 'activity', id, { venueChanged, timeChanged });
     }
     if (dto.capacity !== undefined) await this.fillFromWaitlist(id); // a higher limit lets people in off the waiting list
+    this.live.feedChanged();
     return this.detail(me, id);
   }
 
@@ -402,11 +431,14 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       where: { activityId: id, state: 'requested' },
       data: { state: 'declined', decidedAt: new Date() },
     });
+    for (const r of await this.prisma.activityRequest.findMany({ where: { activityId: id, state: 'declined' }, select: { applicantId: true } }))
+      await this.notifications.settleRequest(a.hostId, 'join_request', { activityId: id }, r.applicantId);
     const recipients = await this.attendeeIds(id, byStaff ? undefined : me.id);
     await this.notifications.notifyMany(recipients, 'activity_cancelled', `Cancelled: ${a.title}`, 'This activity was cancelled.', {
       activityId: id,
     });
     await this.audit.log(me.id, byStaff ? 'activity.removed_by_staff' : 'activity.cancel', 'activity', id);
+    this.live.feedChanged();
     return { ok: true };
   }
 
@@ -436,6 +468,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     });
     if (existing) {
       if (existing.state === 'withdrawn') {
+        this.limiter.hit(`activity-rerequest:${me.id}:${id}`, 3, 24 * HOUR); // asking again and again is spam
         const r = await this.prisma.activityRequest.update({
           where: { id: existing.id },
           data: { state: target, intro: dto.intro, decidedAt: null, reviewedBy: null, createdAt: new Date() },
@@ -459,6 +492,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const p = await this.prisma.profile.findUnique({ where: { userId: applicant.id } });
     await this.notifications.notify(a.hostId, 'join_request', 'A new join request', `${p?.displayName ?? 'Someone'} wants to join ${a.title}`, {
       activityId: a.id,
+      applicantId: applicant.id,
     });
   }
 
@@ -513,6 +547,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     });
     if (!r || !['requested', 'waitlisted'].includes(r.state)) throw E.notFound('Pending request');
     await this.prisma.activityRequest.update({ where: { id: r.id }, data: { state: 'withdrawn' } });
+    const act = await this.prisma.activity.findUnique({ where: { id } });
+    if (act) await this.notifications.settleRequest(act.hostId, 'join_request', { activityId: id }, me.id);
     return { ok: true };
   }
 
@@ -597,7 +633,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       });
       await this.fillFromWaitlist(activityId); // a reversed approval frees a place too
     }
+    await this.notifications.settleRequest(a.hostId, 'join_request', { activityId }, r.applicantId); // the host's "wants to join" alert is answered
     await this.audit.log(me.id, `activity.request.${decision}`, 'activity_request', r.id, { activityId, applicantId: r.applicantId });
+    this.live.feedChanged(); // places left changed
     return { id: r.id, state: decision === 'approve' ? 'approved' : 'declined' };
   }
 
@@ -632,6 +670,83 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.activityMembership.update({ where: { id: membershipId }, data: { state } });
     if (a.status === 'full') await this.prisma.activity.update({ where: { id: a.id }, data: { status: 'published' } });
     await this.fillFromWaitlist(a.id); // the first person waiting takes the place
+    this.live.feedChanged();
+  }
+
+  // ---------------------------------------------------------------- changed plans, hand-over, attendance
+  /** A member says they can still come after the host changed the time or place. (Not coming = leave.) */
+  async reconfirm(me: User, id: string) {
+    const m = await this.prisma.activityMembership.findUnique({ where: { activityId_userId: { activityId: id, userId: me.id } } });
+    if (!m || m.state !== 'approved') throw E.notFound('Membership');
+    if (m.reconfirm !== 'needed') return { ok: true };
+    await this.prisma.activityMembership.update({ where: { id: m.id }, data: { reconfirm: 'confirmed' } });
+    return { ok: true };
+  }
+
+  /** The host offers hosting to an approved member. Nothing changes until that member accepts. */
+  async offerHandover(me: User, id: string, body: unknown) {
+    const { userId } = parse(z.object({ userId: z.string().min(1) }), body);
+    const a = await this.hostOwned(me, id);
+    if (['cancelled', 'archived'].includes(a.status) || effectiveStatus(a) === 'completed')
+      throw E.conflict('ACTIVITY_CLOSED', 'This activity can no longer change hands');
+    if (userId === me.id) throw E.badRequest('VALIDATION_FAILED', 'Choose another member');
+    const target = await this.prisma.activityMembership.findUnique({ where: { activityId_userId: { activityId: id, userId } }, include: { user: true } });
+    if (!target || target.state !== 'approved') throw E.notFound('Member');
+    if (target.user.eligibility !== 'verified') throw E.conflict('NOT_VERIFIED', 'Only a verified adult can take over hosting');
+    if (await this.safety.isBlocked(me.id, userId)) throw E.notFound('Member');
+    await this.prisma.activity.update({ where: { id }, data: { pendingHostId: userId } });
+    await this.notifications.notify(userId, 'host_handover_offer', 'Take over hosting?', `The host of ${a.title} asked you to host it. Open the activity to accept or decline.`, { activityId: id });
+    await this.audit.log(me.id, 'activity.handover_offered', 'activity', id, { userId });
+    return { ok: true };
+  }
+
+  /** The host takes the offer back. */
+  async withdrawHandover(me: User, id: string) {
+    await this.hostOwned(me, id);
+    await this.prisma.activity.update({ where: { id }, data: { pendingHostId: null } });
+    return { ok: true };
+  }
+
+  /** The member who was offered hosting says yes (explicit acceptance) or no. */
+  async answerHandover(me: User, id: string, body: unknown) {
+    const { accept } = parse(z.object({ accept: z.boolean() }), body);
+    const a = await this.prisma.activity.findUnique({ where: { id } });
+    if (!a) throw E.notFound('Activity');
+    if (a.pendingHostId !== me.id) throw E.notFound('Offer');
+    if (!accept) {
+      await this.prisma.activity.update({ where: { id }, data: { pendingHostId: null } });
+      await this.notifications.notify(a.hostId, 'host_handover_declined', 'Hosting not taken over', `They declined to host ${a.title}. You are still the host.`, { activityId: id });
+      return { ok: true };
+    }
+    requireVerified(me);
+    if (['cancelled', 'archived'].includes(a.status) || effectiveStatus(a) === 'completed') throw E.conflict('ACTIVITY_CLOSED', 'This activity can no longer change hands');
+    const former = a.hostId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.activity.update({ where: { id }, data: { hostId: me.id, pendingHostId: null } });
+      await tx.activityMembership.update({ where: { activityId_userId: { activityId: id, userId: me.id } }, data: { role: 'host', reconfirm: 'none' } });
+      await tx.activityMembership.update({ where: { activityId_userId: { activityId: id, userId: former } }, data: { role: 'attendee' } });
+    });
+    await this.notifications.notify(former, 'host_handover_accepted', 'Hosting handed over', `Someone else now hosts ${a.title}. You are an attendee, and you can leave if you wish.`, { activityId: id });
+    await this.audit.log(me.id, 'activity.handover_accepted', 'activity', id, { from: former });
+    return { ok: true };
+  }
+
+  /**
+   * Voluntary and private to the member: after the activity ends, each person may say whether they were there. There
+   * is no location tracking and nobody can set it for someone else. Allowed for a week after it ends.
+   */
+  async confirmAttendance(me: User, id: string, body: unknown) {
+    const { attended } = parse(z.object({ attended: z.boolean() }), body);
+    const a = await this.prisma.activity.findUnique({ where: { id } });
+    if (!a) throw E.notFound('Activity');
+    if (a.status === 'cancelled') throw E.conflict('ACTIVITY_CANCELLED', 'This activity was cancelled');
+    const now = Date.now();
+    if (now < +a.endsAt) throw E.conflict('NOT_FINISHED', 'You can say whether you were there once it has ended');
+    if (now > +a.endsAt + 7 * 24 * HOUR) throw E.conflict('ATTENDANCE_CLOSED', 'This is too long ago to confirm');
+    const m = await this.prisma.activityMembership.findUnique({ where: { activityId_userId: { activityId: id, userId: me.id } } });
+    if (!m || m.state !== 'approved') throw E.notFound('Membership');
+    await this.prisma.activityMembership.update({ where: { id: m.id }, data: { attendance: attended ? 'attended' : 'no_show' } });
+    return { ok: true, attendance: attended ? 'attended' : 'no_show' };
   }
 
   // ---------------------------------------------------------------- favorites & "mine"

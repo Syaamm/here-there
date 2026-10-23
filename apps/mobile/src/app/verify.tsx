@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
+import { SkeletonDetail } from '@/components/Skeleton';
 import { useEffect, useState } from 'react';
 import { Linking, View } from 'react-native';
 import { EmailVerifyCard } from '@/components/EmailVerifyCard';
 import { PhoneVerifyCard } from '@/components/PhoneVerifyCard';
-import { Banner, Between, Btn, Card, CheckRow, Chip, ErrorBanner, Row, Screen, Spinner, Txt } from '@/components/ui';
+import { Banner, Between, Btn, Card, CheckRow, Chip, ErrorBanner, Row, Screen, Txt } from '@/components/ui';
 import { del, get, post, type Me } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad } from '@/lib/hooks';
@@ -70,7 +71,7 @@ export default function Verify() {
     if (st.data && st.data.eligibility !== me?.eligibility) void reload();
   }, [st.data?.eligibility, me?.eligibility]);
 
-  if (st.loading && !st.data && !me) return <Screen hasHeader><Spinner /></Screen>;
+  if (st.loading && !st.data && !me) return <Screen hasHeader><SkeletonDetail /></Screen>;
 
   const e: Eligibility = st.data?.eligibility ?? me?.eligibility ?? 'unverified';
   const mode = st.data?.mode;

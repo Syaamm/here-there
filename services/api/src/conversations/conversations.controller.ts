@@ -2,6 +2,7 @@ import { Body, Controller, Get, Injectable, Param, Post, Query } from '@nestjs/c
 import { Conversation, User } from '@prisma/client';
 import { z } from 'zod';
 import { effectiveStatus } from '../activities/activities.service';
+import { AuditService } from '../common/audit.service';
 import { CurrentUser, requireVerified } from '../common/auth';
 import { E } from '../common/errors';
 import { LiveService } from '../common/live.service';
@@ -13,6 +14,18 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 
 const sendSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+const pollSchema = z
+  .object({
+    title: z.string().trim().min(3).max(120),
+    dateStart: z.coerce.date().optional(),
+    dateEnd: z.coerce.date().optional(),
+  })
+  .refine((v) => !v.dateEnd || !!v.dateStart, { message: 'Add a start date too' });
+const voteSchema = z.object({ vote: z.enum(['accept', 'reject']) });
+
+const DAY = 24 * 3600e3;
+const fmtDay = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const fmtRange = (a: Date, b: Date) => (a.toDateString() === b.toDateString() ? fmtDay(a) : `${fmtDay(a)} to ${fmtDay(b)}`);
 
 @Injectable()
 export class ConversationsService {
@@ -23,6 +36,7 @@ export class ConversationsService {
     private readonly notifications: NotificationsService,
     private readonly live: LiveService,
     private readonly push: PushService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -82,6 +96,31 @@ export class ConversationsService {
       include: { sender: { select: { id: true, profile: { select: { displayName: true, photoUrl: true } } } } },
     });
     const page = rows.slice(0, take);
+    // poll messages carry the live poll: the dates, how many accepted or rejected, and this person's own answer
+    const pollIds = page.filter((m) => m.kind === 'poll' && m.refId).map((m) => m.refId!);
+    const polls = pollIds.length ? await this.prisma.tripPoll.findMany({ where: { id: { in: pollIds } }, include: { votes: true } }) : [];
+    const pollDto = new Map(
+      polls.map((p) => [
+        p.id,
+        {
+          id: p.id,
+          title: p.title,
+          dateStart: p.dateStart,
+          dateEnd: p.dateEnd,
+          state: p.state,
+          accept: p.votes.filter((v) => v.vote === 'accept').length,
+          reject: p.votes.filter((v) => v.vote === 'reject').length,
+          myVote: p.votes.find((v) => v.userId === me.id)?.vote ?? null,
+        },
+      ]),
+    );
+    const link = (meta: string | null) => {
+      try {
+        return meta ? (JSON.parse(meta) as { url: string }) : null;
+      } catch {
+        return null;
+      }
+    };
     return {
       writable,
       ended: false,
@@ -89,6 +128,9 @@ export class ConversationsService {
         .map((m) => ({
           id: m.id,
           body: m.body,
+          kind: m.kind,
+          poll: m.kind === 'poll' && m.refId ? (pollDto.get(m.refId) ?? null) : null,
+          link: m.kind === 'link' ? link(m.meta) : null,
           createdAt: m.createdAt,
           sender: { id: m.sender.id, displayName: m.sender.profile?.displayName ?? 'Member', photoUrl: m.sender.profile?.photoUrl ?? null },
         }))
@@ -167,6 +209,114 @@ export class ConversationsService {
     const m = await this.prisma.message.create({ data: { conversationId: id, senderId: me.id, body: dto.body } });
     await this.notifyOthers(me, conv, dto.body, m);
     return { id: m.id, body: m.body, createdAt: m.createdAt };
+  }
+
+  // ------------------------------------------------------------------ THERE: planning in the group chat
+  /** The trip behind a trip chat, and whether this person is its organizer. Same live-membership check as chatting. */
+  private async tripChat(me: User, conversationId: string, organizerOnly: boolean) {
+    const { conv, writable } = await this.assertAccess(me, conversationId);
+    if (conv.scopeType !== 'trip' || !conv.tripId) throw E.badRequest('NOT_A_TRIP_CHAT', 'This is only for trip groups');
+    if (!writable) throw E.conflict('CONVERSATION_CLOSED', 'This conversation is closed');
+    const trip = await this.prisma.trip.findUniqueOrThrow({ where: { id: conv.tripId } });
+    if (organizerOnly && trip.hostId !== me.id) throw E.forbidden('NOT_ORGANIZER', 'Only the organizer can do this');
+    return { conv, trip };
+  }
+
+  private async postMessage(conv: Conversation, sender: User, body: string, extra: { kind: string; refId?: string; meta?: string }) {
+    const m = await this.prisma.message.create({ data: { conversationId: conv.id, senderId: sender.id, body, ...extra } });
+    await this.notifyOthers(sender, conv, body, m);
+    return m;
+  }
+
+  /** The organizer asks the group about dates. Members answer accept or reject right in the chat. */
+  async createPoll(me: User, id: string, body: unknown) {
+    const dto = parse(pollSchema, body);
+    const { conv, trip } = await this.tripChat(me, id, true);
+    const bad = contentProblem(dto.title);
+    if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
+    if (dto.dateStart) {
+      const end = dto.dateEnd ?? dto.dateStart;
+      if (dto.dateStart.getTime() < Date.now()) throw E.badRequest('INVALID_SCHEDULE', 'The dates must be in the future');
+      if (end < dto.dateStart) throw E.badRequest('INVALID_SCHEDULE', 'The end date is before the start date');
+      if ((+end - +dto.dateStart) / DAY > 90) throw E.badRequest('INVALID_SCHEDULE', 'Trips can span at most 90 days');
+    }
+    const open = await this.prisma.tripPoll.count({ where: { tripId: trip.id, state: 'open' } });
+    if (open >= 3) throw E.conflict('TOO_MANY_OPEN_POLLS', 'Close one of the open polls first');
+    this.limiter.hit(`trip-poll:${me.id}`, 10, DAY);
+    const poll = await this.prisma.tripPoll.create({
+      data: { tripId: trip.id, createdById: me.id, title: dto.title, dateStart: dto.dateStart, dateEnd: dto.dateStart ? (dto.dateEnd ?? dto.dateStart) : undefined },
+    });
+    await this.postMessage(conv, me, dto.title, { kind: 'poll', refId: poll.id });
+    await this.audit.log(me.id, 'trip.poll_created', 'trip', trip.id, { pollId: poll.id });
+    return { id: poll.id };
+  }
+
+  /** A member answers accept or reject (they can change it while the poll is open). */
+  async vote(me: User, pollId: string, body: unknown) {
+    const { vote } = parse(voteSchema, body);
+    const poll = await this.prisma.tripPoll.findUnique({ where: { id: pollId } });
+    if (!poll) throw E.notFound('Poll');
+    const conv = await this.prisma.conversation.findUnique({ where: { tripId: poll.tripId } });
+    if (!conv) throw E.notFound('Poll');
+    await this.assertAccess(me, conv.id); // live membership, verified adult
+    if (poll.state !== 'open') throw E.conflict('POLL_CLOSED', 'This poll is closed');
+    await this.prisma.tripPollVote.upsert({
+      where: { pollId_userId: { pollId, userId: me.id } },
+      create: { pollId, userId: me.id, vote },
+      update: { vote },
+    });
+    const votes = await this.prisma.tripPollVote.findMany({ where: { pollId } });
+    return { accept: votes.filter((v) => v.vote === 'accept').length, reject: votes.filter((v) => v.vote === 'reject').length, myVote: vote };
+  }
+
+  /**
+   * The organizer closes a poll. With `adopt` the poll's dates become the trip's final dates and every member is asked
+   * to confirm them (nobody is committed until they do). The change is written into the chat and the audit log.
+   */
+  async closePoll(me: User, pollId: string, body: unknown) {
+    const { adopt } = parse(z.object({ adopt: z.boolean().default(false) }), body);
+    const poll = await this.prisma.tripPoll.findUnique({ where: { id: pollId } });
+    if (!poll) throw E.notFound('Poll');
+    const conv = await this.prisma.conversation.findUnique({ where: { tripId: poll.tripId } });
+    if (!conv) throw E.notFound('Poll');
+    const { trip } = await this.tripChat(me, conv.id, true);
+    if (poll.state !== 'open') throw E.conflict('POLL_CLOSED', 'This poll is already closed');
+    if (adopt && (!poll.dateStart || !poll.dateEnd)) throw E.badRequest('NO_DATES', 'This poll has no dates to adopt');
+
+    if (adopt) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.trip.update({ where: { id: trip.id }, data: { dateStart: poll.dateStart!, dateEnd: poll.dateEnd!, dateFlexibility: 'exact', datesState: 'proposed' } });
+        await tx.tripPoll.update({ where: { id: pollId }, data: { state: 'adopted' } });
+        // everyone starts unconfirmed except the organizer, who is the one proposing them
+        await tx.tripMembership.updateMany({ where: { tripId: trip.id, state: 'approved' }, data: { datesConfirmed: false } });
+        await tx.tripMembership.updateMany({ where: { tripId: trip.id, userId: me.id }, data: { datesConfirmed: true } });
+      });
+      const range = fmtRange(poll.dateStart!, poll.dateEnd!);
+      await this.postMessage(conv, me, `Final dates proposed: ${range}. Everyone in the group: please confirm you can travel on these dates.`, { kind: 'system' });
+      const members = (await this.prisma.tripMembership.findMany({ where: { tripId: trip.id, state: 'approved' } })).map((m) => m.userId).filter((u) => u !== me.id);
+      await this.notifications.notifyMany(members, 'trip_dates_proposed', `Confirm the dates: ${trip.title}`, `The organizer proposed ${range}. Open the trip to confirm you can go.`, { tripId: trip.id });
+      await this.audit.log(me.id, 'trip.dates_proposed', 'trip', trip.id, { pollId, from: trip.dateStart, to: trip.dateEnd });
+    } else {
+      await this.prisma.tripPoll.update({ where: { id: pollId }, data: { state: 'closed' } });
+      await this.postMessage(conv, me, `Poll closed: ${poll.title}`, { kind: 'system' });
+    }
+    return { ok: true };
+  }
+
+  /** Every approved member must say yes to the final dates themselves. When the last one does, the group is told. */
+  async confirmDates(me: User, tripId: string) {
+    const conv = await this.prisma.conversation.findUnique({ where: { tripId } });
+    if (!conv) throw E.notFound('Trip');
+    const { trip } = await this.tripChat(me, conv.id, false);
+    if (trip.datesState !== 'proposed') throw E.conflict('NO_DATES_TO_CONFIRM', 'There are no final dates waiting for confirmation');
+    await this.prisma.tripMembership.update({ where: { tripId_userId: { tripId, userId: me.id } }, data: { datesConfirmed: true } });
+    const members = await this.prisma.tripMembership.findMany({ where: { tripId, state: 'approved' } });
+    const confirmed = members.filter((m) => m.datesConfirmed).length;
+    if (confirmed === members.length) {
+      await this.postMessage(conv, me, `Everyone has confirmed the dates: ${fmtRange(trip.dateStart, trip.dateEnd)}. Remember to book your own travel directly with suppliers.`, { kind: 'system' });
+      await this.notifications.notify(trip.hostId, 'trip_dates_confirmed', `Dates confirmed: ${trip.title}`, 'Every member has confirmed the final dates.', { tripId });
+    }
+    return { confirmed, total: members.length };
   }
 
   /**
@@ -279,6 +429,26 @@ export class ConversationsController {
   @Get('conversations/:id/info')
   info(@CurrentUser() me: User, @Param('id') id: string) {
     return this.conversations.info(me, id);
+  }
+
+  @Post('conversations/:id/polls')
+  createPoll(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.conversations.createPoll(me, id, body);
+  }
+
+  @Post('polls/:pollId/vote')
+  vote(@CurrentUser() me: User, @Param('pollId') pollId: string, @Body() body: unknown) {
+    return this.conversations.vote(me, pollId, body);
+  }
+
+  @Post('polls/:pollId/close')
+  closePoll(@CurrentUser() me: User, @Param('pollId') pollId: string, @Body() body: unknown) {
+    return this.conversations.closePoll(me, pollId, body);
+  }
+
+  @Post('trips/:id/confirm-dates')
+  confirmDates(@CurrentUser() me: User, @Param('id') id: string) {
+    return this.conversations.confirmDates(me, id);
   }
 
   @Post('conversations/:id/messages')

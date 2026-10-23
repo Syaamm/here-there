@@ -37,13 +37,13 @@ function dayChips(earliest: Date) {
 }
 
 /** One card of the form. */
-function Section({ children }: { children: ReactNode }) {
+export function Section({ children }: { children: ReactNode }) {
   const { c } = useTheme();
   return <View style={{ backgroundColor: c.surface, borderRadius: 18, borderWidth: 1, borderColor: c.line, padding: 12, gap: 10 }}>{children}</View>;
 }
 
 /** A choice chip; `tile` makes it a taller square with an icon above the word (categories). */
-function Choice({ label, active, onPress, icon, tile, spoken }: { /** what a screen reader says instead of the bare label, e.g. "Category Coffee" */ spoken?: string; label: string; active: boolean; onPress: () => void; icon?: React.ComponentProps<typeof Ionicons>['name']; tile?: boolean }) {
+export function Choice({ label, active, onPress, icon, tile, spoken }: { /** what a screen reader says instead of the bare label, e.g. "Category Coffee" */ spoken?: string; label: string; active: boolean; onPress: () => void; icon?: React.ComponentProps<typeof Ionicons>['name']; tile?: boolean }) {
   const { c } = useTheme();
   return (
     <Pressable
@@ -67,7 +67,7 @@ function Choice({ label, active, onPress, icon, tile, spoken }: { /** what a scr
 }
 
 /** Round − / + button. */
-function Round({ icon, label, onPress, onLongPress, disabled }: { icon: 'add' | 'remove'; label: string; onPress: () => void; onLongPress?: () => void; disabled?: boolean }) {
+export function Round({ icon, label, onPress, onLongPress, disabled }: { icon: 'add' | 'remove'; label: string; onPress: () => void; onLongPress?: () => void; disabled?: boolean }) {
   const { c } = useTheme();
   return (
     <Pressable

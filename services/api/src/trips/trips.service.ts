@@ -7,6 +7,7 @@ import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
+import { LiveService } from '../common/live.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 
@@ -15,11 +16,11 @@ const DAY = 24 * 3600 * 1000;
 export const BUDGET_DISCLAIMER =
   'Budgets are estimates, not quotes or booking offers. Trips are proposals - book travel suppliers independently and never send money to strangers.';
 
-const FLEX = ['exact', 'plus_minus_3', 'plus_minus_7', 'same_month'] as const;
+const FLEX = ['exact', 'plus_minus_1', 'plus_minus_3', 'plus_minus_7', 'same_month'] as const;
 type Flex = (typeof FLEX)[number];
 
 /** Spec 6.5: organizer counts as one member; default 4-6, optional 2-3 and 7-10. */
-const GROUP_RANGES: Record<string, [number, number]> = { '2-3': [2, 3], '4-6': [4, 6], '7-10': [7, 10] };
+const GROUP_RANGES: Record<string, [number, number]> = { '2-3': [2, 3], '4-6': [4, 6], '7-10': [7, 10], '10+': [10, 20] };
 
 const createSchema = z
   .object({
@@ -36,10 +37,10 @@ const createSchema = z
     budgetIncludesTransport: z.boolean(),
     tags: z.array(z.string().trim().min(1).max(24)).max(8).default([]),
     description: z.string().trim().max(2000).optional(),
-    groupSize: z.enum(['2-3', '4-6', '7-10']).default('4-6'),
+    groupSize: z.enum(['2-3', '4-6', '7-10', '10+']).default('4-6'),
     visibility: z.enum(['public', 'invite_only']).default('public'),
   })
-  .refine((d) => d.budgetMax >= d.budgetMin, { message: 'budgetMax must be >= budgetMin', path: ['budgetMax'] });
+  .refine((d) => d.budgetMax > d.budgetMin, { message: 'The maximum budget must be higher than the minimum', path: ['budgetMax'] });
 
 const updateSchema = z.object({
   description: z.string().trim().max(2000).optional(),
@@ -58,7 +59,7 @@ const searchSchema = z.object({
   budgetMax: z.coerce.number().int().min(0).optional(),
   includesTransport: z.enum(['true', 'false']).optional(),
   tags: z.string().optional(), // comma separated
-  groupSize: z.enum(['2-3', '4-6', '7-10']).optional(),
+  groupSize: z.enum(['2-3', '4-6', '7-10', '10+']).optional(),
   openOnly: z.enum(['true', 'false']).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
@@ -73,8 +74,13 @@ const applySchema = z.object({
 });
 const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
 
+/** Trips are planned at most six months ahead: up to the last day of the month that far from now. */
+function planningHorizon(now = new Date()) {
+  return new Date(now.getFullYear(), now.getMonth() + 7, 0, 23, 59, 59);
+}
+
 function flexDays(f: Flex) {
-  return f === 'plus_minus_3' ? 3 : f === 'plus_minus_7' ? 7 : 0;
+  return f === 'plus_minus_1' ? 1 : f === 'plus_minus_3' ? 3 : f === 'plus_minus_7' ? 7 : 0;
 }
 
 /** [start,end] a trip could plausibly cover once flexibility is applied. */
@@ -97,6 +103,7 @@ export class TripsService {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly limiter: RateLimiter,
+    private readonly live: LiveService,
   ) {}
 
   private readonly hostInclude = {
@@ -112,6 +119,8 @@ export class TripsService {
       dateStart: t.dateStart,
       dateEnd: t.dateEnd,
       dateFlexibility: t.dateFlexibility,
+      // tentative until the organizer puts final dates to the group; "proposed" means every member must still confirm
+      datesState: t.datesState,
       // budget semantics (spec 6.3): always an estimate, always with its scope
       budget: {
         label: 'Estimated personal budget',
@@ -250,6 +259,8 @@ export class TripsService {
         }[app.state],
       },
       conversationId: conv?.id ?? null,
+      datesConfirmedCount: t.datesState === 'proposed' ? members.filter((x) => x.datesConfirmed).length : undefined,
+      myDatesConfirmed: isMember ? !!members.find((x) => x.userId === me.id)?.datesConfirmed : undefined,
       participants: members.map((x) => ({
         id: x.user.id,
         displayName: x.user.profile?.displayName ?? 'Member',
@@ -268,6 +279,7 @@ export class TripsService {
     if (dto.dateStart <= now) throw E.badRequest('INVALID_DATES', 'Trip must start in the future');
     if (dto.dateEnd < dto.dateStart) throw E.badRequest('INVALID_DATES', 'End date must not be before start date');
     if ((+dto.dateEnd - +dto.dateStart) / DAY > 90) throw E.badRequest('INVALID_DATES', 'Trips can span at most 90 days');
+    if (dto.dateStart > planningHorizon() || dto.dateEnd > planningHorizon()) throw E.badRequest('INVALID_DATES', 'Trips can only be planned up to six months ahead');
     for (const t of [dto.title, dto.description, dto.destination]) {
       const bad = contentProblem(t);
       if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
@@ -304,6 +316,7 @@ export class TripsService {
       return t;
     });
     await this.audit.log(me.id, 'trip.create', 'trip', trip.id);
+    this.live.feedChanged();
     return this.detail(me, trip.id);
   }
 
@@ -330,6 +343,7 @@ export class TripsService {
     const dateStart = dto.dateStart ?? t.dateStart;
     const dateEnd = dto.dateEnd ?? t.dateEnd;
     if (dateStart <= new Date() || dateEnd < dateStart) throw E.badRequest('INVALID_DATES', 'Invalid dates');
+    if ((dto.dateStart || dto.dateEnd) && (dateStart > planningHorizon() || dateEnd > planningHorizon())) throw E.badRequest('INVALID_DATES', 'Trips can only be planned up to six months ahead');
 
     await this.prisma.trip.update({
       where: { id },
@@ -353,6 +367,11 @@ export class TripsService {
         { tripId: id },
       );
       await this.audit.log(me.id, 'trip.material_change', 'trip', id);
+      this.live.feedChanged();
+      // dates the group had already been asked to confirm have changed under them: ask everyone again
+      if (t.datesState === 'proposed' && (+dateStart !== +t.dateStart || +dateEnd !== +t.dateEnd)) {
+        await this.prisma.tripMembership.updateMany({ where: { tripId: id, state: 'approved', userId: { not: me.id } }, data: { datesConfirmed: false } });
+      }
     }
     return this.detail(me, id);
   }
@@ -362,9 +381,12 @@ export class TripsService {
     if (!t) throw E.notFound('Trip');
     if (t.status === 'cancelled') return { ok: true };
     await this.prisma.trip.update({ where: { id }, data: { status: 'cancelled' } });
+    const pendingApps = await this.prisma.tripApplication.findMany({ where: { tripId: id, state: 'pending' }, select: { applicantId: true } });
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, state: 'pending' }, data: { state: 'declined', decidedAt: new Date() } });
+    for (const x of pendingApps) await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId: id }, x.applicantId);
     await this.notifications.notifyMany(await this.memberIds(id, byStaff ? undefined : me.id), 'trip_cancelled', `Cancelled: ${t.title}`, 'This trip proposal was cancelled.', { tripId: id });
     await this.audit.log(me.id, byStaff ? 'trip.removed_by_staff' : 'trip.cancel', 'trip', id);
+    this.live.feedChanged();
     return { ok: true };
   }
 
@@ -401,7 +423,7 @@ export class TripsService {
       });
     }
     const p = await this.prisma.profile.findUnique({ where: { userId: me.id } });
-    await this.notifications.notify(t.hostId, 'trip_application', 'New trip application', `${p?.displayName ?? 'Someone'} applied to ${t.title}`, { tripId: id });
+    await this.notifications.notify(t.hostId, 'trip_application', 'New trip application', `${p?.displayName ?? 'Someone'} applied to ${t.title}`, { tripId: id, applicantId: me.id });
     return { id: app.id, state: app.state };
   }
 
@@ -409,6 +431,8 @@ export class TripsService {
     const a = await this.prisma.tripApplication.findUnique({ where: { tripId_applicantId: { tripId: id, applicantId: me.id } } });
     if (!a || a.state !== 'pending') throw E.notFound('Pending application');
     await this.prisma.tripApplication.update({ where: { id: a.id }, data: { state: 'withdrawn' } });
+    const trip = await this.prisma.trip.findUnique({ where: { id } });
+    if (trip) await this.notifications.settleRequest(trip.hostId, 'trip_application', { tripId: id }, me.id);
     return { ok: true };
   }
 
@@ -477,7 +501,9 @@ export class TripsService {
       });
       await this.notifications.notify(a.applicantId, 'application_declined', 'Application not approved', `Your application for ${t.title} was not approved.`, { tripId });
     }
+    await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId }, a.applicantId); // the organizer's "applied" alert is answered
     await this.audit.log(me.id, `trip.application.${decision}`, 'trip_application', a.id, { tripId, applicantId: a.applicantId });
+    this.live.feedChanged();
     return { id: a.id, state: decision === 'approve' ? 'approved' : 'declined' };
   }
 
@@ -493,6 +519,7 @@ export class TripsService {
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, applicantId: me.id }, data: { state: 'withdrawn' } });
     if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
     await this.audit.log(me.id, 'trip.member_left', 'trip', id);
+    this.live.feedChanged();
     return { ok: true };
   }
 
@@ -505,6 +532,7 @@ export class TripsService {
     await this.prisma.tripMembership.update({ where: { id: m.id }, data: { state: 'removed' } });
     if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
     await this.audit.log(me.id, 'trip.member_removed', 'trip', id, { userId, byStaff });
+    this.live.feedChanged();
     await this.notifications.notify(userId, 'removed', 'Removed from trip', `You were removed from ${t.title}.`, { tripId: id });
     return { ok: true };
   }

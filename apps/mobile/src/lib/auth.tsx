@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
+import { clearLoadCache } from './hooks';
 import { ApiError, get, loadToken, saveToken, setToken, setUnauthorizedHandler, type Me } from './api';
 
 type SignInOptions = {
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [devCode, setDevCode] = useState<string | null>(null);
 
   const logout = useCallback((why?: string) => {
+    clearLoadCache(); // nothing the last person saw is kept for the next one
     setToken(null);
     void saveToken(null);
     setMe(null);

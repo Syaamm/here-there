@@ -6,6 +6,7 @@ import { Animated, Easing, Image, Pressable, View } from 'react-native';
 import { Text } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CAT_IMAGES } from '@/lib/constants';
+import { statusTop } from '@/lib/layout';
 import { useTheme } from '@/lib/theme';
 
 /** White rounded-square button that floats on top of a hero image. */
@@ -62,7 +63,7 @@ export function Hero({ color, emoji, category, right, height = 220, rounded, pla
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
   return (
-    <View style={{ height: height + (rounded || plain ? 0 : Math.max(insets.top, 20)), backgroundColor: color, borderRadius: rounded ? 24 : 0, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
+    <View style={{ height: height + (rounded || plain ? 0 : statusTop(insets.top)), backgroundColor: color, borderRadius: rounded ? 24 : 0, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
       {category && CAT_IMAGES[category] ? <Image source={CAT_IMAGES[category]} resizeMode="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : null}
       {emoji && !(category && CAT_IMAGES[category]) ? (
         <Text style={{ fontSize: 72, opacity: 0.45 }} accessibilityElementsHidden>
@@ -74,7 +75,7 @@ export function Hero({ color, emoji, category, right, height = 220, rounded, pla
         <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.28)']} locations={[0, 0.55, 1]} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
       ) : null}
       {plain ? null : (
-        <View style={{ position: 'absolute', left: 16, right: 16, top: rounded ? 16 : Math.max(insets.top, 20) + 12, flexDirection: 'row', justifyContent: 'space-between' }}>
+        <View style={{ position: 'absolute', left: 16, right: 16, top: rounded ? 16 : statusTop(insets.top) + 12, flexDirection: 'row', justifyContent: 'space-between' }}>
           <FloatingButton round={round} fx="nudge" icon="chevron-back" label="Go back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
           {right}
         </View>

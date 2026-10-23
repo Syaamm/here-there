@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { SkeletonDetail } from '@/components/Skeleton';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
-import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
+import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
 import { get, post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
@@ -30,7 +31,7 @@ export default function UserProfile() {
   const { c } = useTheme();
   const go = useGo();
   const router = useRouter();
-  const user = useLoad(() => get<PublicProfile>(`/v1/users/${id}`), [id]);
+  const user = useLoad(() => get<PublicProfile>(`/v1/users/${id}`), [id], undefined, 'user', { animate: true });
   const act = useAction();
   const [report, setReport] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -40,7 +41,7 @@ export default function UserProfile() {
   if (user.loading && !p)
     return (
       <Screen>
-        <Spinner />
+        <SkeletonDetail />
       </Screen>
     );
   if (user.error || !p)

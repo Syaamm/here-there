@@ -1,8 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { SkeletonDetail } from '@/components/Skeleton';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { CatPhoto } from '@/components/CatPhoto';
-import { Avatar, Banner, Btn, Card, Chip, Empty, ErrorBanner, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
+import { Avatar, Banner, Btn, Card, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
 import { get, post, type GroupInfo } from '@/lib/api';
 import { useTheme } from '@/lib/theme';
 import { confirmAsync } from '@/lib/confirm';
@@ -18,7 +19,7 @@ export default function GroupInfoScreen() {
   const { c } = useTheme();
   const go = useGo();
   const router = useRouter();
-  const info = useLoad(() => get<GroupInfo>(`/v1/conversations/${id}/info`), [id]);
+  const info = useLoad(() => get<GroupInfo>(`/v1/conversations/${id}/info`), [id], undefined, 'chat:info');
   const { refreshing, onRefresh } = useRefresh(info.reload);
   const act = useAction();
   const g = info.data;
@@ -26,7 +27,7 @@ export default function GroupInfoScreen() {
   if (info.loading && !g)
     return (
       <Screen>
-        <Spinner />
+        <SkeletonDetail />
       </Screen>
     );
   if (info.error || !g)
