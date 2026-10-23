@@ -18,6 +18,8 @@ model User {
   passwordHash      String
   role              String   @default("user") // user | support | moderator | trust_lead | admin
   state             String   @default("active") // active | suspended
+  // A timed suspension ends by itself at this moment; empty while suspended means until staff restore the account.
+  suspendedUntil    DateTime?
   // Three separate statuses (never merged into one flag):
   //   1. email:    emailVerifiedAt
   //   2. adult:    adultConfirmed (self-declared at sign-up) + adultVerifiedAt (provider/staff confirmed 18+; no birth date kept)

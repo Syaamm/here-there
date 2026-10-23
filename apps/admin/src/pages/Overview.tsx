@@ -5,7 +5,7 @@ import { actionLabel } from './Audit';
 type Overview = { users: number; pendingVerifications: number; openReports: number; activeActivities: number; activeTrips: number };
 type Report = { id: string; category: string; details: string | null; createdAt: string; reporter: { id: string; profile?: { displayName: string } | null } };
 type Check = { id: string; createdAt: string; user: { email: string; displayName?: string; homeCity?: string } };
-type Event = { id: string; actorId: string | null; action: string; objectType: string; objectId: string; createdAt: string };
+type Event = { id: string; actorId: string | null; actorName?: string | null; objectName?: string | null; action: string; objectType: string; objectId: string; createdAt: string };
 
 const CARDS: { key: keyof Overview; label: string; hint: string; go: string; icon: IconName; tone?: 'warn' | 'info'; tag?: boolean }[] = [
   { key: 'pendingVerifications', label: 'Pending verifications', hint: 'Identity checks waiting for a decision', go: 'verifications', icon: 'shield', tone: 'warn', tag: true },
@@ -16,9 +16,9 @@ const CARDS: { key: keyof Overview; label: string; hint: string; go: string; ico
 ];
 
 export function OverviewPage({ go }: { go: (p: string) => void }) {
-  const { data, error, loading, reload } = useLoad(() => get<Overview>('/v1/admin/overview'), []);
-  const reports = useLoad(() => get<{ items: Report[] }>('/v1/admin/reports?status=open'), []);
-  const checks = useLoad(() => get<{ items: Check[] }>('/v1/admin/verifications?status=pending'), []);
+  const { data, error, loading, reload } = useLoad(() => get<Overview>('/v1/admin/overview'), [], 8000);
+  const reports = useLoad(() => get<{ items: Report[] }>('/v1/admin/reports?status=open'), [], 8000);
+  const checks = useLoad(() => get<{ items: Check[] }>('/v1/admin/verifications?status=pending'), [], 8000);
   const events = useLoad(() => get<{ items: Event[] }>('/v1/admin/audit').catch(() => ({ items: [] as Event[] })), []);
   const refresh = () => (reload(), reports.reload(), checks.reload(), events.reload());
 
@@ -124,7 +124,7 @@ export function OverviewPage({ go }: { go: (p: string) => void }) {
                       <span className="mono muted small">{shortId(e.objectId)}</span>
                     </div>
                     <div className="muted small">
-                      by <span className="mono">{shortId(e.actorId)}</span> · {new Date(e.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
+                      by {e.actorName ? <b>{e.actorName}</b> : <span className="mono">{shortId(e.actorId)}</span>} · {new Date(e.createdAt).toLocaleTimeString(undefined, { timeStyle: 'short' })}
                     </div>
                   </div>
                 </li>

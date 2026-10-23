@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ApiError } from './api';
 
 // ---------------------------------------------------------------- data loading
-export function useLoad<T>(fn: () => Promise<T>, deps: unknown[]) {
+/** pollMs: look again every so often while the page is open and visible, so new entries appear without a manual refresh. */
+export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: number) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -19,6 +20,11 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[]) {
   }, deps);
 
   useEffect(reload, [reload]);
+  useEffect(() => {
+    if (!pollMs) return;
+    const t = setInterval(() => !document.hidden && reload(), pollMs);
+    return () => clearInterval(t);
+  }, [reload, pollMs]);
   return { data, error, loading, reload };
 }
 
@@ -44,19 +50,19 @@ export function useAction(after: () => void) {
 }
 
 // ---------------------------------------------------------------- reason dialog
-type Ask = { title: string; label: string; confirm: string; required: boolean; choices?: [string, string][]; resolve: (v: string | null) => void };
+type Ask = { title: string; label: string; confirm: string; required: boolean; choices?: [string, string][]; choiceLabel?: string; resolve: (v: string | null) => void };
 let openAsk: ((a: Ask) => void) | null = null;
 
 /** Promise-based replacement for window.prompt. Resolves null when cancelled. */
-export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean; choices?: [string, string][] } = {}) {
+export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean; choices?: [string, string][]; choiceLabel?: string } = {}) {
   return new Promise<string | null>((resolve) => {
     if (!openAsk) return resolve(null);
-    openAsk({ title, label: opts.label ?? 'Reason (kept in the audit log)', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, resolve });
+    openAsk({ title, label: opts.label ?? 'Reason (kept in the audit log)', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, choiceLabel: opts.choiceLabel, resolve });
   });
 }
 
 /** Like askText, but the person must also pick one of `choices`. Resolves null when cancelled. */
-export async function askChoiceText(title: string, choices: [string, string][], opts: { label?: string; confirm?: string } = {}) {
+export async function askChoiceText(title: string, choices: [string, string][], opts: { label?: string; confirm?: string; choiceLabel?: string } = {}) {
   const r = await askText(title, { ...opts, choices });
   if (r === null) return null;
   const i = r.indexOf('|');
@@ -102,7 +108,7 @@ export function DialogHost() {
         <h2 id="dlg-title">{ask.title}</h2>
         {ask.choices && (
           <label>
-            Reason
+            {ask.choiceLabel ?? 'Reason'}
             <select value={choice} onChange={(e) => setChoice(e.target.value)}>
               {ask.choices.map(([v, l]) => (
                 <option key={v} value={v}>

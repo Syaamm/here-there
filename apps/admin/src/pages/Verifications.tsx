@@ -12,8 +12,8 @@ const waitingFor = (iso: string) => {
 
 export function VerificationsPage({ me }: { me: Session }) {
   const [status, setStatus] = useState<Status>('pending');
-  const { data, error, loading, reload } = useLoad(() => get<{ items: V[] }>(`/v1/admin/verifications?status=${status}`), [status]);
-  const pending = useLoad(() => get<{ items: V[] }>('/v1/admin/verifications?status=pending'), [status]);
+  const { data, error, loading, reload } = useLoad(() => get<{ items: V[] }>(`/v1/admin/verifications?status=${status}`), [status], 6000);
+  const pending = useLoad(() => get<{ items: V[] }>('/v1/admin/verifications?status=pending'), [status], 6000);
   const act = useAction(() => (reload(), pending.reload()));
   const decide = (id: string, decision: 'verified' | 'rejected') => act.run(() => post(`/v1/admin/verifications/${id}/decision`, { decision }));
   const canDecide = can.trust(me.role);

@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react';
 import { get } from '../api';
 import { Chip, Empty, ErrorBanner, Icon, Page, shortId, useLoad, type IconName } from '../ui';
 
-type E = { id: string; actorId: string | null; action: string; objectType: string; objectId: string; metadata: unknown; createdAt: string };
+type E = { id: string; actorId: string | null; actorName?: string | null; actorRole?: string | null; objectName?: string | null; action: string; objectType: string; objectId: string; metadata: unknown; createdAt: string };
 
 const STEP = 50;
 const cap = (s: string) => s.replace(/_/g, ' ').replace(/^./, (x) => x.toUpperCase());
@@ -29,7 +29,7 @@ const dayTitle = (iso: string) => {
   return long;
 };
 
-export function AuditPage() {
+export function AuditPage({ openReport }: { openReport?: (id: string) => void }) {
   const [objectType, setObjectType] = useState('');
   const [objectId, setObjectId] = useState('');
   const [applied, setApplied] = useState({ objectType: '', objectId: '' });
@@ -107,17 +107,28 @@ export function AuditPage() {
                     <span className="mono">{e.action}</span>
                   </span>
                   <span className="obj">
-                    <b>{cap(e.objectType)}</b>
+                    <b>{e.objectName ? `${cap(e.objectType)} · ${e.objectName}` : cap(e.objectType)}</b>
                     <span className="mono" title={e.objectId}>
                       {shortId(e.objectId)}
                     </span>
+                    {e.objectType === 'report' && openReport && (
+                      <button className="link small" style={{ display: 'block', marginTop: 4 }} onClick={() => openReport(e.objectId)}>
+                        Open report →
+                      </button>
+                    )}
                   </span>
                   <span className="who2">
                     <span className="avatar sm" aria-hidden="true">
                       <Icon name="users" />
                     </span>
-                    <span className="mono small" title={e.actorId ?? 'system'}>
-                      {shortId(e.actorId)}
+                    <span style={{ minWidth: 0 }}>
+                      <b style={{ display: 'block', fontSize: '0.9rem' }}>{e.actorName ?? (e.actorId ? 'Unknown user' : 'System')}</b>
+                      <span className="small muted" style={{ display: 'block' }}>
+                        {e.actorRole === 'user' ? 'Member' : e.actorRole ? e.actorRole.replace('_', ' ').replace(/^./, (x) => x.toUpperCase()) + ' (staff)' : 'Automatic'}
+                      </span>
+                      <span className="mono small muted" title={e.actorId ?? 'system'}>
+                        {shortId(e.actorId)}
+                      </span>
                     </span>
                   </span>
                   <button className="icon-btn" aria-expanded={isOpen} aria-label={isOpen ? 'Hide details' : 'Show details'} onClick={() => setOpen(isOpen ? null : e.id)}>
@@ -128,7 +139,7 @@ export function AuditPage() {
                 </div>
                 {isOpen && (
                   <div className="audit-meta">
-                    <pre>{JSON.stringify({ object: e.objectId, actor: e.actorId, ...(e.metadata ? { details: e.metadata } : {}) }, null, 2)}</pre>
+                    <pre>{JSON.stringify({ object: e.objectId, actor: e.actorId, ...(e.actorName ? { actorName: e.actorName, actorRole: e.actorRole } : {}), ...(e.metadata ? { details: e.metadata } : {}) }, null, 2)}</pre>
                   </div>
                 )}
               </Fragment>

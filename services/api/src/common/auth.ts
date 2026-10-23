@@ -15,6 +15,9 @@ import { PrismaService } from './prisma.service';
 const IS_PUBLIC = 'isPublic';
 const STAFF = 'staffRoles';
 
+/** What the person sees when they are locked out: for how long, if it is timed. */
+export const suspendedMessage = (until: Date | null) => (until ? `This account is suspended until ${until.toUTCString().slice(5, 16)}` : 'This account is suspended');
+
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 /** Restrict a route to staff roles (admin console). */
 export const Staff = (...roles: string[]) => SetMetadata(STAFF, roles);
@@ -62,7 +65,14 @@ export class AuthGuard implements CanActivate {
       if (isPublic) return true;
       throw E.unauthorized('INVALID_TOKEN', 'Invalid or expired token');
     }
-    if (row.state === 'suspended') throw E.forbidden('ACCOUNT_SUSPENDED', 'This account is suspended');
+    if (row.state === 'suspended') {
+      // a timed suspension that has run out ends here, on the person's next request
+      if (row.suspendedUntil && row.suspendedUntil <= new Date()) {
+        await this.prisma.user.update({ where: { id: row.id }, data: { state: 'active', suspendedUntil: null } });
+        row.state = 'active';
+        row.suspendedUntil = null;
+      } else throw E.forbidden('ACCOUNT_SUSPENDED', suspendedMessage(row.suspendedUntil));
+    }
     // "Explore demo" guests may only read. Everything that writes needs a real account.
     if (row.role === 'guest' && req.method !== 'GET')
       throw E.forbidden('GUEST_READ_ONLY', 'You are exploring as a guest. Create an account to do that.');

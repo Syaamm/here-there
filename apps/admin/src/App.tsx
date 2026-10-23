@@ -21,6 +21,8 @@ const NAV: { id: PageId; label: string; icon: IconName; show: (r: Role) => boole
 export default function App() {
   const [session, setSession] = useState<Session | null>(loadSession);
   const [page, setPage] = useState<PageId>('overview');
+  const [reportId, setReportId] = useState<string | null>(null); // a report opened from the audit log
+  const [userId, setUserId] = useState<string | null>(null); // one person opened from a report
 
   const logout = () => {
     setToken(null);
@@ -29,15 +31,57 @@ export default function App() {
   };
   useEffect(() => setUnauthorizedHandler(logout), []);
 
-  // the orange numbers beside Verification and Reports: what is waiting for a decision
-  const [counts, setCounts] = useState<{ pendingVerifications: number; openReports: number } | null>(null);
+  // The orange numbers beside Verification and Reports count what is NEW: waiting items this admin has not looked at yet.
+  // Opening the page marks everything on it as seen in the same instant, and the badge is gone. Which items were seen is
+  // remembered in this browser, per signed-in person.
+  const [open, setOpen] = useState<{ reports: string[]; verifications: string[] } | null>(null);
+  const seenKey = `ht_admin_seen:${session?.email ?? ''}`;
+  const [seen, setSeen] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(seenKey) ?? '[]'));
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    // signing in as someone else brings back that person's own list of what they have seen
+    try {
+      setSeen(new Set(JSON.parse(localStorage.getItem(seenKey) ?? '[]')));
+    } catch {
+      setSeen(new Set());
+    }
+  }, [seenKey]);
   useEffect(() => {
     if (!session) return;
-    const load = () => api<{ pendingVerifications: number; openReports: number }>('GET', '/v1/admin/overview').then(setCounts, () => {});
+    let live = true;
+    const load = () =>
+      Promise.all([api<{ items: { id: string }[] }>('GET', '/v1/admin/reports?status=open'), api<{ items: { id: string }[] }>('GET', '/v1/admin/verifications?status=pending')]).then(
+        ([r, v]) => live && setOpen({ reports: r.items.map((x) => x.id), verifications: v.items.map((x) => x.id) }),
+        () => {},
+      );
     load();
-    const t = setInterval(load, 30000);
-    return () => clearInterval(t);
-  }, [session, page]);
+    const t = setInterval(() => !document.hidden && load(), 6000); // a new entry shows up within seconds
+    const back = () => !document.hidden && load(); // and straight away when the admin comes back to this tab
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      live = false;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', back);
+    };
+  }, [session]);
+  // looking at a page marks its entries seen, including ones that arrive while it is open
+  useEffect(() => {
+    const ids = page === 'reports' ? open?.reports : page === 'verifications' ? open?.verifications : null;
+    if (!ids || ids.every((id) => seen.has(id))) return;
+    const next = new Set([...seen, ...ids]);
+    setSeen(next);
+    try {
+      localStorage.setItem(seenKey, JSON.stringify([...next].slice(-500)));
+    } catch {
+      /* storage unavailable: the badge just comes back next visit */
+    }
+  }, [page, open]);
+  const fresh = (ids?: string[]) => (ids ?? []).filter((id) => !seen.has(id)).length;
 
   if (!session)
     return (
@@ -57,13 +101,13 @@ export default function App() {
         </div>
         <nav aria-label="Main">
           {nav.map((n) => {
-            const badge = n.id === 'verifications' ? counts?.pendingVerifications : n.id === 'reports' ? counts?.openReports : 0;
+            const badge = n.id === 'verifications' ? fresh(open?.verifications) : n.id === 'reports' ? fresh(open?.reports) : 0;
             return (
-              <button key={n.id} className={page === n.id ? 'nav active' : 'nav'} aria-current={page === n.id ? 'page' : undefined} onClick={() => setPage(n.id)}>
+              <button key={n.id} className={page === n.id ? 'nav active' : 'nav'} aria-current={page === n.id ? 'page' : undefined} onClick={() => (setReportId(null), setUserId(null), setPage(n.id))}>
                 <Icon name={n.icon} />
                 {n.label}
                 {!!badge && (
-                  <span className="badge" aria-label={`${badge} waiting`}>
+                  <span className="badge" aria-label={`${badge} new`}>
                     {badge}
                   </span>
                 )}
@@ -87,10 +131,10 @@ export default function App() {
       <main className="main">
         {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} />}
         {page === 'verifications' && <VerificationsPage me={session} />}
-        {page === 'reports' && <ReportsPage me={session} go={(p) => setPage(p as PageId)} />}
+        {page === 'reports' && <ReportsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} focusId={reportId} onClearFocus={() => setReportId(null)} />}
         {page === 'content' && <ContentPage me={session} />}
-        {page === 'users' && <UsersPage me={session} />}
-        {page === 'audit' && can.trust(session.role) && <AuditPage />}
+        {page === 'users' && <UsersPage me={session} focusId={userId} onClearFocus={() => setUserId(null)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
+        {page === 'audit' && can.trust(session.role) && <AuditPage openReport={(id) => (setReportId(id), setPage('reports'))} />}
       </main>
       <DialogHost />
     </div>

@@ -1,36 +1,42 @@
 import { useState } from 'react';
 import { can, get, post, STAFF, type Role, type Session } from '../api';
-import { askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, Page, RowMenu, Search, Segmented, useAction, useLoad, usePages } from '../ui';
+import { askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Page, RowMenu, Search, Segmented, useAction, useLoad, usePages } from '../ui';
 
-type U = { id: string; email: string; role: Role; state: string; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; homeCity?: string; createdAt: string };
+type U = { id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; homeCity?: string; createdAt: string };
 type Detail = {
   id: string;
   email: string;
   stats: { reportsAgainst: number; hosted: number; joined: number };
   history: { id: string; action: string; createdAt: string; metadata: string | null }[];
   verifications: { id: string; eligibility: string; createdAt: string }[];
+  reports: { id: string; category: string; status: string; details: string | null; resolution: string | null; createdAt: string; targetType: string; targetTitle: string | null; reporterName: string | null }[];
 };
 type State = '' | 'active' | 'suspended';
 
 const isGuest = (u: U) => u.email.startsWith('guest-') || u.displayName === 'Guest';
 
-export function UsersPage({ me }: { me: Session }) {
+export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Session; focusId?: string | null; onClearFocus?: () => void; openReport?: (id: string) => void }) {
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
   const [state, setState] = useState<State>('');
   const [identity, setIdentity] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  // opened from a report: look up just that one person by id and show their details straight away
   const users = useLoad(
-    () => get<{ items: U[] }>(`/v1/admin/users?${new URLSearchParams({ ...(term && { q: term }), ...(state && { state }) })}`),
-    [term, state],
+    () => get<{ items: U[] }>(`/v1/admin/users?${new URLSearchParams(focusId ? { q: focusId } : { ...(term && { q: term }), ...(state && { state }) })}`),
+    [term, state, focusId],
   );
   const act = useAction(users.reload);
-  const rows = (users.data?.items ?? []).filter((u) => !identity || u.eligibility === identity);
+  const rows = (users.data?.items ?? []).filter((u) => (focusId ? u.id === focusId : !identity || u.eligibility === identity));
   const pages = usePages(rows, `${term}|${state}|${identity}`);
 
   const suspend = async (u: U) => {
-    const reason = await askText(`Suspend ${u.displayName ?? u.email}?`, { confirm: 'Suspend' });
-    if (reason) act.run(() => post(`/v1/admin/users/${u.id}/suspend`, { reason }));
+    const r = await askChoiceText(
+      `Suspend ${u.displayName ?? u.email}?`,
+      [['1', '1 day'], ['3', '3 days'], ['7', '7 days'], ['30', '30 days'], ['0', 'Until I restore them']],
+      { label: 'Reason (kept in the audit log, not shown to the user)', confirm: 'Suspend', choiceLabel: 'For how long' },
+    );
+    if (r && r.text.length >= 3) act.run(() => post(`/v1/admin/users/${u.id}/suspend`, { reason: r.text, ...(r.choice !== '0' && { days: Number(r.choice) }) }));
   };
   const restore = async (u: U) => {
     const reason = await askText(`Restore ${u.displayName ?? u.email}?`, { confirm: 'Restore' });
@@ -59,9 +65,19 @@ export function UsersPage({ me }: { me: Session }) {
   };
 
   return (
-    <Page title="Users" sub={users.data ? `${users.data.items.length} registered accounts` : undefined}>
+    <Page title="Users" sub={focusId ? undefined : users.data ? `${users.data.items.length} registered accounts` : undefined}>
+      {focusId && (
+        <p className="note">
+          <Icon name="users" />
+          Showing only the person from the report.
+          <button className="link" style={{ marginLeft: 'auto' }} onClick={onClearFocus}>
+            Show all users
+          </button>
+        </p>
+      )}
       <form
         className="toolbar"
+        style={focusId ? { display: 'none' } : undefined}
         onSubmit={(e) => {
           e.preventDefault();
           setTerm(q.trim());
@@ -111,7 +127,7 @@ export function UsersPage({ me }: { me: Session }) {
               </thead>
               <tbody>
                 {pages.shown.map((u) => (
-                  <UserRow key={u.id} u={u} me={me} open={open === u.id} onToggle={() => setOpen(open === u.id ? null : u.id)} onSuspend={suspend} onRestore={restore} onRole={setRole} onReverify={reverify} onReset={reset} onOverturn={overturn} busy={act.busy} />
+                  <UserRow key={u.id} u={u} me={me} open={open === u.id || focusId === u.id} onToggle={() => setOpen(open === u.id ? null : u.id)} onSuspend={suspend} onRestore={restore} onRole={setRole} onReverify={reverify} onReset={reset} onOverturn={overturn} busy={act.busy} openReport={openReport} />
                 ))}
               </tbody>
             </table>
@@ -123,7 +139,7 @@ export function UsersPage({ me }: { me: Session }) {
   );
 }
 
-function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; onSuspend: (u: U) => void; onRestore: (u: U) => void; onRole: (u: U, r: string) => void; onReverify: (u: U) => void; onReset: (u: U) => void; onOverturn: (u: U) => void; busy: boolean }) {
+function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; onSuspend: (u: U) => void; onRestore: (u: U) => void; onRole: (u: U, r: string) => void; onReverify: (u: U) => void; onReset: (u: U) => void; onOverturn: (u: U) => void; busy: boolean; openReport?: (id: string) => void }) {
   const { u, me } = p;
   // moderators cannot touch staff accounts; the server enforces this too
   const canActOn = can.moderate(me.role) && (u.role === 'user' || me.role === 'admin') && u.email !== me.email;
@@ -166,6 +182,7 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
         </td>
         <td>
           <Chip value={u.state} />
+          {u.state === 'suspended' && <div className="muted small nowrap" style={{ marginTop: 4 }}>{u.suspendedUntil ? `Until ${new Date(u.suspendedUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : 'Until restored'}</div>}
         </td>
         <td>
           <Chip value={u.eligibility} />
@@ -196,7 +213,7 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
       {p.open && (
         <tr className="detail-row">
           <td colSpan={6}>
-            <UserDetail id={u.id} />
+            <UserDetail id={u.id} me={me} openReport={p.openReport} />
           </td>
         </tr>
       )}
@@ -204,8 +221,17 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
   );
 }
 
-function UserDetail({ id }: { id: string }) {
-  const { data, error, loading } = useLoad(() => get<Detail>(`/v1/admin/users/${id}`), [id]);
+function UserDetail({ id, me, openReport }: { id: string; me: Session; openReport?: (id: string) => void }) {
+  const { data, error, loading, reload } = useLoad(() => get<Detail>(`/v1/admin/users/${id}`), [id], 6000);
+  const act = useAction(reload);
+  const mod = can.moderate(me.role);
+  const decide = async (reportId: string, status: 'resolved' | 'dismissed') => {
+    const resolution = await askText(status === 'resolved' ? 'Resolve report' : 'Dismiss report', {
+      label: 'What was decided? (kept in the audit log)',
+      confirm: status === 'resolved' ? 'Resolve' : 'Dismiss',
+    });
+    if (resolution) act.run(() => post(`/v1/admin/reports/${reportId}/resolve`, { status, resolution }));
+  };
   if (loading) return <p className="muted">Loading…</p>;
   if (error) return <ErrorBanner message={error} />;
   if (!data) return null;
@@ -229,6 +255,50 @@ function UserDetail({ id }: { id: string }) {
           <dd className="mono">{data.id}</dd>
         </div>
       </dl>
+      <ErrorBanner message={act.error} />
+      <h3>Reports about this person ({data.reports.length})</h3>
+      {data.reports.length === 0 ? (
+        <p className="muted">No one has reported them.</p>
+      ) : (
+        <ul className="stack" style={{ marginBottom: 8 }}>
+          {data.reports.map((r) => (
+            <li key={r.id} className="card" style={{ padding: '14px 16px' }}>
+              <div className="row between wrap">
+                <div className="row wrap">
+                  <Chip value={r.category} />
+                  <Chip value={r.status} />
+                  <span className="muted small">{r.targetType === 'user' ? 'About them' : `About their ${r.targetType}${r.targetTitle ? `: ${r.targetTitle}` : ''}`}</span>
+                </div>
+                <span className="muted small">{fmt(r.createdAt)}</span>
+              </div>
+              <p style={{ margin: '8px 0 4px' }}>“{r.details || 'No details given'}”</p>
+              <div className="row between wrap">
+                <span className="muted small">
+                  Reported by {r.reporterName ?? 'someone'}
+                  {r.resolution && ` · Resolution: ${r.resolution}`}
+                </span>
+                <div className="row wrap">
+                  {mod && ['open', 'in_review'].includes(r.status) && (
+                    <>
+                      <button className="btn small" onClick={() => decide(r.id, 'dismissed')} disabled={act.busy}>
+                        Dismiss
+                      </button>
+                      <button className="btn small primary" onClick={() => decide(r.id, 'resolved')} disabled={act.busy}>
+                        <Icon name="check" /> Resolve
+                      </button>
+                    </>
+                  )}
+                  {openReport && (
+                    <button className="link small" onClick={() => openReport(r.id)}>
+                      Open report →
+                    </button>
+                  )}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
       <h3>Recent staff actions on this account</h3>
       {data.history.length === 0 ? (
         <p className="muted">None.</p>

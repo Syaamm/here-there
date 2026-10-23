@@ -4,7 +4,7 @@ import { User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { CurrentUser, Public } from '../common/auth';
+import { CurrentUser, Public, suspendedMessage } from '../common/auth';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -125,7 +125,12 @@ export class AuthController {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email }, include: { profile: true } });
     const ok = user && (await bcrypt.compare(dto.password, user.passwordHash));
     if (!user || !ok) throw E.unauthorized('INVALID_CREDENTIALS', 'Email or password is incorrect');
-    if (user.state === 'suspended') throw E.forbidden('ACCOUNT_SUSPENDED', 'This account is suspended');
+    if (user.state === 'suspended') {
+      if (user.suspendedUntil && user.suspendedUntil <= new Date()) {
+        await this.prisma.user.update({ where: { id: user.id }, data: { state: 'active', suspendedUntil: null } });
+        user.state = 'active';
+      } else throw E.forbidden('ACCOUNT_SUSPENDED', suspendedMessage(user.suspendedUntil));
+    }
     return { token: await this.token(user.id), user: me(user) };
   }
 

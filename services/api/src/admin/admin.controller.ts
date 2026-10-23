@@ -16,6 +16,8 @@ const MOD = ['moderator', 'trust_lead', 'admin'];
 const TRUST = ['trust_lead', 'admin'];
 
 const reasonSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+// days: how long the suspension lasts; leave it out for "until staff restore the account"
+const suspendSchema = reasonSchema.extend({ days: z.number().int().min(1).max(365).optional() });
 const verificationDecisionSchema = z.object({
   decision: z.enum(['verified', 'rejected']),
   reason: z.enum(['document', 'liveness', 'underage', 'other']).optional(), // when rejecting
@@ -61,6 +63,8 @@ export class AdminController {
   @Staff(...ALL)
   @Get('users')
   async users(@Query('q') q?: string, @Query('state') state?: string) {
+    // timed suspensions that have run out end now, so the list never shows someone as suspended who is not
+    await this.prisma.user.updateMany({ where: { state: 'suspended', suspendedUntil: { lte: new Date() } }, data: { state: 'active', suspendedUntil: null } });
     const where: Prisma.UserWhereInput = {
       ...(state && { state }),
       ...(q && { OR: [{ email: { contains: q } }, { profile: { displayName: { contains: q } } }, { id: q }] }),
@@ -80,6 +84,7 @@ export class AdminController {
         email: u.email,
         role: u.role,
         state: u.state,
+        suspendedUntil: u.suspendedUntil,
         eligibility: u.eligibility,
         emailVerified: !!u.emailVerifiedAt,
         adultVerified: !!u.adultVerifiedAt,
@@ -108,22 +113,47 @@ export class AdminController {
       this.prisma.activityMembership.count({ where: { userId: id, role: 'attendee' } }),
       this.prisma.auditEvent.findMany({ where: { objectType: 'user', objectId: id }, orderBy: { createdAt: 'desc' }, take: 20 }),
     ]);
+    // every report about this person: about them directly, or about an activity or trip they host
+    const [acts, trips] = await Promise.all([
+      this.prisma.activity.findMany({ where: { hostId: id }, select: { id: true, title: true } }),
+      this.prisma.trip.findMany({ where: { hostId: id }, select: { id: true, title: true } }),
+    ]);
+    const titles = new Map([...acts, ...trips].map((x) => [x.id, x.title]));
+    const reports = await this.prisma.report.findMany({
+      where: { OR: [{ targetType: 'user', targetId: id }, { targetType: 'activity', targetId: { in: acts.map((a) => a.id) } }, { targetType: 'trip', targetId: { in: trips.map((t) => t.id) } }] },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: { reporter: { select: { id: true, profile: { select: { displayName: true } } } } },
+    });
+    const reportList = reports.map((r) => ({
+      id: r.id,
+      category: r.category,
+      status: r.status,
+      details: r.details,
+      resolution: r.resolution,
+      createdAt: r.createdAt,
+      targetType: r.targetType,
+      targetTitle: r.targetType === 'user' ? null : (titles.get(r.targetId) ?? null),
+      reporterName: r.reporter.profile?.displayName ?? null,
+    }));
     // never the password hash, and the mobile number is masked even for staff
     const { passwordHash: _omit, phoneNumber, ...safe } = u;
-    return { ...safe, phone: phoneNumber ? `${phoneNumber.slice(0, 3)}••••${phoneNumber.slice(-2)}` : null, stats: { reportsAgainst, hosted, joined }, history };
+    return { ...safe, phone: phoneNumber ? `${phoneNumber.slice(0, 3)}••••${phoneNumber.slice(-2)}` : null, stats: { reportsAgainst: Math.max(reportsAgainst, reportList.length), hosted, joined }, history, reports: reportList };
   }
 
   @Staff(...MOD)
   @Post('users/:id/suspend')
   async suspend(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
-    const { reason } = parse(reasonSchema, body);
+    const { reason, days } = parse(suspendSchema, body);
     const target = await this.prisma.user.findUnique({ where: { id } });
     if (!target) throw E.notFound('User');
     if (target.id === actor.id) throw E.badRequest('INVALID_TARGET', 'You cannot suspend yourself');
     if (target.role !== 'user' && actor.role !== 'admin') throw E.forbidden('FORBIDDEN', 'Only admins can suspend staff');
-    await this.prisma.user.update({ where: { id }, data: { state: 'suspended' } });
-    await this.audit.log(actor.id, 'user.suspend', 'user', id, { reason });
-    return { state: 'suspended' };
+    const until = days ? new Date(Date.now() + days * 864e5) : null;
+    await this.prisma.user.update({ where: { id }, data: { state: 'suspended', suspendedUntil: until } });
+    await this.settleReports(actor, 'user', id, days ? `suspended for ${days} ${days === 1 ? 'day' : 'days'}` : 'suspended until staff restore the account');
+    await this.audit.log(actor.id, 'user.suspend', 'user', id, { reason, ...(days ? { days, until } : { until: 'restored by staff' }) });
+    return { state: 'suspended', suspendedUntil: until };
   }
 
   @Staff(...MOD)
@@ -131,7 +161,7 @@ export class AdminController {
   async restore(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
     if (!(await this.prisma.user.findUnique({ where: { id } }))) throw E.notFound('User');
-    await this.prisma.user.update({ where: { id }, data: { state: 'active' } });
+    await this.prisma.user.update({ where: { id }, data: { state: 'active', suspendedUntil: null } });
     await this.audit.log(actor.id, 'user.restore', 'user', id, { reason });
     return { state: 'active' };
   }
@@ -202,7 +232,21 @@ export class AdminController {
   async requireReverification(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason, note } = parse(reverifySchema, body);
     if (id === actor.id) throw E.badRequest('INVALID_TARGET', 'You cannot require re-verification of yourself');
-    return this.verification.requireReverification(actor.id, id, reason, note);
+    const r = await this.verification.requireReverification(actor.id, id, reason, note);
+    await this.settleReports(actor, 'user', id, 'asked to verify their identity again');
+    return r;
+  }
+
+  /**
+   * Acting on a person or a listing settles the reports still open about it: they are marked resolved with what was
+   * done, so nobody has to resolve the same thing twice. Each one gets its own audit entry.
+   */
+  private async settleReports(actor: User, targetType: string, targetId: string, action: string) {
+    const open = await this.prisma.report.findMany({ where: { targetType, targetId, status: { in: ['open', 'in_review'] } }, select: { id: true } });
+    if (open.length === 0) return;
+    const resolution = `Action taken: ${action}`;
+    await this.prisma.report.updateMany({ where: { id: { in: open.map((r) => r.id) } }, data: { status: 'resolved', resolution, assignedTo: actor.id, resolvedAt: new Date() } });
+    for (const r of open) await this.audit.log(actor.id, 'report.resolved', 'report', r.id, { resolution, automatic: true });
   }
 
   // ------------------------------------------------------------ moderation: reports
@@ -279,6 +323,7 @@ export class AdminController {
   async removeActivity(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
     await this.audit.log(actor.id, 'activity.remove_reason', 'activity', id, { reason });
+    await this.settleReports(actor, 'activity', id, 'listing removed');
     return this.activities.cancel(actor, id, true);
   }
 
@@ -309,6 +354,7 @@ export class AdminController {
   async removeTrip(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
     await this.audit.log(actor.id, 'trip.remove_reason', 'trip', id, { reason });
+    await this.settleReports(actor, 'trip', id, 'trip removed');
     return this.trips.cancel(actor, id, true);
   }
 
@@ -327,6 +373,19 @@ export class AdminController {
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    return { items: items.map((e) => ({ ...e, metadata: e.metadata ? JSON.parse(e.metadata) : null })) };
+    // the log stores ids; add the names of the people involved so it can be read at a glance
+    const ids = [...new Set(items.flatMap((e) => [e.actorId, e.objectType === 'user' ? e.objectId : null]).filter((x): x is string => !!x))];
+    const profiles = await this.prisma.profile.findMany({ where: { userId: { in: ids } }, select: { userId: true, displayName: true } });
+    const name = new Map(profiles.map((p) => [p.userId, p.displayName]));
+    const roles = new Map((await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true } })).map((u) => [u.id, u.role]));
+    return {
+      items: items.map((e) => ({
+        ...e,
+        metadata: e.metadata ? JSON.parse(e.metadata) : null,
+        actorRole: e.actorId ? (roles.get(e.actorId) ?? null) : null,
+        actorName: e.actorId ? (name.get(e.actorId) ?? null) : null,
+        objectName: e.objectType === 'user' ? (name.get(e.objectId) ?? null) : null,
+      })),
+    };
   }
 }

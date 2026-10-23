@@ -18,14 +18,17 @@ type Status = 'open' | 'in_review' | 'resolved' | 'dismissed';
 
 const CATEGORIES = ['harassment', 'fraud', 'inappropriate_content', 'underage', 'physical_safety', 'spam', 'financial_solicitation'];
 
-export function ReportsPage({ me, go }: { me: Session; go?: (p: string) => void }) {
+export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Session; openUser?: (id: string) => void; focusId?: string | null; onClearFocus?: () => void }) {
   const [status, setStatus] = useState<Status>('open');
   const [category, setCategory] = useState('');
   const { data, error, loading, reload } = useLoad(
-    () => get<{ items: R[] }>(`/v1/admin/reports?${new URLSearchParams({ status, ...(category && { category }) })}`),
-    [status, category],
+    // opened from the audit log: look in every status so the report is found whatever state it is in
+    () => get<{ items: R[] }>(`/v1/admin/reports?${new URLSearchParams({ ...(!focusId && { status }), ...(category && { category }) })}`),
+    [status, category, focusId],
+    6000,
   );
-  const open = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=open'), [status]);
+  const items = focusId ? (data?.items ?? []).filter((r) => r.id === focusId) : (data?.items ?? []);
+  const open = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=open'), [status], 6000);
   const act = useAction(() => (reload(), open.reload()));
   const mod = can.moderate(me.role);
 
@@ -39,7 +42,7 @@ export function ReportsPage({ me, go }: { me: Session; go?: (p: string) => void 
 
   return (
     <Page title="Reports queue" sub="Physical-safety and underage reports are always listed first.">
-      <div className="toolbar" style={{ justifyContent: 'space-between' }}>
+      <div className="toolbar" style={{ justifyContent: 'space-between', ...(focusId && { display: 'none' }) }}>
         <Segmented
           label="Status"
           value={status}
@@ -63,11 +66,20 @@ export function ReportsPage({ me, go }: { me: Session; go?: (p: string) => void 
           </select>
         </label>
       </div>
+      {focusId && (
+        <p className="note">
+          <Icon name="flag" />
+          Showing the one report you opened from the audit log.
+          <button className="link" style={{ marginLeft: 'auto' }} onClick={onClearFocus}>
+            Show the whole queue
+          </button>
+        </p>
+      )}
       <ErrorBanner message={error ?? act.error} />
       {loading && !data && <p className="muted">Loading…</p>}
-      {data?.items.length === 0 && <Empty>No reports for this filter.</Empty>}
+      {data && items.length === 0 && <Empty>{focusId ? 'That report could not be found.' : 'No reports for this filter.'}</Empty>}
       <ul className="stack">
-        {data?.items.map((r) => {
+        {items.map((r) => {
           const priority = r.category === 'physical_safety' || r.category === 'underage';
           return (
             <li key={r.id} className="card report">
@@ -85,8 +97,8 @@ export function ReportsPage({ me, go }: { me: Session; go?: (p: string) => void 
                   <dt>Reported {r.targetType}</dt>
                   <dd>
                     <span className="mono">{shortId(r.targetId)}</span>{' '}
-                    {r.targetType === 'user' && go && (
-                      <button className="link" onClick={() => go('users')}>
+                    {r.targetType === 'user' && openUser && (
+                      <button className="link" onClick={() => openUser(r.targetId)}>
                         View user
                       </button>
                     )}
