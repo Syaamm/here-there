@@ -151,6 +151,12 @@ function Chat({ id }: { id: string }) {
   const [picked, setPicked] = useState<Msg | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const send = useAction(() => void msgs.reload());
+  // a refusal (a risky link, a request for money) goes away by itself after a few seconds
+  useEffect(() => {
+    if (!send.error) return;
+    const t = setTimeout(() => send.setError(null), 6000);
+    return () => clearTimeout(t);
+  }, [send.error]);
   // THERE: the trip itself, for the final-dates confirmation under the chat's title
   const tripId = info.data?.scope === 'trip' ? info.data.scopeId : undefined;
   const trip = useLoad(() => (tripId ? get<Trip>(`/v1/trips/${tripId}`) : Promise.resolve(null)), [tripId], undefined, 'chat:trip', { animate: true });
@@ -257,6 +263,13 @@ function Chat({ id }: { id: string }) {
     );
 
   // the host cancelled: the chat is terminated with the activity
+  if (msgs.data?.ended && conv?.scope === 'match')
+    return (
+      <Screen hasHeader>
+        <Empty title="This chat has ended">One of you ended it, or it is no longer available. You can still find other travelers to match with.</Empty>
+        <Btn title="Back" variant="secondary" onPress={() => router.back()} />
+      </Screen>
+    );
   if (msgs.data?.ended)
     return (
       <Screen hasHeader>
@@ -273,7 +286,18 @@ function Chat({ id }: { id: string }) {
     );
 
   const amHost = !!info.data?.members.find((m) => m.isMe && m.role === 'host');
-  const menu = [
+  const them = info.data?.members.find((m) => !m.isMe);
+  const endMatch = async () => {
+    if (await confirmAsync('End this chat?', 'It closes for both of you and cannot be reopened.', 'End chat', true)) {
+      const r = await send.run(() => post(`/v1/me/travel-match/chats/${id}/end`));
+      if (r) router.back();
+    }
+  };
+  const menu = conv?.scope === 'match' ? [
+    ...(them ? [{ label: 'View profile', onSelect: () => go(`/user/${them.id}`) }] : []),
+    { label: 'Safety tools', onSelect: () => go('/safety') },
+    { label: 'End chat', danger: true, onSelect: () => void endMatch() },
+  ] : [
     { label: 'Group info', onSelect: () => go(`/group/${id}`) },
     ...(conv ? [{ label: conv.scope === 'trip' ? 'View trip' : 'View activity', onSelect: () => go(conv.scope === 'trip' ? `/trip/${conv.scopeId}` : `/activity/${conv.scopeId}`) }] : []),
     { label: 'Safety tools', onSelect: () => go('/safety') },
@@ -296,20 +320,20 @@ function Chat({ id }: { id: string }) {
       {/* the chat's own top row: back, who it is (tap for group info), and the menu */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: statusTop(insets.top) + 8, paddingBottom: 6, paddingHorizontal: 12 }}>
         <BackArrow />
-        <Pressable accessibilityRole="button" accessibilityLabel={`${conv?.title ?? 'Group'}. Open group info`} onPress={() => go(`/group/${id}`)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${conv?.title ?? 'Group'}. Open group info`} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           {info.data?.category ? <CatPhoto category={info.data.category} style={{ width: 38, height: 38, borderRadius: 19 }} /> : <Avatar name={conv?.title} size={38} />}
           <View style={{ flex: 1 }}>
             <Text numberOfLines={1} style={{ color: c.text, fontWeight: '800', fontSize: 16 }}>{conv?.title ?? 'Group chat'}</Text>
-            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{info.data ? `${info.data.members.length} ${info.data.members.length === 1 ? 'person' : 'people'} · tap for group info` : conv?.scope === 'trip' ? 'Trip group' : 'Activity group'}</Text>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{conv?.scope === 'match' ? `Travel match${conv.place ? ` · ${conv.place}` : ''}` : info.data ? `${info.data.members.length} ${info.data.members.length === 1 ? 'person' : 'people'} · tap for group info` : conv?.scope === 'trip' ? 'Trip group' : 'Activity group'}</Text>
           </View>
         </Pressable>
         <Menu items={menu} />
       </View>
       {/* pinned and slim: a note about the last action, and (only while someone still has to confirm) the final dates */}
-      {note || (trip.data?.datesState === 'proposed' && (trip.data.datesConfirmedCount ?? 0) < trip.data.members) ? (
+      {note || (trip.data?.datesState === 'proposed' && trip.data.status !== 'completed' && trip.data.status !== 'cancelled' && (trip.data.datesConfirmedCount ?? 0) < trip.data.members) ? (
         <View style={{ paddingHorizontal: 16, paddingTop: 6, gap: 6 }}>
           {note ? <Banner tone="ok">{note}</Banner> : null}
-          {trip.data?.datesState === 'proposed' && (trip.data.datesConfirmedCount ?? 0) < trip.data.members ? (
+          {trip.data?.datesState === 'proposed' && trip.data.status !== 'completed' && trip.data.status !== 'cancelled' && (trip.data.datesConfirmedCount ?? 0) < trip.data.members ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, backgroundColor: c.accentSoft, paddingLeft: 12, paddingRight: 4, paddingVertical: 4 }}>
               <Ionicons name="calendar-outline" size={14} color={c.forest} />
               <Text numberOfLines={2} style={{ flex: 1, color: c.text, fontSize: 12, lineHeight: 16 }}>
@@ -385,6 +409,10 @@ function Chat({ id }: { id: string }) {
                   <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
                   <Text style={{ color: mine ? '#B9CFC8' : c.muted, fontSize: 10 }}>{'\u00A0\u00A0'}{hhmm(m.createdAt)}</Text>
                 </Text>
+                {/* a message with a web address carries its own caution, before anyone taps it */}
+                {/(?:https?:\/\/|www\.)/i.test(m.body) ? (
+                  <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>Opens outside the app. We do not check it. Never send money or ID documents.</Text>
+                ) : null}
               </Pressable>
             </Fragment>
           );
@@ -408,7 +436,10 @@ function Chat({ id }: { id: string }) {
           <TextInput
             accessibilityLabel="Write a message"
             value={text}
-            onChangeText={setText}
+            onChangeText={(v) => {
+              setText(v);
+              if (send.error) send.setError(null); // the refusal was about the old text
+            }}
             placeholder="Write a message…"
             placeholderTextColor={c.placeholder}
             maxLength={2000}

@@ -49,6 +49,7 @@ export default function Login() {
           <Btn title="Log in" onPress={submit} loading={act.busy} disabled={!email || !password} />
         </>
       )}
+      {act.error && /suspended/i.test(act.error) ? <Btn title="Appeal this suspension" variant="secondary" onPress={() => router.push('/appeal-suspension')} /> : null}
       <Btn title="Forgot password?" variant="ghost" onPress={() => router.push('/forgot-password')} />
       <Btn title="New here? Create an account" variant="ghost" onPress={() => router.replace('/register')} />
     </Screen>

@@ -21,6 +21,8 @@ Every failed request returns the same body:
 | `CODE_EXPIRED` | 400 | The confirmation code has expired. | Start the step again. |
 | `CONSENT_REQUIRED` | 400 | The person has not agreed to the identity document and facial check. | Show the consent screen before starting. |
 | `CONTENT_REJECTED` | 400 | The text broke a content rule (spam links, repetition, or a request for money). `message` says which. | Show the message and let the person edit the text. |
+| `DAY_OUT_OF_RANGE` | 400 | The day of a plan line is more than a week outside the dates of the trip. | Let the person pick a day inside the trip. |
+| `DRAFT_TOO_LARGE` | 400 | The draft is far longer than any real form. | Ask the person to shorten it. |
 | `EMAIL_REQUIRED` | 400 | The provider did not give a confirmed email address, which an account needs. | Offer email sign-up instead. |
 | `IMAGE_TOO_LARGE` | 400 | The picture is over the 6 MB limit. | Ask for a smaller picture. |
 | `INVALID_CODE` | 400 | The 6-digit code is wrong or has expired. | Offer to send a new code. |
@@ -70,8 +72,11 @@ Every failed request returns the same body:
 | `NOT_A_MEMBER` | 403 | The person is not an approved member, so the group chat is closed to them. | Show "pending approval" or the join button, never the chat. |
 | `NOT_HOST` | 403 | Only the host of the activity can do this. | Hide the action for other people. |
 | `NOT_ORGANIZER` | 403 | Only the organizer of the trip can do this. | Hide the action for other people. |
+| `NOT_YOUR_LINE` | 403 | Only the person who added a plan line, or the organizer, can change or remove it. | Hide the edit actions on other people lines. |
+| `OWN_APPEAL` | 403 | Staff cannot decide an appeal they made themselves. | Ask another moderator. |
 | `PHONE_BLOCKED` | 403 | This mobile number is on the ban list (it belonged to a removed account). | Show the message and point to support; do not say why. |
 | `REGISTRATION_BLOCKED` | 403 | A new account cannot be created for this person right now (it matches a removed account). Staff can review it. | Show the message and point to support; do not say why. |
+| `SECOND_REVIEWER` | 403 | The moderator who made a decision cannot review the appeal of it (an administrator can). | Hand the appeal to another moderator. |
 | `SOCIAL_NOT_FOR_STAFF` | 403 | Staff accounts cannot sign in with Apple or Google. | Ask them to use their password and code. |
 | `STAFF_ACCOUNT` | 403 | Staff accounts are closed by an administrator, not from the app. | Hide self-service deletion for staff. |
 | `STAFF_ONLY` | 403 | Two-step sign-in is only available to staff accounts at the moment. | Hide the option for other people. |
@@ -95,10 +100,13 @@ Every failed request returns the same body:
 | `ACTIVITY_CLOSED` | 409 | The activity can no longer be edited (it started or finished). | Hide the edit action. |
 | `ACTIVITY_FINISHED` | 409 | The activity has already finished. | Refresh and show it as completed. |
 | `ACTIVITY_FULL` | 409 | No seats left (the person may be put on the waiting list instead). | Show "full" or the waiting-list option. |
+| `ALREADY_APPEALED` | 409 | This decision was already appealed once (a suspension: once every 30 days). | Show the earlier appeal and its answer. |
 | `ALREADY_APPLIED` | 409 | The person already has an application for this trip; the message names its state. | Show the existing application. |
 | `ALREADY_DECIDED` | 409 | This verification check was already decided. | Refresh the case. |
 | `ALREADY_REQUESTED` | 409 | The person already has a request for this activity; the message names its state. | Show the existing request. |
 | `ALREADY_VERIFIED` | 409 | The person is already verified; use "require re-verification" instead. | Refresh the case. |
+| `APPEAL_DECIDED` | 409 | A moderator already decided this appeal. | Reload the queue. |
+| `APPEAL_OPEN` | 409 | The person already has an appeal waiting for a decision. | Show it and tell them to wait for the answer. |
 | `APPLICANT_UNAVAILABLE` | 409 | The applicant's account can no longer take part (suspended or deleted). | Refresh the list of requests. |
 | `APPLICATION_WITHDRAWN` | 409 | The applicant withdrew before the decision. | Refresh the list of applications. |
 | `ATTENDANCE_CLOSED` | 409 | Attendance can only be confirmed within 7 days after the end. | Hide the question. |
@@ -117,16 +125,21 @@ Every failed request returns the same body:
 | `MARK_WINDOW_CLOSED` | 409 | The 48 hours after the plan ended, in which a host can say who did not come, have passed. | Hide the action; the host can no longer add notes. |
 | `MFA_ALREADY_ON` | 409 | Two-step sign-in is already on for this account. | Show the Security page as it is. |
 | `NO_DATES_TO_CONFIRM` | 409 | No final dates are waiting for confirmation. | Refresh the trip. |
+| `NOT_DECLINED` | 409 | Only a request or application that the host or organizer declined can be asked about again. | Hide the Ask again action. |
 | `NOT_DISPUTABLE` | 409 | The note is already disputed or decided by a moderator. | Show its state. |
 | `NOT_FINISHED` | 409 | Attendance can only be given once the activity has ended. | Hide the question until then. |
+| `NOT_OPTED_IN` | 409 | The person answered about a traveler without having turned travel matching on. | Show the opt-in screen. |
 | `NOT_PENDING` | 409 | There is no identity check in progress. | Refresh the verification status. |
 | `NOT_REJECTED` | 409 | Only a rejected verification can be overturned. | Refresh the case. |
 | `NOT_VERIFIED` | 409 | Only a verified adult can take over hosting. | Explain that the member must verify first. |
+| `NOTHING_TO_APPEAL` | 409 | There is no rejected check, staff removal or suspension to appeal. | Hide the appeal action. |
 | `ORGANIZER_CANNOT_LEAVE` | 409 | The organizer must cancel the trip or hand it over first. | Offer cancel. |
 | `PHONE_IN_USE` | 409 | This mobile number is already confirmed on another account. | Ask for a different number. |
 | `PLAN_CANCELLED` | 409 | The plan was cancelled, so nobody can be noted as not coming. | Hide the action. |
+| `PLAN_FULL` | 409 | The trip plan already holds the most lines allowed of that kind (60). | Ask the group to tidy the plan first. |
 | `POLL_CLOSED` | 409 | The poll is closed; votes are no longer taken. | Show the final result. |
 | `REQUEST_WITHDRAWN` | 409 | The applicant withdrew this request before the decision. | Refresh the list of requests. |
+| `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (5). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
 | `TRIP_CLOSED` | 409 | The trip can no longer be edited. | Hide the edit action. |

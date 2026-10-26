@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { AskAgain } from '@/components/AskAgain';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -168,6 +169,7 @@ export default function ActivityDetail() {
         <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{a.title}</Txt>
 
         {a.status === 'cancelled' && <Banner tone="bad">This activity was cancelled.</Banner>}
+        {a.canAppealRemoval ? <Btn title="Ask for a review" variant="secondary" onPress={() => go(`/appeal?kind=removal&targetType=activity&targetId=${id}`)} /> : null}
         <ErrorBanner message={act.error} />
 
         <Pressable accessibilityRole="button" accessibilityLabel={`${a.host.displayName}, host. Open profile`} onPress={() => go(`/user/${a.host.id}`)}>
@@ -335,7 +337,10 @@ export default function ActivityDetail() {
             ) : req === 'waitlisted' ? (
               <Banner tone="warn">{`You are number ${a.myRequest?.position ?? 1} on the waiting list. If a place opens up, you are let in automatically and we tell you straight away.`}</Banner>
             ) : req === 'declined' ? (
-              <Banner tone="bad">The host didn't approve this request.</Banner>
+              <View style={{ gap: 10 }}>
+                <Banner tone="bad">The host didn't approve this request.</Banner>
+                {a.myRequest?.canAppeal ? <AskAgain path={`/v1/activities/${id}`} who="host" onDone={reload} /> : null}
+              </View>
             ) : null}
           </>
         )}

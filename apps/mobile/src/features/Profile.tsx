@@ -6,7 +6,7 @@ import { ActivityCard, TripCard } from '@/components/Cards';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { TabHeader } from '@/components/TabHeader';
 import { Avatar, Between, Btn, Card, Chip, Empty, ErrorBanner, Field, Grid, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
-import { get, patch, type Activity, type MyActivitiesPage, type MyReliability, type MyTripRow, type MyTripsPage } from '@/lib/api';
+import { get, patch, type Activity, type MyActivitiesPage, type MyReliability, type MyTripRow, type MyTripsPage, type ServerDraft } from '@/lib/api';
 import { myActivityItems } from '@/lib/myActivities';
 import { savedIcon, type AppIcon } from '@/lib/appIcon';
 import { useMe } from '@/lib/auth';
@@ -28,6 +28,7 @@ export function Profile() {
   const trips = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?limit=2'), [], undefined, 'me:trips');
   const conns = useLoad(() => get<{ counts: { following: number; followers: number; buddies: number } }>('/v1/me/connections?limit=1'), [], undefined, 'me:buddies2');
   const rel = useLoad(() => get<MyReliability>('/v1/me/reliability'), [], undefined, 'me:reliability');
+  const drafts = useLoad(() => get<{ items: ServerDraft[] }>('/v1/me/drafts'), [], undefined, 'me:drafts');
   const favs = useLoad(() => get<{ items: Activity[]; total?: number }>('/v1/me/favorites?limit=3'), [], undefined, 'me:favs');
   // the app icon chosen in Settings, shown on the Settings row
   const [icon, setIcon] = useState<AppIcon>('here');
@@ -112,6 +113,28 @@ export function Profile() {
             <Row style={{ gap: 8, alignItems: 'center' }}>
               <Txt variant="h3">Reliability</Txt>
               <ReliabilityChip r={{ level: rel.data.level, label: rel.data.label }} />
+            </Row>
+            <Ionicons name="chevron-forward" size={16} color={c.muted} />
+          </Between>
+        </Card>
+      ) : null}
+      {me.role !== 'guest' ? (
+        <Card onPress={() => go('/drafts')} accessibilityLabel={`My drafts: ${drafts.data?.items.length ?? 0} saved`} style={{ padding: 14, borderRadius: 18, gap: 4 }}>
+          <Between>
+            <Row style={{ gap: 8, alignItems: 'center' }}>
+              <Txt variant="h3">Drafts</Txt>
+              {drafts.data && drafts.data.items.length > 0 ? <Chip label={String(drafts.data.items.length)} tone="info" /> : <Txt variant="small">Saved for later</Txt>}
+            </Row>
+            <Ionicons name="chevron-forward" size={16} color={c.muted} />
+          </Between>
+        </Card>
+      ) : null}
+      {me.role !== 'guest' ? (
+        <Card onPress={() => go('/travel-match')} accessibilityLabel="Travel buddies: find someone to travel with" style={{ padding: 14, borderRadius: 18, gap: 4 }}>
+          <Between>
+            <Row style={{ gap: 8, alignItems: 'center' }}>
+              <Txt variant="h3">Travel buddies</Txt>
+              <Txt variant="small">Find someone to travel with</Txt>
             </Row>
             <Ionicons name="chevron-forward" size={16} color={c.muted} />
           </Between>

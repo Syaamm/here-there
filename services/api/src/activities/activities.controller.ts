@@ -62,6 +62,11 @@ export class ActivitiesController {
     return this.activities.request(me, id, body);
   }
 
+  @Post('activities/:id/appeal')
+  appeal(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.activities.appealDecline(me, id, body);
+  }
+
   @Get('activities/:id/requests')
   requests(@CurrentUser() me: User, @Param('id') id: string) {
     return this.activities.listRequests(me, id);

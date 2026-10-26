@@ -4,6 +4,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AskAgain } from '@/components/AskAgain';
 import { FloatingButton, Hero } from '@/components/Hero';
 import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
@@ -119,11 +120,12 @@ export default function TripDetail() {
 
         <Row style={{ gap: 8, flexWrap: 'wrap' }}>
           <Chip label="Trip proposal" tone="ok" />
-          {t.status === 'cancelled' ? <Chip label="Cancelled" tone="bad" /> : full ? <Chip label="Group full" tone="warn" /> : <Chip label={`${t.spotsLeft} places open`} tone="warn" />}
+          {t.status === 'cancelled' ? <Chip label="Cancelled" tone="bad" /> : t.status === 'completed' ? <Chip label="Completed" tone="neutral" /> : t.status === 'confirmed' ? <Chip label="Confirmed" tone="ok" /> : full ? <Chip label="Group full" tone="warn" /> : <Chip label={`${t.spotsLeft} places open`} tone="warn" />}
         </Row>
         <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{t.title}</Txt>
 
         {t.status === 'cancelled' && <Banner tone="bad">This trip was cancelled.</Banner>}
+        {t.canAppealRemoval ? <Btn title="Ask for a review" variant="secondary" onPress={() => go(`/appeal?kind=removal&targetType=trip&targetId=${id}`)} /> : null}
         <ErrorBanner message={act.error} />
 
         <Pressable accessibilityRole="button" accessibilityLabel={`${t.host.displayName}, organizer. Open profile`} onPress={() => go(`/user/${t.host.id}`)}>
@@ -227,10 +229,17 @@ export default function TripDetail() {
           <Txt variant="small" style={{ flex: 1, color: c.text, lineHeight: 17 }}>Your exact location stays private. The group chat and private plans open once the organizer approves your application.</Txt>
         </Row>
 
-        {t.datesState === 'proposed' ? (
+        {t.datesState === 'proposed' && !closed ? (
           <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
             <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>Final dates: {dateSpan(t.dateStart, t.dateEnd)}</Txt>
             <Txt variant="small">{t.datesConfirmedCount ?? 0} of {t.members} travelers confirmed. Everyone has to confirm for the dates to be final.</Txt>
+            {(t.participants ?? []).map((p) => (
+              <Row key={p.id} style={{ gap: 8, alignItems: 'center' }}>
+                <Ionicons name={p.datesConfirmed ? 'checkmark-circle' : 'time-outline'} size={18} color={p.datesConfirmed ? c.green : c.muted} />
+                <Txt variant="small" style={{ flex: 1, color: c.text }}>{p.displayName}{p.role === 'organizer' || p.role === 'host' ? ' (organizer)' : ''}</Txt>
+                <Txt variant="small">{p.datesConfirmed ? 'Confirmed' : 'Waiting'}</Txt>
+              </Row>
+            ))}
             {t.isMember && !t.myDatesConfirmed ? <Btn title="I can travel on these dates" small loading={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/confirm-dates`))} /> : t.myDatesConfirmed ? <Txt variant="small" bold color={c.green}>You confirmed these dates ✓</Txt> : null}
           </View>
         ) : null}
@@ -241,6 +250,7 @@ export default function TripDetail() {
         {t.isHost ? (
           <View style={{ gap: 10 }}>
             {t.conversationId && <Btn title="Open group chat" variant="secondary" onPress={() => go(`/chat/${t.conversationId}`)} />}
+            {t.status !== 'cancelled' ? <Btn title="Plan: itinerary and budget" variant="secondary" onPress={() => go(`/trip-plan/${id}`)} /> : null}
             {t.status !== 'cancelled' && new Date(t.dateStart) <= new Date() ? <Btn title="Who came?" variant="secondary" onPress={() => go(`/no-shows/trip/${id}`)} /> : null}
             {t.status !== 'cancelled' && (
               <Btn title="Cancel trip" variant="danger" loading={act.busy} onPress={async () => (await confirmAsync('Cancel this trip?', 'Everyone in the group will be notified.', 'Cancel trip', true)) && void act.run(() => post(`/v1/trips/${id}/cancel`))} />
@@ -249,13 +259,17 @@ export default function TripDetail() {
         ) : t.isMember ? (
           <View style={{ gap: 10 }}>
             <Banner tone="ok">You're in the group.</Banner>
-            <Banner>Date polls and a shared itinerary are coming soon. For now, agree dates and plans in the group chat.</Banner>
+            <Btn title="Plan: itinerary and budget" variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
+            <Banner>Agree dates in the group chat with a date poll. The organizer can put a poll to the group, and everyone confirms the final dates.</Banner>
             <Btn title="Leave trip" variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync('Leave this trip?', undefined, 'Leave')) && void act.run(() => post(`/v1/trips/${id}/leave`))} />
           </View>
         ) : app && app.state === 'pending' ? (
           <Banner tone="warn">{app.message}. You can't see the group chat or private plans until you're approved.</Banner>
         ) : app && ['declined', 'waitlisted'].includes(app.state) ? (
-          <Banner tone={app.state === 'declined' ? 'bad' : 'warn'}>{app.message}</Banner>
+          <View style={{ gap: 10 }}>
+            <Banner tone={app.state === 'declined' ? 'bad' : 'warn'}>{app.message}</Banner>
+            {app.canAppeal ? <AskAgain path={`/v1/trips/${id}`} who="organizer" onDone={reload} /> : null}
+          </View>
         ) : null}
 
         {/* room under the content for the fixed bar */}

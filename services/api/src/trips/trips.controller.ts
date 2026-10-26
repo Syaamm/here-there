@@ -42,6 +42,11 @@ export class TripsController {
     return this.trips.listApplications(me, id);
   }
 
+  @Post('trips/:id/appeal')
+  appeal(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.trips.appealDecline(me, id, body);
+  }
+
   @Post('trips/:id/applications/:applicationId/decision')
   decide(
     @CurrentUser() me: User,

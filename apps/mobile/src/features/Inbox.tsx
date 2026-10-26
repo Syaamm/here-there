@@ -43,6 +43,12 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   verification_result: 'shield-checkmark-outline',
   attendance_marked: 'alert-circle-outline',
   attendance_decided: 'checkmark-done-outline',
+  starting_soon: 'alarm-outline',
+  warning: 'warning-outline',
+  message_removed: 'eye-off-outline',
+  travel_match: 'heart-circle-outline',
+  activity_confirmed: 'checkmark-done-circle-outline',
+  appeal_decided: 'chatbox-ellipses-outline',
 };
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
 
@@ -161,6 +167,9 @@ export function Inbox() {
     }
     const d = n.data;
     if (n.type.startsWith('attendance_')) go('/reliability');
+    else if (n.type === 'warning' && d?.warningId) go(`/appeal?kind=warning&targetId=${d.warningId}`);
+    else if (n.type === 'message_removed' && d?.messageId) go(`/appeal?kind=message&targetId=${d.messageId}`);
+    else if (n.type === 'appeal_decided') go('/appeal');
     else if (d?.conversationId) go(`/chat/${d.conversationId}`);
     else if (n.type === 'join_request' && d?.activityId) go(`/host/${d.activityId}`);
     else if (n.type === 'trip_application' && d?.tripId) go(`/review/${d.tripId}`);

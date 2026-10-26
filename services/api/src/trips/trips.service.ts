@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma, Trip, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { requireVerified } from '../common/auth';
 import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { decodeCursor, encodeCursor, topK } from '../activities/feed-ranking';
 import { circleOf, crowd, tierCounts } from '../common/social';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { E } from '../common/errors';
@@ -78,7 +79,7 @@ export const applySchema = z.object({
 export const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
 
 /** Trips are planned at most six months ahead: up to the last day of the month that far from now. */
-function planningHorizon(now = new Date()) {
+export function planningHorizon(now = new Date()) {
   return new Date(now.getFullYear(), now.getMonth() + 7, 0, 23, 59, 59);
 }
 
@@ -98,8 +99,36 @@ function expandedRange(start: Date, end: Date, f: Flex): [number, number] {
 
 const overlaps = (a: [number, number], b: [number, number]) => a[0] <= b[1] && b[0] <= a[1];
 
+/** Stored status plus the clock: a trip whose last day has passed is "completed" even before the hourly clean-up records it. */
+export function effectiveTripStatus(t: { status: string; dateEnd: Date }, now = new Date()) {
+  return ['published', 'full', 'planning', 'confirmed'].includes(t.status) && +now > +t.dateEnd + 24 * 3600 * 1000 - 1 ? 'completed' : t.status;
+}
+
 @Injectable()
-export class TripsService {
+export class TripsService implements OnModuleInit, OnModuleDestroy {
+  private finisher?: NodeJS.Timeout;
+
+  /** Once an hour, trips that have ended are recorded as completed (the app already shows them as such). */
+  onModuleInit() {
+    if (process.env.NODE_ENV === 'test') return;
+    this.finisher = setInterval(() => void this.completeFinished().catch(() => undefined), 3600_000);
+    this.finisher.unref();
+  }
+
+  onModuleDestroy() {
+    if (this.finisher) clearInterval(this.finisher);
+  }
+
+  /** The last day counts in full: a trip ending on the 10th is completed from the start of the 11th. Returns how many changed. */
+  async completeFinished(now = new Date()) {
+    const r = await this.prisma.trip.updateMany({
+      where: { status: { in: ['published', 'full', 'planning', 'confirmed'] }, dateEnd: { lt: new Date(+now - 24 * 3600 * 1000 + 1) } },
+      data: { status: 'completed' },
+    });
+    if (r.count > 0) this.live.feedChanged();
+    return r.count;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
@@ -140,7 +169,7 @@ export class TripsService {
       maxCapacity: t.maxCapacity,
       members,
       spotsLeft: Math.max(0, t.maxCapacity - members),
-      status: t.status,
+      status: effectiveTripStatus(t),
       kind: 'trip_proposal', // proposal, not a booking or confirmed itinerary
       disclaimer: BUDGET_DISCLAIMER,
       host: { id: t.host.id, displayName: t.host.profile?.displayName ?? 'Organizer', photoUrl: t.host.profile?.photoUrl ?? null, verifiedAdult: t.host.eligibility === 'verified' },
@@ -159,7 +188,7 @@ export class TripsService {
     const now = new Date();
 
     const where: Prisma.TripWhereInput = {
-      status: { in: q.openOnly === 'true' ? ['published'] : ['published', 'full', 'planning'] },
+      status: { in: q.openOnly === 'true' ? ['published'] : ['published', 'full', 'planning', 'confirmed'] },
       dateEnd: { gte: now },
       hostId: { notIn: blocked },
       OR: [{ visibility: 'public' }, { hostId: me.id }, { memberships: { some: { userId: me.id, state: 'approved' } } }],
@@ -189,7 +218,9 @@ export class TripsService {
     const window: [number, number] | null = q.from ? [+q.from, +(q.to ?? q.from)] : null;
     const userWindow = window ? expandedRange(new Date(window[0]), new Date(window[1]), q.flexibility) : null;
 
-    const scored = rows
+    const cur = q.cursor ? decodeCursor(q.cursor) : null;
+    if (q.cursor && !cur) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
+    const matches = rows
       .map((t) => {
         // date overlap: "exact" = nominal ranges overlap; "approximate" = only overlap after flexibility
         let dateMatch: 'exact' | 'approximate' | 'none' | 'unspecified' = 'unspecified';
@@ -228,6 +259,7 @@ export class TripsService {
         score += 30 * crowd(tiers.buddies) + 10 * crowd(tiers.following);
 
         return {
+          id: t.id,
           score,
           item: this.dto(t, members, {
             match: { dates: dateMatch, budgetScopeMismatch, score: Math.round(score) },
@@ -237,16 +269,18 @@ export class TripsService {
           }),
         };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-      .sort((a, b) => b.score - a.score);
+      .filter((x): x is NonNullable<typeof x> => x !== null);
 
-    const offset = q.cursor ? Number(Buffer.from(q.cursor, 'base64url').toString()) : 0;
-    if (!Number.isInteger(offset) || offset < 0) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
-    const page = scored.slice(offset, offset + q.limit);
+    // same as the HERE feed: only the best page is kept (a small heap), and the cursor is the last score and id sent,
+    // so a trip that appears or goes away between pages cannot cause a duplicate or a gap
+    const after = cur ? matches.filter((x) => x.score < cur.score || (x.score === cur.score && x.id > cur.id)) : matches;
+    const best = topK(after, q.limit + 1);
+    const page = best.slice(0, q.limit);
+    const last = page[page.length - 1];
     return {
-      total: scored.length,
+      total: matches.length,
       items: page.map((x) => x.item),
-      nextCursor: offset + q.limit < scored.length ? Buffer.from(String(offset + q.limit)).toString('base64url') : null,
+      nextCursor: best.length > q.limit && last ? encodeCursor(now, last.score, last.id) : null,
     };
   }
 
@@ -268,9 +302,11 @@ export class TripsService {
     return this.dto(t, members.length, {
       isHost: t.hostId === me.id,
       isMember,
+      canAppealRemoval: t.hostId === me.id && t.status === 'cancelled' && !t.cancelledAt && !(await this.prisma.appeal.findFirst({ where: { userId: me.id, kind: 'removal', targetId: id }, select: { id: true } })),
       myApplication: app && {
         id: app.id,
         state: app.state,
+        canAppeal: app.state === 'declined' && !!app.reviewedBy && !app.appealedAt && !['cancelled', 'completed', 'full'].includes(t.status),
         // explicit copy per state (T-US03)
         message: {
           pending: 'Pending organizer review',
@@ -290,6 +326,8 @@ export class TripsService {
         photoUrl: x.user.profile?.photoUrl ?? null,
         verifiedAdult: x.user.eligibility === 'verified',
         role: x.role,
+        // while final dates wait for everyone: who has said yes (the organizer proposed them, so counts as yes)
+        datesConfirmed: t.datesState === 'proposed' ? x.datesConfirmed : undefined,
       })),
     });
   }
@@ -450,6 +488,28 @@ export class TripsService {
     return { id: app.id, state: app.state };
   }
 
+  /** A declined applicant can ask the organizer to look again, once, with a short note (the trip must still be open). */
+  async appealDecline(me: User, id: string, body: unknown) {
+    requireVerified(me);
+    const dto = parse(z.object({ intro: z.string().trim().max(500).optional() }), body);
+    const bad = contentProblem(dto.intro);
+    if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
+    const t = await this.prisma.trip.findUnique({ where: { id } });
+    if (!t || (await this.safety.isBlocked(me.id, t.hostId))) throw E.notFound('Trip');
+    if (['cancelled', 'completed'].includes(t.status) || t.dateEnd < new Date()) throw E.conflict('TRIP_CLOSED', 'This trip is closed');
+    if (t.status === 'full' || (await this.memberCount(id)) >= t.maxCapacity) throw E.conflict('TRIP_FULL', 'This group is full');
+    const a = await this.prisma.tripApplication.findUnique({ where: { tripId_applicantId: { tripId: id, applicantId: me.id } } });
+    if (!a || a.state !== 'declined' || !a.reviewedBy) throw E.conflict('NOT_DECLINED', 'Only an application the organizer declined can be asked about again');
+    if (a.appealedAt) throw E.conflict('ALREADY_APPEALED', 'You already asked the organizer to look again');
+    const updated = await this.prisma.tripApplication.update({
+      where: { id: a.id },
+      data: { state: 'pending', appealedAt: new Date(), ...(dto.intro ? { intro: dto.intro } : {}), decidedAt: null, reviewedBy: null },
+    });
+    const p = await this.prisma.profile.findUnique({ where: { userId: me.id } });
+    await this.notifications.notify(t.hostId, 'trip_application', 'Asked to look again', `${p?.displayName ?? 'Someone'} asked you to look again at their application for ${t.title}`, { tripId: id, applicantId: me.id });
+    return { id: updated.id, state: updated.state };
+  }
+
   async withdraw(me: User, id: string) {
     const a = await this.prisma.tripApplication.findUnique({ where: { tripId_applicantId: { tripId: id, applicantId: me.id } } });
     if (!a || a.state !== 'pending') throw E.notFound('Pending application');
@@ -511,7 +571,7 @@ export class TripsService {
         });
         await tx.tripApplication.update({ where: { id: a.id }, data: { state: 'approved', reviewedBy: me.id, decidedAt: new Date() } });
         const total = isNew ? count + 1 : count;
-        if (total >= t.maxCapacity) await tx.trip.update({ where: { id: tripId }, data: { status: 'full' } });
+        if (total >= t.maxCapacity && t.status !== 'confirmed') await tx.trip.update({ where: { id: tripId }, data: { status: 'full' } });
         else if (total >= t.minCapacity && t.status === 'published') await tx.trip.update({ where: { id: tripId }, data: { status: 'planning' } });
       });
       await this.notifications.notify(a.applicantId, 'application_approved', 'You are in!', `You can now plan ${t.title} with the group`, { tripId });
@@ -524,12 +584,19 @@ export class TripsService {
           if (t.status === 'full') await tx.trip.update({ where: { id: tripId }, data: { status: 'published' } });
         }
       });
+      await this.dropConfirmedIfSmall(tripId);
       await this.notifications.notify(a.applicantId, 'application_declined', 'Application not approved', `Your application for ${t.title} was not approved.`, { tripId });
     }
     await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId }, a.applicantId); // the organizer's "applied" alert is answered
     await this.audit.log(me.id, `trip.application.${decision}`, 'trip_application', a.id, { tripId, applicantId: a.applicantId });
     this.live.feedChanged();
     return { id: a.id, state: decision === 'approve' ? 'approved' : 'declined' };
+  }
+
+  /** A confirmed trip whose group has fallen below the minimum is open again. */
+  private async dropConfirmedIfSmall(tripId: string) {
+    const t = await this.prisma.trip.findUnique({ where: { id: tripId } });
+    if (t?.status === 'confirmed' && (await this.memberCount(tripId)) < t.minCapacity) await this.prisma.trip.update({ where: { id: tripId }, data: { status: 'published' } });
   }
 
   // ---------------------------------------------------------------- exits
@@ -543,6 +610,7 @@ export class TripsService {
     await this.prisma.tripMembership.update({ where: { id: m.id }, data: { state: 'left', leftAt: new Date() } });
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, applicantId: me.id }, data: { state: 'withdrawn' } });
     if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
+    await this.dropConfirmedIfSmall(id);
     await this.audit.log(me.id, 'trip.member_left', 'trip', id);
     this.live.feedChanged();
     return { ok: true };
@@ -556,6 +624,7 @@ export class TripsService {
     if (!m || m.state !== 'approved') throw E.notFound('Membership');
     await this.prisma.tripMembership.update({ where: { id: m.id }, data: { state: 'removed' } });
     if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
+    await this.dropConfirmedIfSmall(id);
     await this.audit.log(me.id, 'trip.member_removed', 'trip', id, { userId, byStaff });
     this.live.feedChanged();
     await this.notifications.notify(userId, 'removed', 'Removed from trip', `You were removed from ${t.title}.`, { tripId: id });

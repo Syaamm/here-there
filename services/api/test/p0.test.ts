@@ -396,10 +396,11 @@ describe('HERE: create, discover, request, approve, chat', () => {
     assert.equal((await get(`/v1/activities/${id}`, c.token)).body.isMember, true);
     assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'full');
 
-    // host removal revokes access immediately and, with nobody waiting, frees the place
+    // host removal revokes access immediately and, with nobody waiting, frees the place (the host and c are still going,
+    // so it is no longer full but is confirmed)
     assert.equal((await call('DELETE', `/v1/activities/${id}/members/${a.id}`, host.token)).status, 200);
     assert.equal((await get(`/v1/conversations/${conv.id}/messages`, a.token)).status, 403);
-    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'published');
+    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'confirmed');
 
     // cancel: closes registration, notifies, keeps audit
     const reqB2 = await post(`/v1/activities/${id}/requests`, b.token, {});
@@ -1009,6 +1010,19 @@ describe('THERE: trips, applications, approval, chat', () => {
     assert.deepEqual([by(ids.buddy).buddiesGoing, by(ids.buddy).followingGoing], [1, 0]);
     assert.deepEqual([by(ids.followed).buddiesGoing, by(ids.followed).followingGoing], [0, 1]);
     assert.deepEqual([by(ids.follower).buddiesGoing, by(ids.follower).followingGoing], [0, 0]);
+
+    // one at a time with the score cursor: every trip once, in the same order, and the total stays the full count
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let i = 0; i < 6; i++) {
+      const page: Res = await get(`/v1/trips?destination=tierland&limit=1${cursor ? `&cursor=${cursor}` : ''}`, viewer.token);
+      assert.equal(page.body.total, 4);
+      seen.push(...page.body.items.map((x: { id: string }) => x.id));
+      cursor = page.body.nextCursor;
+      if (!cursor) break;
+    }
+    assert.deepEqual(seen, order);
+    assert.equal((await get('/v1/trips?destination=tierland&cursor=junk', viewer.token)).status, 400);
   });
 
   it('gates the group chat behind organizer approval', async () => {
@@ -2333,5 +2347,633 @@ describe('reliability: host notes, disputes, moderators, and who sees the level'
     await app.get(RetentionService).runOnce();
     assert.equal(await prisma.attendanceMark.count({ where: { id: oldPlan.id } }), 0, 'notes older than two years are deleted');
     assert.equal(await prisma.attendanceMark.count({ where: { id: m.body.id } }), 1);
+  });
+});
+
+describe('confirmed plans, starting-soon reminders, drafts and appeals', () => {
+  const tripBody = (over: Record<string, unknown> = {}) => ({
+    title: 'Lisbon weekend',
+    destination: 'Lisbon, Portugal',
+    originCity: 'Milan',
+    dateStart: new Date(Date.now() + 40 * 24 * 3600 * 1000).toISOString(),
+    dateEnd: new Date(Date.now() + 44 * 24 * 3600 * 1000).toISOString(),
+    dateFlexibility: 'plus_minus_3',
+    budgetMin: 500,
+    budgetMax: 900,
+    budgetIncludesTransport: true,
+    tags: ['food'],
+    groupSize: '2-3',
+    ...over,
+  });
+  const join = async (id: string, who: { token: string }, host: { token: string }) => {
+    const r = await post(`/v1/activities/${id}/requests`, who.token, {});
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    if (r.body.state === 'requested') await post(`/v1/activities/${id}/requests/${r.body.id}/decision`, host.token, { decision: 'approve' });
+    return r.body.id as string;
+  };
+  const notified = async (u: { token: string }, type: string) => (await get('/v1/notifications', u.token)).body.items.filter((n: { type: string }) => n.type === type);
+
+  it('marks an activity confirmed once two people are going, and open again if that drops', async () => {
+    const host = await verified('CHost');
+    const a = await verified('CMember');
+    const b = await verified('CMemberB');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 3 }))).body.id;
+    assert.equal((await get(`/v1/activities/${id}`, a.token)).body.status, 'published');
+    await join(id, a, host);
+    assert.equal((await get(`/v1/activities/${id}`, a.token)).body.status, 'confirmed');
+    assert.equal((await notified(a, 'activity_confirmed')).length, 1);
+    assert.equal((await notified(host, 'activity_confirmed')).length, 1);
+    // a full group is "full", not "confirmed"; when a place frees up it is confirmed again
+    await join(id, b, host);
+    assert.equal((await get(`/v1/activities/${id}`, a.token)).body.status, 'full');
+    await post(`/v1/activities/${id}/leave`, b.token);
+    assert.equal((await get(`/v1/activities/${id}`, a.token)).body.status, 'confirmed');
+    await post(`/v1/activities/${id}/leave`, a.token);
+    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'published');
+    // still found in the feed while confirmed
+    await join(id, a, host);
+    assert.ok((await get('/v1/activities?city=Milan', b.token)).body.items.some((x: { id: string }) => x.id === id));
+  });
+
+  it('sends one starting-soon reminder, an hour ahead, to people who have been in a while', async () => {
+    const { ActivitiesService } = await import('../src/activities/activities.service');
+    const svc = app.get(ActivitiesService);
+    const host = await verified('RHost');
+    const m = await verified('RMember');
+    const soon = (await post('/v1/activities', host.token, activityBody({ title: 'Soon coffee', startsAt: hours(0.5), endsAt: hours(2), capacity: 4 }))).body.id;
+    const later = (await post('/v1/activities', host.token, activityBody({ title: 'Later coffee', startsAt: hours(5), endsAt: hours(7), capacity: 4, venueName: 'Bar Navigli' }))).body.id;
+    await join(soon, m, host);
+    await svc.sendStartingSoon();
+    assert.equal((await notified(host, 'starting_soon')).length, 0, 'everyone just joined, so nobody needs a reminder yet');
+    // everyone has been in a while
+    await prisma.activityMembership.updateMany({ where: { activityId: soon }, data: { createdAt: new Date(Date.now() - 30 * 60_000) } });
+    await prisma.activityMembership.updateMany({ where: { activityId: later }, data: { createdAt: new Date(Date.now() - 30 * 60_000) } });
+    await prisma.activity.update({ where: { id: soon }, data: { remindedAt: null } });
+    assert.ok((await svc.sendStartingSoon()) >= 2);
+    assert.equal((await notified(host, 'starting_soon')).length, 1);
+    const mine = await notified(m, 'starting_soon');
+    assert.equal(mine.length, 1);
+    assert.match(mine[0].body, /Soon coffee/);
+    assert.equal((await notified(host, 'starting_soon')).some((n: { data: { activityId: string } }) => n.data?.activityId === later), false, 'five hours away is too early');
+    // never twice
+    await svc.sendStartingSoon();
+    assert.equal((await notified(m, 'starting_soon')).length, 1);
+    // a new time gets a new reminder
+    await prisma.activity.update({ where: { id: later }, data: { startsAt: new Date(Date.now() + 40 * 60_000), endsAt: new Date(Date.now() + 3 * 3600_000) } });
+    await svc.sendStartingSoon();
+    assert.equal((await notified(host, 'starting_soon')).length, 2);
+  });
+
+  it('confirms a trip once everyone has agreed the final dates', async () => {
+    const org = await verified('CTOrg');
+    const mem = await verified('CTMem');
+    const t = (await post('/v1/trips', org.token, tripBody())).body;
+    const ap = await post(`/v1/trips/${t.id}/applications`, mem.token, { intro: 'I would love to join this trip with you.', confirmBudget: true, confirmDates: true, confirmGuidelines: true });
+    await post(`/v1/trips/${t.id}/applications/${ap.body.id}/decision`, org.token, { decision: 'approve' });
+    assert.equal((await get(`/v1/trips/${t.id}`, mem.token)).body.status, 'planning');
+    await prisma.trip.update({ where: { id: t.id }, data: { datesState: 'proposed' } });
+    const r = await post(`/v1/trips/${t.id}/confirm-dates`, org.token);
+    assert.ok(r.status < 300, JSON.stringify(r.body));
+    assert.equal((await get(`/v1/trips/${t.id}`, mem.token)).body.status, 'planning', 'one of two is not enough');
+    await post(`/v1/trips/${t.id}/confirm-dates`, mem.token);
+    assert.equal((await get(`/v1/trips/${t.id}`, mem.token)).body.status, 'confirmed');
+    // someone leaving brings it below the minimum: open again
+    await post(`/v1/trips/${t.id}/leave`, mem.token);
+    assert.equal((await get(`/v1/trips/${t.id}`, org.token)).body.status, 'published');
+  });
+
+  it('refuses swear words and shouting in titles and descriptions, in both English and Italian', async () => {
+    const host = await verified('PHost');
+    const r1 = await post('/v1/activities', host.token, activityBody({ title: 'Che cazzo di serata' }));
+    assert.equal(r1.status, 400);
+    assert.equal(r1.body.code, 'CONTENT_REJECTED');
+    assert.equal((await post('/v1/activities', host.token, activityBody({ description: 'THIS IS THE BEST EVENT EVER COME NOW' }))).body.code, 'CONTENT_REJECTED');
+    assert.equal((await post('/v1/trips', host.token, tripBody({ title: 'Fucking great trip' }))).body.code, 'CONTENT_REJECTED');
+    assert.equal((await post('/v1/activities', host.token, activityBody())).status, 201);
+  });
+
+  it('keeps drafts private, allows half-finished forms, and checks everything only when posted', async () => {
+    const me = await verified('DOwner');
+    const other = await verified('DOther');
+    const put = (token: string, body: unknown) => call('PUT', '/v1/me/drafts', token, body);
+    const saved = await put(me.token, { kind: 'activity', data: { title: 'Idea for later' } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.body.title, 'Idea for later');
+    const again = await put(me.token, { id: saved.body.id, kind: 'activity', data: { title: 'Idea for later', category: 'drinks' } });
+    assert.equal(again.body.id, saved.body.id);
+    assert.equal((await get('/v1/me/drafts', me.token)).body.items.length, 1);
+    assert.equal((await get('/v1/me/drafts', other.token)).body.items.length, 0, 'nobody else sees it');
+    assert.equal((await put(other.token, { id: saved.body.id, kind: 'activity', data: { title: 'hijack' } })).status, 404);
+    assert.equal((await call('DELETE', `/v1/me/drafts/${saved.body.id}`, other.token)).status, 404);
+    // it is not a listing
+    assert.equal((await get('/v1/activities?city=Milan', other.token)).body.items.some((x: { title: string }) => x.title === 'Idea for later'), false);
+
+    // posting a half-finished one fails, and the draft stays
+    const bad = await post(`/v1/me/drafts/${saved.body.id}/publish`, me.token);
+    assert.equal(bad.status, 400);
+    assert.equal((await get('/v1/me/drafts', me.token)).body.items.length, 1);
+    // a complete one posts, and the draft is gone
+    const full = await put(me.token, { id: saved.body.id, kind: 'activity', data: activityBody({ title: 'Drafted aperitivo' }) });
+    const done = await post(`/v1/me/drafts/${full.body.id}/publish`, me.token);
+    assert.equal(done.status, 201, JSON.stringify(done.body));
+    assert.equal(done.body.title, 'Drafted aperitivo');
+    assert.equal((await get('/v1/me/drafts', me.token)).body.items.length, 0);
+
+    // a trip draft, and the limit
+    const t = await put(me.token, { kind: 'trip', data: tripBody() });
+    assert.equal((await post(`/v1/me/drafts/${t.body.id}/publish`, me.token)).status, 201);
+    for (let i = 0; i < 10; i++) assert.equal((await put(me.token, { kind: 'activity', data: { title: `d${i}` } })).status, 200);
+    assert.equal((await put(me.token, { kind: 'activity', data: { title: 'one too many' } })).body.code, 'TOO_MANY_DRAFTS');
+    assert.equal((await put(me.token, { kind: 'trip', data: { destination: 'Rome' } })).status, 200, 'the limit is per kind');
+  });
+
+  it('lets a declined person ask the host to look again, once', async () => {
+    const host = await verified('AHost');
+    const guest = await verified('AGuest');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 4 }))).body.id;
+    const reqId = (await post(`/v1/activities/${id}/requests`, guest.token, {})).body.id;
+    assert.equal((await post(`/v1/activities/${id}/appeal`, guest.token, {})).body.code, 'NOT_DECLINED', 'a pending request cannot be appealed');
+    await post(`/v1/activities/${id}/requests/${reqId}/decision`, host.token, { decision: 'decline' });
+    assert.equal((await get(`/v1/activities/${id}`, guest.token)).body.myRequest.canAppeal, true);
+    const r = await post(`/v1/activities/${id}/appeal`, guest.token, { intro: 'I can bring a friend who knows the place.' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.state, 'requested');
+    assert.ok((await notified(host, 'join_request')).some((n: { title: string }) => n.title === 'Asked to look again'));
+    await post(`/v1/activities/${id}/requests/${reqId}/decision`, host.token, { decision: 'decline' });
+    const d = (await get(`/v1/activities/${id}`, guest.token)).body;
+    assert.equal(d.myRequest.state, 'declined');
+    assert.equal(d.myRequest.canAppeal, false);
+    assert.equal((await post(`/v1/activities/${id}/appeal`, guest.token, {})).body.code, 'ALREADY_APPEALED');
+
+    // trips work the same way
+    const org = await verified('ATOrg');
+    const app = await verified('ATApp');
+    const t = (await post('/v1/trips', org.token, tripBody({ groupSize: '4-6' }))).body;
+    const ap = await post(`/v1/trips/${t.id}/applications`, app.token, { intro: 'I travel light and plan well.', confirmBudget: true, confirmDates: true, confirmGuidelines: true });
+    await post(`/v1/trips/${t.id}/applications/${ap.body.id}/decision`, org.token, { decision: 'decline' });
+    assert.equal((await get(`/v1/trips/${t.id}`, app.token)).body.myApplication.canAppeal, true);
+    assert.equal((await post(`/v1/trips/${t.id}/appeal`, app.token, {})).body.state, 'pending');
+    assert.equal((await post(`/v1/trips/${t.id}/appeal`, app.token, {})).body.code, 'NOT_DECLINED');
+  });
+
+  it('appeals a rejected identity check, and the trust team can accept or reject', async () => {
+    const u = await signup('APerson');
+    await confirmEmail(u);
+    assert.equal((await post('/v1/me/appeals', u.token, { kind: 'verification', message: 'My document was genuine.' })).body.code, 'NOTHING_TO_APPEAL');
+    await post('/v1/me/verification', u.token, { consent: true });
+    const check = (await get('/v1/admin/verifications?status=pending', adminToken)).body.items.find((c: any) => c.user.id === u.id);
+    await post(`/v1/admin/verifications/${check.id}/decision`, adminToken, { decision: 'rejected', reason: 'document' });
+    assert.equal((await post('/v1/me/appeals', u.token, { kind: 'verification', message: 'short' })).status, 400, 'a few words are not enough');
+    const a = await post('/v1/me/appeals', u.token, { kind: 'verification', message: 'My document was genuine, the photo was just dark.' });
+    assert.equal(a.status, 201, JSON.stringify(a.body));
+    assert.equal(a.body.state, 'open');
+    assert.equal((await post('/v1/me/appeals', u.token, { kind: 'verification', message: 'Asking a second time right away.' })).body.code, 'APPEAL_OPEN');
+    const queue = await get('/v1/admin/appeals', adminToken);
+    assert.ok(queue.body.items.some((x: { id: string; target: { reason: string } }) => x.id === a.body.id && x.target.reason === 'document'));
+    assert.equal((await post(`/v1/admin/appeals/${a.body.id}/decision`, adminToken, { decision: 'uphold', note: 'x' })).status, 400, 'a real note is needed');
+    const ok = await post(`/v1/admin/appeals/${a.body.id}/decision`, adminToken, { decision: 'uphold', note: 'We checked the document by hand.' });
+    assert.equal(ok.body.state, 'upheld');
+    assert.equal((await get('/v1/me', u.token)).body.eligibility, 'verified');
+    const mine = (await get('/v1/me/appeals', u.token)).body.items;
+    assert.deepEqual([mine[0].state, mine[0].decision], ['upheld', 'We checked the document by hand.']);
+    assert.ok((await notified(u, 'appeal_decided')).length >= 1);
+    assert.equal((await post(`/v1/admin/appeals/${a.body.id}/decision`, adminToken, { decision: 'reject', note: 'again' })).body.code, 'APPEAL_DECIDED');
+
+    // a rejection that stands: no second appeal for the same decision
+    const v = await signup('AStands');
+    await confirmEmail(v);
+    await post('/v1/me/verification', v.token, { consent: true });
+    const c2 = (await get('/v1/admin/verifications?status=pending', adminToken)).body.items.find((c: any) => c.user.id === v.id);
+    await post(`/v1/admin/verifications/${c2.id}/decision`, adminToken, { decision: 'rejected', reason: 'document' });
+    const a2 = await post('/v1/me/appeals', v.token, { kind: 'verification', message: 'Please look at my document again.' });
+    await post(`/v1/admin/appeals/${a2.body.id}/decision`, adminToken, { decision: 'reject', note: 'The document does not match.' });
+    assert.equal((await get('/v1/me', v.token)).body.eligibility, 'rejected');
+    assert.equal((await post('/v1/me/appeals', v.token, { kind: 'verification', message: 'Trying one more time please.' })).body.code, 'ALREADY_APPEALED');
+  });
+
+  it('lets a suspended person appeal without signing in, and a moderator can lift it', async () => {
+    const u = await verified('SPerson');
+    await post(`/v1/admin/users/${u.id}/suspend`, adminToken, { reason: 'a misunderstanding in chat', days: 7 });
+    assert.equal((await post('/v1/auth/login', undefined, { email: u.email, password: 'a-long-password-1' })).status, 403);
+    const text = 'It was a joke between friends and I have apologised.';
+    assert.equal((await post('/v1/appeals/suspension', undefined, { email: u.email, password: 'wrong-password', message: text })).status, 401);
+    const other = await signup('SNotSuspended');
+    assert.equal((await post('/v1/appeals/suspension', undefined, { email: other.email, password: 'a-long-password-1', message: text })).body.code, 'NOTHING_TO_APPEAL');
+    const a = await post('/v1/appeals/suspension', undefined, { email: u.email, password: 'a-long-password-1', message: text });
+    assert.equal(a.status, 201, JSON.stringify(a.body));
+    assert.equal((await post('/v1/appeals/suspension', undefined, { email: u.email, password: 'a-long-password-1', message: text })).body.code, 'APPEAL_OPEN');
+    const ok = await post(`/v1/admin/appeals/${a.body.id}/decision`, adminToken, { decision: 'uphold', note: 'Understood. Please keep chat friendly.' });
+    assert.equal(ok.body.state, 'upheld');
+    assert.equal((await post('/v1/auth/login', undefined, { email: u.email, password: 'a-long-password-1' })).status, 201);
+    assert.ok(emailSvc.outbox.some((m: { to: string; subject: string }) => m.to === u.email && /appeal/i.test(m.subject)), 'the answer also goes by email');
+  });
+
+  it('lets a host appeal a listing staff removed, but not one they cancelled themselves', async () => {
+    const host = await verified('RemHost');
+    const removed = (await post('/v1/activities', host.token, activityBody({ title: 'Removed by staff' }))).body.id;
+    const own = (await post('/v1/activities', host.token, activityBody({ title: 'Cancelled by me', venueName: 'Bar Isola', startsAt: hours(6), endsAt: hours(8) }))).body.id;
+    await post(`/v1/activities/${own}/cancel`, host.token);
+    assert.equal((await get(`/v1/activities/${own}`, host.token)).body.canAppealRemoval, false);
+    assert.equal((await post('/v1/me/appeals', host.token, { kind: 'removal', targetType: 'activity', targetId: own, message: 'I cancelled but want it back.' })).body.code, 'NOTHING_TO_APPEAL');
+    assert.equal((await post(`/v1/admin/activities/${removed}/remove`, adminToken, { reason: 'looked like a mistake' })).status, 201);
+    assert.equal((await get(`/v1/activities/${removed}`, host.token)).body.canAppealRemoval, true);
+    const other = await verified('RemOther');
+    assert.equal((await post('/v1/me/appeals', other.token, { kind: 'removal', targetType: 'activity', targetId: removed, message: 'Not even my listing at all.' })).body.code, 'NOTHING_TO_APPEAL');
+    const a = await post('/v1/me/appeals', host.token, { kind: 'removal', targetType: 'activity', targetId: removed, message: 'This was an ordinary coffee meetup.' });
+    assert.equal(a.status, 201, JSON.stringify(a.body));
+    assert.equal((await get(`/v1/activities/${removed}`, host.token)).body.canAppealRemoval, false);
+    await post(`/v1/admin/appeals/${a.body.id}/decision`, adminToken, { decision: 'uphold', note: 'It was removed by mistake.' });
+    assert.equal((await get(`/v1/activities/${removed}`, host.token)).body.status, 'published');
+    assert.equal((await get('/v1/admin/appeals?state=upheld', adminToken)).body.items.some((x: { id: string }) => x.id === a.body.id), true);
+  });
+});
+
+describe('THERE: shared plan, dates confirmation, completed trips, link safety and travel matching', () => {
+  const tripBody = (over: Record<string, unknown> = {}) => ({
+    title: 'Porto week',
+    destination: 'Porto, Portugal',
+    originCity: 'Milan',
+    dateStart: new Date(Date.now() + 40 * 24 * 3600 * 1000).toISOString(),
+    dateEnd: new Date(Date.now() + 44 * 24 * 3600 * 1000).toISOString(),
+    dateFlexibility: 'plus_minus_3',
+    budgetMin: 500,
+    budgetMax: 900,
+    budgetIncludesTransport: true,
+    tags: ['food'],
+    groupSize: '2-3',
+    ...over,
+  });
+  const notified = async (u: { token: string }, type: string) => (await get('/v1/notifications', u.token)).body.items.filter((n: { type: string }) => n.type === type);
+  const apply = { intro: 'I travel light and plan well.', confirmBudget: true, confirmDates: true, confirmGuidelines: true };
+  const groupOf = async (org: { token: string }, member: { token: string }, over: Record<string, unknown> = {}) => {
+    const t = (await post('/v1/trips', org.token, tripBody(over))).body;
+    const ap = await post(`/v1/trips/${t.id}/applications`, member.token, apply);
+    await post(`/v1/trips/${t.id}/applications/${ap.body.id}/decision`, org.token, { decision: 'approve' });
+    return t as { id: string; dateStart: string };
+  };
+
+  it('keeps a shared itinerary and budget notes for the group only', async () => {
+    const org = await verified('PlanOrg');
+    const mem = await verified('PlanMem');
+    const out = await verified('PlanOut');
+    const t = await groupOf(org, mem);
+    const day = new Date(+new Date(t.dateStart) + 24 * 3600 * 1000).toISOString();
+    assert.equal((await get(`/v1/trips/${t.id}/plan`, out.token)).status, 403, 'outsiders cannot see the plan');
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, out.token, { kind: 'itinerary', title: 'Sneaky' })).status, 403);
+
+    const a = await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Ribeira walk', day, note: 'Meet at the bridge' });
+    assert.equal(a.status, 201, JSON.stringify(a.body));
+    await post(`/v1/trips/${t.id}/plan/items`, org.token, { kind: 'itinerary', title: 'Ideas for the last evening' });
+    const b1 = await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Hostel, 4 nights', amount: 220 });
+    await post(`/v1/trips/${t.id}/plan/items`, org.token, { kind: 'budget', title: 'Food', amount: 150 });
+    const plan = (await get(`/v1/trips/${t.id}/plan`, mem.token)).body;
+    assert.equal(plan.itinerary.days.length, 2);
+    assert.equal(plan.itinerary.days[0].items[0].title, 'Ribeira walk');
+    assert.equal(plan.itinerary.days[1].day, null, 'lines without a day go last');
+    assert.equal(plan.budget.perPersonTotal, 370);
+    assert.equal(plan.budget.comparison, 'under');
+    assert.match(plan.budget.note, /never collects or holds money/);
+    assert.equal(plan.itinerary.days[0].items[0].canEdit, true);
+    assert.equal(plan.itinerary.days[1].items[0].canEdit, false, 'someone else line');
+
+    // validation: no days on budget notes, no amounts on itinerary lines, days inside the trip, plain-text rules
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Taxi', day })).status, 400);
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Museum', amount: 5 })).status, 400);
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Far away', day: new Date(Date.now() + 200 * 24 * 3600 * 1000).toISOString() })).body.code, 'DAY_OUT_OF_RANGE');
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Send me money first', amount: 10 })).body.code, 'CONTENT_REJECTED');
+
+    // who can change what: the author and the organizer, nobody else
+    const first = plan.itinerary.days[0].items[0].id;
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${b1.body.id}`, org.token, { amount: 200 })).status, 200, 'the organizer can change any line');
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${first}`, mem.token, { note: 'Meet at the station' })).status, 200);
+    const orgLine = plan.itinerary.days[1].items[0].id;
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${orgLine}`, mem.token, { title: 'Mine now' })).body.code, 'NOT_YOUR_LINE');
+    assert.equal((await call('DELETE', `/v1/trips/${t.id}/plan/items/${orgLine}`, mem.token)).status, 403);
+    assert.equal((await call('DELETE', `/v1/trips/${t.id}/plan/items/${orgLine}`, org.token)).status, 200);
+    assert.equal((await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget.perPersonTotal, 350);
+    // a member who left no longer sees it
+    await post(`/v1/trips/${t.id}/leave`, mem.token);
+    assert.equal((await get(`/v1/trips/${t.id}/plan`, mem.token)).status, 403);
+  });
+
+  it('shows who has confirmed the final dates', async () => {
+    const org = await verified('DcOrg');
+    const mem = await verified('DcMem');
+    const t = await groupOf(org, mem);
+    assert.equal((await get(`/v1/trips/${t.id}`, mem.token)).body.participants.every((p: any) => p.datesConfirmed === undefined), true, 'nothing to confirm yet');
+    await prisma.trip.update({ where: { id: t.id }, data: { datesState: 'proposed' } });
+    await prisma.tripMembership.updateMany({ where: { tripId: t.id }, data: { datesConfirmed: false } });
+    await prisma.tripMembership.updateMany({ where: { tripId: t.id, userId: org.id }, data: { datesConfirmed: true } });
+    const before = (await get(`/v1/trips/${t.id}`, mem.token)).body.participants;
+    assert.deepEqual(before.map((p: any) => [p.role, p.datesConfirmed]).sort(), [['member', false], ['organizer', true]].sort());
+    await post(`/v1/trips/${t.id}/confirm-dates`, mem.token);
+    assert.equal((await get(`/v1/trips/${t.id}`, mem.token)).body.participants.every((p: any) => p.datesConfirmed === true), true);
+  });
+
+  it('records a trip as completed once its last day has passed', async () => {
+    const { TripsService } = await import('../src/trips/trips.service');
+    const org = await verified('DoneOrg');
+    const mem = await verified('DoneMem');
+    const t = await groupOf(org, mem);
+    await prisma.trip.update({ where: { id: t.id }, data: { dateStart: new Date(Date.now() - 6 * 24 * 3600 * 1000), dateEnd: new Date(Date.now() - 2 * 24 * 3600 * 1000) } });
+    assert.equal((await get(`/v1/trips/${t.id}`, mem.token)).body.status, 'completed', 'shown as completed at once');
+    assert.ok((await app.get(TripsService).completeFinished()) >= 1);
+    assert.equal((await prisma.trip.findUnique({ where: { id: t.id } })).status, 'completed');
+    // a trip that is still on keeps its status, and one that ends today is not over yet
+    const live = await groupOf(org, await verified('DoneMem2'), { title: 'Still on' });
+    await prisma.trip.update({ where: { id: live.id }, data: { dateStart: new Date(Date.now() - 24 * 3600 * 1000), dateEnd: new Date(Date.now() + 3 * 3600 * 1000) } });
+    await app.get(TripsService).completeFinished();
+    assert.notEqual((await prisma.trip.findUnique({ where: { id: live.id } })).status, 'completed');
+    // a finished trip takes no new plan lines
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Souvenirs', amount: 5 })).body.code, 'TRIP_CLOSED');
+    // nobody can confirm dates or start a poll for a trip that is over
+    await prisma.trip.update({ where: { id: t.id }, data: { datesState: 'proposed' } });
+    await prisma.tripMembership.updateMany({ where: { tripId: t.id, userId: mem.id }, data: { datesConfirmed: false } });
+    assert.equal((await post(`/v1/trips/${t.id}/confirm-dates`, mem.token)).body.code, 'TRIP_CLOSED');
+    const doneConv = (await get(`/v1/trips/${t.id}`, mem.token)).body.conversationId;
+    assert.equal((await post(`/v1/conversations/${doneConv}/polls`, org.token, { title: 'Where next?' })).body.code, 'TRIP_CLOSED');
+  });
+
+  it('refuses suspicious links and requests for money in the trip chat, and allows one ordinary link', async () => {
+    const org = await verified('LinkOrg');
+    const mem = await verified('LinkMem');
+    const t = await groupOf(org, mem);
+    const conv = (await get(`/v1/trips/${t.id}`, mem.token)).body.conversationId;
+    const say = (body: string) => post(`/v1/conversations/${conv}/messages`, mem.token, { body });
+    assert.equal((await say('Menu: https://www.trattoria-rossi.it/menu')).status, 201);
+    assert.match((await say('book at https://bit.ly/abc123')).body.message, /Shortened/);
+    assert.equal((await say('open http://192.168.1.4/login')).body.code, 'CONTENT_REJECTED');
+    assert.equal((await say('log in at https://secure-paypal-login.net')).body.code, 'CONTENT_REJECTED');
+    assert.equal((await say('please transfer the deposit to my account')).body.code, 'CONTENT_REJECTED');
+    assert.equal((await say('my iban is IT60 X054 2811 1010 0000 0123 456')).body.code, 'CONTENT_REJECTED');
+    assert.equal((await say('Dinner is 25 euro each, we split at the table')).status, 201);
+  });
+
+  it('matches travelers only when both say yes, and keeps the answers private', async () => {
+    const a = await verified('MatchA');
+    const b = await verified('MatchB');
+    const c = await verified('MatchC');
+    const d = await verified('MatchD');
+    const lone = await signup('MatchUnverified');
+    const dates = (from: number, to: number) => ({ dateStart: new Date(Date.now() + from * 24 * 3600 * 1000).toISOString(), dateEnd: new Date(Date.now() + to * 24 * 3600 * 1000).toISOString() });
+    const put = (u: { token: string }, body: unknown) => call('PUT', '/v1/me/travel-match', u.token, body);
+
+    assert.equal((await put(lone, { destination: 'Seville', ...dates(30, 35) })).status, 403, 'verified adults only');
+    assert.equal((await put(a, { destination: 'Seville', ...dates(-3, 2) })).body.code, 'INVALID_DATES');
+    assert.equal((await put(a, { destination: 'Seville, Spain', ...dates(30, 36) })).status, 200);
+    assert.equal((await put(b, { destination: 'seville', ...dates(33, 40) })).status, 200, 'overlapping dates and the same place');
+    assert.equal((await put(c, { destination: 'Seville', ...dates(60, 65) })).status, 200, 'same place, different dates');
+    assert.equal((await put(d, { destination: 'Oslo', ...dates(30, 36) })).status, 200, 'same dates, different place');
+
+    const seenByA = (await get('/v1/me/travel-match', a.token)).body;
+    assert.deepEqual(seenByA.suggestions.map((s: any) => s.displayName), ['MatchB']);
+    assert.equal(seenByA.suggestions[0].overlapDays >= 3, true);
+    assert.equal(seenByA.suggestions[0].email, undefined, 'no contact details are ever shown');
+
+    // a yes reveals nothing: the same answer comes back whether or not they said yes
+    const first = await post(`/v1/me/travel-match/people/${b.id}`, a.token, { choice: 'yes' });
+    assert.deepEqual(first.body, { matched: false });
+    assert.equal((await get('/v1/me/travel-match', a.token)).body.suggestions.length, 0, 'answered people are not shown again');
+    assert.equal((await get('/v1/me/travel-match', b.token)).body.suggestions.map((s: any) => s.displayName).join(), 'MatchA');
+    assert.equal((await post(`/v1/me/travel-match/people/${c.id}`, a.token, { choice: 'yes' })).status, 404, 'cannot answer about someone who is not a match');
+    // no chat exists yet
+    assert.equal(await prisma.conversation.count({ where: { scopeType: 'match' } }), 0);
+
+    const second = await post(`/v1/me/travel-match/people/${a.id}`, b.token, { choice: 'yes' });
+    assert.equal(second.body.matched, true, JSON.stringify(second.body));
+    const conv = second.body.conversationId;
+    assert.ok((await notified(a, 'travel_match')).length === 1 && (await notified(b, 'travel_match')).length === 1);
+
+    // only the two can chat
+    assert.equal((await post(`/v1/conversations/${conv}/messages`, a.token, { body: 'Hi! Seville in spring?' })).status, 201);
+    assert.equal((await get(`/v1/conversations/${conv}/messages`, b.token)).body.items.length, 1);
+    assert.equal((await get(`/v1/conversations/${conv}/messages`, c.token)).status, 403);
+    assert.equal((await post(`/v1/conversations/${conv}/messages`, c.token, { body: 'let me in' })).status, 403);
+    const info = (await get(`/v1/conversations/${conv}/info`, b.token)).body;
+    assert.deepEqual([info.scope, info.title, info.members.length], ['match', 'MatchA', 2]);
+    assert.ok((await get('/v1/me/conversations', b.token)).body.items.some((x: any) => x.scope === 'match' && x.title === 'MatchA'));
+    // chat rules still apply
+    assert.equal((await post(`/v1/conversations/${conv}/messages`, a.token, { body: 'send me money please' })).body.code, 'CONTENT_REJECTED');
+
+    // ending closes it for both
+    assert.equal((await post(`/v1/me/travel-match/chats/${conv}/end`, a.token)).status, 201);
+    assert.equal((await post(`/v1/conversations/${conv}/messages`, b.token, { body: 'still there?' })).body.code, 'CONVERSATION_CLOSED');
+    assert.equal((await get('/v1/me/conversations', b.token)).body.items.some((x: any) => x.scope === 'match'), false);
+    assert.equal((await post(`/v1/me/travel-match/people/${b.id}`, a.token, { choice: 'yes' })).body.matched, false, 'an ended chat is not reopened');
+
+    // pass hides someone, opting out removes you from everyone's list, blocking ends a chat
+    assert.equal((await put(c, { destination: 'Seville', ...dates(33, 36) })).status, 200);
+    assert.equal((await put(a, { destination: 'Seville', ...dates(33, 36) })).status, 200, 'new dates start a fresh round');
+    assert.deepEqual((await get('/v1/me/travel-match', a.token)).body.suggestions.map((s: any) => s.displayName).sort(), ['MatchC']);
+    assert.equal((await post(`/v1/me/travel-match/people/${c.id}`, a.token, { choice: 'pass' })).body.matched, false);
+    assert.equal((await get('/v1/me/travel-match', a.token)).body.suggestions.length, 0);
+    assert.equal((await call('DELETE', '/v1/me/travel-match', c.token)).status, 200);
+    assert.equal((await get('/v1/me/travel-match', c.token)).body.pref, null);
+    assert.equal((await get('/v1/me/travel-match', b.token)).body.suggestions.some((s: any) => s.displayName === 'MatchC'), false);
+
+    const e = await verified('MatchE');
+    await put(e, { destination: 'Seville', ...dates(33, 36) });
+    await put(b, { destination: 'Seville', ...dates(33, 36) });
+    await post(`/v1/me/travel-match/people/${b.id}`, e.token, { choice: 'yes' });
+    const m2 = await post(`/v1/me/travel-match/people/${e.id}`, b.token, { choice: 'yes' });
+    assert.equal(m2.body.matched, true);
+    assert.equal((await post('/v1/blocks', b.token, { userId: e.id })).status < 300, true);
+    assert.equal((await get(`/v1/conversations/${m2.body.conversationId}/messages`, e.token)).status, 403, 'a block closes the chat');
+  });
+});
+
+describe('safety: blocks in group chats, message actions, warnings, urgent reports, workload and appeals', () => {
+  const staff = async (name: string, role = 'moderator') => {
+    const s = await signup(name);
+    await prisma.user.update({ where: { id: s.id }, data: { role } });
+    return s;
+  };
+  const notified = async (u: { token: string }, type: string) => (await get('/v1/notifications', u.token)).body.items.filter((n: { type: string }) => n.type === type);
+  const group = async (names: string[]) => {
+    const host = await verified('GcHost');
+    const members = [];
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 8, title: `Group ${n}` }))).body.id;
+    for (const name of names) {
+      const m = await verified(name);
+      const r = await post(`/v1/activities/${id}/requests`, m.token, {});
+      await post(`/v1/activities/${id}/requests/${r.body.id}/decision`, host.token, { decision: 'approve' });
+      members.push(m);
+    }
+    const conv = (await get(`/v1/activities/${id}`, host.token)).body.conversationId as string;
+    return { host, members, id, conv };
+  };
+  const say = (u: { token: string }, conv: string, body: string) => post(`/v1/conversations/${conv}/messages`, u.token, { body });
+  const texts = async (u: { token: string }, conv: string) => (await get(`/v1/conversations/${conv}/messages`, u.token)).body.items.map((m: { body: string }) => m.body);
+
+  it('keeps two people who blocked each other from seeing each other in a shared group chat', async () => {
+    const { host, members: [b, c], conv } = await group(['GcB', 'GcC']);
+    await say(host, conv, 'Hello everyone');
+    await say(b, conv, 'B says hi');
+    await say(c, conv, 'C says hi');
+    assert.deepEqual(await texts(b, conv), ['Hello everyone', 'B says hi', 'C says hi']);
+    assert.equal((await post('/v1/blocks', b.token, { userId: c.id })).status, 201);
+    assert.deepEqual(await texts(b, conv), ['Hello everyone', 'B says hi'], 'B no longer sees C');
+    assert.deepEqual(await texts(c, conv), ['Hello everyone', 'C says hi'], 'and C no longer sees B');
+    assert.deepEqual(await texts(host, conv), ['Hello everyone', 'B says hi', 'C says hi'], 'everyone else sees both');
+    // new messages too, and the group member list
+    await say(c, conv, 'C again');
+    await say(b, conv, 'B again');
+    assert.equal((await texts(b, conv)).includes('C again'), false);
+    assert.equal((await texts(c, conv)).includes('B again'), false);
+    const info = (await get(`/v1/conversations/${conv}/info`, b.token)).body;
+    assert.equal(info.members.some((m: { id: string }) => m.id === c.id), false);
+    // chat alerts do not reach the blocked person either
+    assert.equal((await notified(b, 'chat_message')).some((x: { body: string }) => x.body.includes('C again')), false);
+    // unblocking brings them back
+    await call('DELETE', `/v1/blocks/${c.id}`, b.token);
+    assert.equal((await texts(b, conv)).includes('C again'), true);
+  });
+
+  it('treats a report of immediate danger as urgent: first in the queue, every moderator alerted, emergency number shown', async () => {
+    const mod = await staff('UrgMod');
+    const lead = await staff('UrgLead', 'trust_lead');
+    const reporter = await verified('UrgReporter');
+    const target = await verified('UrgTarget');
+    const policy = await get('/v1/reports/policy');
+    assert.equal(policy.status, 200, 'public');
+    assert.equal(policy.body.emergency.number, '112');
+    assert.match(policy.body.coverage.text, /every day from 08:00 to 22:00/);
+
+    const normal = await post('/v1/reports', reporter.token, { targetType: 'user', targetId: target.id, category: 'spam', details: 'sends junk' });
+    assert.equal(normal.body.priority, 'normal');
+    assert.equal(normal.body.expectedWithin, '24 hours');
+    const urgent = await post('/v1/reports', reporter.token, { targetType: 'user', targetId: target.id, category: 'immediate_danger', details: 'threatened me tonight' });
+    assert.equal(urgent.status, 201, JSON.stringify(urgent.body));
+    assert.deepEqual([urgent.body.priority, urgent.body.expectedWithin, urgent.body.emergency.number], ['urgent', '1 hour', '112']);
+    assert.ok((await notified(mod, 'report_urgent')).length >= 1, 'moderators are told at once');
+    assert.ok((await notified(lead, 'report_urgent')).length >= 1);
+
+    const queue = (await get('/v1/admin/reports?status=open', mod.token)).body.items;
+    assert.equal(queue[0].id, urgent.body.id, 'urgent first');
+    assert.equal(queue[0].priority, 'urgent');
+    assert.equal(queue[0].subject.userId, target.id);
+    const mine = (await get('/v1/me/reports', reporter.token)).body.items;
+    assert.deepEqual(mine.map((r: any) => r.outcome), ['Waiting for a moderator', 'Waiting for a moderator']);
+  });
+
+  it('escalates a report that waited past its answer time, once, and shows the workload', async () => {
+    const { ModerationService } = await import('../src/moderation/moderation.controller');
+    const mod = await staff('EscMod');
+    const lead = await staff('EscLead', 'trust_lead');
+    const reporter = await verified('EscReporter');
+    const target = await verified('EscTarget');
+    const fresh = (await post('/v1/reports', reporter.token, { targetType: 'user', targetId: target.id, category: 'harassment' })).body.id;
+    const old = (await post('/v1/reports', reporter.token, { targetType: 'user', targetId: target.id, category: 'fraud' })).body.id;
+    await prisma.report.update({ where: { id: old }, data: { createdAt: new Date(Date.now() - 30 * 3600 * 1000) } });
+    const before = (await get('/v1/admin/reports?status=open', mod.token)).body.items;
+    assert.equal(before.find((r: any) => r.id === old).overdue, true);
+    assert.equal(before.find((r: any) => r.id === fresh).overdue, false);
+    assert.ok((await app.get(ModerationService).escalateOverdue()) >= 1);
+    assert.equal((await app.get(ModerationService).escalateOverdue()), 0, 'only once');
+    assert.ok((await notified(lead, 'report_escalated')).length >= 1);
+    assert.equal((await get('/v1/admin/reports?status=open', mod.token)).body.items.find((r: any) => r.id === old).escalated, true);
+
+    await post(`/v1/admin/reports/${old}/assign`, mod.token);
+    const w = (await get('/v1/admin/reports/workload', mod.token)).body;
+    const me = w.moderators.find((m: any) => m.id === mod.id);
+    assert.equal(me.assigned, 1);
+    assert.equal(me.oldestHours >= 29, true);
+    assert.equal(w.queue.unassigned >= 1, true);
+    assert.equal(w.queue.overdue >= 1, true);
+    assert.equal(w.policy.emergency.number, '112');
+    assert.equal((await get('/v1/admin/reports/workload', reporter.token)).status, 403, 'staff only');
+  });
+
+  it('lets a moderator hide a reported message and warn the person, and flags repeat offenders', async () => {
+    const mod = await staff('MsgMod');
+    const { host, members: [bad, other], conv } = await group(['MsgBad', 'MsgOther']);
+    const nasty = (await say(bad, conv, 'You are all boring people')).body.id;
+    await say(other, conv, 'Let us keep going');
+    const rep = (await post('/v1/reports', other.token, { targetType: 'message', targetId: nasty, category: 'harassment', details: 'rude' })).body.id;
+
+    const seen = (await get(`/v1/admin/messages/${nasty}`, mod.token)).body;
+    assert.equal(seen.body, 'You are all boring people');
+    assert.equal(seen.around.length >= 2, true, 'the messages around it');
+    assert.equal(seen.sender.id, bad.id);
+    const item = (await get('/v1/admin/reports?status=open', mod.token)).body.items.find((r: any) => r.id === rep);
+    assert.equal(item.message.body, 'You are all boring people');
+    assert.equal(item.subject.userId, bad.id, 'the report is about the sender');
+
+    assert.equal((await post(`/v1/admin/messages/${nasty}/remove`, other.token, { reason: 'nope' })).status, 403, 'staff only');
+    assert.equal((await post(`/v1/admin/messages/${nasty}/remove`, mod.token, { reason: 'Insulting the group' })).status, 201);
+    assert.equal((await texts(host, conv)).includes('You are all boring people'), false, 'gone from the chat');
+    assert.equal((await texts(bad, conv)).includes('You are all boring people'), false);
+    assert.equal((await prisma.report.findUnique({ where: { id: rep } })).status, 'resolved');
+    assert.match((await notified(bad, 'message_removed'))[0].body, /Insulting the group/);
+    assert.equal((await post(`/v1/admin/messages/${nasty}/restore`, mod.token)).body.state, 'ok');
+    assert.equal((await texts(host, conv)).includes('You are all boring people'), true, 'restored');
+
+    // warnings: the person is told; a second one makes a repeat offender
+    const w1 = await post(`/v1/admin/users/${bad.id}/warn`, mod.token, { reason: 'Please keep chat friendly.' });
+    assert.equal(w1.status, 201, JSON.stringify(w1.body));
+    assert.equal(w1.body.repeatOffender.flag, false);
+    assert.equal((await notified(bad, 'warning')).length, 1);
+    assert.equal((await post(`/v1/admin/users/${bad.id}/warn`, mod.token, { reason: 'sh' })).status, 400, 'a real reason is needed');
+    assert.equal((await post(`/v1/admin/users/${mod.id}/warn`, mod.token, { reason: 'Warning myself is silly' })).body.code, 'INVALID_TARGET');
+    const w2 = await post(`/v1/admin/users/${bad.id}/warn`, mod.token, { reason: 'This is the second time this month.' });
+    assert.equal(w2.body.repeatOffender.flag, true);
+    assert.match(w2.body.repeatOffender.reasons[0], /2 warnings/);
+    // a new report about this person arrives flagged
+    const again = (await post('/v1/reports', other.token, { targetType: 'user', targetId: bad.id, category: 'harassment' })).body.id;
+    const flagged = (await get('/v1/admin/reports?status=open', mod.token)).body.items.find((r: any) => r.id === again);
+    assert.equal(flagged.repeatOffender.flag, true);
+    assert.equal((await get(`/v1/admin/users/${bad.id}/offender`, mod.token)).body.warnings, 2);
+    // warning with a report settles it
+    const withReport = await post(`/v1/admin/users/${bad.id}/warn`, mod.token, { reason: 'Third warning, tied to a report.', reportId: again });
+    assert.equal(withReport.status, 201);
+    assert.equal((await prisma.report.findUnique({ where: { id: again } })).status, 'resolved');
+    // included in the person data download
+    const exported = (await get('/v1/me/export', bad.token)).body;
+    assert.equal(exported.warnings.length, 3);
+  });
+
+  it('lets people appeal a warning, a removed message and a dismissed report, with a second reviewer', async () => {
+    const mod = await staff('ApMod');
+    const mod2 = await staff('ApMod2');
+    const { members: [bad, reporter], conv } = await group(['ApBad', 'ApReporter']);
+    const msg = (await say(bad, conv, 'A harsh joke that was not meant badly')).body.id;
+    await post(`/v1/admin/messages/${msg}/remove`, mod.token, { reason: 'Looked like an insult' });
+    const warn = await post(`/v1/admin/users/${bad.id}/warn`, mod.token, { reason: 'Insulting the group.', messageId: msg });
+    const text = 'It was a joke between friends and I have apologised.';
+
+    // only the right person, only for what is theirs
+    assert.equal((await post('/v1/me/appeals', reporter.token, { kind: 'warning', targetId: warn.body.id, message: text })).body.code, 'NOTHING_TO_APPEAL');
+    assert.equal((await post('/v1/me/appeals', reporter.token, { kind: 'message', targetId: msg, message: text })).body.code, 'NOTHING_TO_APPEAL');
+    const a1 = await post('/v1/me/appeals', bad.token, { kind: 'warning', targetId: warn.body.id, message: text });
+    assert.equal(a1.status, 201, JSON.stringify(a1.body));
+    // the moderator who warned cannot decide it, another can
+    assert.equal((await post(`/v1/admin/appeals/${a1.body.id}/decision`, mod.token, { decision: 'uphold', note: 'Fine by me' })).body.code, 'SECOND_REVIEWER');
+    const ok = await post(`/v1/admin/appeals/${a1.body.id}/decision`, mod2.token, { decision: 'uphold', note: 'We agree it was a joke.' });
+    assert.equal(ok.body.state, 'upheld', JSON.stringify(ok.body));
+    assert.equal((await get(`/v1/admin/users/${bad.id}/offender`, mod.token)).body.warnings, 0, 'the warning is withdrawn');
+    assert.equal((await texts(reporter, conv)).includes('A harsh joke that was not meant badly'), true, 'and its message is back');
+    assert.equal((await post('/v1/me/appeals', bad.token, { kind: 'warning', targetId: warn.body.id, message: text })).body.code, 'NOTHING_TO_APPEAL', 'a withdrawn warning cannot be appealed again');
+
+    // a message removed on its own
+    const msg2 = (await say(bad, conv, 'Another remark')).body.id;
+    await post(`/v1/admin/messages/${msg2}/remove`, mod.token, { reason: 'Off topic' });
+    const a2 = await post('/v1/me/appeals', bad.token, { kind: 'message', targetId: msg2, message: 'It was on topic, we were talking about the venue.' });
+    assert.equal(a2.status, 201, JSON.stringify(a2.body));
+    await post(`/v1/admin/appeals/${a2.body.id}/decision`, mod2.token, { decision: 'reject', note: 'It stays removed.' });
+    assert.equal((await texts(reporter, conv)).includes('Another remark'), false);
+
+    // a dismissed report: the reporter asks for a second look, and it goes back to the queue unassigned
+    const rep = (await post('/v1/reports', reporter.token, { targetType: 'user', targetId: bad.id, category: 'harassment', details: 'again' })).body.id;
+    assert.equal((await post('/v1/me/appeals', reporter.token, { kind: 'report', targetId: rep, message: 'Please look at this again.' })).body.code, 'NOTHING_TO_APPEAL', 'only dismissed reports');
+    await post(`/v1/admin/reports/${rep}/resolve`, mod.token, { status: 'dismissed', resolution: 'Nothing found' });
+    assert.equal((await get('/v1/me/reports', reporter.token)).body.items.find((r: any) => r.id === rep).canAppeal, true);
+    assert.equal((await post('/v1/me/appeals', bad.token, { kind: 'report', targetId: rep, message: 'I am not the reporter at all.' })).body.code, 'NOTHING_TO_APPEAL');
+    const a3 = await post('/v1/me/appeals', reporter.token, { kind: 'report', targetId: rep, message: 'There was more to it than the first review saw.' });
+    assert.equal(a3.status, 201, JSON.stringify(a3.body));
+    assert.equal((await post(`/v1/admin/appeals/${a3.body.id}/decision`, mod.token, { decision: 'uphold', note: 'x second look' })).body.code, 'SECOND_REVIEWER');
+    assert.equal((await post(`/v1/admin/appeals/${a3.body.id}/decision`, mod2.token, { decision: 'uphold', note: 'Reopened for a fresh review.' })).body.state, 'upheld');
+    const back = await prisma.report.findUnique({ where: { id: rep } });
+    assert.deepEqual([back.status, back.assignedTo, !!back.reopenedAt], ['open', null, true]);
+    assert.equal((await get('/v1/me/reports', reporter.token)).body.items.find((r: any) => r.id === rep).canAppeal, false);
   });
 });

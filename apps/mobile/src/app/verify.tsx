@@ -161,6 +161,7 @@ export default function Verify() {
         <>
           {(e === 'expired' || e === 'reverification_required') && <Banner tone="warn">{REVERIFY_TEXT[st.data?.reverifyReason ?? me?.reverifyReason ?? (e === 'expired' ? 'expired' : 'other')] ?? REVERIFY_TEXT.other}</Banner>}
           {e === 'rejected' && <Banner tone="bad">{REJECT_TEXT[st.data?.lastRejectionReason ?? ''] ?? "We couldn't verify you last time. You can try again."}</Banner>}
+          {e === 'rejected' && <Btn title="I think this was a mistake: ask for a review" variant="secondary" onPress={() => router.push('/appeal?kind=verification' as never)} />}
 
           {/* spec 3.1: the email address is confirmed before the identity check */}
           {!emailOk && (

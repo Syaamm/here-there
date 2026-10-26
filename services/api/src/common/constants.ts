@@ -8,6 +8,9 @@ export const REPORT_CATEGORIES = [
   'physical_safety',
   'spam',
   'financial_solicitation',
+  'immediate_danger',
 ] as const;
+/** Reports that are looked at first and, for immediate danger, tell the on-duty staff at once. */
+export const URGENT_CATEGORIES: string[] = ['immediate_danger', 'physical_safety'];
 export const REPORT_TARGETS = ['user', 'activity', 'trip', 'message'] as const;
 export type Role = 'user' | (typeof STAFF_ROLES)[number];

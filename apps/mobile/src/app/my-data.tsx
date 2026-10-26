@@ -52,13 +52,6 @@ export default function MyData() {
         <Txt variant="small">You can ask for it up to three times a day.</Txt>
       </Card>
 
-      <Txt variant="label">Correct your details</Txt>
-      <Card style={{ padding: 12, borderRadius: 18, gap: 0 }}>
-        <ListRow icon="person-outline" title="Edit profile" subtitle="Name, photo, city, bio, languages and interests" onPress={() => go('/edit-profile')} right={arrow} />
-        <ListRow icon="mail-outline" title="Change email address" subtitle="We send a code to the new address first" onPress={() => go('/change-email')} right={arrow} />
-        <ListRow icon="key-outline" title="Change password" onPress={() => go('/change-password')} right={arrow} last />
-      </Card>
-
       <Txt variant="label">What we keep</Txt>
       <Card style={{ padding: 12, borderRadius: 18, gap: 0 }}>
         <ListRow icon="time-outline" title="How long we keep things" subtitle="Chats, alerts, reports and more, and when they are deleted" onPress={() => go('/retention')} right={arrow} last />

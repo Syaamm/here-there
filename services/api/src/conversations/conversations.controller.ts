@@ -61,6 +61,15 @@ export class ConversationsService {
       const finishedLongAgo = Date.now() >= +a.endsAt + 24 * 3600e3;
       return { conv, writable: !['cancelled', 'archived'].includes(a.status) && !finishedLongAgo, ended: a.status === 'cancelled' };
     }
+    if (conv.scopeType === 'match') {
+      // two travelers who both said yes: only those two, and never across a block or an ended chat
+      if (conv.userAId !== me.id && conv.userBId !== me.id) throw E.forbidden('NOT_A_MEMBER', 'Chat is only available to the two travelers');
+      const otherId = conv.userAId === me.id ? conv.userBId! : conv.userAId!;
+      if (await this.safety.isBlocked(me.id, otherId)) throw E.forbidden('NOT_A_MEMBER', 'Chat is only available to the two travelers');
+      const other = await this.prisma.user.findUnique({ where: { id: otherId }, select: { state: true } });
+      const over = !!conv.endedAt || !other || other.state !== 'active';
+      return { conv, writable: !over, ended: over };
+    }
     if (conv.scopeType === 'trip' && conv.tripId) {
       const m = await this.prisma.tripMembership.findUnique({
         where: { tripId_userId: { tripId: conv.tripId, userId: me.id } },
@@ -160,6 +169,24 @@ export class ConversationsService {
     const order = <T extends { role: string; displayName: string }>(xs: T[]) =>
       xs.sort((a, b) => (a.role === 'host' ? -1 : 0) - (b.role === 'host' ? -1 : 0) || a.displayName.localeCompare(b.displayName));
 
+    if (conv.scopeType === 'match') {
+      const users = await this.prisma.user.findMany({ where: { id: { in: [conv.userAId!, conv.userBId!] } }, select: userSel.select });
+      const members = order(users.map((u) => person(u, false)));
+      const other = members.find((m) => !m.isMe);
+      return {
+        id: conv.id,
+        scope: 'match' as const,
+        scopeId: conv.id,
+        title: other?.displayName ?? 'Travel match',
+        category: null,
+        status: conv.endedAt ? 'ended' : 'open',
+        startsAt: conv.createdAt,
+        endsAt: conv.createdAt,
+        place: conv.topic ?? '',
+        capacity: 2,
+        members,
+      };
+    }
     if (conv.scopeType === 'activity' && conv.activityId) {
       const a = await this.prisma.activity.findUniqueOrThrow({ where: { id: conv.activityId } });
       const rows = await this.prisma.activityMembership.findMany({ where: { activityId: a.id, state: 'approved' }, include: { user: userSel } });
@@ -233,6 +260,7 @@ export class ConversationsService {
   async createPoll(me: User, id: string, body: unknown) {
     const dto = parse(pollSchema, body);
     const { conv, trip } = await this.tripChat(me, id, true);
+    if (+new Date() >= +trip.dateEnd + DAY) throw E.conflict('TRIP_CLOSED', 'This trip is over, so it cannot take a new date poll');
     const bad = contentProblem(dto.title);
     if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
     if (dto.dateStart) {
@@ -309,11 +337,14 @@ export class ConversationsService {
     const conv = await this.prisma.conversation.findUnique({ where: { tripId } });
     if (!conv) throw E.notFound('Trip');
     const { trip } = await this.tripChat(me, conv.id, false);
+    if (+new Date() >= +trip.dateEnd + DAY) throw E.conflict('TRIP_CLOSED', 'This trip is over, so its dates can no longer be confirmed');
     if (trip.datesState !== 'proposed') throw E.conflict('NO_DATES_TO_CONFIRM', 'There are no final dates waiting for confirmation');
     await this.prisma.tripMembership.update({ where: { tripId_userId: { tripId, userId: me.id } }, data: { datesConfirmed: true } });
     const members = await this.prisma.tripMembership.findMany({ where: { tripId, state: 'approved' } });
     const confirmed = members.filter((m) => m.datesConfirmed).length;
     if (confirmed === members.length) {
+      // everyone said yes to the final dates and the group is big enough: the trip is confirmed
+      if (members.length >= trip.minCapacity && ['planning', 'full'].includes(trip.status)) await this.prisma.trip.update({ where: { id: tripId }, data: { status: 'confirmed' } });
       await this.postMessage(conv, me, `Everyone has confirmed the dates: ${fmtRange(trip.dateStart, trip.dateEnd)}. Remember to book your own travel directly with suppliers.`, { kind: 'system' });
       await this.notifications.notify(trip.hostId, 'trip_dates_confirmed', `Dates confirmed: ${trip.title}`, 'Every member has confirmed the final dates.', { tripId });
     }
@@ -328,7 +359,10 @@ export class ConversationsService {
   private async notifyOthers(sender: User, conv: Conversation, body: string, m: { id: string; createdAt: Date }) {
     let userIds: string[] = [];
     let title = 'your group';
-    if (conv.scopeType === 'activity' && conv.activityId) {
+    if (conv.scopeType === 'match') {
+      userIds = [conv.userAId!, conv.userBId!];
+      title = 'your travel match';
+    } else if (conv.scopeType === 'activity' && conv.activityId) {
       userIds = (await this.prisma.activityMembership.findMany({ where: { activityId: conv.activityId, state: 'approved' } })).map((m) => m.userId);
       title = (await this.prisma.activity.findUnique({ where: { id: conv.activityId } }))?.title ?? title;
     } else if (conv.scopeType === 'trip' && conv.tripId) {
@@ -371,7 +405,20 @@ export class ConversationsService {
         select: { tripId: true, trip: { select: { title: true, dateStart: true, dateEnd: true, conversation: { select: { id: true } } } } },
       }),
     ]);
+    const matchRows = await this.prisma.conversation.findMany({ where: { scopeType: 'match', endedAt: null, OR: [{ userAId: me.id }, { userBId: me.id }] }, select: { id: true, userAId: true, userBId: true, createdAt: true, topic: true } });
+    const matchBlocked = new Set(await this.safety.blockedWith(me.id));
+    const matchOthers = matchRows.map((c) => ({ c, otherId: c.userAId === me.id ? c.userBId! : c.userAId! })).filter((x) => !matchBlocked.has(x.otherId));
+    const matchNames = new Map((await this.prisma.profile.findMany({ where: { userId: { in: matchOthers.map((x) => x.otherId) } }, select: { userId: true, displayName: true } })).map((p) => [p.userId, p.displayName]));
     const items = [
+      ...matchOthers.map((x) => ({
+        conversationId: x.c.id,
+        scope: 'match' as const,
+        scopeId: x.c.id,
+        title: matchNames.get(x.otherId) ?? 'Travel match',
+        category: null as string | null,
+        startsAt: x.c.createdAt,
+        endsAt: x.c.createdAt,
+      })),
       ...acts.map((m) => ({
         conversationId: m.activity.conversation!.id,
         scope: 'activity' as const,

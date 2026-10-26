@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
+import { DraftBar } from '@/components/DraftBar';
 import { TabHeader } from '@/components/TabHeader';
 import { Text, TextInput } from '@/components/ScaledText';
 import { Banner, Btn, CheckRow, Chip, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
@@ -11,6 +12,7 @@ import { useMe } from '@/lib/auth';
 import { FLEX, GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
 import { money, parseDay } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
+import { dropDraft } from '@/lib/drafts';
 import { useTheme } from '@/lib/theme';
 import { Section } from './CreateActivity';
 
@@ -88,6 +90,7 @@ export function CreateTrip() {
   const [calendar, setCalendar] = useState<null | 'start' | 'end'>(null);
   const act = useAction();
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((p) => ({ ...p, [k]: v }));
+  const loadDraft = useCallback((d: Record<string, unknown>) => setF((p) => ({ ...p, ...(d as Partial<Draft>) })), []);
 
   useEffect(() => {
     AsyncStorage.getItem(DRAFT)
@@ -153,6 +156,7 @@ export function CreateTrip() {
     );
     if (t) {
       AsyncStorage.removeItem(DRAFT).catch(() => {});
+      void dropDraft('trip');
       go(`/trip/${t.id}`);
     }
   };
@@ -386,7 +390,7 @@ export function CreateTrip() {
         {step > 0 ? <Btn title="Back" variant="secondary" onPress={back} style={{ flex: 1 }} /> : null}
         {step < STEPS - 1 ? <Btn title="Continue" onPress={next} style={{ flex: 2 }} /> : <Btn title="Publish trip" onPress={publish} loading={act.busy} style={{ flex: 2 }} />}
       </Row>
-
+      <DraftBar kind="trip" data={f} onLoad={loadDraft} />
     </Screen>
     {/* the calendar sits just above the dock, outside the scrolling page */}
       <DateRangeSheet

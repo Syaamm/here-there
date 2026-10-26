@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/auth';
 import { REPORT_CATEGORIES, REPORT_TARGETS } from '../common/constants';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
+import { ModerationService, reportPolicy } from '../moderation/moderation.controller';
 import { RateLimiter } from '../common/rate-limiter';
 import { parse } from '../common/validate';
 
@@ -21,14 +22,19 @@ export class SafetyController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly limiter: RateLimiter,
+    private readonly moderation: ModerationService,
   ) {}
 
   @Post('reports')
   async report(@CurrentUser() me: User, @Body() body: unknown) {
     const dto = parse(reportSchema, body);
     this.limiter.hit(`report:${me.id}`, 20, 24 * 3600 * 1000); // abusive repeat reporters
-    const r = await this.prisma.report.create({ data: { reporterId: me.id, ...dto } });
-    return { id: r.id, status: r.status };
+    const urgent = this.moderation.isUrgent(dto.category);
+    const r = await this.prisma.report.create({ data: { reporterId: me.id, ...dto, priority: urgent ? 'urgent' : 'normal' } });
+    await this.moderation.onReport(r);
+    // what happens next, in plain words, and the emergency number: shown to the person right after they report
+    const policy = reportPolicy();
+    return { id: r.id, status: r.status, priority: r.priority, expectedWithin: urgent ? policy.answerWithin.urgent : policy.answerWithin.normal, coverage: policy.coverage.text, emergency: policy.emergency };
   }
 
   @Post('blocks')

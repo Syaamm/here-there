@@ -21,6 +21,9 @@ export const retention = () => ({
   audit: days('RETENTION_AUDIT_DAYS', 730),
   identityChecks: days('RETENTION_IDENTITY_CHECKS_DAYS', 365), // older results, counted from the decision
   codes: days('RETENTION_CODES_DAYS', 7), // used or expired email, phone and password codes
+  drafts: days('RETENTION_DRAFTS_DAYS', 90), // saved-for-later activities and trips, counted from the last change
+  matching: days('RETENTION_MATCHING_DAYS', 90), // travel-matching answers and finished matching wishes, counted from the last change; match-chat messages from when they were sent
+  appeals: days('RETENTION_APPEALS_DAYS', 730), // decided appeals, counted from the decision
   reliability: days('RETENTION_RELIABILITY_DAYS', 730), // no-show notes and level history, counted from the plan's end / the change
 });
 
@@ -34,6 +37,11 @@ export function retentionSchedule() {
     { what: 'Safety reports', kept: `${d(r.reports)} after they are closed (open ones are kept until they are dealt with)`, why: 'So moderators can see repeat problems and defend their decisions.' },
     { what: 'Records of actions on the platform (audit log)', kept: d(r.audit), why: 'Security and accountability. They hold ids and actions, not message text.' },
     { what: 'Identity check results', kept: `${d(r.identityChecks)} after the decision; only the outcome, never your documents or face`, why: 'To show a check was done and when it expires.' },
+    { what: 'Warnings from moderators', kept: d(r.audit), why: 'So staff can see repeat problems and a warning can be reviewed if you ask.' },
+    { what: 'Drafts (activities and trips you saved for later)', kept: `${d(r.drafts)} after you last changed them`, why: 'So you can finish them; they are private to you and never shown to anyone.' },
+    { what: 'Travel matching (where and when you want to travel, and your yes or pass answers)', kept: `${d(r.matching)} after the last change, or as soon as your dates have passed`, why: 'Only used to suggest travelers to each other. You can switch it off any time.' },
+    { what: 'Messages in a private travel-match chat', kept: `${d(r.matching)} after they were sent`, why: 'So the two of you can look back while planning.' },
+    { what: 'Appeals', kept: `${d(r.appeals)} after the decision`, why: 'So staff can show how a decision was reviewed.' },
     { what: 'Reliability history', kept: d(r.reliability), why: 'Used to work out your level.' },
     { what: 'Sign-in and confirmation codes', kept: `${d(r.codes)} after they are used or expire`, why: 'Short-lived by design.' },
     { what: 'Plans and trips, and who joined them', kept: 'Kept as history (a deleted account is shown as "Deleted user")', why: 'Other people\'s plans and chats depend on them.' },
@@ -80,6 +88,12 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
     const audit = await this.prisma.auditEvent.deleteMany({ where: { createdAt: { lt: ago(r.audit) } } });
     const marks = await this.prisma.attendanceMark.deleteMany({ where: { planEndsAt: { lt: ago(r.reliability) }, state: { not: 'disputed' } } });
     const levelHistory = await this.prisma.reliabilityChange.deleteMany({ where: { createdAt: { lt: ago(r.reliability) } } });
+    const matchWishes = await this.prisma.travelMatchPref.deleteMany({ where: { OR: [{ updatedAt: { lt: ago(r.matching) } }, { dateEnd: { lt: new Date(+now - DAY) } }] } });
+    const matchAnswers = await this.prisma.travelMatchChoice.deleteMany({ where: { createdAt: { lt: ago(r.matching) } } });
+    const matchMessages = await this.prisma.message.deleteMany({ where: { id: { notIn: reported }, conversation: { scopeType: 'match' }, createdAt: { lt: ago(r.matching) } } });
+    const warnings = await this.prisma.userWarning.deleteMany({ where: { createdAt: { lt: ago(r.audit) } } });
+    const drafts = await this.prisma.draft.deleteMany({ where: { updatedAt: { lt: ago(r.drafts) } } });
+    const appeals = await this.prisma.appeal.deleteMany({ where: { state: { not: 'open' }, decidedAt: { lt: ago(r.appeals) } } });
     const codes = await this.prisma.contactCode.deleteMany({ where: { OR: [{ usedAt: { lt: ago(r.codes) } }, { expiresAt: { lt: ago(r.codes) } }] } });
 
     // identity checks: old results go, but the newest check of each person stays (it is what their status rests on)
@@ -95,7 +109,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       checks = (await this.prisma.verificationCheck.deleteMany({ where: { id: { in: doomed } } })).count;
     }
 
-    const counts = { messages: messages.count, alertsRead: alertsRead.count, alertsUnread: alertsUnread.count, reports: reports.count, audit: audit.count, identityChecks: checks, codes: codes.count, attendanceNotes: marks.count, levelHistory: levelHistory.count };
+    const counts = { messages: messages.count, alertsRead: alertsRead.count, alertsUnread: alertsUnread.count, reports: reports.count, audit: audit.count, identityChecks: checks, codes: codes.count, attendanceNotes: marks.count, drafts: drafts.count, warnings: warnings.count, matching: matchWishes.count + matchAnswers.count, matchMessages: matchMessages.count, appeals: appeals.count, levelHistory: levelHistory.count };
     if (Object.values(counts).some((n) => n > 0)) await this.audit.log(null, 'retention.purged', 'system', 'retention', counts);
     return counts;
   }

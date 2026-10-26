@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
+import { DraftBar } from '@/components/DraftBar';
 import { TabHeader } from '@/components/TabHeader';
 import { Banner, Between, Btn, CheckRow, Chip, ErrorBanner, Field, Row, Screen, Txt, useGo } from '@/components/ui';
 import { post, type Activity } from '@/lib/api';
@@ -10,6 +11,7 @@ import { useMe } from '@/lib/auth';
 import { useCity } from '@/lib/city';
 import { catColor, CATS, MILAN_AREAS } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
+import { dropDraft } from '@/lib/drafts';
 import { useTheme } from '@/lib/theme';
 
 const DRAFT = 'ht_activity_draft';
@@ -105,6 +107,7 @@ export function CreateActivity() {
   const [saved, setSaved] = useState(false);
   const act = useAction();
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((p) => ({ ...p, [k]: v }));
+  const loadDraft = useCallback((d: Record<string, unknown>) => setF((p) => ({ ...p, ...(d as Partial<Draft>) })), []);
 
   useEffect(() => {
     AsyncStorage.getItem(DRAFT)
@@ -157,6 +160,7 @@ export function CreateActivity() {
     );
     if (a) {
       AsyncStorage.removeItem(DRAFT).catch(() => {});
+      void dropDraft('activity');
       go(`/activity/${a.id}`);
     }
   };
@@ -323,6 +327,7 @@ export function CreateActivity() {
       </Section>
 
       <Btn title="Publish activity" onPress={submit} loading={act.busy} disabled={!valid} />
+      <DraftBar kind="activity" data={f} onLoad={loadDraft} />
       <Txt variant="small">Your activity is public in the feed. Only the venue is shown, never anyone's live location.</Txt>
     </Screen>
   );

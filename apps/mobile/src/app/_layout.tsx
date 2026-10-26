@@ -98,6 +98,11 @@ function Gate() {
           <Stack.Screen name="delete-account" options={inner('Delete account')} />
           <Stack.Screen name="my-activities" options={inner('My activities')} />
           <Stack.Screen name="my-trips" options={inner('My trips')} />
+          <Stack.Screen name="drafts" options={inner('My drafts')} />
+          <Stack.Screen name="my-reports" options={inner('My reports')} />
+          <Stack.Screen name="travel-match" options={inner('Travel buddies')} />
+          <Stack.Screen name="trip-plan/[id]" options={inner('Trip plan')} />
+          <Stack.Screen name="appeal" options={inner('Ask for a review')} />
           <Stack.Screen name="favourites" options={inner('Favourites')} />
           <Stack.Screen name="connections" options={inner('Buddies')} />
           {/* a chat is its own screen above the tabs, like a chat in any messaging app: the iPhone's own swipe-back shows the inbox underneath as you drag */}

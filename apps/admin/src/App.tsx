@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, can, loadSession, saveSession, setToken, setUnauthorizedHandler, STAFF, type Role, type Session } from './api';
 import { AuditPage } from './pages/Audit';
 import { ContentPage } from './pages/Content';
+import { AppealsPage } from './pages/Appeals';
 import { NoShowsPage } from './pages/NoShows';
 import { OverviewPage } from './pages/Overview';
 import { ReportsPage } from './pages/Reports';
@@ -10,12 +11,13 @@ import { UsersPage } from './pages/Users';
 import { VerificationsPage } from './pages/Verifications';
 import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, useLoad, type IconName } from './ui';
 
-type PageId = 'overview' | 'verifications' | 'reports' | 'noshows' | 'content' | 'users' | 'audit' | 'security';
+type PageId = 'overview' | 'verifications' | 'reports' | 'noshows' | 'appeals' | 'content' | 'users' | 'audit' | 'security';
 const NAV: { id: PageId; label: string; icon: IconName; show: (r: Role) => boolean }[] = [
   { id: 'overview', label: 'Overview', icon: 'overview', show: () => true },
   { id: 'verifications', label: 'Verification', icon: 'shield', show: () => true },
   { id: 'reports', label: 'Reports', icon: 'flag', show: () => true },
   { id: 'noshows', label: 'No-shows', icon: 'alert', show: () => true },
+  { id: 'appeals', label: 'Appeals', icon: 'alert', show: () => true },
   { id: 'content', label: 'Content', icon: 'layers', show: () => true },
   { id: 'users', label: 'Users', icon: 'users', show: () => true },
   { id: 'audit', label: 'Audit log', icon: 'clock', show: can.trust },
@@ -165,9 +167,10 @@ function Console({ session, page, setPage, reportId, setReportId, userId, setUse
         </div>
       </aside>
       <main className="main">
-        {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} />}
+        {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
         {page === 'verifications' && <VerificationsPage me={session} />}
         {page === 'reports' && <ReportsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} focusId={reportId} onClearFocus={() => setReportId(null)} />}
+        {page === 'appeals' && <AppealsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
         {page === 'noshows' && <NoShowsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
         {page === 'content' && <ContentPage me={session} />}
         {page === 'users' && <UsersPage me={session} focusId={userId} onClearFocus={() => setUserId(null)} openReport={(id) => (setReportId(id), setPage('reports'))} />}

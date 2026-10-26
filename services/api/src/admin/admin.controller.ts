@@ -8,14 +8,14 @@ import { CurrentUser, Staff } from '../common/auth';
 import { STAFF_ROLES } from '../common/constants';
 import { E } from '../common/errors';
 import { banIdentities, liftBans } from '../common/identity';
+import { ModerationService } from '../moderation/moderation.controller';
 import { MfaService } from '../auth/mfa.controller';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/validate';
 import { TripsService } from '../trips/trips.service';
 import { VerificationService } from '../verification/verification.service';
 
-const ALL = [...STAFF_ROLES];
-const MOD = ['moderator', 'trust_lead', 'admin'];
+const ALL = [...STAFF_ROLES];const MOD = ['moderator', 'trust_lead', 'admin'];
 const TRUST = ['trust_lead', 'admin'];
 
 export const reasonSchema = z.object({ reason: z.string().trim().min(3).max(500) });
@@ -47,12 +47,19 @@ export class AdminController {
     private readonly activities: ActivitiesService,
     private readonly trips: TripsService,
     private readonly mfa: MfaService,
+    private readonly moderation: ModerationService,
   ) {}
 
   // ------------------------------------------------------------ overview
   @Staff(...ALL)
   @Get('overview')
   async overview() {
+    // the last 30 days (today included) and the 30 before them, as whole UTC days
+    const DAY = 24 * 3600 * 1000;
+    const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
+    const from = new Date(+today - 29 * DAY);
+    const before = new Date(+from - 30 * DAY);
+    const members = { role: { not: 'guest' }, state: { not: 'deleted' } } as const; // real accounts: no demo guests, no erased accounts
     const [users, pendingVerifications, openReports, activeActivities, activeTrips] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.verificationCheck.count({ where: { eligibility: 'pending' } }),
@@ -60,7 +67,50 @@ export class AdminController {
       this.prisma.activity.count({ where: { status: { in: ['published', 'full', 'confirmed'] }, endsAt: { gt: new Date() } } }),
       this.prisma.trip.count({ where: { status: { in: ['published', 'full', 'planning', 'confirmed'] } } }),
     ]);
-    return { users, pendingVerifications, openReports, activeActivities, activeTrips };
+    const created = { createdAt: true } as const;
+    const [memberRows, activityRows, tripRows, reportRows, prevMembers, prevActivities, prevTrips, memberCount, verifiedMembers, decided, reportStatus, categories] = await Promise.all([
+      this.prisma.user.findMany({ where: { ...members, createdAt: { gte: from } }, select: created }),
+      this.prisma.activity.findMany({ where: { createdAt: { gte: from } }, select: created }),
+      this.prisma.trip.findMany({ where: { createdAt: { gte: from } }, select: created }),
+      this.prisma.report.findMany({ where: { createdAt: { gte: from } }, select: { createdAt: true, category: true } }),
+      this.prisma.user.count({ where: { ...members, createdAt: { gte: before, lt: from } } }),
+      this.prisma.activity.count({ where: { createdAt: { gte: before, lt: from } } }),
+      this.prisma.trip.count({ where: { createdAt: { gte: before, lt: from } } }),
+      this.prisma.user.count({ where: members }),
+      this.prisma.user.count({ where: { ...members, eligibility: 'verified' } }),
+      this.prisma.verificationCheck.groupBy({ by: ['eligibility'], where: { eligibility: { in: ['verified', 'rejected'] } }, _count: { _all: true } }),
+      this.prisma.report.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.prisma.report.groupBy({ by: ['category'], where: { createdAt: { gte: from } }, _count: { _all: true } }),
+    ]);
+    const days = Array.from({ length: 30 }, (_, i) => new Date(+from + i * DAY).toISOString().slice(0, 10));
+    const perDay = (rows: { createdAt: Date }[]) => {
+      const n = new Map(days.map((d) => [d, 0]));
+      for (const r of rows) {
+        const k = r.createdAt.toISOString().slice(0, 10);
+        n.set(k, (n.get(k) ?? 0) + 1);
+      }
+      return days.map((d) => n.get(d) ?? 0);
+    };
+    const approved = decided.find((r) => r.eligibility === 'verified')?._count._all ?? 0;
+    const rejected = decided.find((r) => r.eligibility === 'rejected')?._count._all ?? 0;
+    const status = (s: string) => reportStatus.find((r) => r.status === s)?._count._all ?? 0;
+    return {
+      users,
+      pendingVerifications,
+      openReports,
+      activeActivities,
+      activeTrips,
+      // the dashboard: real members only (guests and erased accounts left out)
+      members: memberCount,
+      verifiedMembers,
+      /** share of finished identity checks that passed; null until a check has been decided */
+      approvalRate: approved + rejected > 0 ? approved / (approved + rejected) : null,
+      reports: { open: status('open'), in_review: status('in_review'), resolved: status('resolved'), dismissed: status('dismissed') },
+      period: { from: days[0], to: days[29], days },
+      series: { members: perDay(memberRows), activities: perDay(activityRows), trips: perDay(tripRows), reports: perDay(reportRows) },
+      previous: { members: prevMembers, activities: prevActivities, trips: prevTrips },
+      reportsByCategory: categories.map((c) => ({ category: c.category, count: c._count._all })).sort((a, b) => b.count - a.count),
+    };
   }
 
   // ------------------------------------------------------------ users
@@ -273,16 +323,7 @@ export class AdminController {
   @Staff(...ALL)
   @Get('reports')
   async reports(@Query('status') status?: string, @Query('category') category?: string) {
-    const rows = await this.prisma.report.findMany({
-      where: { ...(status && { status }), ...(category && { category }) },
-      orderBy: [{ createdAt: 'asc' }],
-      take: 200,
-      include: { reporter: { select: { id: true, profile: { select: { displayName: true } } } } },
-    });
-    // physical-safety reports first
-    const rank = (c: string) => (c === 'physical_safety' ? 0 : c === 'underage' ? 1 : 2);
-    rows.sort((a, b) => rank(a.category) - rank(b.category) || +a.createdAt - +b.createdAt);
-    return { items: rows };
+    return this.moderation.queue(status, category);
   }
 
   @Staff(...MOD)
@@ -290,7 +331,7 @@ export class AdminController {
   async assign(@CurrentUser() actor: User, @Param('id') id: string) {
     const r = await this.prisma.report.findUnique({ where: { id } });
     if (!r) throw E.notFound('Report');
-    await this.prisma.report.update({ where: { id }, data: { assignedTo: actor.id, status: r.status === 'open' ? 'in_review' : r.status } });
+    await this.prisma.report.update({ where: { id }, data: { assignedTo: actor.id, status: r.status === 'open' ? 'in_review' : r.status, firstReviewedAt: r.firstReviewedAt ?? new Date() } });
     await this.audit.log(actor.id, 'report.assign', 'report', id);
     return { ok: true };
   }

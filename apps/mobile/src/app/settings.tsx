@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { useEffect, useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
-import { Banner, Btn, Card, ErrorBanner, ListRow, Screen, Txt, useGo } from '@/components/ui';
+import { IconPicker } from '@/components/IconPicker';
+import { Btn, Card, ErrorBanner, ListRow, Screen, Txt, useGo } from '@/components/ui';
 import { useMe } from '@/lib/auth';
 import { chooseIcon, canChangeIcon, savedIcon, type AppIcon } from '@/lib/appIcon';
 import { confirmAsync } from '@/lib/confirm';
@@ -11,11 +12,6 @@ import { useAction } from '@/lib/hooks';
 import { enablePush, pushState, type PushState } from '@/lib/push';
 import { TEXT_SIZES, useTextSize } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
-
-const ICONS: { key: AppIcon; label: string; image: number }[] = [
-  { key: 'here', label: 'HERE', image: require('../../assets/icon.png') },
-  { key: 'there', label: 'THERE', image: require('../../assets/icons/there/icon.png') },
-];
 
 /** Small caps label above a group of settings. */
 function Label({ children }: { children: string }) {
@@ -62,8 +58,11 @@ export default function Settings() {
         <ListRow icon="person-outline" title="Edit profile" subtitle="Name, photo, city, bio and interests" onPress={() => go('/edit-profile')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} />
         <ListRow icon="shield-checkmark-outline" title="Identity verification" subtitle={verification} onPress={() => go('/verify')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} />
         {!me?.emailVerified ? <ListRow icon="mail-outline" title="Confirm your email" subtitle="Needed before identity verification" onPress={() => go('/onboarding')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
+        {me?.role !== 'guest' ? <ListRow icon="mail-outline" title="Change email address" subtitle="We send a code to the new address first" onPress={() => go('/change-email')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
         {me?.role !== 'guest' ? <ListRow icon="key-outline" title="Change password" subtitle="Other devices are signed out when you change it" onPress={() => go('/change-password')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last={me?.role === 'guest'} /> : null}
-        {me?.role !== 'guest' ? <ListRow icon="download-outline" title="Your data" subtitle="Download a copy, change your email, or delete your account" onPress={() => go('/my-data')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last /> : null}
+        {me?.role !== 'guest' ? <ListRow icon="flag-outline" title="My reports" subtitle="What became of the reports you sent" onPress={() => go('/my-reports')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
+        {me?.role !== 'guest' ? <ListRow icon="chatbox-ellipses-outline" title="Reviews of decisions" subtitle="Ask us to look again, and see the answers" onPress={() => go('/appeal')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
+        {me?.role !== 'guest' ? <ListRow icon="download-outline" title="Your data" subtitle="Download a copy, or delete your account" onPress={() => go('/my-data')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last /> : null}
       </Card>
 
       <Label>Notifications</Label>
@@ -93,31 +92,7 @@ export default function Settings() {
       </Card>
 
       <Label>App icon</Label>
-      <Card style={{ padding: 14, borderRadius: 18, gap: 12 }}>
-        <Txt variant="small" style={{ color: c.text }}>Choose the icon shown on your home screen.</Txt>
-        <View accessibilityRole="radiogroup" accessibilityLabel="App icon" style={{ flexDirection: 'row', gap: 12 }}>
-          {ICONS.map((o) => {
-            const on = icon === o.key;
-            return (
-              <Pressable
-                key={o.key}
-                accessibilityRole="radio"
-                accessibilityLabel={`${o.label} icon`}
-                accessibilityState={{ selected: on }}
-                onPress={() => void pick(o.key)}
-                style={({ pressed }) => [{ flex: 1, alignItems: 'center', gap: 8, paddingVertical: 12, borderRadius: 16, borderWidth: 2, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.accentSoft : 'transparent' }, pressed && { opacity: 0.85 }]}
-              >
-                <Image source={o.image} accessibilityIgnoresInvertColors style={{ width: 64, height: 64, borderRadius: 15 }} />
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  {on ? <Ionicons name="checkmark-circle" size={15} color={c.green} /> : null}
-                  <Text style={{ color: c.text, fontWeight: on ? '800' : '600', fontSize: 13 }}>{o.label}{o.key === 'here' ? ' (default)' : ''}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-        {!canSwitch ? <Banner>Expo Go and the browser always show their own icon on the home screen. Your choice is saved here, and the real icon changes once you use the installed app.</Banner> : null}
-      </Card>
+      <IconPicker icon={icon} onPick={(next) => void pick(next)} canSwitch={canSwitch} />
 
       <Label>Safety & privacy</Label>
       <Card style={{ padding: 12, borderRadius: 18, gap: 0 }}>

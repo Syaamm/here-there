@@ -621,6 +621,117 @@
         }
       }
     },
+    "/v1/activities/{id}/appeal": {
+      "post": {
+        "tags": [
+          "HERE activities"
+        ],
+        "summary": "Ask the host to look again at a declined request (once)",
+        "operationId": "Activities_appeal",
+        "description": "Needs a **verified adult**.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "intro": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, state }: back to the host as a new request, or the waiting list if it filled up."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `VERIFICATION_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `ACTIVITY_CLOSED`, `ALREADY_APPEALED`, `NOT_DECLINED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/activities/{id}/attendance": {
       "post": {
         "tags": [
@@ -2408,6 +2519,194 @@
         }
       }
     },
+    "/v1/admin/appeals": {
+      "get": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Appeals waiting for a decision (or decided: state=upheld|rejected)",
+        "operationId": "Appeals_queue",
+        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "x-staff-roles": [
+          "moderator",
+          "trust_lead",
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items }"
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/appeals/{id}/decision": {
+      "post": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Accept (uphold) or reject an appeal, with a note the person sees",
+        "operationId": "Appeals_decide",
+        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "x-staff-roles": [
+          "moderator",
+          "trust_lead",
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "uphold",
+                      "reject"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "decision",
+                  "note"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, state }. Upholding undoes the decision: verified again, account restored, or listing put back."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`, `OWN_APPEAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `APPEAL_DECIDED`, `NOT_REJECTED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/audit": {
       "get": {
         "tags": [
@@ -2464,6 +2763,247 @@
           },
           "403": {
             "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/messages/{id}": {
+      "get": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "A reported message with the messages around it",
+        "operationId": "Moderation_message",
+        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "x-staff-roles": [
+          "support",
+          "moderator",
+          "trust_lead",
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ id, body, state, sender, scope, around }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/messages/{id}/remove": {
+      "post": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Hide a message from its chat (kept for the record). The sender is told why",
+        "operationId": "Moderation_remove",
+        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "x-staff-roles": [
+          "moderator",
+          "trust_lead",
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok, state }. Open reports about the message are resolved."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/messages/{id}/restore": {
+      "post": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Put a hidden message back",
+        "operationId": "Moderation_restore",
+        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "x-staff-roles": [
+          "moderator",
+          "trust_lead",
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok, state }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2669,7 +3209,7 @@
         "tags": [
           "Admin console"
         ],
-        "summary": "Counters for the dashboard",
+        "summary": "Everything the Overview dashboard shows",
         "operationId": "Admin_overview",
         "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
         "x-staff-roles": [
@@ -2680,7 +3220,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "Counters (users, pending checks, open reports, active plans), real-member totals, identity approval rate, report counts by status, and the last 30 days as daily series (members, activities, trips, reports) with the previous 30 days for comparison, plus reports by category."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -2720,7 +3260,7 @@
         "tags": [
           "Admin console"
         ],
-        "summary": "The report queue",
+        "summary": "The report queue: urgent first, then overdue and escalated",
         "operationId": "Admin_reports",
         "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
         "x-staff-roles": [
@@ -2749,7 +3289,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "{ items }. Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -2950,6 +3490,57 @@
           },
           "404": {
             "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/reports/workload": {
+      "get": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Moderator workload and queue health",
+        "operationId": "Moderation_workload",
+        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "x-staff-roles": [
+          "support",
+          "moderator",
+          "trust_lead",
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "{ policy, queue: { unassigned, urgent, overdue, oldestUnassignedHours }, moderators: [{ id, name, role, assigned, overdue, oldestHours, resolvedLast7Days }] }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
             "content": {
               "application/json": {
                 "schema": {
@@ -3350,6 +3941,77 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/users/{id}/offender": {
+      "get": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Repeat-offender check for a person",
+        "operationId": "Moderation_offender",
+        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "x-staff-roles": [
+          "support",
+          "moderator",
+          "trust_lead",
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ flag, reasons, warnings, reporters, suspensions }"
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -4099,6 +4761,112 @@
         }
       }
     },
+    "/v1/admin/users/{id}/warn": {
+      "post": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Send a formal warning (can be tied to a report or message)",
+        "operationId": "Moderation_warn",
+        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "x-staff-roles": [
+          "moderator",
+          "trust_lead",
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  },
+                  "reportId": {
+                    "type": "string"
+                  },
+                  "messageId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, warningsInLastSixMonths, repeatOffender }. The person is told and can appeal it once."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `INVALID_TARGET`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/verifications": {
       "get": {
         "tags": [
@@ -4269,6 +5037,101 @@
           },
           "409": {
             "description": "Conflicts with the current state. Codes: `ALREADY_DECIDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/appeals/suspension": {
+      "post": {
+        "tags": [
+          "Sign-in and account"
+        ],
+        "summary": "Appeal a suspension (the person cannot sign in, so email and password are sent)",
+        "operationId": "Appeals_suspension",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  },
+                  "password": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "email",
+                  "password",
+                  "message"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, state: \"open\" }. The answer comes by email. Once every 30 days."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_CREDENTIALS`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `ALREADY_APPEALED`, `APPEAL_OPEN`, `NOTHING_TO_APPEAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -5483,7 +6346,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `TOO_MANY_OPEN_POLLS`",
+            "description": "Conflicts with the current state. Codes: `TOO_MANY_OPEN_POLLS`, `TRIP_CLOSED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -5952,6 +6815,173 @@
         }
       }
     },
+    "/v1/me/appeals": {
+      "get": {
+        "tags": [
+          "Profile and photo"
+        ],
+        "summary": "My appeals and what was decided",
+        "operationId": "Appeals_mine",
+        "responses": {
+          "200": {
+            "description": "{ items: [{ id, kind, what, state, decision, createdAt, decidedAt }] }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Profile and photo"
+        ],
+        "summary": "Ask staff to look again: a rejected identity check, a listing or message staff removed, a warning, or a report of yours that was dismissed",
+        "operationId": "Appeals_create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "verification",
+                      "removal",
+                      "report",
+                      "warning",
+                      "message"
+                    ]
+                  },
+                  "targetType": {
+                    "type": "string",
+                    "enum": [
+                      "activity",
+                      "trip"
+                    ]
+                  },
+                  "targetId": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "kind",
+                  "message"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, kind, state: \"open\" }. Once per decision."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `ALREADY_APPEALED`, `APPEAL_OPEN`, `NOTHING_TO_APPEAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/me/connections": {
       "get": {
         "tags": [
@@ -6160,6 +7190,334 @@
           },
           "403": {
             "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `STAFF_ACCOUNT`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/drafts": {
+      "get": {
+        "tags": [
+          "Profile and photo"
+        ],
+        "summary": "My saved drafts (activities and trips not yet posted)",
+        "operationId": "Drafts_list",
+        "responses": {
+          "200": {
+            "description": "{ items: [{ id, kind, title, data, updatedAt }] }. Only the owner ever sees them."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Profile and photo"
+        ],
+        "summary": "Save a draft, or replace the one named by id",
+        "operationId": "Drafts_save",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "activity",
+                      "trip"
+                    ]
+                  },
+                  "data": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "kind",
+                  "data"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the saved draft. The form may be half empty: it is only checked when posted."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `DRAFT_TOO_LARGE`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `TOO_MANY_DRAFTS`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/drafts/{id}": {
+      "delete": {
+        "tags": [
+          "Profile and photo"
+        ],
+        "summary": "Delete a draft",
+        "operationId": "Drafts_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/drafts/{id}/publish": {
+      "post": {
+        "tags": [
+          "Profile and photo"
+        ],
+        "summary": "Post a draft as a real activity or trip",
+        "operationId": "Drafts_publish",
+        "description": "Needs a **verified adult**.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the new activity or trip. It is checked like any other; if something is wrong the draft is kept so it can be fixed."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `INVALID_DATES`, `INVALID_SCHEDULE`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `VERIFICATION_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `DUPLICATE_ACTIVITY`, `TOO_MANY_OPEN_ACTIVITIES`",
             "content": {
               "application/json": {
                 "schema": {
@@ -7589,6 +8947,450 @@
         }
       }
     },
+    "/v1/me/reports": {
+      "get": {
+        "tags": [
+          "Safety, blocks and follows"
+        ],
+        "summary": "Reports I made and where each stands",
+        "operationId": "Moderation_mine",
+        "responses": {
+          "200": {
+            "description": "{ items: [{ id, category, targetType, status, outcome, createdAt, canAppeal }] }. A dismissed report can be appealed once with POST /v1/me/appeals (kind report)."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/travel-match": {
+      "delete": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Switch travel matching off",
+        "operationId": "Matching_clear",
+        "responses": {
+          "200": {
+            "description": "{ ok: true }. Chats that already opened stay until someone ends them."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Travel matching: my wish and the travelers suggested for it (verified adults only)",
+        "operationId": "Matching_overview",
+        "responses": {
+          "200": {
+            "description": "{ pref, suggestions: [{ userId, displayName, photoUrl, homeCity, bio, reliability, destination, dateStart, dateEnd, overlapDays, sharedInterests }] }. Nobody can see who said yes to them."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Opt in: where and when I want to travel",
+        "operationId": "Matching_setPref",
+        "description": "Needs a **verified adult**.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "destination": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 100
+                  },
+                  "dateStart": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "dateEnd": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "destination",
+                  "dateStart",
+                  "dateEnd"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the same as GET. Starts a fresh round: earlier yes or pass answers are cleared."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `INVALID_DATES`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `VERIFICATION_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/travel-match/chats/{conversationId}/end": {
+      "post": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "End a travel-match chat for both people",
+        "operationId": "Matching_end",
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/travel-match/people/{userId}": {
+      "post": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Say yes or pass about a suggested traveler",
+        "operationId": "Matching_choose",
+        "description": "Needs a **verified adult**.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "choice": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "pass"
+                    ]
+                  }
+                },
+                "required": [
+                  "choice"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ matched, conversationId? }. A yes tells the other person nothing: the answer is the same whether or not they said yes. Two yeses open a private two-person chat."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `VERIFICATION_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `NOT_OPTED_IN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/me/trips": {
       "get": {
         "tags": [
@@ -8742,7 +10544,8 @@
                       "underage",
                       "physical_safety",
                       "spam",
-                      "financial_solicitation"
+                      "financial_solicitation",
+                      "immediate_danger"
                     ]
                   },
                   "details": {
@@ -8761,7 +10564,7 @@
         },
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "{ id, status, priority, expectedWithin, coverage, emergency }. Category immediate_danger and physical_safety are urgent: looked at first, and immediate danger alerts every moderator at once. The answer also carries the emergency number to show the person."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -8802,6 +10605,31 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/policy": {
+      "get": {
+        "tags": [
+          "Safety, blocks and follows"
+        ],
+        "summary": "How reports are handled: coverage hours, answer times and the emergency number",
+        "operationId": "Moderation_policy",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "{ coverage: { text, onDutyNow }, answerWithin: { urgent, normal }, emergency: { number, text } }. Public."
           },
           "500": {
             "description": "Server error (`INTERNAL_ERROR`)",
@@ -9410,6 +11238,117 @@
         }
       }
     },
+    "/v1/trips/{id}/appeal": {
+      "post": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Ask the organizer to look again at a declined application (once)",
+        "operationId": "Trips_appeal",
+        "description": "Needs a **verified adult**.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "intro": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, state }"
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `VERIFICATION_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `ALREADY_APPEALED`, `NOT_DECLINED`, `TRIP_CLOSED`, `TRIP_FULL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/trips/{id}/applications": {
       "get": {
         "tags": [
@@ -9944,7 +11883,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `NO_DATES_TO_CONFIRM`",
+            "description": "Conflicts with the current state. Codes: `NO_DATES_TO_CONFIRM`, `TRIP_CLOSED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -10429,6 +12368,459 @@
         }
       }
     },
+    "/v1/trips/{id}/plan": {
+      "get": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "The group shared plan: itinerary by day and estimated costs (members only)",
+        "operationId": "TripPlan_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ editable, itinerary: { days: [{ day, items }] }, budget: { label, currency, items, perPersonTotal, statedMin, statedMax, comparison, note } }. Lines carry canEdit. Budget notes are estimates, never payments."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trips/{id}/plan/items": {
+      "post": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Add an itinerary line or a budget note (any member)",
+        "operationId": "TripPlan_add",
+        "description": "Needs a **verified adult**.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "itinerary",
+                      "budget"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 100
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "day": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "amount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100000
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id }"
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `DAY_OUT_OF_RANGE`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`, `VERIFICATION_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `PLAN_FULL`, `TRIP_CLOSED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trips/{id}/plan/items/{itemId}": {
+      "delete": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Remove a line (its author or the organizer)",
+        "operationId": "TripPlan_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`, `NOT_YOUR_LINE`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `TRIP_CLOSED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Change a line (its author or the organizer)",
+        "operationId": "TripPlan_update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 100
+                  },
+                  "note": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "day": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "amount": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `DAY_OUT_OF_RANGE`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`, `NOT_YOUR_LINE`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `TRIP_CLOSED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/users/{id}": {
       "get": {
         "tags": [
@@ -10740,10 +13132,13 @@
               "ADMIN_ONLY",
               "ADULT_CONFIRMATION_REQUIRED",
               "ADULT_REQUIRED",
+              "ALREADY_APPEALED",
               "ALREADY_APPLIED",
               "ALREADY_DECIDED",
               "ALREADY_REQUESTED",
               "ALREADY_VERIFIED",
+              "APPEAL_DECIDED",
+              "APPEAL_OPEN",
               "APPLICANT_UNAVAILABLE",
               "APPLICATION_WITHDRAWN",
               "ATTENDANCE_CLOSED",
@@ -10756,7 +13151,9 @@
               "CONSENT_REQUIRED",
               "CONTENT_REJECTED",
               "CONVERSATION_CLOSED",
+              "DAY_OUT_OF_RANGE",
               "DISPUTE_CLOSED",
+              "DRAFT_TOO_LARGE",
               "DUPLICATE_ACTIVITY",
               "EMAIL_NOT_VERIFIED",
               "EMAIL_REQUIRED",
@@ -10790,24 +13187,30 @@
               "MFA_EXPIRED",
               "MFA_NOT_STARTED",
               "MFA_REQUIRED",
+              "NOTHING_TO_APPEAL",
               "NOT_A_MEMBER",
               "NOT_A_TRIP_CHAT",
+              "NOT_DECLINED",
               "NOT_DISPUTABLE",
               "NOT_FINISHED",
               "NOT_FOUND",
               "NOT_HOST",
+              "NOT_OPTED_IN",
               "NOT_ORGANIZER",
               "NOT_PENDING",
               "NOT_REJECTED",
               "NOT_VERIFIED",
+              "NOT_YOUR_LINE",
               "NO_DATES",
               "NO_DATES_TO_CONFIRM",
               "NO_IMAGE",
               "ORGANIZER_CANNOT_LEAVE",
+              "OWN_APPEAL",
               "PAYLOAD_TOO_LARGE",
               "PHONE_BLOCKED",
               "PHONE_IN_USE",
               "PLAN_CANCELLED",
+              "PLAN_FULL",
               "POLL_CLOSED",
               "RATE_LIMITED",
               "REGISTRATION_BLOCKED",
@@ -10816,11 +13219,13 @@
               "ROUTE_NOT_FOUND",
               "SAME_EMAIL",
               "SAME_PASSWORD",
+              "SECOND_REVIEWER",
               "SOCIAL_NOT_FOR_STAFF",
               "SOCIAL_UNAVAILABLE",
               "STAFF_ACCOUNT",
               "STAFF_ONLY",
               "TOO_MANY_ATTEMPTS",
+              "TOO_MANY_DRAFTS",
               "TOO_MANY_OPEN_ACTIVITIES",
               "TOO_MANY_OPEN_POLLS",
               "TRIP_CLOSED",
@@ -10875,6 +13280,18 @@
       "status": 400,
       "meaning": "The text broke a content rule (spam links, repetition, or a request for money). `message` says which.",
       "clientShould": "Show the message and let the person edit the text."
+    },
+    {
+      "code": "DAY_OUT_OF_RANGE",
+      "status": 400,
+      "meaning": "The day of a plan line is more than a week outside the dates of the trip.",
+      "clientShould": "Let the person pick a day inside the trip."
+    },
+    {
+      "code": "DRAFT_TOO_LARGE",
+      "status": 400,
+      "meaning": "The draft is far longer than any real form.",
+      "clientShould": "Ask the person to shorten it."
     },
     {
       "code": "EMAIL_REQUIRED",
@@ -11111,6 +13528,18 @@
       "clientShould": "Hide the action for other people."
     },
     {
+      "code": "NOT_YOUR_LINE",
+      "status": 403,
+      "meaning": "Only the person who added a plan line, or the organizer, can change or remove it.",
+      "clientShould": "Hide the edit actions on other people lines."
+    },
+    {
+      "code": "OWN_APPEAL",
+      "status": 403,
+      "meaning": "Staff cannot decide an appeal they made themselves.",
+      "clientShould": "Ask another moderator."
+    },
+    {
       "code": "PHONE_BLOCKED",
       "status": 403,
       "meaning": "This mobile number is on the ban list (it belonged to a removed account).",
@@ -11121,6 +13550,12 @@
       "status": 403,
       "meaning": "A new account cannot be created for this person right now (it matches a removed account). Staff can review it.",
       "clientShould": "Show the message and point to support; do not say why."
+    },
+    {
+      "code": "SECOND_REVIEWER",
+      "status": 403,
+      "meaning": "The moderator who made a decision cannot review the appeal of it (an administrator can).",
+      "clientShould": "Hand the appeal to another moderator."
     },
     {
       "code": "SOCIAL_NOT_FOR_STAFF",
@@ -11201,6 +13636,12 @@
       "clientShould": "Show \"full\" or the waiting-list option."
     },
     {
+      "code": "ALREADY_APPEALED",
+      "status": 409,
+      "meaning": "This decision was already appealed once (a suspension: once every 30 days).",
+      "clientShould": "Show the earlier appeal and its answer."
+    },
+    {
       "code": "ALREADY_APPLIED",
       "status": 409,
       "meaning": "The person already has an application for this trip; the message names its state.",
@@ -11223,6 +13664,18 @@
       "status": 409,
       "meaning": "The person is already verified; use \"require re-verification\" instead.",
       "clientShould": "Refresh the case."
+    },
+    {
+      "code": "APPEAL_DECIDED",
+      "status": 409,
+      "meaning": "A moderator already decided this appeal.",
+      "clientShould": "Reload the queue."
+    },
+    {
+      "code": "APPEAL_OPEN",
+      "status": 409,
+      "meaning": "The person already has an appeal waiting for a decision.",
+      "clientShould": "Show it and tell them to wait for the answer."
     },
     {
       "code": "APPLICANT_UNAVAILABLE",
@@ -11333,6 +13786,12 @@
       "clientShould": "Refresh the trip."
     },
     {
+      "code": "NOT_DECLINED",
+      "status": 409,
+      "meaning": "Only a request or application that the host or organizer declined can be asked about again.",
+      "clientShould": "Hide the Ask again action."
+    },
+    {
       "code": "NOT_DISPUTABLE",
       "status": 409,
       "meaning": "The note is already disputed or decided by a moderator.",
@@ -11343,6 +13802,12 @@
       "status": 409,
       "meaning": "Attendance can only be given once the activity has ended.",
       "clientShould": "Hide the question until then."
+    },
+    {
+      "code": "NOT_OPTED_IN",
+      "status": 409,
+      "meaning": "The person answered about a traveler without having turned travel matching on.",
+      "clientShould": "Show the opt-in screen."
     },
     {
       "code": "NOT_PENDING",
@@ -11363,6 +13828,12 @@
       "clientShould": "Explain that the member must verify first."
     },
     {
+      "code": "NOTHING_TO_APPEAL",
+      "status": 409,
+      "meaning": "There is no rejected check, staff removal or suspension to appeal.",
+      "clientShould": "Hide the appeal action."
+    },
+    {
       "code": "ORGANIZER_CANNOT_LEAVE",
       "status": 409,
       "meaning": "The organizer must cancel the trip or hand it over first.",
@@ -11381,6 +13852,12 @@
       "clientShould": "Hide the action."
     },
     {
+      "code": "PLAN_FULL",
+      "status": 409,
+      "meaning": "The trip plan already holds the most lines allowed of that kind (60).",
+      "clientShould": "Ask the group to tidy the plan first."
+    },
+    {
       "code": "POLL_CLOSED",
       "status": 409,
       "meaning": "The poll is closed; votes are no longer taken.",
@@ -11391,6 +13868,12 @@
       "status": 409,
       "meaning": "The applicant withdrew this request before the decision.",
       "clientShould": "Refresh the list of requests."
+    },
+    {
+      "code": "TOO_MANY_DRAFTS",
+      "status": 409,
+      "meaning": "The person already keeps the most drafts allowed (10 per kind).",
+      "clientShould": "Offer to delete an old draft first."
     },
     {
       "code": "TOO_MANY_OPEN_ACTIVITIES",

@@ -79,19 +79,54 @@ export function effectiveStatus(a: Pick<Activity, 'status' | 'startsAt' | 'endsA
   return a.status;
 }
 
+/** An activity is "confirmed" once this many people (the host included) are going: it is happening. */
+export const MIN_TO_CONFIRM = 2;
+/** The "starting soon" reminder goes out this many minutes before the start. */
+export const REMINDER_LEAD_MIN = 60;
+
 @Injectable()
 export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   private sweeper?: NodeJS.Timeout;
+  private reminder?: NodeJS.Timeout;
 
   /** Pending requests are closed the moment an activity starts; this sweep makes that happen on time even if nobody opens the app. */
   onModuleInit() {
     if (process.env.NODE_ENV === 'test') return;
     this.sweeper = setInterval(() => void this.expirePendingRequests().catch(() => undefined), 15_000);
     this.sweeper.unref();
+    this.reminder = setInterval(() => void this.sendStartingSoon().catch(() => undefined), 60_000);
+    this.reminder.unref();
   }
 
   onModuleDestroy() {
     if (this.sweeper) clearInterval(this.sweeper);
+    if (this.reminder) clearInterval(this.reminder);
+  }
+
+  /**
+   * One "starting soon" reminder per activity, about an hour before it begins, to everyone going. Someone who joined in the
+   * last few minutes has just seen the time, so they are not reminded. Each activity is claimed first, so two runs can
+   * never send it twice. Returns how many reminders went out.
+   */
+  async sendStartingSoon(now = new Date()) {
+    const due = await this.prisma.activity.findMany({
+      where: { status: { in: ['published', 'full', 'confirmed'] }, remindedAt: null, startsAt: { gt: now, lte: new Date(+now + REMINDER_LEAD_MIN * 60_000) } },
+      select: { id: true },
+    });
+    let sent = 0;
+    for (const { id } of due) {
+      const claimed = await this.prisma.activity.updateMany({ where: { id, remindedAt: null }, data: { remindedAt: now } });
+      if (claimed.count === 0) continue;
+      const a = await this.prisma.activity.findUnique({ where: { id } });
+      if (!a) continue;
+      const people = await this.prisma.activityMembership.findMany({ where: { activityId: id, state: 'approved', createdAt: { lt: new Date(+now - 15 * 60_000) } }, select: { userId: true } });
+      const mins = Math.max(1, Math.round((+a.startsAt - +now) / 60_000));
+      for (const p of people) {
+        await this.notifications.notify(p.userId, 'starting_soon', 'Starting soon', `${a.title} starts in about ${mins} ${mins === 1 ? 'minute' : 'minutes'} at ${a.venueName}.`, { activityId: id });
+        sent++;
+      }
+    }
+    return sent;
   }
 
   /**
@@ -150,6 +185,23 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   private readonly hostInclude = {
     host: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } },
   } as const;
+
+  /**
+   * Keeps the stored status in step with who is going: full when no place is left, confirmed once enough people are going,
+   * otherwise open. Cancelled, archived and draft activities are left alone. The people going are told the moment it is confirmed.
+   */
+  async refreshStatus(activityId: string) {
+    const a = await this.prisma.activity.findUnique({ where: { id: activityId } });
+    if (!a || !['published', 'full', 'confirmed'].includes(a.status)) return;
+    const going = await this.goingCount(activityId);
+    const next = going >= a.capacity ? 'full' : going >= MIN_TO_CONFIRM ? 'confirmed' : 'published';
+    if (next === a.status) return;
+    await this.prisma.activity.update({ where: { id: activityId }, data: { status: next } });
+    if (a.status === 'published' && next !== 'published' && effectiveStatus(a) === 'published') {
+      for (const userId of await this.attendeeIds(activityId))
+        await this.notifications.notify(userId, 'activity_confirmed', 'It is happening', `Enough people are going: ${a.title} is confirmed.`, { activityId });
+    }
+  }
 
   private async goingCount(activityId: string) {
     return this.prisma.activityMembership.count({ where: { activityId, state: 'approved' } });
@@ -329,6 +381,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return this.dto(a, going, {
       hostReliability: hostLevel,
       isHost: a.hostId === me.id,
+      // staff took it down (the host's own cancellation leaves a time stamp) and the host has not yet asked for a review
+      canAppealRemoval: a.hostId === me.id && a.status === 'cancelled' && !a.cancelledAt && !(await this.prisma.appeal.findFirst({ where: { userId: me.id, kind: 'removal', targetId: id }, select: { id: true } })),
       isMember,
       // plan changed by the host: this member is asked to confirm or leave
       needsReconfirm: isMember && membership?.reconfirm === 'needed',
@@ -337,7 +391,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       // only ever set by the member, after it ended (voluntary)
       myAttendance: isMember ? (membership?.attendance ?? 'unknown') : undefined,
       activitiesHosted,
-      myRequest: request ? { id: request.id, state: request.state, position: request.state === 'waitlisted' ? await this.waitlistPosition(id, request.createdAt, request.id) : undefined } : null,
+      myRequest: request ? { id: request.id, state: request.state, canAppeal: request.state === 'declined' && !!request.reviewedBy && !request.appealedAt && effectiveStatus(a) !== 'cancelled' && new Date() < a.startsAt, position: request.state === 'waitlisted' ? await this.waitlistPosition(id, request.createdAt, request.id) : undefined } : null,
       favorited: !!fav,
       // chat id is withheld until the server has approved this user
       conversationId: conv?.id ?? null,
@@ -463,6 +517,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       data: {
         ...(dto.title !== undefined && { title: dto.title }),
         ...(dto.description !== undefined && { description: dto.description }),
+        ...(timeChanged && { remindedAt: null }), // a new time gets a new reminder
         ...(dto.venueName !== undefined && { venueName: dto.venueName }),
         ...(dto.venuePlaceId !== undefined && { venuePlaceId: dto.venuePlaceId }),
         ...(dto.lat !== undefined && { lat: dto.lat }),
@@ -564,9 +619,35 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt, r.id) : undefined };
   }
 
-  private async notifyHost(a: Activity, applicant: User) {
+  /**
+   * A declined person can ask the host to look again, once, with a short note. Only a real decision by the host can be
+   * asked about (not a request that simply ran out of time), and only while the activity has not started. It goes back
+   * to the host as a new request, or to the waiting list if the activity filled up in the meantime.
+   */
+  async appealDecline(me: User, id: string, body: unknown) {
+    requireVerified(me);
+    const dto = parse(requestSchema, body);
+    const bad = contentProblem(dto.intro);
+    if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
+    const a = await this.prisma.activity.findUnique({ where: { id } });
+    if (!a || (await this.safety.isBlocked(me.id, a.hostId))) throw E.notFound('Activity');
+    const status = effectiveStatus(a);
+    if (['cancelled', 'in_progress', 'completed', 'archived'].includes(status)) throw E.conflict('ACTIVITY_CLOSED', 'This activity is no longer open');
+    const r = await this.prisma.activityRequest.findUnique({ where: { activityId_applicantId: { activityId: id, applicantId: me.id } } });
+    if (!r || r.state !== 'declined' || !r.reviewedBy) throw E.conflict('NOT_DECLINED', 'Only a request the host declined can be asked about again');
+    if (r.appealedAt) throw E.conflict('ALREADY_APPEALED', 'You already asked the host to look again');
+    const full = status === 'full' || (await this.goingCount(id)) >= a.capacity;
+    const updated = await this.prisma.activityRequest.update({
+      where: { id: r.id },
+      data: { state: full ? 'waitlisted' : 'requested', appealedAt: new Date(), ...(dto.intro ? { intro: dto.intro } : {}), decidedAt: null, reviewedBy: null, ...(full ? { createdAt: new Date() } : {}) },
+    });
+    if (!full) await this.notifyHost(a, me, true);
+    return { id: updated.id, state: updated.state };
+  }
+
+  private async notifyHost(a: Activity, applicant: User, again = false) {
     const p = await this.prisma.profile.findUnique({ where: { userId: applicant.id } });
-    await this.notifications.notify(a.hostId, 'join_request', 'A new join request', `${p?.displayName ?? 'Someone'} wants to join ${a.title}`, {
+    await this.notifications.notify(a.hostId, 'join_request', again ? 'Asked to look again' : 'A new join request', `${p?.displayName ?? 'Someone'} ${again ? 'asked you to look again at their request for' : 'wants to join'} ${a.title}`, {
       activityId: a.id,
       applicantId: applicant.id,
     });
@@ -631,6 +712,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         return true;
       });
       if (!placed) continue;
+      await this.refreshStatus(activityId);
       await this.notifications.notify(who.applicantId, 'waitlist_promoted', "A place opened up. You're in!", `You moved off the waiting list and into ${a.title}. You can chat with the group now.`, { activityId });
       await this.audit.log(a.hostId, 'activity.waitlist_promoted', 'activity_request', who.id, { activityId, applicantId: who.applicantId });
     }
@@ -709,6 +791,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         const total = (!already || already.state !== 'approved') ? count + 1 : count;
         if (total >= a.capacity) await tx.activity.update({ where: { id: activityId }, data: { status: 'full' } });
       });
+      await this.refreshStatus(activityId);
       await this.notifications.notify(r.applicantId, 'request_approved', 'You are approved!', `You can now chat with the group for ${a.title}`, {
         activityId,
       });
@@ -722,9 +805,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         const m = await tx.activityMembership.findUnique({ where: { activityId_userId: { activityId, userId: r.applicantId } } });
         if (m && m.state === 'approved' && m.role !== 'host') {
           await tx.activityMembership.update({ where: { id: m.id }, data: { state: 'removed' } });
-          if (a.status === 'full') await tx.activity.update({ where: { id: activityId }, data: { status: 'published' } });
         }
       });
+      await this.refreshStatus(activityId);
       await this.notifications.notify(r.applicantId, 'request_declined', 'Request declined', `Your request for ${a.title} was not approved.`, {
         activityId,
       });
@@ -766,7 +849,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   private async setMemberGone(a: Activity, membershipId: string, state: 'withdrawn' | 'removed') {
     // a member leaving of their own accord is timestamped: leaving at the last minute counts against reliability
     await this.prisma.activityMembership.update({ where: { id: membershipId }, data: { state, ...(state === 'withdrawn' ? { leftAt: new Date() } : {}) } });
-    if (a.status === 'full') await this.prisma.activity.update({ where: { id: a.id }, data: { status: 'published' } });
+    await this.refreshStatus(a.id);
     await this.fillFromWaitlist(a.id); // the first person waiting takes the place
     this.live.feedChanged();
   }

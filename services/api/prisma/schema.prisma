@@ -75,6 +75,10 @@ model User {
   followers         Follow[] @relation("followed")
   recoveryCodes     MfaRecoveryCode[]
   reliabilityChanges ReliabilityChange[]
+  drafts            Draft[]
+  travelMatchPref   TravelMatchPref?
+  warnings          UserWarning[]
+  appeals           Appeal[]
   socialIdentities  SocialIdentity[]
 
   @@index([registeredDevice])
@@ -200,6 +204,7 @@ model Activity {
   status        String   @default("published") // draft | published | full | confirmed | in_progress | completed | cancelled | archived
   pendingHostId String?  // a member the host has offered to hand the activity to (needs their acceptance)
   cancelledAt   DateTime? // when the HOST cancelled it (staff removals do not set this)
+  remindedAt    DateTime? // when the "starting soon" reminder went out (once)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -220,6 +225,7 @@ model ActivityRequest {
   intro        String?
   state        String   @default("requested") // requested | approved | declined | waitlisted | withdrawn
   reviewedBy   String?
+  appealedAt   DateTime? // the person asked the host to look again (once)
   createdAt    DateTime @default(now())
   decidedAt    DateTime?
 
@@ -274,6 +280,7 @@ model Trip {
   polls                 TripPoll[]
   datesState            String   @default("tentative") // tentative | proposed (final dates put to the group; everyone must confirm)
   conversation          Conversation?
+  items                 TripItem[]
 
   @@index([destinationKey, dateStart])
 }
@@ -288,6 +295,7 @@ model TripApplication {
   experience   String?
   state        String   @default("pending") // pending | approved | declined | withdrawn | expired | waitlisted
   reviewedBy   String?
+  appealedAt   DateTime? // the person asked the organizer to look again (once)
   createdAt    DateTime @default(now())
   decidedAt    DateTime?
 
@@ -312,11 +320,17 @@ model TripMembership {
 // One conversation per activity/trip; read/write is derived from LIVE membership.
 model Conversation {
   id         String   @id @default(cuid())
-  scopeType  String   // activity | trip
+  scopeType  String   // activity | trip | match (two travelers who both said yes)
   activityId String?  @unique
   activity   Activity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
   tripId     String?  @unique
   trip       Trip?    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  // match chats only: the two people (ids in sorted order, joined by a colon, so a pair has one chat), what they matched on, and when it was ended
+  pairKey    String?  @unique
+  userAId    String?
+  userBId    String?
+  topic      String?
+  endedAt    DateTime?
   createdAt  DateTime @default(now())
   messages   Message[]
 }
@@ -332,6 +346,9 @@ model Message {
   refId           String?  // the poll a poll message points at
   meta            String?  // JSON, e.g. the url of a link message
   moderationState String   @default("ok") // ok | flagged | removed
+  removedBy       String?  // staff member who hid it
+  removedReason   String?
+  removedAt       DateTime?
   createdAt       DateTime @default(now())
 
   @@index([conversationId, createdAt])
@@ -409,6 +426,10 @@ model Report {
   status        String   @default("open") // open | in_review | resolved | dismissed
   assignedTo    String?
   resolution    String?
+  priority      String   @default("normal") // normal | urgent (immediate danger and physical safety)
+  firstReviewedAt DateTime? // when a moderator first took it
+  escalatedAt   DateTime? // when it passed its answer time and the senior staff were told
+  reopenedAt    DateTime? // when an appeal sent a dismissed report back for a second look
   createdAt     DateTime @default(now())
   resolvedAt    DateTime?
 }
@@ -485,6 +506,97 @@ model ReliabilityChange {
   facts     String   // JSON: the counts behind the level at that moment
   because   String   // plain words: the newest event
   createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+/** A half-finished activity or trip, kept only for its owner. Nothing here is visible to anyone else or counts as a listing. */
+model Draft {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String   // activity | trip
+  data      String   // the form as JSON, possibly incomplete
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([userId, updatedAt])
+}
+
+/** A person asking staff to look at a decision again: a rejected identity check, a suspension, or a listing staff removed. */
+model Appeal {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String   // verification | suspension | removal
+  targetType String?  // removal only: activity | trip
+  targetId   String?
+  message    String
+  state      String   @default("open") // open | upheld (the decision was changed) | rejected (the decision stands)
+  decidedBy  String?
+  decision   String?  // staff note, shown to the person
+  createdAt  DateTime @default(now())
+  decidedAt  DateTime?
+
+  @@index([state, createdAt])
+  @@index([userId, createdAt])
+}
+
+/** A line of the group's shared plan: a stop or idea for a day (itinerary), or an estimated cost (budget note). Never a payment. */
+model TripItem {
+  id          String   @id @default(cuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  kind        String   // itinerary | budget
+  day         DateTime? // itinerary: the day it is planned for (empty = not decided yet)
+  title       String
+  note        String?
+  amount      Int?     // budget: estimated cost per person, in the trip's currency
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tripId, kind])
+}
+
+/** "Match me with people going to this place on these dates". One per person; switching it off deletes it. */
+model TravelMatchPref {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  destination    String
+  destinationKey String
+  dateStart      DateTime
+  dateEnd        DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([destinationKey])
+}
+
+/** One person's answer about another suggested traveler. Nobody can see an answer about them: a chat only opens when both said yes. */
+model TravelMatchChoice {
+  id        String   @id @default(cuid())
+  fromId    String
+  toId      String
+  choice    String   // yes | pass
+  createdAt DateTime @default(now())
+
+  @@unique([fromId, toId])
+  @@index([toId])
+}
+
+/** A formal warning from a moderator. It is told to the person, can be appealed once, and counts toward the repeat-offender flag. */
+model UserWarning {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason      String
+  reportId    String?
+  messageId   String?
+  createdById String
+  withdrawnAt DateTime? // set when an appeal succeeded
+  createdAt   DateTime  @default(now())
 
   @@index([userId, createdAt])
 }

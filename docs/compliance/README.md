@@ -8,6 +8,7 @@
 | [dpia-draft.md](dpia-draft.md) | Data Protection Impact Assessment (Art. 35): risks and the measures already built | DPO completes the risk scoring and signs |
 | [face-matching-checklist.md](face-matching-checklist.md) | Biometric (face match) identity check: what Italian law and the Garante expect, and what is and is not in place | Lawyer decides; do this BEFORE a real provider is switched on |
 | [retention-schedule.md](retention-schedule.md) | How long each kind of data is kept (matches the clean-up job in the code) | Owner approves the periods |
+| [moderation-policy-draft.md](moderation-policy-draft.md) | How reports, warnings, escalation and appeals work (hours, answer times, emergency path) | Owner approves the hours and answer times |
 | [privacy-policy-draft.md](privacy-policy-draft.md) | Plain-language privacy notice for the app | Lawyer edits; fill the [PLACEHOLDERS] |
 | [terms-draft.md](terms-draft.md) | Plain-language terms of use and community rules | Lawyer edits; fill the [PLACEHOLDERS] |
 

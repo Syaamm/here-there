@@ -17,6 +17,11 @@ import { AuthGuard } from './common/auth';
 import { PrismaService } from './common/prisma.service';
 import { RateLimiter } from './common/rate-limiter';
 import { DocsController } from './docs/docs.controller';
+import { AppealsController, AppealsService } from './appeals/appeals.controller';
+import { MatchingController, MatchingService } from './matching/matching.controller';
+import { TripPlanController, TripPlanService } from './trips/trip-plan.controller';
+import { ModerationController, ModerationService } from './moderation/moderation.controller';
+import { DraftsController } from './drafts/drafts.controller';
 import { ReliabilityController, ReliabilityService } from './reliability/reliability.controller';
 import { RetentionController, RetentionService } from './retention/retention.service';
 import { ConversationsController, ConversationsService } from './conversations/conversations.controller';
@@ -50,6 +55,11 @@ function jwtSecret() {
     MfaController,
     RetentionController,
     ReliabilityController,
+    DraftsController,
+    ModerationController,
+    MatchingController,
+    TripPlanController,
+    AppealsController,
     ActivitiesController,
     TripsController,
     ConversationsController,
@@ -83,6 +93,10 @@ function jwtSecret() {
     SocialService,
     RetentionService,
     ReliabilityService,
+    AppealsService,
+    ModerationService,
+    MatchingService,
+    TripPlanService,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
   exports: [PrismaService, RateLimiter],

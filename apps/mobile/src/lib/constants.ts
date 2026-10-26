@@ -32,6 +32,7 @@ export const MILAN_AREAS: Record<string, [number, number]> = {
 };
 
 export const REPORT_CATEGORIES: [string, string][] = [
+  ['immediate_danger', 'Someone is in danger right now'],
   ['harassment', 'Harassment'],
   ['fraud', 'Fraud or scam'],
   ['inappropriate_content', 'Inappropriate content'],

@@ -8,7 +8,10 @@ import * as contact from '../auth/contact-verification.service';
 import * as chat from '../conversations/conversations.controller';
 import * as push from '../notifications/push.controller';
 import * as follows from '../safety/follows.controller';
+import * as moderation from '../moderation/moderation.controller';
 import * as safety from '../safety/safety.controller';
+import * as matching from '../matching/matching.controller';
+import * as plan from '../trips/trip-plan.controller';
 import * as trips from '../trips/trips.service';
 
 export type RouteDoc = {
@@ -93,6 +96,26 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   'DELETE /v1/trips/{id}/no-shows/{userId}': { tag: T.there, summary: 'Organizer: take a note back while it is still just a note', returns: '{ ok: true }', errors: ['MARK_LOCKED'] },
   'GET /v1/admin/no-shows': { tag: T.admin, summary: 'No-show notes waiting for a moderator (disputed and pending)', query: z.object({ state: z.string().optional() }), returns: '{ items }' },
   'POST /v1/admin/no-shows/{markId}/decision': { tag: T.admin, summary: 'Uphold or overturn a no-show note (any note, to fix mistakes)', body: z.object({ decision: z.enum(['uphold', 'overturn']), note: z.string().min(3).max(500) }), returns: '{ id, state }. Both people are told.' },
+  'GET /v1/trips/{id}/plan': { tag: T.there, summary: 'The group shared plan: itinerary by day and estimated costs (members only)', returns: '{ editable, itinerary: { days: [{ day, items }] }, budget: { label, currency, items, perPersonTotal, statedMin, statedMax, comparison, note } }. Lines carry canEdit. Budget notes are estimates, never payments.', errors: ['NOT_A_MEMBER'] },
+  'POST /v1/trips/{id}/plan/items': { tag: T.there, summary: 'Add an itinerary line or a budget note (any member)', body: plan.itemSchema, verified: true, returns: '{ id }', errors: ['NOT_A_MEMBER', 'TRIP_CLOSED', 'CONTENT_REJECTED', 'DAY_OUT_OF_RANGE', 'PLAN_FULL', 'RATE_LIMITED'] },
+  'PATCH /v1/trips/{id}/plan/items/{itemId}': { tag: T.there, summary: 'Change a line (its author or the organizer)', body: plan.itemUpdateSchema, returns: '{ ok: true }', errors: ['NOT_A_MEMBER', 'TRIP_CLOSED', 'NOT_YOUR_LINE', 'CONTENT_REJECTED', 'DAY_OUT_OF_RANGE'] },
+  'DELETE /v1/trips/{id}/plan/items/{itemId}': { tag: T.there, summary: 'Remove a line (its author or the organizer)', returns: '{ ok: true }', errors: ['NOT_A_MEMBER', 'TRIP_CLOSED', 'NOT_YOUR_LINE'] },
+  'GET /v1/me/travel-match': { tag: T.there, summary: 'Travel matching: my wish and the travelers suggested for it (verified adults only)', returns: '{ pref, suggestions: [{ userId, displayName, photoUrl, homeCity, bio, reliability, destination, dateStart, dateEnd, overlapDays, sharedInterests }] }. Nobody can see who said yes to them.' },
+  'PUT /v1/me/travel-match': { tag: T.there, summary: 'Opt in: where and when I want to travel', body: matching.prefSchema, verified: true, returns: 'the same as GET. Starts a fresh round: earlier yes or pass answers are cleared.', errors: ['INVALID_DATES', 'CONTENT_REJECTED', 'RATE_LIMITED'] },
+  'DELETE /v1/me/travel-match': { tag: T.there, summary: 'Switch travel matching off', returns: '{ ok: true }. Chats that already opened stay until someone ends them.' },
+  'POST /v1/me/travel-match/people/{userId}': { tag: T.there, summary: 'Say yes or pass about a suggested traveler', body: matching.choiceSchema, verified: true, returns: '{ matched, conversationId? }. A yes tells the other person nothing: the answer is the same whether or not they said yes. Two yeses open a private two-person chat.', errors: ['NOT_OPTED_IN', 'RATE_LIMITED'] },
+  'POST /v1/me/travel-match/chats/{conversationId}/end': { tag: T.there, summary: 'End a travel-match chat for both people', returns: '{ ok: true }' },
+  'GET /v1/me/drafts': { tag: T.profile, summary: 'My saved drafts (activities and trips not yet posted)', returns: '{ items: [{ id, kind, title, data, updatedAt }] }. Only the owner ever sees them.' },
+  'PUT /v1/me/drafts': { tag: T.profile, summary: 'Save a draft, or replace the one named by id', body: z.object({ id: z.string().optional(), kind: z.enum(['activity', 'trip']), data: z.record(z.string(), z.unknown()) }), returns: 'the saved draft. The form may be half empty: it is only checked when posted.', errors: ['DRAFT_TOO_LARGE', 'TOO_MANY_DRAFTS'] },
+  'DELETE /v1/me/drafts/{id}': { tag: T.profile, summary: 'Delete a draft', returns: '{ ok: true }' },
+  'POST /v1/me/drafts/{id}/publish': { tag: T.profile, summary: 'Post a draft as a real activity or trip', returns: 'the new activity or trip. It is checked like any other; if something is wrong the draft is kept so it can be fixed.', verified: true, errors: ['INVALID_SCHEDULE', 'DUPLICATE_ACTIVITY', 'TOO_MANY_OPEN_ACTIVITIES', 'CONTENT_REJECTED', 'INVALID_DATES'] },
+  'POST /v1/me/appeals': { tag: T.profile, summary: 'Ask staff to look again: a rejected identity check, a listing or message staff removed, a warning, or a report of yours that was dismissed', body: z.object({ kind: z.enum(['verification', 'removal', 'report', 'warning', 'message']), targetType: z.enum(['activity', 'trip']).optional(), targetId: z.string().optional(), message: z.string().min(10).max(1000) }), returns: '{ id, kind, state: "open" }. Once per decision.', errors: ['NOTHING_TO_APPEAL', 'ALREADY_APPEALED', 'APPEAL_OPEN', 'CONTENT_REJECTED', 'RATE_LIMITED'] },
+  'GET /v1/me/appeals': { tag: T.profile, summary: 'My appeals and what was decided', returns: '{ items: [{ id, kind, what, state, decision, createdAt, decidedAt }] }' },
+  'POST /v1/appeals/suspension': { tag: T.auth, summary: 'Appeal a suspension (the person cannot sign in, so email and password are sent)', body: z.object({ email: z.string().email(), password: z.string(), message: z.string().min(10).max(1000) }), returns: '{ id, state: "open" }. The answer comes by email. Once every 30 days.', errors: ['INVALID_CREDENTIALS', 'NOTHING_TO_APPEAL', 'ALREADY_APPEALED', 'APPEAL_OPEN', 'CONTENT_REJECTED', 'RATE_LIMITED'] },
+  'GET /v1/admin/appeals': { tag: T.admin, summary: 'Appeals waiting for a decision (or decided: state=upheld|rejected)', query: z.object({ state: z.string().optional() }), returns: '{ items }' },
+  'POST /v1/admin/appeals/{id}/decision': { tag: T.admin, summary: 'Accept (uphold) or reject an appeal, with a note the person sees', body: z.object({ decision: z.enum(['uphold', 'reject']), note: z.string().min(3).max(500) }), returns: '{ id, state }. Upholding undoes the decision: verified again, account restored, or listing put back.', errors: ['APPEAL_DECIDED', 'OWN_APPEAL', 'NOT_REJECTED', 'ADMIN_ONLY'] },
+  'POST /v1/activities/{id}/appeal': { tag: T.here, summary: 'Ask the host to look again at a declined request (once)', body: activities.requestSchema, verified: true, returns: '{ id, state }: back to the host as a new request, or the waiting list if it filled up.', errors: ['NOT_DECLINED', 'ALREADY_APPEALED', 'ACTIVITY_CLOSED', 'CONTENT_REJECTED'] },
+  'POST /v1/trips/{id}/appeal': { tag: T.there, summary: 'Ask the organizer to look again at a declined application (once)', body: z.object({ intro: z.string().max(500).optional() }), verified: true, returns: '{ id, state }', errors: ['NOT_DECLINED', 'ALREADY_APPEALED', 'TRIP_CLOSED', 'TRIP_FULL', 'CONTENT_REJECTED'] },
   'GET /v1/admin/users/{id}/reliability': { tag: T.admin, summary: 'Everything behind a person level: events, weights, notes and level history', returns: '{ level, summary, penalties, events, marks, changes }' },
   'POST /v1/me/verification': { tag: T.verify, summary: 'Start the identity check (needs consent and a confirmed email)', body: z.object({ consent: z.literal(true), method: z.enum(['face', 'document']).default('face') }), returns: '{ state, url }: send the person to the provider\'s hosted page. method "document" is the check with no selfie and no face match.', errors: ['CONSENT_REQUIRED', 'EMAIL_NOT_VERIFIED', 'ADULT_REQUIRED', 'VERIFICATION_BLOCKED', 'RATE_LIMITED'] },
   'DELETE /v1/me/verification': { tag: T.verify, summary: 'Cancel a check that is in progress', errors: ['NOT_PENDING'] },
@@ -135,7 +158,7 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   'DELETE /v1/trips/{id}/applications/mine': { tag: T.there, summary: 'Withdraw my application' },
   'POST /v1/trips/{id}/leave': { tag: T.there, summary: 'Leave a trip group (chat access ends at once)', errors: ['ORGANIZER_CANNOT_LEAVE'] },
   'DELETE /v1/trips/{id}/members/{userId}': { tag: T.there, summary: 'Organizer removes a member', errors: ['NOT_ORGANIZER', 'CANNOT_REMOVE_ORGANIZER'] },
-  'POST /v1/trips/{id}/confirm-dates': { tag: T.there, summary: 'Confirm the final dates the organizer proposed', errors: ['NO_DATES_TO_CONFIRM', 'NOT_A_MEMBER'] },
+  'POST /v1/trips/{id}/confirm-dates': { tag: T.there, summary: 'Confirm the final dates the organizer proposed', errors: ['NO_DATES_TO_CONFIRM', 'NOT_A_MEMBER', 'TRIP_CLOSED'] },
   'GET /v1/me/trips': { tag: T.there, summary: 'Trips I organize or have joined or applied to' },
   'GET /v1/me/trips/page': { tag: T.there, summary: 'My trips, paged', returns: page },
   // ---------------------------------------------------------------- chat
@@ -143,7 +166,7 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   'GET /v1/conversations/{id}/info': { tag: T.chat, summary: 'Who is in a chat and whether it is still writable', verified: true, errors: ['NOT_A_MEMBER'] },
   'GET /v1/conversations/{id}/messages': { tag: T.chat, summary: 'Messages of a chat (membership is checked live on every call)', query: z.object({ read: z.enum(['0', '1']).optional(), limit: z.coerce.number().int().min(1).max(100).optional(), cursor: z.string().optional() }), returns: page, verified: true, errors: ['NOT_A_MEMBER', 'INVALID_CURSOR'] },
   'POST /v1/conversations/{id}/messages': { tag: T.chat, summary: 'Send a message', body: chat.sendSchema, verified: true, errors: ['NOT_A_MEMBER', 'CONVERSATION_CLOSED', 'CONTENT_REJECTED', 'RATE_LIMITED'] },
-  'POST /v1/conversations/{id}/polls': { tag: T.chat, summary: 'Organizer starts a date poll in a trip chat', body: chat.pollSchema, verified: true, errors: ['NOT_ORGANIZER', 'NOT_A_TRIP_CHAT', 'TOO_MANY_OPEN_POLLS', 'CONTENT_REJECTED', 'RATE_LIMITED'] },
+  'POST /v1/conversations/{id}/polls': { tag: T.chat, summary: 'Organizer starts a date poll in a trip chat', body: chat.pollSchema, verified: true, errors: ['NOT_ORGANIZER', 'NOT_A_TRIP_CHAT', 'TOO_MANY_OPEN_POLLS', 'CONTENT_REJECTED', 'RATE_LIMITED', 'TRIP_CLOSED'] },
   'POST /v1/polls/{pollId}/vote': { tag: T.chat, summary: 'Accept or reject the dates in a poll', body: chat.voteSchema, verified: true, errors: ['POLL_CLOSED', 'NOT_A_MEMBER'] },
   'POST /v1/polls/{pollId}/close': { tag: T.chat, summary: 'Organizer closes a poll, optionally making its dates the proposed final dates', body: adopt, verified: true, errors: ['NOT_ORGANIZER', 'POLL_CLOSED', 'NO_DATES'] },
   // ---------------------------------------------------------------- notifications
@@ -154,7 +177,9 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   'POST /v1/push/subscribe': { tag: T.notify, summary: 'Register this device for push', body: push.subscribeSchema },
   'POST /v1/push/unsubscribe': { tag: T.notify, summary: 'Stop push to this device', body: push.unsubscribeSchema },
   // ---------------------------------------------------------------- safety
-  'POST /v1/reports': { tag: T.safety, summary: 'Report a person, activity, trip or message', body: safety.reportSchema, errors: ['RATE_LIMITED'] },
+  'POST /v1/reports': { tag: T.safety, summary: 'Report a person, activity, trip or message', body: safety.reportSchema, returns: '{ id, status, priority, expectedWithin, coverage, emergency }. Category immediate_danger and physical_safety are urgent: looked at first, and immediate danger alerts every moderator at once. The answer also carries the emergency number to show the person.', errors: ['RATE_LIMITED'] },
+  'GET /v1/reports/policy': { tag: T.safety, summary: 'How reports are handled: coverage hours, answer times and the emergency number', returns: '{ coverage: { text, onDutyNow }, answerWithin: { urgent, normal }, emergency: { number, text } }. Public.' },
+  'GET /v1/me/reports': { tag: T.safety, summary: 'Reports I made and where each stands', returns: '{ items: [{ id, category, targetType, status, outcome, createdAt, canAppeal }] }. A dismissed report can be appealed once with POST /v1/me/appeals (kind report).' },
   'GET /v1/blocks': { tag: T.safety, summary: 'People I have blocked' },
   'POST /v1/blocks': { tag: T.safety, summary: 'Block a person (works across HERE and THERE, ends any follow)', body: safety.blockSchema, errors: ['INVALID_TARGET', 'NOT_FOUND'] },
   'DELETE /v1/blocks/{userId}': { tag: T.safety, summary: 'Unblock a person' },
@@ -164,7 +189,7 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   'GET /v1/retention': { tag: T.auth, summary: 'What the app keeps and for how long, in plain words (privacy information)', returns: '{ items: [{ what, kept, why }] }. Public; the periods follow the server settings.' },
   'GET /v1/openapi.json': { tag: T.docs, summary: 'This document (OpenAPI 3.1), including the error-code list', returns: 'The OpenAPI document. Public.' },
   // ---------------------------------------------------------------- admin console (staff only)
-  'GET /v1/admin/overview': { tag: T.admin, summary: 'Counters for the dashboard' },
+  'GET /v1/admin/overview': { tag: T.admin, summary: 'Everything the Overview dashboard shows', returns: 'Counters (users, pending checks, open reports, active plans), real-member totals, identity approval rate, report counts by status, and the last 30 days as daily series (members, activities, trips, reports) with the previous 30 days for comparison, plus reports by category.' },
   'GET /v1/admin/users': { tag: T.admin, summary: 'Search people', query: z.object({ q: z.string().optional(), state: z.enum(['active', 'suspended']).optional() }) },
   'GET /v1/admin/users/{id}': { tag: T.admin, summary: 'One person: status, history and every report about them' },
   'POST /v1/admin/users/{id}/suspend': { tag: T.admin, summary: 'Suspend (timed, or until restored); open reports about them resolve automatically', body: admin.suspendSchema, errors: ['INVALID_TARGET'] },
@@ -176,7 +201,13 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   'POST /v1/admin/users/{id}/reset-verification': { tag: T.admin, summary: 'Let a person try verification again', body: admin.noteSchema },
   'POST /v1/admin/users/{id}/overturn-rejection': { tag: T.admin, summary: 'Approve a wrongly rejected person (under-18 results: admin only)', body: admin.noteSchema, errors: ['NOT_REJECTED', 'ADMIN_ONLY'] },
   'POST /v1/admin/users/{id}/require-reverification': { tag: T.admin, summary: 'Require a new identity check (security or fraud)', body: admin.reverifySchema, errors: ['ALREADY_VERIFIED'] },
-  'GET /v1/admin/reports': { tag: T.admin, summary: 'The report queue', query: z.object({ status: z.string().optional(), category: z.string().optional() }) },
+  'GET /v1/admin/reports': { tag: T.admin, summary: 'The report queue: urgent first, then overdue and escalated', query: z.object({ status: z.string().optional(), category: z.string().optional() }), returns: '{ items }. Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }.' },
+  'GET /v1/admin/reports/workload': { tag: T.admin, summary: 'Moderator workload and queue health', returns: '{ policy, queue: { unassigned, urgent, overdue, oldestUnassignedHours }, moderators: [{ id, name, role, assigned, overdue, oldestHours, resolvedLast7Days }] }' },
+  'GET /v1/admin/messages/{id}': { tag: T.admin, summary: 'A reported message with the messages around it', returns: '{ id, body, state, sender, scope, around }' },
+  'POST /v1/admin/messages/{id}/remove': { tag: T.admin, summary: 'Hide a message from its chat (kept for the record). The sender is told why', body: moderation.removeMessageSchema, returns: '{ ok, state }. Open reports about the message are resolved.' },
+  'POST /v1/admin/messages/{id}/restore': { tag: T.admin, summary: 'Put a hidden message back', returns: '{ ok, state }' },
+  'POST /v1/admin/users/{id}/warn': { tag: T.admin, summary: 'Send a formal warning (can be tied to a report or message)', body: moderation.warnSchema, returns: '{ id, warningsInLastSixMonths, repeatOffender }. The person is told and can appeal it once.', errors: ['INVALID_TARGET', 'FORBIDDEN'] },
+  'GET /v1/admin/users/{id}/offender': { tag: T.admin, summary: 'Repeat-offender check for a person', returns: '{ flag, reasons, warnings, reporters, suspensions }' },
   'POST /v1/admin/reports/{id}/assign': { tag: T.admin, summary: 'Take a report' },
   'POST /v1/admin/reports/{id}/resolve': { tag: T.admin, summary: 'Resolve, dismiss or mark a report in review', body: admin.resolveSchema },
   'GET /v1/admin/activities': { tag: T.admin, summary: 'HERE activities for moderation', query: z.object({ status: z.string().optional() }) },

@@ -155,6 +155,12 @@ export async function uploadPhoto(uri: string): Promise<{ photoUrl: string }> {
 
 export const patch = <T = any>(p: string, b: unknown = {}) => api<T>('PATCH', p, b);
 export const del = <T = any>(p: string) => api<T>('DELETE', p);
+export const put = <T = any>(p: string, b: unknown = {}) => api<T>('PUT', p, b);
+
+/** An activity or trip saved for later. `data` is the form as the person left it. */
+export type ServerDraft = { id: string; kind: 'activity' | 'trip'; title: string | null; data: Record<string, unknown>; updatedAt: string };
+/** A person's request to have a decision looked at again. */
+export type MyAppeal = { id: string; kind: 'verification' | 'suspension' | 'removal' | 'report' | 'warning' | 'message'; what: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null; message: string; createdAt: string; decidedAt: string | null };
 
 // ---------------------------------------------------------------- shared types
 /** One row of "my trips" from the server: a trip you organise or are in, or one you applied to. */
@@ -199,7 +205,7 @@ export type Me = {
 };
 
 type HostInfo = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean };
-type Participant = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean; role: string };
+type Participant = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean; role: string; /** trips, while final dates wait for everyone: has this person said yes */ datesConfirmed?: boolean };
 
 export type Activity = {
   id: string;
@@ -230,7 +236,9 @@ export type Activity = {
   // detail only
   isHost?: boolean;
   isMember?: boolean;
-  myRequest?: { id: string; state: string; /** 1 = first in line, when state is waitlisted */ position?: number } | null;
+  /** staff removed it and the host can still ask for a review */
+  canAppealRemoval?: boolean;
+  myRequest?: { id: string; state: string; /** a declined request can be asked about once more */ canAppeal?: boolean; /** 1 = first in line, when state is waitlisted */ position?: number } | null;
   conversationId?: string | null;
   participants?: Participant[];
   /** the host changed the time or place: this member is asked to confirm they can still come */
@@ -270,7 +278,8 @@ export type Trip = {
   // detail only
   isHost?: boolean;
   isMember?: boolean;
-  myApplication?: { id: string; state: string; message: string } | null;
+  canAppealRemoval?: boolean;
+  myApplication?: { id: string; state: string; message: string; canAppeal?: boolean } | null;
   conversationId?: string | null;
   participants?: Participant[];
   datesConfirmedCount?: number;
@@ -285,7 +294,7 @@ export type Notif = {
   type: string;
   title: string;
   body: string;
-  data: { activityId?: string; tripId?: string; conversationId?: string } | null;
+  data: { activityId?: string; tripId?: string; conversationId?: string; warningId?: string; messageId?: string } | null;
   readAt: string | null;
   createdAt: string;
 };
@@ -293,7 +302,7 @@ export type Notif = {
 /** "Group info": what the group is and who is in it. The host is the group admin. */
 export type GroupInfo = {
   id: string;
-  scope: 'activity' | 'trip';
+  scope: 'activity' | 'trip' | 'match';
   scopeId: string;
   title: string;
   category: string | null;
@@ -305,4 +314,4 @@ export type GroupInfo = {
   members: { id: string; displayName: string; photoUrl: string | null; verifiedAdult: boolean; role: 'host' | 'member'; isMe: boolean }[];
 };
 
-export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip'; scopeId: string; title: string; category?: string | null; startsAt?: string; endsAt?: string; /** the newest message: who wrote it ("You" for yours), the first 140 characters and when */ lastMessage?: { body: string; at: string; from: string | null } | null };
+export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip' | 'match'; scopeId: string; title: string; category?: string | null; startsAt?: string; endsAt?: string; /** the newest message: who wrote it ("You" for yours), the first 140 characters and when */ lastMessage?: { body: string; at: string; from: string | null } | null };
