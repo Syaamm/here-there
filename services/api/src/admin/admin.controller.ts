@@ -1,3 +1,4 @@
+import { decryptField, maskPhone } from '../common/vault';
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { z } from 'zod';
@@ -6,6 +7,8 @@ import { AuditService } from '../common/audit.service';
 import { CurrentUser, Staff } from '../common/auth';
 import { STAFF_ROLES } from '../common/constants';
 import { E } from '../common/errors';
+import { banIdentities, liftBans } from '../common/identity';
+import { MfaService } from '../auth/mfa.controller';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/validate';
 import { TripsService } from '../trips/trips.service';
@@ -15,24 +18,24 @@ const ALL = [...STAFF_ROLES];
 const MOD = ['moderator', 'trust_lead', 'admin'];
 const TRUST = ['trust_lead', 'admin'];
 
-const reasonSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+export const reasonSchema = z.object({ reason: z.string().trim().min(3).max(500) });
 // days: how long the suspension lasts; leave it out for "until staff restore the account"
-const suspendSchema = reasonSchema.extend({ days: z.number().int().min(1).max(365).optional() });
-const verificationDecisionSchema = z.object({
+export const suspendSchema = reasonSchema.extend({ days: z.number().int().min(1).max(365).optional() });
+export const verificationDecisionSchema = z.object({
   decision: z.enum(['verified', 'rejected']),
   reason: z.enum(['document', 'liveness', 'underage', 'other']).optional(), // when rejecting
 });
-const noteSchema = z.object({ note: z.string().trim().min(3).max(500) });
+export const noteSchema = z.object({ note: z.string().trim().min(3).max(500) });
 // Why a verified person must verify again. Expiry is automatic; these are the staff-triggered cases.
-const reverifySchema = z.object({
+export const reverifySchema = z.object({
   reason: z.enum(['security', 'fraud_suspected', 'other']),
   note: z.string().trim().min(3).max(500),
 });
-const resolveSchema = z.object({
+export const resolveSchema = z.object({
   status: z.enum(['resolved', 'dismissed', 'in_review']),
   resolution: z.string().trim().max(1000).optional(),
 });
-const roleSchema = z.object({ role: z.enum(['user', ...STAFF_ROLES]) });
+export const roleSchema = z.object({ role: z.enum(['user', ...STAFF_ROLES]) });
 
 /** Internal operations console API (spec 12). Every mutating action writes an audit event. */
 @Controller('v1/admin')
@@ -43,6 +46,7 @@ export class AdminController {
     private readonly verification: VerificationService,
     private readonly activities: ActivitiesService,
     private readonly trips: TripsService,
+    private readonly mfa: MfaService,
   ) {}
 
   // ------------------------------------------------------------ overview
@@ -137,8 +141,8 @@ export class AdminController {
       reporterName: r.reporter.profile?.displayName ?? null,
     }));
     // never the password hash, and the mobile number is masked even for staff
-    const { passwordHash: _omit, phoneNumber, ...safe } = u;
-    return { ...safe, phone: phoneNumber ? `${phoneNumber.slice(0, 3)}••••${phoneNumber.slice(-2)}` : null, stats: { reportsAgainst: Math.max(reportsAgainst, reportList.length), hosted, joined }, history, reports: reportList };
+    const { passwordHash: _omit, phoneNumber, phoneHash: _hash, mfaSecret: _mfa, ...safe } = u;
+    return { ...safe, phone: phoneNumber ? maskPhone(decryptField(phoneNumber)) : null, stats: { reportsAgainst: Math.max(reportsAgainst, reportList.length), hosted, joined }, history, reports: reportList };
   }
 
   @Staff(...MOD)
@@ -152,7 +156,9 @@ export class AdminController {
     const until = days ? new Date(Date.now() + days * 864e5) : null;
     await this.prisma.user.update({ where: { id }, data: { state: 'suspended', suspendedUntil: until } });
     await this.settleReports(actor, 'user', id, days ? `suspended for ${days} ${days === 1 ? 'day' : 'days'}` : 'suspended until staff restore the account');
-    await this.audit.log(actor.id, 'user.suspend', 'user', id, { reason, ...(days ? { days, until } : { until: 'restored by staff' }) });
+    // suspended until staff restore it = a ban: remember the email, number and device so a new account cannot start from them
+    const remembered = days ? 0 : await banIdentities(this.prisma, target, reason);
+    await this.audit.log(actor.id, 'user.suspend', 'user', id, { reason, ...(days ? { days, until } : { until: 'restored by staff', identitiesRemembered: remembered }) });
     return { state: 'suspended', suspendedUntil: until };
   }
 
@@ -162,8 +168,21 @@ export class AdminController {
     const { reason } = parse(reasonSchema, body);
     if (!(await this.prisma.user.findUnique({ where: { id } }))) throw E.notFound('User');
     await this.prisma.user.update({ where: { id }, data: { state: 'active', suspendedUntil: null } });
+    await liftBans(this.prisma, id);
     await this.audit.log(actor.id, 'user.restore', 'user', id, { reason });
     return { state: 'active' };
+  }
+
+  /** A staff member lost their authenticator and recovery codes: switch it off so they can set it up again. */
+  @Staff('admin')
+  @Post('users/:id/mfa/reset')
+  async resetMfa(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
+    const { reason } = parse(reasonSchema, body);
+    if (id === actor.id) throw E.badRequest('INVALID_TARGET', 'Ask another administrator to reset your own two-step sign-in.');
+    if (!(await this.prisma.user.findUnique({ where: { id } }))) throw E.notFound('User');
+    await this.mfa.clear(id);
+    await this.audit.log(actor.id, 'mfa.reset_by_admin', 'user', id, { reason });
+    return { ok: true };
   }
 
   @Staff('admin')
@@ -191,6 +210,7 @@ export class AdminController {
       items: rows.map((c) => ({
         id: c.id,
         provider: c.provider,
+        method: c.method,
         providerRef: c.providerRef,
         eligibility: c.eligibility,
         createdAt: c.createdAt,

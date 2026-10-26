@@ -86,7 +86,8 @@ export function useMapData() {
     [city, near, cat],
     60_000,
   );
-  const pins = (feed.data?.items ?? []).filter((a): a is Pin => a.lat != null && a.lng != null);
+  // only rebuilt when the loaded activities change, so selecting a pin or closing the sheet never touches the map's markers
+  const pins = useMemo(() => (feed.data?.items ?? []).filter((a): a is Pin => a.lat != null && a.lng != null), [feed.data]);
   // Group by place (~100 m): several activities at one venue share one icon with a count.
   const groups = useMemo(() => {
     const by = new Map<string, Group>();

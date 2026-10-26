@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Avatar, Btn, Card, Chip, Empty, ErrorBanner, Grid, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
-import { del, get, post } from '@/lib/api';
-import { useAction, useLoad, useRefresh } from '@/lib/hooks';
-import { PagedTail, usePaged } from '@/lib/paged';
+import { del, post } from '@/lib/api';
+import { useAction, useRefresh } from '@/lib/hooks';
+import { PagedTail, useCursorList } from '@/lib/paged';
 
 type Kind = 'buddies' | 'following' | 'followers';
 type Person = { userId: string; displayName: string; homeCity: string | null; photoUrl: string | null; verifiedAdult: boolean; following: boolean; followsYou: boolean; buddy: boolean };
-type Connections = { counts: Record<Kind, number>; items: Person[] };
+type Counts = { counts: Record<Kind, number> };
 
 const EMPTY: Record<Kind, [string, string]> = {
   buddies: ['No buddies yet', 'When you and someone else follow each other, you become buddies.'],
@@ -19,11 +19,11 @@ const EMPTY: Record<Kind, [string, string]> = {
 export default function Connections() {
   const go = useGo();
   const [kind, setKind] = useState<Kind>('buddies');
-  const list = useLoad(() => get<Connections>(`/v1/me/connections?kind=${kind}`), [kind], undefined, `me:buddies2:${kind}`);
+  // the server sends one list at a time, a few people per request, with how many each list holds
+  const list = useCursorList<Person, Counts>('/v1/me/connections', { kind }, 'me:buddies3');
   const act = useAction();
   const { refreshing, onRefresh } = useRefresh(list.reload);
-  const items = list.data?.items ?? [];
-  const paged = usePaged(items, kind);
+  const items = list.items;
   const toggle = async (p: Person) => {
     await act.run(() => (p.following ? del(`/v1/follows/${p.userId}`) : post('/v1/follows', { userId: p.userId })));
     list.reload();
@@ -40,7 +40,7 @@ export default function Connections() {
       {list.loading && !list.data && <Spinner />}
       {list.data && items.length === 0 && <Empty title={EMPTY[kind][0]}>{EMPTY[kind][1]}</Empty>}
       <Grid>
-        {paged.shown.map((p) => (
+        {items.map((p) => (
           <Card key={p.userId} onPress={() => go(`/user/${p.userId}`)} accessibilityLabel={`${p.displayName}, open profile`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 18 }}>
             <Avatar name={p.displayName} uri={p.photoUrl} size={44} />
             <View style={{ flex: 1, gap: 2 }}>
@@ -54,7 +54,7 @@ export default function Connections() {
           </Card>
         ))}
       </Grid>
-      <PagedTail paged={paged} />
+      <PagedTail paged={list} />
     </Screen>
   );
 }

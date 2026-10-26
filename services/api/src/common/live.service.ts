@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { sessionRevoked } from './auth';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -71,9 +72,10 @@ export class LiveService implements OnModuleDestroy {
       try {
         const msg = JSON.parse(raw.toString()) as { type?: string; token?: string };
         if (msg.type !== 'auth' || !msg.token) throw new Error('auth expected');
-        const sub = (await this.jwt.verifyAsync<{ sub: string }>(msg.token)).sub;
-        const user = await this.prisma.user.findUnique({ where: { id: sub } });
-        if (!user || user.state !== 'active') throw new Error('inactive');
+        const payload = await this.jwt.verifyAsync<{ sub: string; pv?: number; purpose?: string }>(msg.token);
+        if (payload.purpose) throw new Error('not a sign-in');
+        const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+        if (!user || user.state !== 'active' || sessionRevoked(payload.pv, user.passwordChangedAt)) throw new Error('inactive');
         clearTimeout(wait);
         userId = user.id;
         (ws as WebSocket & { alive?: boolean }).alive = true;
@@ -117,6 +119,12 @@ export class LiveService implements OnModuleDestroy {
       for (const set of this.byUser.values()) for (const ws of set) if (ws.readyState === WebSocket.OPEN) ws.send(text);
     }, 400);
     this.feedTimer.unref();
+  }
+
+  /** Close every open connection of this person (their account is gone). */
+  dropUser(userId: string) {
+    for (const ws of this.byUser.get(userId) ?? []) ws.close(4003, 'unauthorized');
+    this.byUser.delete(userId);
   }
 
   send(userId: string, event: LiveEvent) {

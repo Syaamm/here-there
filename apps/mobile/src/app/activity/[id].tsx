@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -176,6 +177,7 @@ export default function ActivityDetail() {
               <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>Hosted by {a.host.displayName}</Txt>
               <Row style={{ gap: 6 }}>
                 {a.host.verifiedAdult ? <Ionicons name="shield-checkmark" size={13} color={c.green} /> : null}
+                <ReliabilityChip r={a.hostReliability} />
                 <Txt variant="small" style={{ flex: 1 }}>
                   {[a.host.verifiedAdult ? 'Verified adult' : 'Host', a.activitiesHosted ? `${a.activitiesHosted} ${a.activitiesHosted === 1 ? 'activity' : 'activities'} hosted` : ''].filter(Boolean).join(' · ')}
                 </Txt>
@@ -239,6 +241,7 @@ export default function ActivityDetail() {
                 </Row>
               </View>
             ) : null}
+            {a.isHost && a.status !== 'cancelled' ? <Btn title="Who came?" variant="secondary" onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
             <Txt variant="h2" accessibilityRole="header">Members who took part ({going.length})</Txt>
             {going.map((p) => (
               <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={`${p.displayName}${p.role === 'host' ? ', host' : ''}. Open profile`} onPress={() => go(`/user/${p.id}`)}>
@@ -312,6 +315,7 @@ export default function ActivityDetail() {
             {a.isHost ? (
               <View style={{ gap: 10 }}>
                 {a.conversationId && a.status !== 'in_progress' && <Btn title="Open group chat" variant="secondary" onPress={() => go(`/chat/${a.conversationId}`)} />}
+                {a.status === 'in_progress' ? <Btn title="Who came?" variant="secondary" onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
                 {a.status !== 'cancelled' && (
                   <Btn
                     title="Cancel activity"

@@ -204,8 +204,8 @@ export default function TabsLayout() {
   const dockH = Math.max(ios ? 58 : 56, scBase(ios ? 58 : 56)); // the dock does not grow with the text size
   // the dock floats over the pages (phones), so they leave this much room at the bottom
   const dockSpace = isWide ? 0 : dockH + dockBottom;
-  // the Message badge: asked of the server every 10 s, and changed at once by the screens that read things (lib/unread)
-  const polled = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true'), [], 10_000);
+  // the Message badge: asked of the server every minute (the live connection moves it at once when something arrives), and changed at once by the screens that read things (lib/unread)
+  const polled = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true'), [], 60_000);
   useEffect(() => {
     if (polled.data) setUnread(polled.data.unreadCount);
   }, [polled.data]);

@@ -25,7 +25,7 @@ export default function AllActivities() {
   const feed = useLoad(
     () => {
       const [from, to] = feedRange();
-      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50' });
+      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
     [city],

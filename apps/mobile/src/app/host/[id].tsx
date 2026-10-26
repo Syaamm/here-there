@@ -3,9 +3,10 @@ import { SkeletonDetail } from '@/components/Skeleton';
 import { CatPhoto } from '@/components/CatPhoto';
 import { View } from 'react-native';
 import { Text } from '@/components/ScaledText';
-import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, ProgressBar, Row, Screen, Txt } from '@/components/ui';
+import { ReliabilityChip } from '@/components/ReliabilityChip';
+import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, ProgressBar, Row, Screen, Txt, useGo } from '@/components/ui';
 import { catColor, CATS } from '@/lib/constants';
-import { get, post, type Activity } from '@/lib/api';
+import { get, post, type Reliability, type Activity } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { ago, when } from '@/lib/format';
 import { Paged } from '@/lib/paged';
@@ -16,13 +17,14 @@ type Req = {
   state: string;
   intro: string | null;
   createdAt: string;
-  applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; languages: string[]; interests: string[] };
+  applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; reliability?: Reliability | null; languages: string[]; interests: string[] };
 };
 const ORDER: Record<string, number> = { requested: 0, waitlisted: 1, approved: 2, declined: 3, withdrawn: 4 };
 
 /** HERE · Host reviews applicants. The server creates membership only on approval. */
 export default function HostReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const go = useGo();
   const act = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
   const reqs = useLoad(() => get<{ items: Req[] }>(`/v1/activities/${id}/requests`), [id], 10_000);
   const refresh = () => {
@@ -58,6 +60,7 @@ export default function HostReview() {
             </View>
           </Row>
           <ProgressBar value={a.going} max={a.capacity} />
+          {a.status !== 'cancelled' && new Date(a.startsAt) <= new Date() ? <Btn title="Who came? ›" variant="secondary" small onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
           {full && <Banner tone="warn">This activity is full. Reverse an approval to free a place.</Banner>}
         </Card>
       )}
@@ -73,6 +76,7 @@ export default function HostReview() {
               <View>
                 <Txt variant="h3">{r.applicant.displayName ?? 'Member'} {r.applicant.verifiedAdult ? '✓' : ''}</Txt>
                 <Txt variant="small">{r.applicant.verifiedAdult ? 'Verified adult' : 'Not verified'}{r.applicant.languages.length ? ` · ${r.applicant.languages.join(', ')}` : ''}</Txt>
+                {r.applicant.reliability ? <View style={{ marginTop: 4, alignSelf: 'flex-start' }}><ReliabilityChip r={r.applicant.reliability} /></View> : null}
               </View>
             </Row>
             <Txt variant="small">{ago(r.createdAt)}</Txt>

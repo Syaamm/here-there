@@ -3,6 +3,9 @@ import { Prisma, Trip, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { requireVerified } from '../common/auth';
+import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { circleOf, crowd, tierCounts } from '../common/social';
+import { ReliabilityService } from '../reliability/reliability.controller';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -22,7 +25,7 @@ type Flex = (typeof FLEX)[number];
 /** Spec 6.5: organizer counts as one member; default 4-6, optional 2-3 and 7-10. */
 const GROUP_RANGES: Record<string, [number, number]> = { '2-3': [2, 3], '4-6': [4, 6], '7-10': [7, 10], '10+': [10, 20] };
 
-const createSchema = z
+export const createSchema = z
   .object({
     title: z.string().trim().min(2).max(80).optional(),
     destination: z.string().trim().min(2).max(100),
@@ -42,7 +45,7 @@ const createSchema = z
   })
   .refine((d) => d.budgetMax > d.budgetMin, { message: 'The maximum budget must be higher than the minimum', path: ['budgetMax'] });
 
-const updateSchema = z.object({
+export const updateSchema = z.object({
   description: z.string().trim().max(2000).optional(),
   dateStart: z.coerce.date().optional(),
   dateEnd: z.coerce.date().optional(),
@@ -50,7 +53,7 @@ const updateSchema = z.object({
   destination: z.string().trim().min(2).max(100).optional(),
 });
 
-const searchSchema = z.object({
+export const searchSchema = z.object({
   destination: z.string().trim().optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
@@ -65,14 +68,14 @@ const searchSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 
-const applySchema = z.object({
+export const applySchema = z.object({
   intro: z.string().trim().min(10).max(1000),
   experience: z.enum(['beginner', 'intermediate', 'experienced']).optional(),
   confirmBudget: z.literal(true, { error: 'Confirm your budget is compatible' }),
   confirmDates: z.literal(true, { error: 'Confirm you can travel within the date window' }),
   confirmGuidelines: z.literal(true, { error: 'Agree to the group guidelines' }),
 });
-const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
+export const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
 
 /** Trips are planned at most six months ahead: up to the last day of the month that far from now. */
 function planningHorizon(now = new Date()) {
@@ -104,6 +107,7 @@ export class TripsService {
     private readonly audit: AuditService,
     private readonly limiter: RateLimiter,
     private readonly live: LiveService,
+      private readonly reliability: ReliabilityService,
   ) {}
 
   private readonly hostInclude = {
@@ -168,6 +172,19 @@ export class TripsService {
       include: { ...this.hostInclude, _count: { select: { memberships: { where: { state: 'approved' } } } } },
     });
 
+    // the viewer's circle: where their buddies (most) and the people they follow (less) are going ranks higher
+    const circle = await circleOf(this.prisma, me.id);
+    const everyone = [...circle.buddies, ...circle.following];
+    const peopleByTrip = new Map<string, string[]>();
+    if (everyone.length > 0) {
+      const there = await this.prisma.tripMembership.findMany({
+        where: { tripId: { in: rows.map((t) => t.id) }, state: 'approved', userId: { in: everyone } },
+        select: { tripId: true, userId: true },
+      });
+      for (const m of there) peopleByTrip.set(m.tripId, [...(peopleByTrip.get(m.tripId) ?? []), m.userId]);
+      for (const t of rows) if (circle.buddies.has(t.hostId) || circle.following.has(t.hostId)) peopleByTrip.set(t.id, [...(peopleByTrip.get(t.id) ?? []), t.hostId]);
+    }
+
     const wantTags = q.tags ? q.tags.split(',').map((s) => s.trim()).filter(Boolean) : [];
     const window: [number, number] | null = q.from ? [+q.from, +(q.to ?? q.from)] : null;
     const userWindow = window ? expandedRange(new Date(window[0]), new Date(window[1]), q.flexibility) : null;
@@ -205,12 +222,18 @@ export class TripsService {
         score += q.budgetMax === undefined ? 8 : budgetScopeMismatch ? 7 : 15;
         score += t.maxCapacity - members > 0 ? 10 : 0;
         if (q.originCity && t.originCity.toLowerCase() === q.originCity.toLowerCase()) score += 3; // preference, never exclusion
+        // the circle: buddies going is the biggest boost (up to +30), people you follow a smaller one (up to +10); everyone
+        // else, including people who only follow you, adds nothing
+        const tiers = tierCounts(peopleByTrip.get(t.id) ?? [], circle);
+        score += 30 * crowd(tiers.buddies) + 10 * crowd(tiers.following);
 
         return {
           score,
           item: this.dto(t, members, {
             match: { dates: dateMatch, budgetScopeMismatch, score: Math.round(score) },
             groupOpen: t.status !== 'full' && t.maxCapacity - members > 0,
+            buddiesGoing: tiers.buddies,
+            followingGoing: tiers.following,
           }),
         };
       })
@@ -380,7 +403,7 @@ export class TripsService {
     const t = byStaff ? await this.prisma.trip.findUnique({ where: { id } }) : await this.hostOwned(me, id);
     if (!t) throw E.notFound('Trip');
     if (t.status === 'cancelled') return { ok: true };
-    await this.prisma.trip.update({ where: { id }, data: { status: 'cancelled' } });
+    await this.prisma.trip.update({ where: { id }, data: { status: 'cancelled', ...(byStaff ? {} : { cancelledAt: new Date() }) } });
     const pendingApps = await this.prisma.tripApplication.findMany({ where: { tripId: id, state: 'pending' }, select: { applicantId: true } });
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, state: 'pending' }, data: { state: 'declined', decidedAt: new Date() } });
     for (const x of pendingApps) await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId: id }, x.applicantId);
@@ -443,6 +466,7 @@ export class TripsService {
       orderBy: { createdAt: 'asc' },
       include: { applicant: { select: { id: true, eligibility: true, profile: true } } },
     });
+    const levels = await this.reliability.forViewer(me, rows.map((a) => a.applicantId));
     return {
       items: rows.map((a) => ({
         id: a.id,
@@ -455,6 +479,7 @@ export class TripsService {
           displayName: a.applicant.profile?.displayName,
           photoUrl: a.applicant.profile?.photoUrl ?? null,
           verifiedAdult: a.applicant.eligibility === 'verified', // organizer sees the badge, never documents
+          reliability: levels.get(a.applicantId) ?? null,
           languages: a.applicant.profile?.languages ? a.applicant.profile.languages.split(',') : [],
           interests: a.applicant.profile?.interests ? a.applicant.profile.interests.split(',') : [],
         },
@@ -515,7 +540,7 @@ export class TripsService {
     if (t.hostId === me.id) throw E.conflict('ORGANIZER_CANNOT_LEAVE', 'Organizers must cancel the trip or hand it over');
     const m = await this.prisma.tripMembership.findUnique({ where: { tripId_userId: { tripId: id, userId: me.id } } });
     if (!m || m.state !== 'approved') throw E.notFound('Membership');
-    await this.prisma.tripMembership.update({ where: { id: m.id }, data: { state: 'left' } });
+    await this.prisma.tripMembership.update({ where: { id: m.id }, data: { state: 'left', leftAt: new Date() } });
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, applicantId: me.id }, data: { state: 'withdrawn' } });
     if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
     await this.audit.log(me.id, 'trip.member_left', 'trip', id);
@@ -555,6 +580,46 @@ export class TripsService {
       applications: await Promise.all(
         apps.map(async (a) => ({ applicationId: a.id, state: a.state, trip: this.dto(a.trip, await this.memberCount(a.tripId)) })),
       ),
+    };
+  }
+
+  /**
+   * Your trips a page at a time, soonest departure first: the ones you organise or are in (`row: joined`) and the ones you
+   * applied to that are pending, waitlisted or declined (`row: application`). `upcoming=1` keeps only what is still ahead
+   * (not cancelled or over, and no declined applications): what the THERE home shows as your next trip.
+   * `counts` is the number of each kind, for the profile figures.
+   */
+  async minePage(me: User, limitRaw?: string, cursorRaw?: string, upcoming?: string) {
+    const limit = pageLimit(limitRaw, 20);
+    const cur = decodeKeyset(cursorRaw);
+    const ahead = upcoming === '1' || upcoming === 'true';
+    const tripWhere = ahead ? { status: { notIn: ['cancelled', 'completed'] }, dateEnd: { gt: new Date() } } : {};
+    const after = cur ? { OR: [{ trip: { dateStart: { gt: cur.at } } }, { trip: { dateStart: cur.at }, id: { gt: cur.id } }] } : {};
+    const order = [{ trip: { dateStart: 'asc' as const } }, { id: 'asc' as const }];
+    const memberBase = { userId: me.id, state: 'approved' };
+    const appStates = ahead ? ['pending', 'waitlisted'] : ['pending', 'declined', 'waitlisted'];
+
+    const [m, a, joined, applications] = await Promise.all([
+      this.prisma.tripMembership.findMany({ where: { ...memberBase, trip: tripWhere, ...after }, include: { trip: { include: this.hostInclude } }, orderBy: order, take: limit + 1 }),
+      this.prisma.tripApplication.findMany({ where: { applicantId: me.id, state: { in: appStates }, trip: tripWhere, ...after }, include: { trip: { include: this.hostInclude } }, orderBy: order, take: limit + 1 }),
+      this.prisma.tripMembership.count({ where: memberBase }),
+      this.prisma.tripApplication.count({ where: { applicantId: me.id, state: { in: ['pending', 'declined', 'waitlisted'] } } }),
+    ]);
+    const merged = [
+      ...m.map((row) => ({ id: row.id, at: row.trip.dateStart, member: row, app: null })),
+      ...a.map((row) => ({ id: row.id, at: row.trip.dateStart, member: null, app: row })),
+    ].sort((x, y) => +x.at - +y.at || (x.id < y.id ? -1 : 1));
+    const page = sliceKeyset(merged, limit, (x) => x.at);
+    return {
+      items: await Promise.all(
+        page.items.map(async (x) =>
+          x.member
+            ? { ...this.dto(x.member.trip, await this.memberCount(x.member.tripId), { role: x.member.role }), row: 'joined' as const }
+            : { row: 'application' as const, applicationId: x.app!.id, state: x.app!.state, trip: this.dto(x.app!.trip, await this.memberCount(x.app!.tripId)) },
+        ),
+      ),
+      nextCursor: page.nextCursor,
+      counts: { joined, applications },
     };
   }
 }

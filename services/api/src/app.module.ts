@@ -1,10 +1,13 @@
 import { Global, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
+import { AccountController, AccountService } from './account/account.controller';
 import { ActivitiesController } from './activities/activities.controller';
 import { ActivitiesService } from './activities/activities.service';
 import { AdminController } from './admin/admin.controller';
 import { AuthController } from './auth/auth.controller';
+import { MfaController, MfaService } from './auth/mfa.controller';
+import { SocialService } from './auth/social.service';
 import { ContactVerificationService } from './auth/contact-verification.service';
 import { GuestService } from './auth/guest.service';
 import { AuditService } from './common/audit.service';
@@ -13,6 +16,9 @@ import { SmsService } from './common/sms.service';
 import { AuthGuard } from './common/auth';
 import { PrismaService } from './common/prisma.service';
 import { RateLimiter } from './common/rate-limiter';
+import { DocsController } from './docs/docs.controller';
+import { ReliabilityController, ReliabilityService } from './reliability/reliability.controller';
+import { RetentionController, RetentionService } from './retention/retention.service';
 import { ConversationsController, ConversationsService } from './conversations/conversations.controller';
 import { PhotoController } from './profile/photo.controller';
 import { LiveService } from './common/live.service';
@@ -40,6 +46,10 @@ function jwtSecret() {
   imports: [JwtModule.register({ global: true, secret: jwtSecret(), signOptions: { expiresIn: '7d' } })],
   controllers: [
     AuthController,
+    AccountController,
+    MfaController,
+    RetentionController,
+    ReliabilityController,
     ActivitiesController,
     TripsController,
     ConversationsController,
@@ -50,6 +60,7 @@ function jwtSecret() {
     VerificationController,
     PhotoController,
     AdminController,
+    DocsController,
   ],
   providers: [
     PrismaService,
@@ -67,6 +78,11 @@ function jwtSecret() {
     ActivitiesService,
     TripsService,
     ConversationsService,
+    AccountService,
+    MfaService,
+    SocialService,
+    RetentionService,
+    ReliabilityService,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
   exports: [PrismaService, RateLimiter],

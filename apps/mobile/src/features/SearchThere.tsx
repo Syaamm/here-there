@@ -6,12 +6,11 @@ import { get, type Trip } from '@/lib/api';
 import { FLEX, GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
 import { parseDay } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
-import { PagedTail, usePaged } from '@/lib/paged';
+import { PagedTail, useCursorList } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 import { Choice, Section } from './CreateActivity';
 import { View } from 'react-native';
 
-type Result = { total: number; items: Trip[] };
 
 /** THERE · Search: date windows are compared for overlap; near-misses are labelled "approximate". */
 export function SearchThere() {
@@ -25,9 +24,11 @@ export function SearchThere() {
   const [tags, setTags] = useState<string[]>([]);
   const [size, setSize] = useState('');
   const [openOnly, setOpenOnly] = useState(true);
-  const [result, setResult] = useState<Result | null>(null);
+  // what was searched for (nothing until Search is tapped); the server sends the matches a few at a time
+  const [query, setQuery] = useState<Record<string, string> | null>(null);
   const act = useAction();
-  const results = usePaged(result?.items ?? [], String(result?.total ?? ''));
+  const results = useCursorList<Trip, { total: number }>('/v1/trips', query ?? {}, 'there:search', { skip: !query });
+  const result = query && results.data ? results.data : null;
   const { c } = useTheme();
 
   const fromD = from ? parseDay(from) : null;
@@ -35,7 +36,7 @@ export function SearchThere() {
   const dateErr = (from && !fromD ? 'Use the format YYYY-MM-DD' : null) ?? (to && !toD ? 'Use the format YYYY-MM-DD' : null) ?? (fromD && toD && toD < fromD ? 'The end date is before the start date' : null);
 
   const search = async () => {
-    const p = new URLSearchParams({ limit: '50', flexibility: flex, ...(openOnly && { openOnly: 'true' }) });
+    const p = new URLSearchParams({ flexibility: flex, ...(openOnly && { openOnly: 'true' }) });
     if (destination.trim()) p.set('destination', destination.trim());
     if (fromD) {
       p.set('from', fromD.toISOString());
@@ -48,8 +49,7 @@ export function SearchThere() {
     if (transport !== 'any') p.set('includesTransport', transport);
     if (tags.length) p.set('tags', tags.join(','));
     if (size) p.set('groupSize', size);
-    const r = await act.run(() => get<Result>(`/v1/trips?${p}`));
-    if (r) setResult(r);
+    setQuery(Object.fromEntries(p));
   };
 
   const toggleTag = (t: string) => setTags((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
@@ -120,14 +120,14 @@ export function SearchThere() {
               </View>
             </Section>
 
-            <ErrorBanner message={act.error} />
-            <Btn title="Search" onPress={search} loading={act.busy} disabled={!!dateErr} />
+            <ErrorBanner message={results.error?.message} />
+            <Btn title="Search" onPress={search} loading={!!query && results.loading && !results.data} disabled={!!dateErr} />
           </>
         }
         right={
           <>
-            {act.busy && !result && <Spinner />}
-            {!result && !act.busy && <Empty title="Find your group">Set your dates, budget and style, then tap Search to see matching trips.</Empty>}
+            {!!query && results.loading && !result && <Spinner />}
+            {!query && <Empty title="Find your group">Set your dates, budget and style, then tap Search to see matching trips.</Empty>}
             {result && (
               <>
                 <Between>
@@ -135,7 +135,7 @@ export function SearchThere() {
                 </Between>
                 {result.items.length === 0 && <Empty title="No trips match">Try wider dates, a higher budget or fewer filters.</Empty>}
                 <View style={{ gap: 12 }}>
-                  {results.shown.map((t) => (
+                  {results.items.map((t) => (
                     <TripRow key={t.id} t={t} />
                   ))}
                 </View>

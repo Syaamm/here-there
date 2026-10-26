@@ -2,7 +2,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { View } from 'react-native';
 import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, Row, Screen, Txt } from '@/components/ui';
-import { get, post, type Trip } from '@/lib/api';
+import { get, post, type Trip, type Reliability } from '@/lib/api';
+import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { confirmAsync } from '@/lib/confirm';
 import { ago, dateSpan } from '@/lib/format';
 import { Paged } from '@/lib/paged';
@@ -14,7 +15,7 @@ type App = {
   intro: string;
   experience: string | null;
   createdAt: string;
-  applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; languages: string[]; interests: string[] };
+  applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; reliability?: Reliability | null; languages: string[]; interests: string[] };
 };
 const ORDER: Record<string, number> = { pending: 0, waitlisted: 1, approved: 2, declined: 3, withdrawn: 4, expired: 5 };
 
@@ -68,6 +69,7 @@ export default function ReviewTrip() {
                   {a.experience ? ` · ${a.experience}` : ''}
                   {a.applicant.languages.length ? ` · ${a.applicant.languages.join(', ')}` : ''}
                 </Txt>
+                {a.applicant.reliability ? <View style={{ marginTop: 4, alignSelf: 'flex-start' }}><ReliabilityChip r={a.applicant.reliability} /></View> : null}
               </View>
             </Row>
             <Txt variant="small">{ago(a.createdAt)}</Txt>

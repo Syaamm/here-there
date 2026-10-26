@@ -16,8 +16,11 @@ model User {
   id                String   @id @default(cuid())
   email             String   @unique
   passwordHash      String
+  // Sign-ins made before this moment stop working (set whenever the password is changed or reset).
+  passwordChangedAt DateTime?
   role              String   @default("user") // user | support | moderator | trust_lead | admin
-  state             String   @default("active") // active | suspended
+  state             String   @default("active") // active | suspended | deleted (a bare tombstone: nothing personal is kept)
+  deletedAt         DateTime?
   // A timed suspension ends by itself at this moment; empty while suspended means until staff restore the account.
   suspendedUntil    DateTime?
   // Three separate statuses (never merged into one flag):
@@ -29,8 +32,19 @@ model User {
   // Set when the user proves they control this email address (spec 3.1 step 2).
   emailVerifiedAt   DateTime?
   // Optional mobile number, confirmed by SMS code. Nothing is gated on it.
+  // The number is stored ENCRYPTED (see common/vault.ts); phoneHash is a keyed fingerprint so one number can belong to one account.
   phoneNumber       String?
+  phoneHash         String?  @unique
   phoneVerifiedAt   DateTime?
+  // A keyed fingerprint of the device the account was created on (never the device id itself): limits accounts per device.
+  registeredDevice  String?
+  // Two-step sign-in for staff (TOTP authenticator app). The secret is stored encrypted.
+  mfaSecret         String?
+  mfaEnabledAt      DateTime?
+  mfaLastStep       Int?
+  // Reliability level (new | reliable | very_reliable | needs_care), worked out from verified, completed plans only.
+  reliabilityLevel  String?
+  reliabilityChecked DateTime?
   // unverified | pending | verified | rejected | expired | reverification_required
   eligibility       String   @default("unverified")
   // Identity verification is one-time: valid until this moment, then re-verification is needed.
@@ -59,6 +73,49 @@ model User {
   favorites         Favorite[]
   following         Follow[] @relation("follower")
   followers         Follow[] @relation("followed")
+  recoveryCodes     MfaRecoveryCode[]
+  reliabilityChanges ReliabilityChange[]
+  socialIdentities  SocialIdentity[]
+
+  @@index([registeredDevice])
+}
+
+// One-time codes that let staff in if they lose their authenticator app. Only a hash is stored.
+model MfaRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// "Sign in with Apple / Google": the provider's own id for this person, linked to one account.
+model SocialIdentity {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  String   // apple | google
+  subject   String   // the provider's stable id for the person
+  createdAt DateTime @default(now())
+
+  @@unique([provider, subject])
+  @@index([userId])
+}
+
+// Fingerprints (never the raw value) of numbers, devices and addresses linked to an account that staff suspended
+// until further notice, so the same person cannot simply start again.
+model BannedIdentity {
+  id        String   @id @default(cuid())
+  kind      String   // phone | device | email
+  hash      String
+  userId    String?
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([kind, hash])
 }
 
 // One small webp per person (about 20-40 KB), re-encoded on upload so it carries no camera or location metadata.
@@ -104,6 +161,8 @@ model VerificationCheck {
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   provider        String   @default("manual") // manual | auto | sandbox | (veriff | sumsub | persona ...)
+  // face = document + selfie/liveness match (biometric, explicit consent); document = document only, no face match
+  method          String   @default("face")
   providerRef     String
   eligibility     String   // pending | verified | rejected
   // underage | document | liveness | resubmission | other (set when rejected)
@@ -140,6 +199,7 @@ model Activity {
   language      String?
   status        String   @default("published") // draft | published | full | confirmed | in_progress | completed | cancelled | archived
   pendingHostId String?  // a member the host has offered to hand the activity to (needs their acceptance)
+  cancelledAt   DateTime? // when the HOST cancelled it (staff removals do not set this)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -176,6 +236,7 @@ model ActivityMembership {
   state           String   @default("approved") // approved | withdrawn | removed
   attendance      String   @default("unknown") // unknown | attended | no_show (only ever set by the member themselves)
   reconfirm       String   @default("none") // none | needed (the host changed the time or place) | confirmed
+  leftAt          DateTime? // when the member left themselves (withdrawn): a late exit counts against reliability
   createdAt       DateTime @default(now())
 
   @@unique([activityId, userId])
@@ -205,6 +266,7 @@ model Trip {
   visibility            String   @default("public")
   status                String   @default("published") // draft | published | full | planning | confirmed | completed | cancelled
   createdAt             DateTime @default(now())
+  cancelledAt           DateTime? // when the organizer cancelled it (staff removals do not set this)
   updatedAt             DateTime @updatedAt
 
   applications          TripApplication[]
@@ -241,6 +303,7 @@ model TripMembership {
   role      String   @default("member") // organizer | member
   state     String   @default("approved") // approved | left | removed
   datesConfirmed Boolean @default(false) // said yes to the final dates
+  leftAt    DateTime? // when the member left themselves
   createdAt DateTime @default(now())
 
   @@unique([tripId, userId])
@@ -387,4 +450,41 @@ model TripPollVote {
   createdAt DateTime @default(now())
 
   @@unique([pollId, userId])
+}
+
+// A host's note that a member did not come to the plan. It counts toward reliability only once it is CONFIRMED: the member
+// had 7 days to dispute it and did not, or a moderator upheld it. A disputed or overturned mark counts for nothing.
+model AttendanceMark {
+  id          String    @id @default(cuid())
+  kind        String    // activity | trip
+  targetId    String    // the activity or trip
+  userId      String    // the member who is said not to have come
+  markedById  String    // the host or organizer
+  title       String    // the plan's title, kept so the note reads right later
+  planEndsAt  DateTime  // when the plan ended: reliability events fade from here
+  markedAt    DateTime  @default(now())
+  state       String    @default("marked") // marked | disputed | upheld | overturned
+  disputeNote String?
+  disputedAt  DateTime?
+  decidedById String?
+  decidedAt   DateTime?
+  decisionNote String?
+
+  @@unique([kind, targetId, userId])
+  @@index([userId])
+  @@index([state])
+}
+
+// Why a person's level changed, kept so they can see it: the counts at that moment and the event behind the change.
+model ReliabilityChange {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromLevel String?
+  toLevel   String
+  facts     String   // JSON: the counts behind the level at that moment
+  because   String   // plain words: the newest event
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

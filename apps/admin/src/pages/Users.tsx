@@ -11,6 +11,12 @@ type Detail = {
   verifications: { id: string; eligibility: string; createdAt: string }[];
   reports: { id: string; category: string; status: string; details: string | null; resolution: string | null; createdAt: string; targetType: string; targetTitle: string | null; reporterName: string | null }[];
 };
+type Reliab = {
+  label: string;
+  summary: { kept: number; noShows: number; lateCancels: number; upheldReports: number; upheldLast12Months: number; rate: number };
+  events: { kind: string; at: string; text: string; weight: number }[];
+  marks: { id: string; title: string; state: string; markedAt: string; counts: boolean; disputeNote: string | null; decisionNote: string | null }[];
+};
 type State = '' | 'active' | 'suspended';
 
 const isGuest = (u: U) => u.email.startsWith('guest-') || u.displayName === 'Guest';
@@ -58,6 +64,10 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
   const overturn = async (u: U) => {
     const note = await askText(`Approve ${u.displayName ?? u.email} after review?`, { label: 'What did you check? You are confirming this person is a genuine adult. (kept in the audit log)', confirm: 'Approve' });
     if (note) act.run(() => post(`/v1/admin/users/${u.id}/overturn-rejection`, { note }));
+  };
+  const resetMfa = async (u: U) => {
+    const reason = await askText(`Reset two-step sign-in for ${u.displayName ?? u.email}?`, { label: 'Why? (kept in the audit log) They will sign in with just a password until they set it up again.', confirm: 'Reset' });
+    if (reason) act.run(() => post(`/v1/admin/users/${u.id}/mfa/reset`, { reason }));
   };
   const setRole = (u: U, role: string) => {
     if (role !== u.role && confirm(`Change role of ${u.email} to "${role}"?`)) act.run(() => post(`/v1/admin/users/${u.id}/role`, { role }));
@@ -127,7 +137,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
               </thead>
               <tbody>
                 {pages.shown.map((u) => (
-                  <UserRow key={u.id} u={u} me={me} open={open === u.id || focusId === u.id} onToggle={() => setOpen(open === u.id ? null : u.id)} onSuspend={suspend} onRestore={restore} onRole={setRole} onReverify={reverify} onReset={reset} onOverturn={overturn} busy={act.busy} openReport={openReport} />
+                  <UserRow key={u.id} u={u} me={me} open={open === u.id || focusId === u.id} onToggle={() => setOpen(open === u.id ? null : u.id)} onSuspend={suspend} onRestore={restore} onRole={setRole} onReverify={reverify} onReset={reset} onOverturn={overturn} onResetMfa={resetMfa} busy={act.busy} openReport={openReport} />
                 ))}
               </tbody>
             </table>
@@ -139,7 +149,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
   );
 }
 
-function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; onSuspend: (u: U) => void; onRestore: (u: U) => void; onRole: (u: U, r: string) => void; onReverify: (u: U) => void; onReset: (u: U) => void; onOverturn: (u: U) => void; busy: boolean; openReport?: (id: string) => void }) {
+function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; onSuspend: (u: U) => void; onRestore: (u: U) => void; onRole: (u: U, r: string) => void; onReverify: (u: U) => void; onReset: (u: U) => void; onOverturn: (u: U) => void; onResetMfa: (u: U) => void; busy: boolean; openReport?: (id: string) => void }) {
   const { u, me } = p;
   // moderators cannot touch staff accounts; the server enforces this too
   const canActOn = can.moderate(me.role) && (u.role === 'user' || me.role === 'admin') && u.email !== me.email;
@@ -147,6 +157,7 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
   const more = [
     ...(trust && u.state === 'active' && ['verified', 'pending'].includes(u.eligibility) ? [{ label: 'Require re-verification', onSelect: () => p.onReverify(u) }] : []),
     // a rejection or a stuck check can be reopened or, as an appeal, overturned by a reviewer
+    ...(can.admin(me.role) && u.role !== 'user' && u.email !== me.email ? [{ label: 'Reset two-step sign-in', onSelect: () => p.onResetMfa(u) }] : []),
     ...(trust && ['rejected', 'pending', 'reverification_required'].includes(u.eligibility) ? [{ label: 'Allow another attempt', onSelect: () => p.onReset(u) }] : []),
     ...(trust && u.eligibility === 'rejected' && !['superseded', 'cancelled'].includes(u.lastRejectionReason ?? '') && !(u.lastRejectionReason === 'underage' && !can.admin(me.role)) ? [{ label: 'Approve after review', onSelect: () => p.onOverturn(u) }] : []),
   ];
@@ -224,6 +235,7 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
 function UserDetail({ id, me, openReport }: { id: string; me: Session; openReport?: (id: string) => void }) {
   const { data, error, loading, reload } = useLoad(() => get<Detail>(`/v1/admin/users/${id}`), [id], 6000);
   const act = useAction(reload);
+  const rel = useLoad(() => get<Reliab>(`/v1/admin/users/${id}/reliability`), [id], 30000);
   const mod = can.moderate(me.role);
   const decide = async (reportId: string, status: 'resolved' | 'dismissed') => {
     const resolution = await askText(status === 'resolved' ? 'Resolve report' : 'Dismiss report', {
@@ -255,6 +267,38 @@ function UserDetail({ id, me, openReport }: { id: string; me: Session; openRepor
           <dd className="mono">{data.id}</dd>
         </div>
       </dl>
+      {rel.data && (
+        <>
+          <h3>Reliability: {rel.data.label}</h3>
+          <p className="muted small">
+            Kept {rel.data.summary.kept} · confirmed no-shows {rel.data.summary.noShows} · left late {rel.data.summary.lateCancels} · upheld reports {rel.data.summary.upheldReports} ({rel.data.summary.upheldLast12Months} in the last 12 months) · good-event share {Math.round(rel.data.summary.rate * 100)}%
+          </p>
+          {rel.data.marks.length > 0 && (
+            <ul className="stack" style={{ marginBottom: 8 }}>
+              {rel.data.marks.map((m) => (
+                <li key={m.id} className="card">
+                  <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+                    <span>No-show note: {m.title}</span>
+                    <Chip value={m.counts ? `${m.state} · counts` : m.state} />
+                  </div>
+                  {m.disputeNote && <div className="muted small">Their side: {m.disputeNote}</div>}
+                  {m.decisionNote && <div className="muted small">Decision: {m.decisionNote}</div>}
+                </li>
+              ))}
+            </ul>
+          )}
+          <details>
+            <summary>Every event behind the level ({rel.data.events.length})</summary>
+            <ul className="stack">
+              {rel.data.events.map((e, i) => (
+                <li key={i} className="muted small">
+                  {fmt(e.at)} · {e.text} · weight {e.weight}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </>
+      )}
       <ErrorBanner message={act.error} />
       <h3>Reports about this person ({data.reports.length})</h3>
       {data.reports.length === 0 ? (

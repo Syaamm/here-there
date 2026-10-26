@@ -3,17 +3,16 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import { ActivityCard, TripCard } from '@/components/Cards';
+import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { TabHeader } from '@/components/TabHeader';
 import { Avatar, Between, Btn, Card, Chip, Empty, ErrorBanner, Field, Grid, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
-import { get, patch, type Activity, type Trip } from '@/lib/api';
+import { get, patch, type Activity, type MyActivitiesPage, type MyReliability, type MyTripRow, type MyTripsPage } from '@/lib/api';
 import { myActivityItems } from '@/lib/myActivities';
 import { savedIcon, type AppIcon } from '@/lib/appIcon';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
 
-type MyActivities = { joined: (Activity & { role: string })[]; requests: { requestId: string; state: string; activity: Activity }[] };
-type MyTrips = { joined: (Trip & { role: string })[]; applications: { applicationId: string; state: string; trip: Trip }[] };
 
 const csv = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
 
@@ -24,19 +23,29 @@ export function Profile() {
   const go = useGo();
   const [tab, setTab] = useState<'activities' | 'trips' | 'favourites'>(mode === 'here' ? 'activities' : 'trips');
   const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number } }>(`/v1/users/${me!.id}`), [me?.id], undefined, 'me:stats');
-  const acts = useLoad(() => get<MyActivities>('/v1/me/activities'), [], undefined, 'me:activities');
-  const trips = useLoad(() => get<MyTrips>('/v1/me/trips'), [], undefined, 'me:trips');
-  const conns = useLoad(() => get<{ counts: { following: number; followers: number; buddies: number } }>('/v1/me/connections'), [], undefined, 'me:buddies2');
-  const favs = useLoad(() => get<{ items: Activity[] }>('/v1/me/favorites'), [], undefined, 'me:favs');
+  // only the 3 newest of each list are fetched (the full lists are their own pages), with how many there are in all
+  const acts = useLoad(() => get<MyActivitiesPage>('/v1/me/activities/page?tab=all&limit=3'), [], undefined, 'me:acts:recent');
+  const trips = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?limit=2'), [], undefined, 'me:trips');
+  const conns = useLoad(() => get<{ counts: { following: number; followers: number; buddies: number } }>('/v1/me/connections?limit=1'), [], undefined, 'me:buddies2');
+  const rel = useLoad(() => get<MyReliability>('/v1/me/reliability'), [], undefined, 'me:reliability');
+  const favs = useLoad(() => get<{ items: Activity[]; total?: number }>('/v1/me/favorites?limit=3'), [], undefined, 'me:favs');
   // the app icon chosen in Settings, shown on the Settings row
   const [icon, setIcon] = useState<AppIcon>('here');
   useFocusEffect(useCallback(() => void savedIcon().then(setIcon), []));
-  const all = myActivityItems(acts.data);
-  const tripItems = [...(trips.data?.joined ?? []).map((t) => ({ key: t.id, joined: t })), ...(trips.data?.applications ?? []).map((a) => ({ key: a.applicationId, app: a }))];
+  const rows = acts.data?.items ?? [];
+  const all = myActivityItems({
+    joined: rows.filter((x): x is Extract<typeof x, { row: 'joined' }> => x.row === 'joined'),
+    requests: rows.filter((x): x is Extract<typeof x, { row: 'request' }> => x.row === 'request'),
+  });
+  const actsTotal = acts.data ? acts.data.counts.mine + acts.data.counts.pending + acts.data.counts.rejected : 0;
+  type TripItem = { key: string; joined: Extract<MyTripRow, { row: 'joined' }> } | { key: string; app: Extract<MyTripRow, { row: 'application' }> };
+  const tripItems: TripItem[] = (trips.data?.items ?? []).map((x): TripItem => (x.row === 'joined' ? { key: x.id, joined: x } : { key: x.applicationId, app: x }));
+  const tripsTotal = trips.data ? trips.data.counts.joined + trips.data.counts.applications : 0;
   const favItems = favs.data?.items ?? [];
+  const favTotal = favs.data?.total ?? favItems.length;
   const TRIPS_SHOWN = 2; // trip cards are taller, so Profile shows 2 of them
   const SHOWN = 3; // Profile only shows the 3 most recent of each list; the full list is one tap away
-  const { refreshing, onRefresh } = useRefresh(() => Promise.all([reload(), stats.reload(), conns.reload(), acts.reload(), trips.reload(), favs.reload()]));
+  const { refreshing, onRefresh } = useRefresh(() => Promise.all([reload(), stats.reload(), conns.reload(), acts.reload(), trips.reload(), favs.reload(), rel.reload()]));
 
   if (!me?.profile) return <Spinner />;
   const p = me.profile;
@@ -60,7 +69,7 @@ export function Profile() {
         {[
           [stats.data?.stats.activitiesHosted, 'Hosted'],
           [stats.data?.stats.activitiesJoined, 'Joined'],
-          [trips.data?.joined.length, 'Trips'],
+          [trips.data?.counts.joined, 'Trips'],
         ].map(([n, l], i) => (
           <View key={String(l)} style={{ flex: 1, alignItems: 'center', borderLeftWidth: i ? 1 : 0, borderLeftColor: c.line }}>
             <Txt variant="h2" style={{ fontSize: 28, lineHeight: 34 }}>{n ?? '–'}</Txt>
@@ -97,6 +106,17 @@ export function Profile() {
         />
       )}
       {/* HERE and THERE are one app: this flips between them */}
+      {rel.data ? (
+        <Card onPress={() => go('/reliability')} accessibilityLabel={`Your reliability level: ${rel.data.label}. See why`} style={{ padding: 14, borderRadius: 18, gap: 4 }}>
+          <Between>
+            <Row style={{ gap: 8, alignItems: 'center' }}>
+              <Txt variant="h3">Reliability</Txt>
+              <ReliabilityChip r={{ level: rel.data.level, label: rel.data.label }} />
+            </Row>
+            <Ionicons name="chevron-forward" size={16} color={c.muted} />
+          </Between>
+        </Card>
+      ) : null}
       <Btn title={mode === 'here' ? 'Switch to There ↗' : 'Switch to Here ↗'} onPress={() => switchMode(mode === 'here' ? 'there' : 'here')} />
 
       <PillRow>
@@ -107,7 +127,7 @@ export function Profile() {
 
       {tab === 'activities' && (
         <>
-          {acts.data && all.length === 0 && <Empty title="No activities yet">Join or host an activity and it shows up here.</Empty>}
+          {acts.data && actsTotal === 0 && <Empty title="No activities yet">Join or host an activity and it shows up here.</Empty>}
           <Grid>
             {all.slice(0, SHOWN).map((x) => (
               <View key={x.key} style={{ gap: 6 }}>
@@ -119,13 +139,13 @@ export function Profile() {
               </View>
             ))}
           </Grid>
-          {all.length > SHOWN && <Btn title={`More activities (${all.length - SHOWN} more)  ›`} variant="secondary" onPress={() => go('/my-activities')} />}
+          {actsTotal > SHOWN && <Btn title={`More activities (${actsTotal - SHOWN} more)  ›`} variant="secondary" onPress={() => go('/my-activities')} />}
         </>
       )}
 
       {tab === 'trips' && (
         <>
-          {trips.data && trips.data.joined.length + trips.data.applications.length === 0 && <Empty title="No trips yet">Propose a trip or apply to one and it shows up here.</Empty>}
+          {trips.data && tripsTotal === 0 && <Empty title="No trips yet">Propose a trip or apply to one and it shows up here.</Empty>}
           <Grid>
             {tripItems.slice(0, TRIPS_SHOWN).map((x) =>
               'joined' in x ? (
@@ -144,7 +164,7 @@ export function Profile() {
               ),
             )}
           </Grid>
-          {tripItems.length > TRIPS_SHOWN && <Btn title={`More trips (${tripItems.length - TRIPS_SHOWN} more)  ›`} variant="secondary" onPress={() => go('/my-trips')} />}
+          {tripsTotal > TRIPS_SHOWN && <Btn title={`More trips (${tripsTotal - TRIPS_SHOWN} more)  ›`} variant="secondary" onPress={() => go('/my-trips')} />}
         </>
       )}
 
@@ -156,7 +176,7 @@ export function Profile() {
               <ActivityCard key={a.id} a={a} />
             ))}
           </Grid>
-          {favItems.length > SHOWN && <Btn title={`More favourites (${favItems.length - SHOWN} more)  ›`} variant="secondary" onPress={() => go('/favourites')} />}
+          {favTotal > SHOWN && <Btn title={`More favourites (${favTotal - SHOWN} more)  ›`} variant="secondary" onPress={() => go('/favourites')} />}
         </>
       )}
 

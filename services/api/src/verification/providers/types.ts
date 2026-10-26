@@ -22,7 +22,7 @@ export interface IdentityProvider {
    * Opens a check for this user. `url` is the provider's hosted flow (ID photo + selfie with liveness) that the
    * app opens. Providers that decide offline (manual review) return no url.
    */
-  createSession(user: { id: string; email: string }, ctx: { checkId: string; baseUrl: string }): Promise<{ providerRef: string; url?: string }>;
+  createSession(user: { id: string; email: string }, ctx: { checkId: string; baseUrl: string; method: 'face' | 'document' }): Promise<{ providerRef: string; url?: string }>;
 
   /** Lets a user who closed the browser pick the same session up again. */
   resumeUrl?(providerRef: string, baseUrl: string): string | undefined;

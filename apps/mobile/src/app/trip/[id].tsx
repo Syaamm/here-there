@@ -241,6 +241,7 @@ export default function TripDetail() {
         {t.isHost ? (
           <View style={{ gap: 10 }}>
             {t.conversationId && <Btn title="Open group chat" variant="secondary" onPress={() => go(`/chat/${t.conversationId}`)} />}
+            {t.status !== 'cancelled' && new Date(t.dateStart) <= new Date() ? <Btn title="Who came?" variant="secondary" onPress={() => go(`/no-shows/trip/${id}`)} /> : null}
             {t.status !== 'cancelled' && (
               <Btn title="Cancel trip" variant="danger" loading={act.busy} onPress={async () => (await confirmAsync('Cancel this trip?', 'Everyone in the group will be notified.', 'Cancel trip', true)) && void act.run(() => post(`/v1/trips/${id}/cancel`))} />
             )}

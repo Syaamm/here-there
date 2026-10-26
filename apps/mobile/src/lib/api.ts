@@ -52,8 +52,39 @@ export class ApiError extends Error {
 }
 
 let token: string | null = null;
+
+// A random id made once for this install (never anything about the phone itself). The server keeps only a keyed fingerprint
+// of it, to limit how many accounts one device can create and to stop a banned person starting over.
+const DEVICE_KEY = 'ht_device';
+let device: string | null = null;
+async function deviceId() {
+  if (device) return device;
+  try {
+    const stored = Platform.OS === 'web' ? localStorage.getItem(DEVICE_KEY) : await SecureStore.getItemAsync(DEVICE_KEY);
+    if (stored) return (device = stored);
+  } catch {
+    /* unreadable: make a new one below */
+  }
+  const fresh = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+  try {
+    if (Platform.OS === 'web') localStorage.setItem(DEVICE_KEY, fresh);
+    else await SecureStore.setItemAsync(DEVICE_KEY, fresh);
+  } catch {
+    /* it lasts until the app closes */
+  }
+  return (device = fresh);
+}
+
+// The last answer to each GET, with the server's version tag. The next time the same page is asked for, the tag goes along;
+// if nothing changed the server replies "304 not modified" with no body and the remembered answer is used. Polling a
+// list that has not changed then costs almost nothing.
+const etags = new Map<string, { tag: string; data: unknown }>();
+const MAX_TAGS = 150;
 let onUnauthorized: () => void = () => {};
-export const setToken = (t: string | null) => (token = t);
+export const setToken = (t: string | null) => {
+  if (t !== token) etags.clear(); // one person's answers are never reused for another
+  token = t;
+};
 export const getToken = () => token;
 export const setUnauthorizedHandler = (fn: () => void) => (onUnauthorized = fn);
 
@@ -66,11 +97,13 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
   let res: Response;
+  const known = method === 'GET' ? etags.get(path) : undefined;
+  const deviceHeader = await deviceId();
   try {
     res = await fetch(API_URL + path, {
       method,
       signal: ctrl.signal,
-      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), 'x-device-id': deviceHeader, ...(known ? { 'if-none-match': known.tag } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -78,6 +111,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   } finally {
     clearTimeout(timer);
   }
+  if (res.status === 304 && known) return known.data as T; // nothing changed since the last time
   const text = await res.text();
   let data: any = null;
   try {
@@ -89,6 +123,12 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
     if (res.status === 401 && !path.startsWith('/v1/auth/')) onUnauthorized();
     const detail = Array.isArray(data?.details) ? ': ' + data.details.map((d: any) => d.message).join(', ') : '';
     throw new ApiError(res.status, data?.code ?? 'ERROR', (data?.message ?? res.statusText) + detail, data?.details);
+  }
+  const tag = method === 'GET' ? res.headers.get('etag') : null;
+  if (tag) {
+    etags.delete(path);
+    etags.set(path, { tag, data });
+    if (etags.size > MAX_TAGS) etags.delete(etags.keys().next().value!);
   }
   return data as T;
 }
@@ -117,6 +157,30 @@ export const patch = <T = any>(p: string, b: unknown = {}) => api<T>('PATCH', p,
 export const del = <T = any>(p: string) => api<T>('DELETE', p);
 
 // ---------------------------------------------------------------- shared types
+/** One row of "my trips" from the server: a trip you organise or are in, or one you applied to. */
+export type MyTripRow = (Trip & { row: 'joined'; role: string }) | { row: 'application'; applicationId: string; state: string; trip: Trip };
+export type MyTripsPage = { items: MyTripRow[]; nextCursor: string | null; counts: { joined: number; applications: number } };
+/** One row of "my activities": one you host or are going to, or one you asked to join. */
+export type MyActivityRow = (Activity & { row: 'joined'; role: string }) | { row: 'request'; requestId: string; state: string; activity: Activity };
+export type MyActivitiesPage = { items: MyActivityRow[]; nextCursor: string | null; counts: { mine: number; pending: number; rejected: number } };
+
+/** A person's reliability level as another verified member sees it. */
+export type Reliability = { level: 'new' | 'reliable' | 'very_reliable' | 'needs_care'; label: string };
+/** My own level: just the level and one short line. */
+export type MyReliability = { level: Reliability['level']; label: string; line: string };
+/** A host's note that I did not come. */
+export type MyNoShow = { id: string; kind: string; targetId: string; title: string; state: string; markedAt: string; canDispute: boolean; disputeUntil: string; counts: boolean; decisionNote: string | null };
+/** The host's list of who was in the plan, with any note already made. */
+export type NoShowList = {
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  canMark: boolean;
+  markableFrom: string;
+  markableUntil: string;
+  items: { userId: string; displayName: string; photoUrl: string | null; mark: { id: string; state: string; markedAt: string } | null }[];
+};
+
 export type Me = {
   id: string;
   email: string;
@@ -156,6 +220,12 @@ export type Activity = {
   visibility: string;
   host: HostInfo;
   distanceKm?: number;
+  /** the host's reliability level, shown to verified members on the activity page */
+  hostReliability?: Reliability | null;
+  /** how many of your buddies (you follow each other) are going or hosting (only on the ranked feed) */
+  buddiesGoing?: number;
+  /** how many people you follow (who do not follow back) are going or hosting */
+  followingGoing?: number;
   favorited?: boolean;
   // detail only
   isHost?: boolean;
@@ -205,6 +275,9 @@ export type Trip = {
   participants?: Participant[];
   datesConfirmedCount?: number;
   myDatesConfirmed?: boolean;
+  /** your circle going on this trip: buddies, and people you follow */
+  buddiesGoing?: number;
+  followingGoing?: number;
 };
 
 export type Notif = {

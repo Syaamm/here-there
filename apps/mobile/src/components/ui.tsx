@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useIsFocused, useRouter } from 'expo-router';
 import { Children, createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Text, TextInput } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { photoSrc } from '@/lib/api';
@@ -74,7 +74,7 @@ export function Screen({
   const top = statusTop(insets.top);
   const typing = useKeyboardShown();
   const keyboard = useKeyboardInset(); // the page ends at the bottom edge: the keyboard pushes it up by exactly its height
-  const scroller = useRef<ScrollView>(null);
+  const scroller = useRef<ScrollViewInstance>(null);
   const viewH = useRef(0);
   const contentH = useRef(0);
   const lastFire = useRef(0);

@@ -2,6 +2,8 @@ import { useIsFocused } from 'expo-router';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SkeletonRows } from '@/components/Skeleton';
 import { useOnScrollEnd } from '@/components/ui';
+import { get } from './api';
+import { cursorDeps, patchCache, useLoad } from './hooks';
 
 /** How much of a list is drawn: a first batch, then a bigger one each time the reader nears the end (like a social feed). */
 export const FIRST_BATCH = 6;
@@ -46,6 +48,87 @@ export function usePaged<T>(items: T[], resetKey = '', first = FIRST_BATCH, step
   });
 
   return { shown: items.slice(0, count), count, total: items.length, hasMore: count < items.length, loadingMore };
+}
+
+type CursorPage<T> = { items: T[]; nextCursor: string | null };
+const MAX_REFETCH = 100; // the most rows one refresh asks for (the server's page limit)
+/** A row's own id, whatever the list is of (an activity, a request, a person, a chat). */
+const rowId = (x: unknown) => {
+  const r = x as { id?: string; requestId?: string; applicationId?: string; userId?: string; conversationId?: string };
+  return r.id ?? r.requestId ?? r.applicationId ?? r.userId ?? r.conversationId ?? '';
+};
+const pageUrl = (path: string, params: Record<string, string>, limit: number, cursor?: string | null) =>
+  `${path}?${new URLSearchParams({ ...params, limit: String(limit), ...(cursor ? { cursor } : {}) })}`;
+
+/**
+ * A list read from the server a page at a time. It looks exactly like `usePaged`: 6 rows first, then 5 more each time the
+ * reader nears the end, with grey rows at the bottom meanwhile. The difference is that the rows really are fetched then:
+ * the server sends only the next 5 after the last one shown (a cursor), never the whole list.
+ *
+ * It keeps the last answer (so the page opens at once) and can poll. A refresh asks again for as many rows as are already
+ * loaded, so what you scrolled past does not vanish and a new row at the top cannot make a row in the middle go missing.
+ * Anything else the answer carries (counts, totals) is kept and refreshed with it.
+ */
+export function useCursorList<T, X extends object = object>(
+  path: string,
+  params: Record<string, string>,
+  cacheKey: string,
+  opts: { pollMs?: number; animate?: boolean; keep?: boolean; first?: number; step?: number; idOf?: (x: T) => string; /** load nothing yet (a search that has not been asked) */ skip?: boolean } = {},
+) {
+  const { pollMs, animate, keep, first = FIRST_BATCH, step = NEXT_BATCH, skip, idOf = rowId } = opts;
+  const key = cursorDeps(path, params)[0] + (skip ? '#skipped' : '');
+  const latest = useRef<(CursorPage<T> & X) | null>(null);
+  const list = useLoad(
+    () => (skip ? Promise.resolve({ items: [], nextCursor: null } as unknown as CursorPage<T> & X) : get<CursorPage<T> & X>(pageUrl(path, params, Math.min(MAX_REFETCH, Math.max(first, latest.current?.items.length ?? 0))))),
+    [key],
+    pollMs,
+    cacheKey,
+    { animate, keep },
+  );
+  latest.current = list.data;
+  const keyNow = useRef(key);
+  keyNow.current = key;
+
+  const [loadingMore, setLoadingMore] = useState(false);
+  const busy = useRef(false);
+  const focused = useIsFocused();
+  useEffect(() => {
+    busy.current = false; // a different list: any page still on its way belongs to the old one
+    setLoadingMore(false);
+  }, [key]);
+
+  useOnScrollEnd(() => {
+    const d = latest.current;
+    if (skip || !focused || busy.current || !d?.nextCursor) return;
+    busy.current = true;
+    setLoadingMore(true);
+    const asked = key;
+    // the grey rows show for at least a moment, so a fast answer does not make the list jump
+    Promise.all([get<CursorPage<T> & X>(pageUrl(path, params, step, d.nextCursor)), new Promise((r) => setTimeout(r, LOAD_MS))])
+      .then(([more]) => {
+        if (keyNow.current !== asked) return;
+        patchCache<CursorPage<T> & X>(cacheKey, [key], (old) => {
+          const have = new Set(old.items.map(idOf));
+          return { ...old, ...more, items: [...old.items, ...more.items.filter((x) => !have.has(idOf(x)))] };
+        });
+      })
+      .catch(() => {}) // the next time the end is reached it asks again
+      .finally(() => {
+        if (keyNow.current !== asked) return;
+        busy.current = false;
+        setLoadingMore(false);
+      });
+  });
+
+  return {
+    data: list.data,
+    items: list.data?.items ?? [],
+    hasMore: !!list.data?.nextCursor,
+    loadingMore,
+    loading: list.loading,
+    error: list.error,
+    reload: list.reload,
+  };
 }
 
 /** The grey placeholder rows at the end of a list that still has more to show. */

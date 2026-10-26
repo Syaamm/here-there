@@ -201,6 +201,7 @@ const ICONS = {
   copy: 'M9 9h11v11H9zM5 15V5a1 1 0 0 1 1-1h10',
   plane: 'M21 3L3 10.5l7 3 3 7zM10 13.5L21 3',
   plus: 'M12 5v14M5 12h14',
+  key: 'M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7zM11.4 11.6L15.5 7.5M18 5l3 3-3 3-3-3',
 } as const;
 export type IconName = keyof typeof ICONS;
 export const Icon = ({ name }: { name: IconName }) => (

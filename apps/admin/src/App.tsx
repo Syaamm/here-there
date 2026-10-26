@@ -2,20 +2,24 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, can, loadSession, saveSession, setToken, setUnauthorizedHandler, STAFF, type Role, type Session } from './api';
 import { AuditPage } from './pages/Audit';
 import { ContentPage } from './pages/Content';
+import { NoShowsPage } from './pages/NoShows';
 import { OverviewPage } from './pages/Overview';
 import { ReportsPage } from './pages/Reports';
+import { SecurityPage } from './pages/Security';
 import { UsersPage } from './pages/Users';
 import { VerificationsPage } from './pages/Verifications';
-import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, type IconName } from './ui';
+import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, useLoad, type IconName } from './ui';
 
-type PageId = 'overview' | 'verifications' | 'reports' | 'content' | 'users' | 'audit';
+type PageId = 'overview' | 'verifications' | 'reports' | 'noshows' | 'content' | 'users' | 'audit' | 'security';
 const NAV: { id: PageId; label: string; icon: IconName; show: (r: Role) => boolean }[] = [
   { id: 'overview', label: 'Overview', icon: 'overview', show: () => true },
   { id: 'verifications', label: 'Verification', icon: 'shield', show: () => true },
   { id: 'reports', label: 'Reports', icon: 'flag', show: () => true },
+  { id: 'noshows', label: 'No-shows', icon: 'alert', show: () => true },
   { id: 'content', label: 'Content', icon: 'layers', show: () => true },
   { id: 'users', label: 'Users', icon: 'users', show: () => true },
   { id: 'audit', label: 'Audit log', icon: 'clock', show: can.trust },
+  { id: 'security', label: 'Security', icon: 'key', show: () => true },
 ];
 
 export default function App() {
@@ -91,6 +95,38 @@ export default function App() {
       </>
     );
 
+  return <Console session={session} page={page} setPage={setPage} setReportId={setReportId} setUserId={setUserId} reportId={reportId} userId={userId} fresh={fresh} open={open} logout={logout} />;
+}
+
+type ConsoleProps = {
+  session: Session;
+  page: PageId;
+  setPage: (p: PageId) => void;
+  reportId: string | null;
+  setReportId: (id: string | null) => void;
+  userId: string | null;
+  setUserId: (id: string | null) => void;
+  fresh: (ids?: string[]) => number;
+  open: { reports: string[]; verifications: string[] } | null;
+  logout: () => void;
+};
+
+function Console({ session, page, setPage, reportId, setReportId, userId, setUserId, fresh, open, logout }: ConsoleProps) {
+  // two-step sign-in: where it is required and not yet set up, nothing else opens until it is
+  const mfa = useLoad(() => api<{ enabled: boolean; required: boolean; recoveryCodesLeft: number }>('GET', '/v1/me/mfa'), [session.token]);
+  if (mfa.data && mfa.data.required && !mfa.data.enabled)
+    return (
+      <div className="login-wrap" style={{ alignItems: 'start' }}>
+        <div style={{ width: 'min(560px, 100%)', display: 'grid', gap: 12, paddingTop: 40 }}>
+          <SecurityPage status={mfa.data} onChanged={mfa.reload} forced />
+          <button className="btn" onClick={logout}>
+            Sign out
+          </button>
+        </div>
+        <DialogHost />
+      </div>
+    );
+
   const nav = NAV.filter((n) => n.show(session.role));
   return (
     <div className="shell">
@@ -132,38 +168,81 @@ export default function App() {
         {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} />}
         {page === 'verifications' && <VerificationsPage me={session} />}
         {page === 'reports' && <ReportsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} focusId={reportId} onClearFocus={() => setReportId(null)} />}
+        {page === 'noshows' && <NoShowsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
         {page === 'content' && <ContentPage me={session} />}
         {page === 'users' && <UsersPage me={session} focusId={userId} onClearFocus={() => setUserId(null)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
         {page === 'audit' && can.trust(session.role) && <AuditPage openReport={(id) => (setReportId(id), setPage('reports'))} />}
+        {page === 'security' && mfa.data && <SecurityPage status={mfa.data} onChanged={mfa.reload} />}
       </main>
       <DialogHost />
     </div>
   );
 }
 
+type LoginReply = { token?: string; mfaRequired?: boolean; mfaToken?: string; user?: { email: string; role: Role; profile?: { displayName: string } } };
+
 function Login({ onDone }: { onDone: (s: Session) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<{ mfaToken: string } | null>(null); // the password was right: now the code
+  const [code, setCode] = useState('');
+
+  const finish = (r: LoginReply) => {
+    if (!r.token || !r.user) throw new Error('Sign-in failed.');
+    if (!STAFF.includes(r.user.role)) throw new Error('This account does not have staff access.');
+    const s: Session = { token: r.token, email: r.user.email, role: r.user.role, name: r.user.profile?.displayName ?? r.user.email };
+    setToken(s.token);
+    saveSession(s);
+    onDone(s);
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ token: string; user: { email: string; role: Role; profile?: { displayName: string } } }>('POST', '/v1/auth/login', { email, password });
-      if (!STAFF.includes(r.user.role)) throw new Error('This account does not have staff access.');
-      const s: Session = { token: r.token, email: r.user.email, role: r.user.role, name: r.user.profile?.displayName ?? r.user.email };
-      setToken(s.token);
-      saveSession(s);
-      onDone(s);
+      if (step) {
+        finish(await api<LoginReply>('POST', '/v1/auth/mfa/verify', { mfaToken: step.mfaToken, code }));
+      } else {
+        const r = await api<LoginReply>('POST', '/v1/auth/login', { email, password });
+        if (r.mfaRequired && r.mfaToken) {
+          setStep({ mfaToken: r.mfaToken });
+          setPassword('');
+        } else finish(r);
+      }
     } catch (err) {
       setError(errMsg(err));
+      if (step && /took too long/i.test(errMsg(err))) setStep(null); // the pass expired: start again
     } finally {
       setBusy(false);
     }
   };
+
+  if (step)
+    return (
+      <div className="login-wrap">
+        <form className="login card" onSubmit={submit}>
+          <div className="brand">
+            HERE<span>.</span> / THERE<span>.</span>
+            <small>Admin console</small>
+          </div>
+          <ErrorBanner message={error} />
+          <p className="muted">Open your authenticator app and type the 6-digit code for HERE &amp; THERE. Lost your phone? Use one of your recovery codes instead.</p>
+          <label>
+            Code
+            <input inputMode="text" autoComplete="one-time-code" required autoFocus value={code} onChange={(e) => setCode(e.target.value)} />
+          </label>
+          <button className="btn primary" disabled={busy || code.trim().length < 6}>
+            {busy ? 'Checking…' : 'Sign in'}
+          </button>
+          <button type="button" className="btn small" onClick={() => (setStep(null), setCode(''), setError(null))}>
+            Back
+          </button>
+        </form>
+      </div>
+    );
 
   return (
     <div className="login-wrap">

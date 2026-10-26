@@ -42,6 +42,9 @@ export async function restoreLoadCache(userId: string) {
 const watchers = new Map<string, Set<(v: unknown) => void>>();
 const keyOf = (cacheKey: string, deps: unknown[]) => `${cacheKey}|${JSON.stringify(deps)}`;
 
+/** The memory name of a server-paged list (see useCursorList), so something can fill it ahead of time. */
+export const cursorDeps = (path: string, params: Record<string, string>) => [path + JSON.stringify(params)];
+
 /** Forget everything (when someone signs out, so the next person never sees it). */
 export const clearLoadCache = () => {
   cache.clear();

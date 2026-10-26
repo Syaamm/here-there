@@ -103,12 +103,30 @@ export class ActivitiesController {
   }
 
   @Get('me/favorites')
-  favorites(@CurrentUser() me: User) {
-    return this.activities.myFavorites(me);
+  favorites(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.activities.myFavorites(me, limit, cursor);
   }
 
   @Get('me/activities')
   mine(@CurrentUser() me: User) {
     return this.activities.mine(me);
+  }
+
+  /** The plans on now or starting within `hours` (Home's Next up). */
+  @Get('me/activities/soon')
+  soon(@CurrentUser() me: User, @Query('hours') hours?: string) {
+    return this.activities.soon(me, hours);
+  }
+
+  /** Your open plans overlapping a time window (the clash warning before joining). */
+  @Get('me/activities/overlapping')
+  overlapping(@CurrentUser() me: User, @Query('from') from?: string, @Query('to') to?: string, @Query('exclude') exclude?: string) {
+    return this.activities.overlapping(me, from, to, exclude);
+  }
+
+  /** One tab of "My activities" (mine | pending | rejected | all), a page at a time, plus how many each tab holds. */
+  @Get('me/activities/page')
+  minePage(@CurrentUser() me: User, @Query('tab') tab?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.activities.minePage(me, tab, limit, cursor);
   }
 }

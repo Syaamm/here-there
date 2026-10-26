@@ -48,11 +48,11 @@ export class VerificationController {
     if (check.eligibility !== 'pending') return page('<h2>This check is already finished.</h2><p>You can close this page and go back to the app.</p>');
     return page(`<span class="tag">SANDBOX PROVIDER</span>
 <h2>Identity check</h2>
-<p>This stands in for a real provider (ID photo and a live selfie). <b>Nothing is photographed or uploaded.</b> Choose what the provider should report:</p>
+<p>This stands in for a real provider (${check.method === 'document' ? 'a photo of the ID document only: no selfie, no face match' : 'ID photo and a live selfie'}). <b>Nothing is photographed or uploaded.</b> Choose what the provider should report:</p>
 <form method="post" action="/v1/verification/sandbox/${encodeURIComponent(ref)}/decide">
-<button class="go" name="outcome" value="approve">Approve: adult, genuine ID, selfie matches</button>
+<button class="go" name="outcome" value="approve">${check.method === 'document' ? 'Approve: adult, genuine ID' : 'Approve: adult, genuine ID, selfie matches'}</button>
 <button name="outcome" value="decline">Decline: document unreadable</button>
-<button name="outcome" value="liveness">Decline: liveness check failed</button>
+${check.method === 'document' ? '' : '<button name="outcome" value="liveness">Decline: liveness check failed</button>'}
 <button name="outcome" value="underage">Report: person is under 18</button>
 </form>`);
   }

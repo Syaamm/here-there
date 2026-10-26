@@ -13,15 +13,14 @@ export type FeedSection = { id: 'soon' | 'tonight' | 'tomorrow'; title: string; 
 
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 
-/** Next 2 hours, then the rest of today ("Tonight"), then tomorrow. Each activity lands in exactly one section. */
+/** Next 2 hours, then the rest of today ("Tonight"), then tomorrow. Each activity lands in exactly one section; the server's order (best match first) is kept inside each. */
 export function splitFeed(all: Activity[], now = new Date()): FeedSection[] {
   const soonCut = +now + 2 * 3600e3;
   const tomorrow = new Date(+now + 24 * 3600e3);
-  const sorted = [...all].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
   const soon: Activity[] = [];
   const tonight: Activity[] = [];
   const tmrw: Activity[] = [];
-  for (const a of sorted) {
+  for (const a of all) {
     const t = new Date(a.startsAt);
     if (+t <= soonCut) soon.push(a);
     else if (sameDay(t, now)) tonight.push(a);

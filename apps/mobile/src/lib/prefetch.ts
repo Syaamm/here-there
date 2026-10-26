@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { get, type ConversationRef } from './api';
 import { feedRange } from './feed';
-import { primeCache } from './hooks';
+import { cursorDeps, primeCache } from './hooks';
 
 /**
  * Right after sign-in (and each time the app opens) the pages people go to first are loaded quietly in the background and
@@ -11,14 +11,17 @@ import { primeCache } from './hooks';
 export async function prefetchApp(me: { id: string; profile?: { homeCity?: string | null } | null }) {
   const city = (await AsyncStorage.getItem('ht_city').catch(() => null)) || me.profile?.homeCity || 'Milan';
   const [from, to] = feedRange();
-  const feed = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50' });
+  const feed = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
 
   const jobs: [string, unknown[], string][] = [
     ['inbox:notifs', [], '/v1/notifications'],
-    ['inbox:convs', [], '/v1/me/conversations'],
-    ['me:activities', [], '/v1/me/activities'],
-    ['me:trips', [], '/v1/me/trips'],
-    ['me:favs', [], '/v1/me/favorites'],
+    ['inbox:alerts', cursorDeps('/v1/notifications', { scope: 'alerts' }), '/v1/notifications?scope=alerts&limit=6'],
+    ['inbox:convs', cursorDeps('/v1/me/conversations', {}), '/v1/me/conversations?limit=6'],
+    ['me:soon', [], '/v1/me/activities/soon?hours=4'],
+    ['me:acts:recent', [], '/v1/me/activities/page?tab=all&limit=3'],
+    ['me:trips', [], '/v1/me/trips/page?limit=2'],
+    ['me:trips:next', [], '/v1/me/trips/page?upcoming=1&limit=1'],
+    ['me:favs', [], '/v1/me/favorites?limit=3'],
     ['me:stats', [me.id], `/v1/users/${me.id}`],
     ['feed:here', [city, ''], `/v1/activities?${feed}`],
     ['feed:there', [''], '/v1/trips?limit=50'],
@@ -26,7 +29,7 @@ export async function prefetchApp(me: { id: string; profile?: { homeCity?: strin
   await Promise.all(jobs.map(([key, deps, url]) => get(url).then((d) => primeCache(key, deps, d)).catch(() => {})));
 
   // and the few chats most likely to be opened first, so a chat opens with its messages already there
-  const convs = (await get<{ items: ConversationRef[] }>('/v1/me/conversations').catch(() => null))?.items ?? [];
+  const convs = (await get<{ items: ConversationRef[] }>('/v1/me/conversations?limit=6').catch(() => null))?.items ?? [];
   const recent = [...convs].sort((x, y) => (y.lastMessage ? +new Date(y.lastMessage.at) : 0) - (x.lastMessage ? +new Date(x.lastMessage.at) : 0)).slice(0, 4);
   await Promise.all(
     recent.flatMap((cv) => [

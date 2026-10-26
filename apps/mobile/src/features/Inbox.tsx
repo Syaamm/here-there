@@ -12,7 +12,7 @@ import { useMe } from '@/lib/auth';
 import { ago, when } from '@/lib/format';
 import { primeCache, useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { entersFresh } from '@/lib/nav';
-import { PagedTail, usePaged } from '@/lib/paged';
+import { PagedTail, useCursorList } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 import { useLiveEvents } from '@/lib/live';
 import { enablePush, pushState, type PushState } from '@/lib/push';
@@ -41,6 +41,8 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   trip_cancelled: 'ban-outline',
   removed: 'exit-outline',
   verification_result: 'shield-checkmark-outline',
+  attendance_marked: 'alert-circle-outline',
+  attendance_decided: 'checkmark-done-outline',
 };
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
 
@@ -64,8 +66,10 @@ export function Inbox() {
   const { c } = useTheme();
   const { me } = useMe();
   const [tab, setTab] = useState<Tab>('alerts');
-  const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number }>('/v1/notifications'), [], 15_000, 'inbox:notifs', { animate: true });
-  const convs = useLoad(() => get<{ items: ConversationRef[] }>('/v1/me/conversations'), [], undefined, 'inbox:convs', { animate: true });
+  const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number }>('/v1/notifications'), [], 60_000, 'inbox:notifs', { animate: true }); // new alerts arrive by the live connection; this is only the slow fallback
+  // the alert rows themselves: the server sends them a few at a time, newest first (chat messages are on the Chats tab)
+  const alertList = useCursorList<Notif, { unreadCount: number }>('/v1/notifications', { scope: 'alerts' }, 'inbox:alerts', { pollMs: 60_000, animate: true });
+  const convs = useCursorList<ConversationRef>('/v1/me/conversations', {}, 'inbox:convs', { animate: true });
 
   useEffect(() => {
     if (notifs.data) setUnread(notifs.data.unreadCount);
@@ -102,10 +106,10 @@ export function Inbox() {
   // Chats are in the order of their LAST MESSAGE, newest first, whoever wrote it (you included). Reading a chat, or
   // another chat having unread messages, never moves it: it only moves when a newer message appears somewhere. Chats
   // nobody has written in yet follow, in the order the server gives.
-  const chatRows = [...(convs.data?.items ?? [])].sort((x, y) => (y.lastMessage ? +new Date(y.lastMessage.at) : 0) - (x.lastMessage ? +new Date(x.lastMessage.at) : 0));
+  const chatRows = [...convs.items].sort((x, y) => (y.lastMessage ? +new Date(y.lastMessage.at) : 0) - (x.lastMessage ? +new Date(x.lastMessage.at) : 0));
 
 
-  const refreshAll = () => Promise.all([notifs.reload(), convs.reload(), waiting.reload()]);
+  const refreshAll = () => Promise.all([notifs.reload(), alertList.reload(), convs.reload(), waiting.reload()]);
   const { refreshing, onRefresh } = useRefresh(refreshAll);
   // a new alert or message arrives while this screen is open: the lists update at once
   useLiveEvents((e) => {
@@ -126,7 +130,7 @@ export function Inbox() {
   }, [focused]);
   // the chats most likely to be opened next are fetched quietly while the list is in front, so opening one shows its
   // messages at once instead of waiting for them (this never marks anything as read)
-  const chatPage = usePaged(chatRows, 'chats');
+  const chatPage = convs;
   const topChats = chatRows.slice(0, 6).map((cv) => cv.conversationId + (cv.lastMessage?.at ?? '')).join(',');
   useEffect(() => {
     if (!focused || !topChats) return;
@@ -147,7 +151,7 @@ export function Inbox() {
   const needs = (waiting.data?.length ?? 0) + (stale ? 1 : 0);
   const waitingIds = new Set((waiting.data ?? []).map((w) => w.id));
   // what is left for the lists below: not the join requests that already have a card above
-  const rest = alerts.filter((n) => !(n.type === 'join_request' && n.data?.activityId && waitingIds.has(n.data.activityId)));
+  const rest = alertList.items.filter((n) => !(n.type === 'join_request' && n.data?.activityId && waitingIds.has(n.data.activityId)));
 
   const open = async (n: Notif) => {
     if (!n.readAt) {
@@ -156,7 +160,8 @@ export function Inbox() {
       refreshUnread();
     }
     const d = n.data;
-    if (d?.conversationId) go(`/chat/${d.conversationId}`);
+    if (n.type.startsWith('attendance_')) go('/reliability');
+    else if (d?.conversationId) go(`/chat/${d.conversationId}`);
     else if (n.type === 'join_request' && d?.activityId) go(`/host/${d.activityId}`);
     else if (n.type === 'trip_application' && d?.tripId) go(`/review/${d.tripId}`);
     else if (d?.activityId) go(`/activity/${d.activityId}`);
@@ -196,9 +201,9 @@ export function Inbox() {
   );
 
   // 6 alerts at first, more as you scroll (newest first, so Today comes before Earlier)
-  const alertPage = usePaged(rest, 'alerts');
-  const today = alertPage.shown.filter((n) => isToday(n.createdAt));
-  const earlier = alertPage.shown.filter((n) => !isToday(n.createdAt));
+  const alertPage = alertList;
+  const today = rest.filter((n) => isToday(n.createdAt));
+  const earlier = rest.filter((n) => !isToday(n.createdAt));
 
   return (
     <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader />}>
@@ -260,10 +265,10 @@ export function Inbox() {
       {tab === 'chats' ? (
         <Reveal key={`chats-${visit}`} from={10} style={{ gap: 16 }}>
           {convs.loading && !convs.data && <Spinner />}
-          {convs.data && convs.data.items.length === 0 && <Empty title="No group chats yet">Chats open once a host approves you.</Empty>}
+          {convs.data && convs.items.length === 0 && <Empty title="No group chats yet">Chats open once a host approves you.</Empty>}
           {chatRows.length > 0 ? (
             <Card style={{ padding: 0, borderRadius: 18, overflow: 'hidden' }}>
-              {chatPage.shown.map((cv, i) => (
+              {chatRows.map((cv, i) => (
                 <View key={cv.conversationId}>
                   <Pressable
                     accessibilityRole="button"

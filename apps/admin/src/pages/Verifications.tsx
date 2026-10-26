@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
 import { Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Page, Segmented, useAction, useLoad } from '../ui';
 
-type V = { id: string; providerRef: string; eligibility: string; createdAt: string; user: { id: string; email: string; displayName?: string; homeCity?: string } };
+type V = { id: string; method?: string; providerRef: string; eligibility: string; createdAt: string; user: { id: string; email: string; displayName?: string; homeCity?: string } };
 type Status = 'pending' | 'verified' | 'rejected';
 
 const waitingFor = (iso: string) => {
@@ -77,6 +77,7 @@ export function VerificationsPage({ me }: { me: Session }) {
                     <td>
                       <div className="row">
                         <span className="mono small">{v.providerRef}</span>
+                        {v.method === 'document' && <Chip value="Document only" tone="info" />}
                         <button className="icon-btn" aria-label="Copy provider reference" title="Copy" onClick={() => copy(v.providerRef)}>
                           <Icon name="copy" />
                         </button>

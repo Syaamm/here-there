@@ -8,13 +8,13 @@ import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { parse } from '../common/validate';
 
-const reportSchema = z.object({
+export const reportSchema = z.object({
   targetType: z.enum(REPORT_TARGETS),
   targetId: z.string().min(1),
   category: z.enum(REPORT_CATEGORIES),
   details: z.string().trim().max(1000).optional(),
 });
-const blockSchema = z.object({ userId: z.string().min(1) });
+export const blockSchema = z.object({ userId: z.string().min(1) });
 
 @Controller('v1')
 export class SafetyController {

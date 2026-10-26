@@ -1,0 +1,244 @@
+import { Body, Controller, Get, Injectable, Post } from '@nestjs/common';
+import { User } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+import { z } from 'zod';
+import { ActivitiesService } from '../activities/activities.service';
+import { ContactVerificationService } from '../auth/contact-verification.service';
+import { AuditService } from '../common/audit.service';
+import { CurrentUser } from '../common/auth';
+import { EmailService } from '../common/email.service';
+import { E } from '../common/errors';
+import { LiveService } from '../common/live.service';
+import { PrismaService } from '../common/prisma.service';
+import { RateLimiter } from '../common/rate-limiter';
+import { parse } from '../common/validate';
+import { decryptField } from '../common/vault';
+import { ReliabilityService } from '../reliability/reliability.controller';
+import { TripsService } from '../trips/trips.service';
+import { VerificationService } from '../verification/verification.service';
+
+const DAY = 24 * 3600 * 1000;
+const MESSAGE_CAP = 5000; // the newest this many of your messages go in the export
+
+export const deleteSchema = z.object({ password: z.string().min(1), confirm: z.literal('DELETE', { error: 'Type DELETE to confirm' }) });
+export const changeEmailSchema = z.object({ newEmail: z.string().trim().toLowerCase().pipe(z.email()), password: z.string().min(1) });
+export const confirmSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code') });
+
+/**
+ * Your data: a copy of it (export), correcting it (a new email address; the rest is Edit profile), and deleting the
+ * account (erasure). Deleting keeps a bare tombstone row, so other people's plans, chats and safety reports that point at
+ * this person stay intact, but nothing about them is kept: no name, email, photo, bio, messages or identity data.
+ */
+@Injectable()
+export class AccountService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly activities: ActivitiesService,
+    private readonly trips: TripsService,
+    private readonly contact: ContactVerificationService,
+    private readonly verification: VerificationService,
+    private readonly audit: AuditService,
+    private readonly email: EmailService,
+    private readonly limiter: RateLimiter,
+    private readonly live: LiveService,
+    private readonly reliability: ReliabilityService,
+  ) {}
+
+  // ---------------------------------------------------------------- export
+  /** Everything held about this person, as one JSON document (GDPR access and portability). */
+  async export(me: User) {
+    this.limiter.hit(`export:${me.id}`, 3, DAY);
+    const id = me.id;
+    const [user, profile, hosted, memberships, requests, tripsHosted, tripMemberships, applications, favorites, following, followers, blocks, messages, notifications, reports, checks, activity] =
+      await Promise.all([
+        this.prisma.user.findUniqueOrThrow({ where: { id } }),
+        this.prisma.profile.findUnique({ where: { userId: id } }),
+        this.prisma.activity.findMany({ where: { hostId: id }, orderBy: { startsAt: 'desc' } }),
+        this.prisma.activityMembership.findMany({ where: { userId: id }, include: { activity: { select: { id: true, title: true, startsAt: true } } } }),
+        this.prisma.activityRequest.findMany({ where: { applicantId: id }, include: { activity: { select: { id: true, title: true, startsAt: true } } } }),
+        this.prisma.trip.findMany({ where: { hostId: id }, orderBy: { dateStart: 'desc' } }),
+        this.prisma.tripMembership.findMany({ where: { userId: id }, include: { trip: { select: { id: true, title: true, dateStart: true } } } }),
+        this.prisma.tripApplication.findMany({ where: { applicantId: id }, include: { trip: { select: { id: true, title: true, dateStart: true } } } }),
+        this.prisma.favorite.findMany({ where: { userId: id }, include: { activity: { select: { id: true, title: true, startsAt: true } } } }),
+        this.prisma.follow.findMany({ where: { followerId: id }, include: { following: { select: { id: true, profile: { select: { displayName: true } } } } } }),
+        this.prisma.follow.findMany({ where: { followingId: id }, include: { follower: { select: { id: true, profile: { select: { displayName: true } } } } } }),
+        this.prisma.block.findMany({ where: { blockerId: id }, include: { blocked: { select: { id: true, profile: { select: { displayName: true } } } } } }),
+        this.prisma.message.findMany({ where: { senderId: id }, orderBy: { createdAt: 'desc' }, take: MESSAGE_CAP + 1, include: { conversation: { select: { id: true, scopeType: true, activity: { select: { title: true } }, trip: { select: { title: true } } } } } }),
+        this.prisma.notification.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 1000 }),
+        this.prisma.report.findMany({ where: { reporterId: id }, orderBy: { createdAt: 'desc' } }),
+        this.prisma.verificationCheck.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' } }),
+        this.prisma.auditEvent.findMany({ where: { actorId: id }, orderBy: { createdAt: 'desc' }, take: 1000 }),
+      ]);
+    await this.audit.log(id, 'account.exported', 'user', id);
+    const who = (u: { id: string; profile: { displayName: string } | null }) => ({ userId: u.id, displayName: u.profile?.displayName ?? null });
+    return {
+      format: 'herethere-export-v1',
+      exportedAt: new Date().toISOString(),
+      note: 'Everything HERE & THERE holds about you, except your password (we only keep a scrambled form of it) and other people\'s private details. Safety reports about you, and the records staff keep of their own decisions, are not included.',
+      account: {
+        id: user.id,
+        email: user.email,
+        createdAt: user.createdAt,
+        role: user.role,
+        state: user.state,
+        emailVerified: !!user.emailVerifiedAt,
+        phoneNumber: user.phoneNumber ? decryptField(user.phoneNumber) : null,
+        phoneVerified: !!user.phoneVerifiedAt,
+        adultConfirmed: user.adultConfirmed,
+        adultVerified: !!user.adultVerifiedAt,
+        identityStatus: user.eligibility,
+        identityValidUntil: user.verifiedUntil,
+        passwordChangedAt: user.passwordChangedAt,
+      },
+      profile: profile && { displayName: profile.displayName, homeCity: profile.homeCity, languages: profile.languages ? profile.languages.split(',') : [], interests: profile.interests ? profile.interests.split(',') : [], bio: profile.bio, hasPhoto: !!profile.photoUrl },
+      activities: {
+        hosted: hosted.map((a) => ({ id: a.id, title: a.title, category: a.category, city: a.city, venue: a.venueName, startsAt: a.startsAt, endsAt: a.endsAt, capacity: a.capacity, status: a.status, description: a.description })),
+        joined: memberships.map((m) => ({ activityId: m.activityId, title: m.activity.title, startsAt: m.activity.startsAt, role: m.role, state: m.state, attendance: m.attendance, since: m.createdAt })),
+        requests: requests.map((r) => ({ activityId: r.activityId, title: r.activity.title, state: r.state, intro: r.intro, askedAt: r.createdAt, decidedAt: r.decidedAt })),
+      },
+      trips: {
+        organised: tripsHosted.map((t) => ({ id: t.id, title: t.title, destination: t.destination, dateStart: t.dateStart, dateEnd: t.dateEnd, status: t.status, description: t.description })),
+        joined: tripMemberships.map((m) => ({ tripId: m.tripId, title: m.trip.title, dateStart: m.trip.dateStart, role: m.role, state: m.state })),
+        applications: applications.map((a) => ({ tripId: a.tripId, title: a.trip.title, state: a.state, intro: a.intro, appliedAt: a.createdAt })),
+      },
+      favourites: favorites.map((f) => ({ activityId: f.activityId, title: f.activity.title, savedAt: f.createdAt })),
+      following: following.map((f) => ({ ...who(f.following), since: f.createdAt })),
+      followers: followers.map((f) => ({ ...who(f.follower), since: f.createdAt })),
+      blocked: blocks.map((b) => ({ ...who(b.blocked), since: b.createdAt })),
+      messages: {
+        truncated: messages.length > MESSAGE_CAP,
+        items: messages.slice(0, MESSAGE_CAP).map((m) => ({ sentAt: m.createdAt, in: m.conversation.activity?.title ?? m.conversation.trip?.title ?? null, kind: m.kind, body: m.body })),
+      },
+      notifications: notifications.map((n) => ({ at: n.createdAt, type: n.type, title: n.title, body: n.body, read: !!n.readAt })),
+      reportsYouFiled: reports.map((r) => ({ at: r.createdAt, about: r.targetType, category: r.category, details: r.details, status: r.status })),
+      // the level, and everything it is worked out from (the app only shows the level)
+      reliability: await this.reliability.detailsFor(id),
+      identityChecks: checks.map((c) => ({ provider: c.provider, outcome: c.eligibility, startedAt: c.createdAt, decidedAt: c.decidedAt, validUntil: c.expiresAt, consentGivenAt: c.consentAt })),
+      accountActivity: activity.map((a) => ({ at: a.createdAt, action: a.action, about: a.objectType })),
+    };
+  }
+
+  // ---------------------------------------------------------------- correct: a new email address
+  async startEmailChange(me: User, body: unknown) {
+    const dto = parse(changeEmailSchema, body);
+    this.limiter.hit(`email-change:${me.id}`, 5, 15 * 60 * 1000);
+    if (!(await bcrypt.compare(dto.password, me.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your password is not correct');
+    if (dto.newEmail === me.email) throw E.badRequest('SAME_EMAIL', 'That is already your email address');
+    if (await this.prisma.user.findUnique({ where: { email: dto.newEmail } })) throw E.conflict('EMAIL_TAKEN', 'An account with this email already exists');
+    return { ok: true, ...(await this.contact.sendEmailChangeCode(me, dto.newEmail)) };
+  }
+
+  async confirmEmailChange(me: User, body: unknown) {
+    const { code } = parse(confirmSchema, body);
+    const row = await this.contact.checkEmailChangeCode(me, code);
+    if (!row.target) throw E.badRequest('CODE_EXPIRED', 'Start the change again.');
+    const old = me.email;
+    try {
+      await this.prisma.$transaction([
+        this.prisma.contactCode.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
+        // the code went to the new address, so it is proven to be theirs
+        this.prisma.user.update({ where: { id: me.id }, data: { email: row.target, emailVerifiedAt: new Date() } }),
+      ]);
+    } catch {
+      throw E.conflict('EMAIL_TAKEN', 'An account with this email already exists');
+    }
+    await this.audit.log(me.id, 'email.changed', 'user', me.id);
+    // the old address is told, so a stranger who got in cannot quietly take the account over
+    await this.email.send(old, 'Your HERE & THERE email address was changed', `The email address of your HERE & THERE account was changed to ${row.target}.\n\nIf this was not you, reset your password straight away and contact support.`).catch(() => undefined);
+    return { ok: true, email: row.target };
+  }
+
+  // ---------------------------------------------------------------- erase
+  async delete(me: User, body: unknown) {
+    const dto = parse(deleteSchema, body);
+    this.limiter.hit(`delete-account:${me.id}`, 5, 15 * 60 * 1000);
+    if (!(await bcrypt.compare(dto.password, me.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your password is not correct');
+    if (me.role !== 'user') throw E.forbidden('STAFF_ACCOUNT', 'Staff accounts are closed by an administrator.');
+    if (me.state === 'suspended') throw E.forbidden('ACCOUNT_SUSPENDED', 'This account is suspended, so it cannot be deleted from here. Contact support.');
+    const id = me.id;
+    const now = new Date();
+
+    // 1. Let the people who were counting on you know, by using the normal ways of leaving, so alerts and waiting lists work.
+    const open = { status: { notIn: ['cancelled', 'completed', 'archived'] }, endsAt: { gt: now } };
+    for (const a of await this.prisma.activity.findMany({ where: { hostId: id, ...open }, select: { id: true } })) await this.activities.cancel(me, a.id).catch(() => undefined);
+    for (const m of await this.prisma.activityMembership.findMany({ where: { userId: id, state: 'approved', activity: open }, select: { activityId: true } })) await this.activities.leave(me, m.activityId).catch(() => undefined);
+    for (const r of await this.prisma.activityRequest.findMany({ where: { applicantId: id, state: { in: ['requested', 'waitlisted'] } }, select: { activityId: true } })) await this.activities.withdraw(me, r.activityId).catch(() => undefined);
+    const tripOpen = { status: { notIn: ['cancelled', 'completed'] }, dateEnd: { gt: now } };
+    for (const t of await this.prisma.trip.findMany({ where: { hostId: id, ...tripOpen }, select: { id: true } })) await this.trips.cancel(me, t.id).catch(() => undefined);
+    for (const m of await this.prisma.tripMembership.findMany({ where: { userId: id, state: 'approved', trip: tripOpen }, select: { tripId: true } })) await this.trips.leave(me, m.tripId).catch(() => undefined);
+    for (const a of await this.prisma.tripApplication.findMany({ where: { applicantId: id, state: 'pending' }, select: { tripId: true } })) await this.trips.withdraw(me, a.tripId).catch(() => undefined);
+
+    // 2. Any identity check still open at the provider is erased there too.
+    await this.verification.eraseProviderSessions(id).catch((e) => console.error('Provider erasure failed:', e?.message ?? e));
+
+    // 3. Erase. Messages that a safety report points at stay, because staff may still need them.
+    const reported = (await this.prisma.report.findMany({ where: { targetType: 'message' }, select: { targetId: true } })).map((r) => r.targetId);
+    await this.prisma.$transaction([
+      this.prisma.notification.deleteMany({ where: { userId: id } }),
+      this.prisma.pushSubscription.deleteMany({ where: { userId: id } }),
+      this.prisma.contactCode.deleteMany({ where: { userId: id } }),
+      this.prisma.favorite.deleteMany({ where: { userId: id } }),
+      this.prisma.follow.deleteMany({ where: { OR: [{ followerId: id }, { followingId: id }] } }),
+      this.prisma.block.deleteMany({ where: { OR: [{ blockerId: id }, { blockedId: id }] } }),
+      this.prisma.profilePhoto.deleteMany({ where: { userId: id } }),
+      this.prisma.tripPollVote.deleteMany({ where: { userId: id } }),
+      this.prisma.mfaRecoveryCode.deleteMany({ where: { userId: id } }),
+      this.prisma.socialIdentity.deleteMany({ where: { userId: id } }),
+      this.prisma.message.deleteMany({ where: { senderId: id, id: { notIn: reported } } }),
+      this.prisma.verificationCheck.deleteMany({ where: { userId: id } }),
+      this.prisma.profile.updateMany({ where: { userId: id }, data: { displayName: 'Deleted user', homeCity: null, languages: '', interests: '', bio: null, photoUrl: null } }),
+      this.prisma.user.update({
+        where: { id },
+        data: {
+          email: `deleted-${id}@deleted.invalid`,
+          passwordHash: '!', // not a valid hash: nothing can ever match it
+          state: 'deleted',
+          deletedAt: now,
+          passwordChangedAt: now,
+          phoneNumber: null,
+          phoneHash: null,
+          phoneVerifiedAt: null,
+          mfaSecret: null,
+          mfaEnabledAt: null,
+          emailVerifiedAt: null,
+          adultVerifiedAt: null,
+          eligibility: 'unverified',
+          verifiedUntil: null,
+          reverifyReason: null,
+          suspendedUntil: null,
+        },
+      }),
+    ]);
+    await this.audit.log(id, 'account.deleted', 'user', id);
+    this.live.dropUser(id);
+    this.live.feedChanged();
+    // a last note to the address they used, so nobody can delete an account unnoticed
+    await this.email.send(me.email, 'Your HERE & THERE account was deleted', 'Your HERE & THERE account has been deleted, and your personal details have been erased.\n\nIf this was not you, contact support right away.').catch(() => undefined);
+    return { ok: true };
+  }
+}
+
+@Controller('v1')
+export class AccountController {
+  constructor(private readonly account: AccountService) {}
+
+  @Get('me/export')
+  export(@CurrentUser() me: User) {
+    return this.account.export(me);
+  }
+
+  @Post('me/email/change')
+  startEmailChange(@CurrentUser() me: User, @Body() body: unknown) {
+    return this.account.startEmailChange(me, body);
+  }
+
+  @Post('me/email/change/confirm')
+  confirmEmailChange(@CurrentUser() me: User, @Body() body: unknown) {
+    return this.account.confirmEmailChange(me, body);
+  }
+
+  @Post('me/delete')
+  delete(@CurrentUser() me: User, @Body() body: unknown) {
+    return this.account.delete(me, body);
+  }
+}

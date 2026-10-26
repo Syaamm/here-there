@@ -71,4 +71,10 @@ export class TripsController {
   mine(@CurrentUser() me: User) {
     return this.trips.mine(me);
   }
+
+  /** Your trips a page at a time (`upcoming=1`: only what is still ahead), plus how many of each kind. */
+  @Get('me/trips/page')
+  minePage(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('upcoming') upcoming?: string) {
+    return this.trips.minePage(me, limit, cursor, upcoming);
+  }
 }

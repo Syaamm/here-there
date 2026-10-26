@@ -3,7 +3,7 @@ import { Pressable, View } from 'react-native';
 import { Text } from './ScaledText';
 import type { Activity, Trip } from '@/lib/api';
 import { catColor, CATS } from '@/lib/constants';
-import { dateSpan, money, when } from '@/lib/format';
+import { circleLine, dateSpan, money, when } from '@/lib/format';
 import { useTheme } from '@/lib/theme';
 import { CatPhoto } from './CatPhoto';
 import { sc } from '@/lib/scale';
@@ -161,6 +161,7 @@ export function ActivityRow({ a }: { a: Activity }) {
           {a.status === 'in_progress' ? <Text style={{ color: c.green, fontWeight: '800' }}>Happening now · </Text> : null}
           {a.going} of {a.capacity} going · {cat?.label ?? a.category}
         </Txt>
+        {circleLine(a.buddiesGoing, a.followingGoing) ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>{circleLine(a.buddiesGoing, a.followingGoing)}</Txt> : null}
       </View>
       <Ionicons name="chevron-forward" size={16} color={c.muted} />
     </Card>
@@ -205,6 +206,7 @@ export function ActivityCard({ a, onPress, plain }: { a: Activity; onPress?: () 
           <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
             {a.going} going · {full ? 'Full' : `${a.spotsLeft} ${a.spotsLeft === 1 ? 'spot' : 'spots'} left`} · {cat?.label ?? a.category}
           </Txt>
+          {circleLine(a.buddiesGoing, a.followingGoing) ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>{circleLine(a.buddiesGoing, a.followingGoing)}</Txt> : null}
         </View>
         {ended ? <Txt variant="small" bold color={ended.color} style={{ fontSize: 11, lineHeight: 15 }}>{ended.text}</Txt> : null}
         {live ? <Txt variant="small" bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>Happening now</Txt> : null}
@@ -272,6 +274,7 @@ export function TripCard({ t }: { t: Trip }) {
           <Chip key={x} label={x} tone="neutral" />
         ))}
       </Row>
+      {circleLine(t.buddiesGoing, t.followingGoing) ? <Txt variant="small" bold color={c.green}>{circleLine(t.buddiesGoing, t.followingGoing)}</Txt> : null}
       <Txt variant="small">Organizer: {t.host.displayName}{t.host.verifiedAdult ? ' ✓' : ''}</Txt>
     </Card>
   );
@@ -320,6 +323,7 @@ export function TripRow({ t }: { t: Trip }) {
           {t.members} of {t.maxCapacity} going · {money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)}
           {full ? <Text style={{ color: c.danger, fontWeight: '800' }}> · Full</Text> : null}
         </Txt>
+        {circleLine(t.buddiesGoing, t.followingGoing) ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>{circleLine(t.buddiesGoing, t.followingGoing)}</Txt> : null}
       </View>
       <Ionicons name="chevron-forward" size={16} color={c.muted} />
     </Card>

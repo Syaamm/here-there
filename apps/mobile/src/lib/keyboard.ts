@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
-import { Animated, Dimensions, Easing, Keyboard, Platform, TextInput, type ScrollView } from 'react-native';
+import { Animated, Dimensions, Easing, Keyboard, Platform, TextInput, type ScrollViewInstance } from 'react-native';
 
 /** True while the on-screen keyboard is up (phones). The floating dock hides then, so its room at the bottom is given back. */
 export function useKeyboardShown() {
@@ -50,7 +50,7 @@ export const notifyInputFocus = () => focusListeners.forEach((f) => f());
  * gets focus, or the keyboard comes up under it, the page scrolls just far enough to show it with some air below.
  * `active` is false for a page that is not the one on screen, so hidden pages never scroll.
  */
-export function useScrollFieldIntoView(scroller: RefObject<ScrollView | null>, offset: MutableRefObject<number>, active: boolean) {
+export function useScrollFieldIntoView(scroller: RefObject<ScrollViewInstance | null>, offset: MutableRefObject<number>, active: boolean) {
   useEffect(() => {
     if (Platform.OS === 'web' || !active) return;
     const reveal = () => {

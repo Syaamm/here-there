@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, type Region } from 'react-native-maps';
 import { HeaderBar, TabHeader } from '@/components/TabHeader';
 import { Empty } from '@/components/ui';
 import { useTheme } from '@/lib/theme';
 import { PinIcon } from './PinIcon';
-import { MapOverlay, useMapData } from './mapShared';
+import { MapOverlay, useMapData, type Group } from './mapShared';
 
 /** A light, flat base map (Google Maps styling, so Android; Apple Maps on iOS keeps its own look). */
 const GREY_MAP = [
@@ -17,6 +17,41 @@ const GREY_MAP = [
   { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#e4ecdf' }] },
 ];
 
+// TEMPORARY: development-only counters, to find out what redraws when the sheet is closed. Remove once found.
+const dbg = { map: 0, pins: 0, loads: 0 };
+function DebugCounts() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 300);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', top: 118, left: 12, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+      <Text style={{ color: '#fff', fontSize: 11 }}>map renders {dbg.map} · pin renders {dbg.pins} · data loads {dbg.loads}</Text>
+    </View>
+  );
+}
+
+/**
+ * One pin. It is redrawn (the green fill playing) only when ITS OWN selection changes, for just long enough for the
+ * change to show, and then goes back to being a still picture. Selecting or deselecting one pin never touches the others.
+ */
+const MapPin = memo(function MapPin({ g, active, onSelect }: { g: Group; active: boolean; onSelect: (g: Group) => void }) {
+  if (__DEV__) dbg.pins++;
+  const [track, setTrack] = useState(true); // drawn live while it first appears, and again for a moment after it is (de)selected
+  useEffect(() => {
+    setTrack(true);
+    const t = setTimeout(() => setTrack(false), 950);
+    return () => clearTimeout(t);
+  }, [active]);
+  const coordinate = useMemo(() => ({ latitude: g.lat, longitude: g.lng }), [g.lat, g.lng]);
+  return (
+    <Marker anchor={{ x: 0.5, y: 1 }} coordinate={coordinate} title={g.items.length > 1 ? `${g.items.length} activities` : g.items[0].title} tracksViewChanges={track} onPress={() => onSelect(g)}>
+      <PinIcon category={g.items[0].category} full={g.items.every((a) => a.spotsLeft === 0)} active={active} count={g.items.length} />
+    </Marker>
+  );
+});
+
 /**
  * HERE · Map: one full-screen map showing only activity icons (public venues, never people).
  * Tap an icon for its card, "List ↗" for the full list. Location is asked only when "Near me" is tapped.
@@ -26,13 +61,14 @@ export function MapHere() {
   const data = useMapData();
   const { center, groups, selected, setSelected, target, zoomCmd } = data;
   const map = useRef<MapView>(null);
-  // keep redrawing the pins for a moment after the selection changes, so the green fill can play
-  const [trackUntil, setTrackUntil] = useState(0);
+  if (__DEV__) dbg.map++;
   useEffect(() => {
-    setTrackUntil(Date.now() + 900);
-    const t = setTimeout(() => setTrackUntil(0), 950);
-    return () => clearTimeout(t);
-  }, [selected?.key]);
+    if (__DEV__) dbg.loads++;
+  }, [data.feed.data]);
+  // a pin taps through this one stable function, so the pins themselves never need to be rebuilt
+  const pick = useRef(setSelected);
+  pick.current = setSelected;
+  const onSelect = useCallback((g: Group) => pick.current(g), []);
   const region = useRef<Region | null>(null); // where the map is now, so the zoom buttons can halve or double the view
 
   useEffect(() => {
@@ -71,12 +107,11 @@ export function MapHere() {
         accessibilityLabel="Map of activity venues"
       >
         {groups.map((g) => (
-          <Marker key={g.key} anchor={{ x: 0.5, y: 1 }} coordinate={{ latitude: g.lat, longitude: g.lng }} title={g.items.length > 1 ? `${g.items.length} activities` : g.items[0].title} tracksViewChanges={selected?.key === g.key || trackUntil > Date.now()} onPress={() => setSelected(g)}>
-            <PinIcon category={g.items[0].category} full={g.items.every((a) => a.spotsLeft === 0)} active={selected?.key === g.key} count={g.items.length} />
-          </Marker>
+          <MapPin key={g.key} g={g} active={selected?.key === g.key} onSelect={onSelect} />
         ))}
       </MapView>
       <MapOverlay data={data} />
+      {__DEV__ ? <DebugCounts /> : null}
       </View>
     </View>
   );

@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useIsFocused, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { Animated, Keyboard, Linking, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { Animated, Keyboard, Linking, Pressable, ScrollView, View, type ScrollViewInstance, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Menu } from '@/components/Menu';
@@ -14,7 +14,7 @@ import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, dayLabel, hhmm, parseDay } from '@/lib/format';
 import { useKeyboardInset, useKeyboardShown } from '@/lib/keyboard';
-import { patchCache, useAction, useLoad } from '@/lib/hooks';
+import { cursorDeps, patchCache, useAction, useLoad } from '@/lib/hooks';
 import { BackArrow } from '@/components/TabHeader';
 import { statusTop } from '@/lib/layout';
 import { useLiveEvents } from '@/lib/live';
@@ -122,7 +122,6 @@ function Chat({ id }: { id: string }) {
   const go = useGo();
   const insets = useSafeAreaInsets();
 
-  const convs = useLoad(() => get<{ items: ConversationRef[] }>('/v1/me/conversations'), [], undefined, 'inbox:convs');
   // Only a chat that is the screen in front counts as read. This screen stays loaded behind others, and a reload there
   // (the app opening, a message arriving) must not clear the alert.
   const focused = useIsFocused();
@@ -153,7 +152,7 @@ function Chat({ id }: { id: string }) {
   const [note, setNote] = useState<string | null>(null);
   const send = useAction(() => void msgs.reload());
   // THERE: the trip itself, for the final-dates confirmation under the chat's title
-  const tripId = convs.data?.items.find((x) => x.conversationId === id && x.scope === 'trip')?.scopeId;
+  const tripId = info.data?.scope === 'trip' ? info.data.scopeId : undefined;
   const trip = useLoad(() => (tripId ? get<Trip>(`/v1/trips/${tripId}`) : Promise.resolve(null)), [tripId], undefined, 'chat:trip', { animate: true });
   // the dates banner is asked again when the number of messages changes (a note that dates were confirmed arrives as one)
   const seenCount = useRef(-1);
@@ -191,11 +190,11 @@ function Chat({ id }: { id: string }) {
   };
   const confirmDates = () => tripId && void plan.run(() => post(`/v1/trips/${tripId}/confirm-dates`));
   const safety = useAction(() => void msgs.reload());
-  const list = useRef<ScrollView>(null);
+  const list = useRef<ScrollViewInstance>(null);
   const stick = useRef(true);
   const loaded = useRef(false);
 
-  const conv = convs.data?.items.find((x) => x.conversationId === id);
+  const conv = info.data ?? undefined; // the chat's own details (title, whether it is a trip or an activity, and which)
   const count = msgs.data?.items.length ?? 0;
   const locked = msgs.error instanceof ApiError && msgs.error.code === 'NOT_A_MEMBER';
 
@@ -211,7 +210,7 @@ function Chat({ id }: { id: string }) {
   const newest = msgs.data?.items[msgs.data.items.length - 1];
   useEffect(() => {
     if (!newest) return;
-    patchCache<{ items: ConversationRef[] }>('inbox:convs', [], (old) => ({
+    patchCache<{ items: ConversationRef[] }>('inbox:convs', cursorDeps('/v1/me/conversations', {}), (old) => ({
       ...old,
       items: old.items.map((cv) => (cv.conversationId === id ? { ...cv, lastMessage: { body: newest.body.slice(0, 140), at: newest.createdAt, from: newest.sender.id === me?.id ? 'You' : newest.sender.displayName } } : cv)),
     }));

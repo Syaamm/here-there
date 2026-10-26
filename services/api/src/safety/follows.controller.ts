@@ -3,12 +3,13 @@ import { User } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser } from '../common/auth';
 import { E } from '../common/errors';
+import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
 
-const followSchema = z.object({ userId: z.string().min(1) });
+export const followSchema = z.object({ userId: z.string().min(1) });
 
 /**
  * Following and buddies. Follow is one way and instant; two people who follow each other are buddies. Lists are private:
@@ -48,29 +49,47 @@ export class FollowsController {
     return this.relation(me.id, userId);
   }
 
-  /** kind: following (people I follow), followers (people who follow me) or buddies (both ways). */
+  /**
+   * kind: following (people I follow who do not follow back), followers (people who follow me and I do not follow back)
+   * or buddies (both ways). Newest first, a page at a time (`limit`, `cursor`). `counts` is the size of all three lists.
+   * Closed, hidden and blocked accounts are left out of the lists and the counts alike.
+   */
   @Get('me/connections')
-  async connections(@CurrentUser() me: User, @Query('kind') kind?: string) {
-    const [out, inn] = await Promise.all([
-      this.prisma.follow.findMany({ where: { followerId: me.id }, select: { followingId: true, createdAt: true } }),
-      this.prisma.follow.findMany({ where: { followingId: me.id }, select: { followerId: true, createdAt: true } }),
+  async connections(@CurrentUser() me: User, @Query('kind') kind?: string, @Query('limit') limitRaw?: string, @Query('cursor') cursorRaw?: string) {
+    // an account that can be listed: open, with a profile, and nobody blocked anybody
+    const listable = { state: 'active', profile: { isNot: null }, blocksMade: { none: { blockedId: me.id } }, blocksReceived: { none: { blockerId: me.id } } };
+    // people I follow: a buddy when they follow me back. People who follow me: shown here only when I do not follow back.
+    const iFollow = (back: 'some' | 'none') => ({ followerId: me.id, following: { ...listable, following: { [back]: { followingId: me.id } } } });
+    const followMe = { followingId: me.id, follower: { ...listable, followers: { none: { followerId: me.id } } } };
+    const where = { buddies: iFollow('some'), following: iFollow('none'), followers: followMe } as const;
+    const which = kind === 'followers' || kind === 'buddies' ? kind : 'following';
+
+    const [buddies, following, followers] = await Promise.all([
+      this.prisma.follow.count({ where: where.buddies }),
+      this.prisma.follow.count({ where: where.following }),
+      this.prisma.follow.count({ where: where.followers }),
     ]);
-    const outIds = new Set(out.map((f) => f.followingId));
-    const inIds = new Set(inn.map((f) => f.followerId));
-    const buddyIds = [...outIds].filter((id) => inIds.has(id));
-    // buddies are listed only under Buddies; Following and Followers hold everyone else
-    const buddySet = new Set(buddyIds);
-    const onlyFollowing = [...outIds].filter((id) => !buddySet.has(id));
-    const onlyFollowers = [...inIds].filter((id) => !buddySet.has(id));
-    const counts = { following: onlyFollowing.length, followers: onlyFollowers.length, buddies: buddyIds.length };
-    const wanted = kind === 'followers' ? onlyFollowers : kind === 'buddies' ? buddyIds : onlyFollowing;
-    const users = await this.prisma.user.findMany({
-      where: { id: { in: wanted }, state: 'active' },
-      include: { profile: true, blocksMade: { where: { blockedId: me.id } }, blocksReceived: { where: { blockerId: me.id } } },
+
+    const limit = pageLimit(limitRaw, 100);
+    const cur = decodeKeyset(cursorRaw);
+    const rows = await this.prisma.follow.findMany({
+      where: { ...where[which], ...(cur ? { OR: [{ createdAt: { lt: cur.at } }, { createdAt: cur.at, id: { lt: cur.id } }] } : {}) },
+      include: { following: { include: { profile: true } }, follower: { include: { profile: true } } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
     });
-    const items = users
-      .filter((u) => u.profile && u.blocksMade.length === 0 && u.blocksReceived.length === 0)
-      .map((u) => ({
+    const page = sliceKeyset(rows, limit, (f) => f.createdAt);
+    const otherIds = page.items.map((f) => (which === 'followers' ? f.followerId : f.followingId));
+    // who of these also follows me / is followed by me (for the "Follow back" button and the Buddy tag)
+    const [iFollowThem, theyFollowMe] = await Promise.all([
+      this.prisma.follow.findMany({ where: { followerId: me.id, followingId: { in: otherIds } }, select: { followingId: true } }),
+      this.prisma.follow.findMany({ where: { followingId: me.id, followerId: { in: otherIds } }, select: { followerId: true } }),
+    ]);
+    const outIds = new Set(iFollowThem.map((f) => f.followingId));
+    const inIds = new Set(theyFollowMe.map((f) => f.followerId));
+    const items = page.items.map((f) => {
+      const u = which === 'followers' ? f.follower : f.following;
+      return {
         userId: u.id,
         displayName: u.profile!.displayName,
         homeCity: u.profile!.homeCity,
@@ -79,9 +98,9 @@ export class FollowsController {
         following: outIds.has(u.id),
         followsYou: inIds.has(u.id),
         buddy: outIds.has(u.id) && inIds.has(u.id),
-      }))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName));
-    return { counts, items };
+      };
+    });
+    return { counts: { following, followers, buddies }, items, nextCursor: page.nextCursor };
   }
 
   private async relation(me: string, other: string) {

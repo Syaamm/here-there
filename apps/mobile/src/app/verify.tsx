@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Linking, View } from 'react-native';
 import { EmailVerifyCard } from '@/components/EmailVerifyCard';
 import { PhoneVerifyCard } from '@/components/PhoneVerifyCard';
-import { Banner, Between, Btn, Card, CheckRow, Chip, ErrorBanner, Row, Screen, Txt } from '@/components/ui';
+import { Banner, Between, Btn, Card, CheckRow, Chip, ErrorBanner, Pill, PillRow, Row, Screen, Txt } from '@/components/ui';
 import { del, get, post, type Me } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad } from '@/lib/hooks';
@@ -61,6 +61,8 @@ export default function Verify() {
   const router = useRouter();
   const st = useLoad(() => get<Status>('/v1/me/verification'), [], 8000);
   const [consent, setConsent] = useState(false);
+  // face = ID document + live selfie matched to it (biometric); document = the ID document only, no selfie, nothing biometric
+  const [method, setMethod] = useState<'face' | 'document'>('face');
   const act = useAction(() => {
     void reload();
     void st.reload();
@@ -81,7 +83,7 @@ export default function Verify() {
   const [chipLabel, chipTone] = IDENTITY_CHIP[e] ?? IDENTITY_CHIP.unverified;
 
   const start = async () => {
-    const r = await act.run(() => post<{ eligibility: string; url?: string }>('/v1/me/verification', { consent: true }));
+    const r = await act.run(() => post<{ eligibility: string; url?: string }>('/v1/me/verification', { consent: true, method }));
     // a provider returns its hosted page (ID photo + selfie with liveness): open it
     if (r?.url) void Linking.openURL(r.url);
   };
@@ -187,7 +189,7 @@ export default function Verify() {
             <Txt variant="small">• We keep only the result (verified or not), a reference number and the time you agreed. We never store or show your ID photo, selfie, name or birth date.</Txt>
             <Txt variant="small">• Once we have the result, the provider is asked to erase what it holds for the check.</Txt>
             <Txt variant="small">• Other people only ever see the "Verified adult" badge.</Txt>
-            <Txt variant="small">• Matching your face to your ID is biometric data. It is used only for this check, and only with your consent.</Txt>
+            <Txt variant="small">{method === 'face' ? '• Matching your face to your ID is biometric data. It is used only for this check, and only with your consent.' : '• This check uses your ID document only: no selfie and no face matching, so nothing biometric.'}</Txt>
           </Card>
 
           {mode === 'manual' && (
@@ -198,9 +200,18 @@ export default function Verify() {
           )}
           {mode === 'auto' && <Banner tone="warn">Demo mode: you will be approved instantly. No documents are checked.</Banner>}
 
+          <Txt variant="h3">How would you like to be checked?</Txt>
+          <PillRow>
+            <Pill label="ID + selfie" active={method === 'face'} onPress={() => { setMethod('face'); setConsent(false); }} />
+            <Pill label="ID only, no face match" active={method === 'document'} onPress={() => { setMethod('document'); setConsent(false); }} />
+          </PillRow>
+          <Txt variant="small">{method === 'face' ? 'The quickest and most reliable: a photo of your ID and a live selfie that is matched to it.' : "For people who can't or would rather not use a selfie. It can take longer, and the check is not matched to your face."}</Txt>
+
           <CheckRow checked={consent} onChange={setConsent}>
             <Txt>
-              I am 18 or older. I agree that a specialist provider checks my ID document and compares a live selfie with it, and I understand this involves biometric data used only to confirm I'm a real adult.
+              {method === 'face'
+                ? "I am 18 or older. I agree that a specialist provider checks my ID document and compares a live selfie with it, and I understand this involves biometric data used only to confirm I'm a real adult."
+                : 'I am 18 or older. I agree that a specialist provider checks my ID document to confirm I am a real adult. No selfie is taken and nothing biometric is used.'}
             </Txt>
           </CheckRow>
           <Btn title={e === 'unverified' ? 'Start identity check' : 'Verify again'} onPress={start} loading={act.busy} disabled={!consent || !emailOk} />

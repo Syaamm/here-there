@@ -58,7 +58,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    if (res.status === 401 && path !== '/v1/auth/login') onUnauthorized();
+    if (res.status === 401 && !path.startsWith('/v1/auth/')) onUnauthorized();
     const detail = Array.isArray(data?.details) ? ': ' + data.details.map((d: any) => d.message).join(', ') : '';
     throw new ApiError(res.status, data?.code ?? 'ERROR', (data?.message ?? res.statusText) + detail);
   }

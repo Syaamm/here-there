@@ -1,0 +1,54 @@
+# Data inventory and lawful basis (DRAFT)
+
+Written from the code on 2026-10-26. The "proposed basis" column is a starting point for the lawyer/DPO, not a conclusion **[CONFIRM]**. Controller: **[COMPANY NAME, ADDRESS]**. DPO / privacy contact: **[EMAIL]**.
+
+| Data | Where it comes from | Why we hold it | Proposed basis | Who can see it | Kept for |
+|---|---|---|---|---|---|
+| Email address | The person | Sign-in, security notices, account recovery | Contract (Art. 6(1)(b)) | The person; staff (support) | Until the account is deleted |
+| Password | The person | Sign-in | Contract | Nobody: only a bcrypt hash is stored | Until changed or the account is deleted |
+| Display name, city, bio, languages, interests | The person | The profile shown to other members; relevance ordering of the feed | Contract; interests used for ordering: legitimate interests (a lighter touch) **[CONFIRM]** | Other members see name, photo, city, bio, languages (and the "verified adult" badge). Interests are used by the server for ordering and are not shown | Until deleted |
+| Profile photo | The person | Shown on profile | Contract / consent (it is optional) | Other members | Until removed or the account is deleted. Re-encoded, so no camera or location metadata |
+| Mobile number (optional) | The person, confirmed by SMS code | Extra assurance; one number per account | Consent (optional) / legitimate interests (fraud prevention) **[CONFIRM]** | The person (masked); staff see it masked | Until removed or the account is deleted. Stored encrypted; a keyed fingerprint prevents duplicate accounts |
+| Identity check result (verified / rejected, validity date, check type, reason code) | The identity provider | Safety: only verified adults can meet in person | **Biometric version:** explicit consent (Art. 9(2)(a)) plus a lawful basis for the check itself. **Document-only version:** consent / legitimate interests for safety **[CONFIRM]** | Staff with the right role; others see only the badge | The newest check is kept; older results are deleted 1 year after the decision |
+| Identity documents, selfie, face data | Handled by the provider only | Verification | As above | **Never stored by us** and never shown to anyone at HERE & THERE. The provider is asked to erase its copy after the decision | Not held by us |
+| Consent record for the check | The person | Proof of consent | Legal obligation / accountability | Staff (audit) | Same as the audit log |
+| Plans and trips hosted / joined, requests (with the short intro text) | The person | The service itself | Contract | Other members of that plan/trip; the host sees requests | Kept as history; a deleted account shows as "Deleted user" |
+| Group chat messages | The person | The service itself | Contract | Members of that chat; moderators if reported | 90 days after the plan/trip ends (reported messages kept until the report ages out) |
+| Favourites, who you follow and block | The person | Personalisation, safety | Contract | Only the person (follows are never visible to others) | Until deleted |
+| Alerts (notifications) | The system | Tell the person something happened | Contract | The person | 90 days once read, 1 year if never read |
+| Push tokens | The device | Deliver alerts | Consent (the phone's permission) | The person; the push provider | Until the person signs out or the account is deleted |
+| Approximate position ("Near me", "How far?") | The device, when tapped | Show what is nearby | Consent (the phone's permission, asked each time) | Used for the request only | **Not stored.** Rounded to about 1 km; sent only in that request |
+| Venue coordinates of public activities | The host | Show the map | Contract | Everyone (public venues only, never homes) | With the plan |
+| Attendance notes (a host says a member did not come), with any dispute and moderator decision | The host; the member (dispute); staff (decision) | Reliability level; safety and fairness (a note counts only after the member had 7 days to dispute it, or a moderator upheld it) | Legitimate interests (safety, trust between members) **[CONFIRM]** | The host, the member, moderators | 2 years from the end of the plan (disputed notes kept until decided) |
+| Reliability level (New, Reliable, Very reliable, Needs care) and its history | Worked out by the system from verified, completed plans, confirmed notes, late exits and upheld reports | Help hosts and members decide who to meet; show people why their level changed | Legitimate interests **[CONFIRM]**; this is profiling, see below | Other VERIFIED members see the level, including Needs care; the person sees the level in the app and the full breakdown in their data download; staff see every event | Level history 2 years; events fade (half-life 180 days) and drop out after 2 years |
+| Safety reports and moderation decisions | Members, staff | Keep people safe | Legitimate interests / legal claims | Moderators and above | 2 years after closing |
+| Audit log (who did what, with ids, no message text) | The system | Security, accountability | Legitimate interests / legal obligation | Trust leads and admins | 2 years |
+| Device fingerprint (keyed hash of a random id the app makes) | The app | Limit accounts per device; stop a banned person starting over | Legitimate interests (fraud and abuse prevention) **[CONFIRM]** | Nobody (hash only) | While the account exists; ban fingerprints until a ban is lifted |
+| Ban list fingerprints (hashes of email, number, device) | Staff action | Stop repeat abuse after a ban | Legitimate interests **[CONFIRM]** | Nobody (hashes only) | Until the ban is lifted **[CONFIRM] a maximum period**|
+| Staff sign-in secret (authenticator) | Staff | Protect the console | Legitimate interests / security (Art. 32) | Nobody (encrypted) | Until switched off |
+| Apple/Google sign-in id (when used) | The provider | Sign-in | Contract | Nobody | Until the account is deleted |
+
+## Profiling and automated decisions **[CONFIRM]**
+- **Feed ordering** uses: how soon an activity starts, whether people you follow are going, places left, your declared interests, distance (only if you send your position) and how new it is. It decides order only. It excludes nobody, has no legal or similarly significant effect, and the person can browse by time instead (the map and search list by time).
+- **Reliability level** is profiling that is visible to other people and can affect whether a host accepts someone. Safeguards built: only verified, completed plans count; a report alone never lowers it (a moderator must uphold it); a host's no-show note counts only after the member could dispute it, and a moderator decides disputes; new people start as "New", not low; old events fade; the person can dispute any no-show note, gets the full breakdown (events and history of changes) in their data download, and staff can see and correct everything. The app screen itself is deliberately minimal (level and one line), so a lawyer should confirm that this level of in-app explanation is enough **[CONFIRM]**. It never uses likes, profile views or whether people got on. Showing "Needs care" to every verified member is the owner's decision and should be reviewed **[CONFIRM]** (discrimination, retaliation and Art. 22 risks). A formal appeal of the level itself (beyond disputing a note) is not built yet.
+- **Age check outcome**: an "under 18" result from the provider blocks verification. A person can contact support; staff can review and overturn a rejection. There is **no in-app appeal yet**. This is the one place where Art. 22 (automated decisions) should be reviewed.
+
+## Recipients and processors (to be chosen) **[CONFIRM]**
+| Purpose | Provider today | For production |
+|---|---|---|
+| Identity checks | Sandbox / manual (no real provider) | To be chosen: needs a data-processing agreement, EU hosting preferred, erasure on request |
+| Email | Console / any SMTP | To be chosen |
+| SMS codes | Console / Twilio (env) | To be chosen |
+| Push | Web Push, Expo push | Expo (US) and Apple/Google push services: transfer analysis needed |
+| Maps | OpenStreetMap tiles (web preview); Apple Maps / Google Maps (phone) | Public tile servers are not for heavy production use; a hosted tile provider will be a processor |
+| Hosting / database | A developer PC | To be chosen (EU region preferred) |
+
+## Rights: what a person can do today
+| Right | How |
+|---|---|
+| Access and portability (Art. 15, 20) | Settings, Your data, Download my data (JSON) |
+| Rectification (Art. 16) | Edit profile; Change email (with a code to the new address); Change password |
+| Erasure (Art. 17) | Settings, Your data, Delete my account (immediate; reported messages and safety records may be kept) |
+| Withdraw consent (Art. 7(3)) | Delete the account; phone number can be removed; push is controlled by the phone. A person can choose the document-only check instead of the face match |
+| Restriction and objection (Art. 18, 21) | By contacting support (no screen yet) |
+| Complain | To the supervisory authority (in Italy, the Garante per la protezione dei dati personali) |

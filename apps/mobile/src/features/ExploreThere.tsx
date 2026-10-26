@@ -6,7 +6,7 @@ import { Reveal } from '@/components/Reveal';
 import { Brand, ModeTabs } from '@/components/TabHeader';
 import { VerifyBanner } from '@/components/VerifyBanner';
 import { Btn, Card, Empty, ErrorBanner, Pill, PillRow, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
-import { get, type Trip } from '@/lib/api';
+import { get, type MyTripsPage, type Trip } from '@/lib/api';
 import { TRIP_TAGS } from '@/lib/constants';
 import { useLoad, useRefresh } from '@/lib/hooks';
 import { useLiveEvents } from '@/lib/live';
@@ -25,7 +25,6 @@ const TAG_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = 
   art: 'brush-outline',
 };
 
-type MyTrips = { joined: (Trip & { role: string })[]; applications: { applicationId: string; state: string; trip: Trip }[] };
 type When = 'any' | 'month' | 'quarter' | 'later';
 const DAY = 864e5;
 
@@ -39,13 +38,13 @@ export function ExploreThere() {
   const [when, setWhen] = useState<When>('any');
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?${new URLSearchParams({ limit: '50', ...(tag && { tags: tag }) })}`), [tag], 20_000, 'feed:there', { keep: true });
+  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?${new URLSearchParams({ limit: '50', ...(tag && { tags: tag }) })}`), [tag], 60_000, 'feed:there', { keep: true });
   // a trip was proposed, filled or cancelled somewhere: ask again at once
   useLiveEvents((e) => {
     if (e.type === 'feed-changed') void feed.reload();
   });
   // Next up is about YOU: the soonest trip you organise, are going on, or have applied to
-  const mine = useLoad(() => get<MyTrips>('/v1/me/trips'), [], undefined, 'me:trips');
+  const mine = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?upcoming=1&limit=1'), [], undefined, 'me:trips:next');
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([feed.reload(), mine.reload()]));
 
   // The API searches by destination only, so free text here filters the loaded trips on the device.
@@ -62,13 +61,11 @@ export function ExploreThere() {
   const later = items.filter((t) => inDays(t) >= 90);
 
   const mineNext = (() => {
-    const d = mine.data;
-    if (!d) return null;
-    const list = [
-      ...d.joined.map((t) => ({ t, label: t.role === 'host' ? 'You organise this' : 'Going', tone: 'ok' as const })),
-      ...d.applications.filter((a) => a.state === 'pending' || a.state === 'waitlisted').map((a) => ({ t: a.trip, label: a.state === 'pending' ? 'Request pending' : 'On the waiting list', tone: 'warn' as const })),
-    ].filter((x) => !['cancelled', 'completed'].includes(x.t.status) && +new Date(x.t.dateEnd) > now);
-    return list.sort((x, y) => +new Date(x.t.dateStart) - +new Date(y.t.dateStart))[0] ?? null;
+    const x = mine.data?.items[0]; // the server sends only the soonest trip still ahead
+    if (!x) return null;
+    return x.row === 'joined'
+      ? { t: x as Trip, label: x.role === 'host' ? 'You organise this' : 'Going', tone: 'ok' as const }
+      : { t: x.trip, label: x.state === 'pending' ? 'Request pending' : 'On the waiting list', tone: 'warn' as const };
   })();
   const MAX = 4;
 

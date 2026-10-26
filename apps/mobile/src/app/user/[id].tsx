@@ -6,7 +6,8 @@ import { View } from 'react-native';
 import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
 import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
-import { del, get, post } from '@/lib/api';
+import { del, get, post, type Reliability } from '@/lib/api';
+import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { useAction, useLoad } from '@/lib/hooks';
@@ -21,6 +22,7 @@ type PublicProfile = {
   bio: string | null;
   photoUrl: string | null;
   verifiedAdult: boolean;
+  reliability?: Reliability | null;
   stats: { activitiesHosted: number; activitiesJoined: number };
   relation: { following: boolean; followsYou: boolean; buddy: boolean };
 };
@@ -82,6 +84,7 @@ export default function UserProfile() {
         <Avatar name={p.displayName} uri={p.photoUrl} size={104} />
         <Txt variant="h2" style={{ fontSize: 22 }}>{p.displayName} {p.verifiedAdult ? <Ionicons name="checkmark" size={18} color={c.green} /> : null}</Txt>
         <Txt variant="muted">{p.homeCity ?? 'City not set'} · {p.verifiedAdult ? 'Verified adult' : 'Not verified'}</Txt>
+        <ReliabilityChip r={p.reliability} />
       </View>
 
       <View style={{ flexDirection: 'row', paddingVertical: 8 }}>

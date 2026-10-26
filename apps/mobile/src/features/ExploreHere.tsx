@@ -34,11 +34,11 @@ export function ExploreHere() {
   const feed = useLoad(
     () => {
       const [from, to] = feedRange();
-      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', ...(cat && { category: cat }) });
+      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance', ...(cat && { category: cat }) });
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
     [city, cat],
-    20_000,
+    60_000, // changes arrive by the live connection (below); this is only the slow fallback
     'feed:here',
     { keep: true },
   );
@@ -47,7 +47,8 @@ export function ExploreHere() {
   useLiveEvents((e) => {
     if (e.type === 'feed-changed') void feed.reload();
   });
-  const mine = useLoad(() => get<MyActivitiesData>('/v1/me/activities'), [], undefined, 'me:activities');
+  // only the plans on now or in the next 4 hours are fetched (the card shows 3; the extra hour covers the time between refreshes)
+  const mine = useLoad(() => get<MyActivitiesData>('/v1/me/activities/soon?hours=4'), [], 300_000, 'me:soon');
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([feed.reload(), mine.reload()]));
 
   // The API has no free-text search yet, so search filters the loaded feed on the device.

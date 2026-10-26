@@ -6,6 +6,7 @@ import { AuditService } from '../common/audit.service';
 import { CurrentUser, requireVerified } from '../common/auth';
 import { E } from '../common/errors';
 import { LiveService } from '../common/live.service';
+import { pageLimit } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { PushService } from '../common/push.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -13,15 +14,15 @@ import { contentProblem, parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 
-const sendSchema = z.object({ body: z.string().trim().min(1).max(2000) });
-const pollSchema = z
+export const sendSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+export const pollSchema = z
   .object({
     title: z.string().trim().min(3).max(120),
     dateStart: z.coerce.date().optional(),
     dateEnd: z.coerce.date().optional(),
   })
   .refine((v) => !v.dateEnd || !!v.dateStart, { message: 'Add a start date too' });
-const voteSchema = z.object({ vote: z.enum(['accept', 'reject']) });
+export const voteSchema = z.object({ vote: z.enum(['accept', 'reject']) });
 
 const DAY = 24 * 3600e3;
 const fmtDay = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -353,19 +354,25 @@ export class ConversationsService {
     }
   }
 
-  async mine(me: User) {
+  /**
+   * Your chats a page at a time (`limit`, `cursor`). Chats with messages come first, newest message first; the ones nobody
+   * has written in yet follow, soonest event first. Every chat is ordered by a cheap key (one grouped query for the newest
+   * message time), but only the chats on the page get their preview text and sender looked up.
+   */
+  async mine(me: User, limitRaw?: string, cursorRaw?: string) {
+    const limit = pageLimit(limitRaw, 100);
     const [acts, trips] = await Promise.all([
       this.prisma.activityMembership.findMany({
-        where: { userId: me.id, state: 'approved', activity: { status: { not: 'cancelled' } } },
-        include: { activity: { include: { conversation: true } } },
+        where: { userId: me.id, state: 'approved', activity: { status: { not: 'cancelled' }, conversation: { isNot: null } } },
+        select: { activityId: true, activity: { select: { title: true, category: true, startsAt: true, endsAt: true, conversation: { select: { id: true } } } } },
       }),
       this.prisma.tripMembership.findMany({
-        where: { userId: me.id, state: 'approved', trip: { status: { not: 'cancelled' } } },
-        include: { trip: { include: { conversation: true } } },
+        where: { userId: me.id, state: 'approved', trip: { status: { not: 'cancelled' }, conversation: { isNot: null } } },
+        select: { tripId: true, trip: { select: { title: true, dateStart: true, dateEnd: true, conversation: { select: { id: true } } } } },
       }),
     ]);
     const items = [
-      ...acts.filter((m) => m.activity.conversation).map((m) => ({
+      ...acts.map((m) => ({
         conversationId: m.activity.conversation!.id,
         scope: 'activity' as const,
         scopeId: m.activityId,
@@ -374,7 +381,7 @@ export class ConversationsService {
         startsAt: m.activity.startsAt,
         endsAt: m.activity.endsAt,
       })),
-      ...trips.filter((m) => m.trip.conversation).map((m) => ({
+      ...trips.map((m) => ({
         conversationId: m.trip.conversation!.id,
         scope: 'trip' as const,
         scopeId: m.tripId,
@@ -384,25 +391,50 @@ export class ConversationsService {
         endsAt: m.trip.dateEnd,
       })),
     ];
-    // The newest message of each conversation (hidden ones left out), so the app can order chats by recent activity and
-    // show a preview. One query for all of them.
+
+    // when each chat last had a (visible) message: one grouped query, answered from the index
     const ids = items.map((i) => i.conversationId);
-    const newest = ids.length
+    const latest = ids.length
+      ? await this.prisma.message.groupBy({ by: ['conversationId'], where: { conversationId: { in: ids }, moderationState: { not: 'removed' } }, _max: { createdAt: true } })
+      : [];
+    const lastAt = new Map(latest.map((g) => [g.conversationId, g._max.createdAt!]));
+
+    // The sort key, smallest first: [0, -time of newest message] for chats with messages, then [1, how soon the event is]
+    // for the rest, and the id to break ties. The clock is the one the first page used, so the pages join up.
+    const [asOfIso, ...rest] = cursorRaw ? Buffer.from(cursorRaw, 'base64url').toString().split('|') : [new Date().toISOString()];
+    const asOf = new Date(asOfIso);
+    if (isNaN(+asOf)) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
+    const FAR = Number.MAX_SAFE_INTEGER / 2;
+    const keyOf = (i: (typeof items)[number]): [number, number, string] => {
+      const at = lastAt.get(i.conversationId);
+      if (at) return [0, -+at, i.conversationId];
+      return [1, +i.startsAt >= +asOf ? +i.startsAt - +asOf : FAR + (+asOf - +i.startsAt), i.conversationId];
+    };
+    const cmp = (x: [number, number, string], y: [number, number, string]) => x[0] - y[0] || x[1] - y[1] || (x[2] < y[2] ? -1 : x[2] > y[2] ? 1 : 0);
+    let after: [number, number, string] | null = null;
+    if (cursorRaw) {
+      const [g, k, ...idParts] = rest;
+      after = [Number(g), Number(k), idParts.join('|')];
+      if (!Number.isFinite(after[0]) || !Number.isFinite(after[1]) || !after[2]) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
+    }
+    const ordered = items.map((i) => ({ i, k: keyOf(i) })).sort((x, y) => cmp(x.k, y.k));
+    const later = after ? ordered.filter((x) => cmp(x.k, after!) > 0) : ordered;
+    const pageRows = later.slice(0, limit);
+    const lastRow = pageRows[pageRows.length - 1];
+    const nextCursor = later.length > limit && lastRow ? Buffer.from(`${asOf.toISOString()}|${lastRow.k[0]}|${lastRow.k[1]}|${lastRow.k[2]}`).toString('base64url') : null;
+
+    // the preview and sender, for the chats on this page only
+    const pageIds = pageRows.map((x) => x.i.conversationId);
+    const newest = pageIds.length
       ? await this.prisma.message.findMany({
-          where: { conversationId: { in: ids }, moderationState: { not: 'removed' } },
+          where: { conversationId: { in: pageIds }, moderationState: { not: 'removed' } },
           orderBy: { createdAt: 'desc' },
           distinct: ['conversationId'],
           include: { sender: { select: { id: true, profile: { select: { displayName: true } } } } },
         })
       : [];
     const last = new Map(newest.map((m) => [m.conversationId, { body: m.body.slice(0, 140), at: m.createdAt, from: m.senderId === me.id ? 'You' : (m.sender.profile?.displayName ?? null) }]));
-    const withLast = items.map((i) => ({ ...i, lastMessage: last.get(i.conversationId) ?? null }));
-    // Chats with messages first, newest message first; the ones nobody has written in yet follow, soonest event first.
-    const now = Date.now();
-    const rank = (x: { startsAt: Date }) => (+x.startsAt >= now ? +x.startsAt - now : Number.MAX_SAFE_INTEGER / 2 + (now - +x.startsAt));
-    return {
-      items: withLast.sort((x, y) => (x.lastMessage && y.lastMessage ? +y.lastMessage.at - +x.lastMessage.at : x.lastMessage ? -1 : y.lastMessage ? 1 : rank(x) - rank(y))),
-    };
+    return { items: pageRows.map((x) => ({ ...x.i, lastMessage: last.get(x.i.conversationId) ?? null })), nextCursor };
   }
 }
 
@@ -411,8 +443,8 @@ export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}
 
   @Get('me/conversations')
-  mine(@CurrentUser() me: User) {
-    return this.conversations.mine(me);
+  mine(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.conversations.mine(me, limit, cursor);
   }
 
   @Get('conversations/:id/messages')

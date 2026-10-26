@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { View } from 'react-native';
 import { ActivityCard } from '@/components/Cards';
 import { Reveal } from '@/components/Reveal';
 import { Btn, Chip, Empty, ErrorBanner, Grid, Pill, PillRow, Row, Screen, Spinner, useGo } from '@/components/ui';
-import { get } from '@/lib/api';
-import { useLoad, useRefresh } from '@/lib/hooks';
-import { PagedTail, usePaged } from '@/lib/paged';
-import { myActivityItems, type MyActivitiesData } from '@/lib/myActivities';
+import { type Activity } from '@/lib/api';
+import { useRefresh } from '@/lib/hooks';
+import { PagedTail, useCursorList } from '@/lib/paged';
+import { myActivityItems } from '@/lib/myActivities';
 
 const TABS = [
   { id: 'mine', label: 'My activities', empty: 'Activities you host or are going to show up here.' },
@@ -18,13 +18,17 @@ const TABS = [
 export default function MyActivities() {
   const go = useGo();
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('mine');
-  const acts = useLoad(() => get<MyActivitiesData>('/v1/me/activities'), [], undefined, 'me:activities');
+  // the server sends one tab at a time, a few rows per request, and how many each tab holds
+  const acts = useCursorList<Activity & { role?: string } & { requestId?: string; state?: string; activity?: Activity }, { counts: Record<(typeof TABS)[number]['id'], number> }>('/v1/me/activities/page', { tab }, `me:acts:${tab}`);
   const { refreshing, onRefresh } = useRefresh(acts.reload);
-  const all = myActivityItems(acts.data);
-  const count = (k: string) => all.filter((x) => x.kind === k).length;
-  const list = all.filter((x) => x.kind === tab);
-  const paged = usePaged(list, tab);
-  const shown = paged.shown;
+  const counts = useRef<Record<string, number>>({});
+  if (acts.data?.counts) counts.current = acts.data.counts; // kept while another tab is loading, so the labels do not blink
+  const count = (k: string) => counts.current[k] ?? 0;
+  const list = tab === 'mine'
+    ? myActivityItems({ joined: acts.items as (Activity & { role: string })[], requests: [] })
+    : myActivityItems({ joined: [], requests: acts.items as { requestId: string; state: string; activity: Activity }[] });
+  const paged = acts;
+  const shown = list;
 
   return (
     <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>

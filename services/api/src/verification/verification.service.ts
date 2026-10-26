@@ -82,13 +82,17 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
       verifiedUntil: user.eligibility === 'verified' ? user.verifiedUntil : null,
       reverifyReason: user.reverifyReason,
       lastRejectionReason: user.eligibility === 'rejected' ? (latest?.rejectionReason ?? null) : null,
+      // which kind of check the latest one was: face (document + selfie match) or document (no face match)
+      method: latest?.method ?? null,
       // lets a user who closed the browser continue the same provider session
       resumeUrl: pending ? this.providers[pending.provider]?.resumeUrl?.(pending.providerRef, baseUrl) : undefined,
     };
   }
 
   // ---------------------------------------------------------------- starting a check
-  async start(user: User, consent: unknown, baseUrl: string) {
+  async start(user: User, consent: unknown, baseUrl: string, methodRaw?: unknown) {
+    // `document` = the ID document only, no selfie and no face match (nothing biometric); `face` is the default
+    const method: 'face' | 'document' = methodRaw === 'document' ? 'document' : 'face';
     if (!user.adultConfirmed) throw E.forbidden('ADULT_REQUIRED', 'You must confirm you are 18 or older first');
     // Already verified (and not expired): never open a new session. This is what makes verification one-time.
     if (user.eligibility === 'verified') return { eligibility: 'verified' };
@@ -97,7 +101,8 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     // Spec 3.1 order: confirm the email address first, then identity verification.
     if (!user.emailVerifiedAt) throw E.forbidden('EMAIL_NOT_VERIFIED', 'Verify your email address before starting identity verification');
     // Facial matching is biometric data (GDPR Art. 9): it needs explicit, recorded consent before anything starts.
-    if (consent !== true) throw E.badRequest('CONSENT_REQUIRED', 'You must agree to the identity document and facial check before starting');
+    // The document-only check has no biometric step, but still needs the person's agreement to the check.
+    if (consent !== true) throw E.badRequest('CONSENT_REQUIRED', method === 'face' ? 'You must agree to the identity document and facial check before starting' : 'You must agree to the identity document check before starting');
 
     // A failed age check is not something to retry until it passes: only staff can reopen it (reset / overturn).
     if (user.eligibility === 'rejected') {
@@ -110,18 +115,18 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
 
     const provider = this.provider;
     const check = await this.prisma.verificationCheck.create({
-      data: { userId: user.id, provider: provider.name, providerRef: `pending_${randomUUID()}`, eligibility: 'pending', consentAt: new Date() },
+      data: { userId: user.id, provider: provider.name, method, providerRef: `pending_${randomUUID()}`, eligibility: 'pending', consentAt: new Date() },
     });
     let session: { providerRef: string; url?: string };
     try {
-      session = await provider.createSession({ id: user.id, email: user.email }, { checkId: check.id, baseUrl });
+      session = await provider.createSession({ id: user.id, email: user.email }, { checkId: check.id, baseUrl, method });
     } catch (e) {
       await this.prisma.verificationCheck.delete({ where: { id: check.id } });
       throw e;
     }
     await this.prisma.verificationCheck.update({ where: { id: check.id }, data: { providerRef: session.providerRef } });
     await this.prisma.user.update({ where: { id: user.id }, data: { eligibility: 'pending' } });
-    await this.audit.log(user.id, 'verification.consent_given', 'user', user.id, { checkId: check.id, provider: provider.name });
+    await this.audit.log(user.id, 'verification.consent_given', 'user', user.id, { checkId: check.id, provider: provider.name, method });
 
     if (this.mode === 'auto') {
       await this.decide(check.id, 'verified', null, { adult: true });
@@ -229,6 +234,12 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     // Data minimisation: ask the provider to erase the personal data it holds for this session.
     void this.providers[check.provider]?.eraseSession?.(check.providerRef).catch((e) => console.error('Provider data erasure failed:', e?.message ?? e));
     return { eligibility: result };
+  }
+
+  /** Asks each identity provider to erase whatever it still holds for this person's unfinished checks. */
+  async eraseProviderSessions(userId: string) {
+    const open = await this.prisma.verificationCheck.findMany({ where: { userId, decidedAt: null } });
+    await Promise.all(open.map((c) => this.providers[c.provider]?.eraseSession?.(c.providerRef)));
   }
 
   // ---------------------------------------------------------------- provider webhook

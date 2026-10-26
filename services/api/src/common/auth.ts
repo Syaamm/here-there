@@ -18,6 +18,16 @@ const STAFF = 'staffRoles';
 /** What the person sees when they are locked out: for how long, if it is timed. */
 export const suspendedMessage = (until: Date | null) => (until ? `This account is suspended until ${until.toUTCString().slice(5, 16)}` : 'This account is suspended');
 
+/**
+ * A sign-in carries the password version it was made under (`pv`: when the password last changed, 0 if never). If the
+ * password has been changed since, the versions differ and the sign-in is no longer valid.
+ */
+export const sessionRevoked = (pv: number | undefined, changedAt: Date | null) => (pv ?? 0) !== (changedAt ? +changedAt : 0);
+export const passwordVersion = (changedAt: Date | null) => (changedAt ? +changedAt : 0);
+
+/** Staff must use two-step sign-in in production; in development it is optional so the demo accounts keep working. */
+export const staffMfaRequired = () => process.env.STAFF_MFA_REQUIRED === 'true' || (process.env.NODE_ENV === 'production' && process.env.STAFF_MFA_REQUIRED !== 'false');
+
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 /** Restrict a route to staff roles (admin console). */
 export const Staff = (...roles: string[]) => SetMetadata(STAFF, roles);
@@ -53,15 +63,19 @@ export class AuthGuard implements CanActivate {
     }
 
     let sub: string;
+    let pv: number | undefined;
     try {
-      sub = (await this.jwt.verifyAsync<{ sub: string }>(token)).sub;
+      const payload = await this.jwt.verifyAsync<{ sub: string; pv?: number; purpose?: string }>(token);
+      if (payload.purpose) throw new Error('not a sign-in'); // the pass from the first half of a two-step sign-in is not a sign-in
+      sub = payload.sub;
+      pv = payload.pv;
     } catch {
       if (isPublic) return true;
       throw E.unauthorized('INVALID_TOKEN', 'Invalid or expired token');
     }
 
     const row = await this.prisma.user.findUnique({ where: { id: sub } });
-    if (!row) {
+    if (!row || row.state === 'deleted' || sessionRevoked(pv, row.passwordChangedAt)) {
       if (isPublic) return true;
       throw E.unauthorized('INVALID_TOKEN', 'Invalid or expired token');
     }
@@ -80,6 +94,8 @@ export class AuthGuard implements CanActivate {
     const user = await this.verification.expireIfDue(row);
 
     if (staff && !staff.includes(user.role)) throw E.forbidden('FORBIDDEN', 'Insufficient role');
+    // staff reach the admin console only with two-step sign-in on (they can still open the page that sets it up)
+    if (staff && staffMfaRequired() && !user.mfaEnabledAt) throw E.forbidden('MFA_REQUIRED', 'Set up two-step sign-in to use the admin console.');
     req.user = user;
     return true;
   }

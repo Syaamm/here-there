@@ -71,7 +71,8 @@ function Gate() {
           contentStyle: { backgroundColor: c.bg },
         }}
       >
-        <Stack.Protected guard={!!me}>
+        {/* signed out: the signed-in pages are not there, so go to the welcome page (the router has no default for a bare "/") */}
+        <Stack.Protected guard={!!me} redirectTo="/welcome">
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           {/* Every page opened from another page is a screen of its own above the tabs, like in any iPhone app: dragging it
               away from the left edge shows the page it came from underneath, already there, and going back never reloads it. */}
@@ -88,6 +89,13 @@ function Gate() {
           <Stack.Screen name="activities" options={inner('All activities')} />
           <Stack.Screen name="trips" options={inner('All trips')} />
           <Stack.Screen name="edit-profile" options={inner('Edit profile')} />
+          <Stack.Screen name="change-password" options={inner('Change password')} />
+          <Stack.Screen name="my-data" options={inner('Your data')} />
+          <Stack.Screen name="retention" options={inner('How long we keep things')} />
+          <Stack.Screen name="reliability" options={inner('Your reliability')} />
+          <Stack.Screen name="no-shows/[kind]/[id]" options={inner('Who came?')} />
+          <Stack.Screen name="change-email" options={inner('Change email')} />
+          <Stack.Screen name="delete-account" options={inner('Delete account')} />
           <Stack.Screen name="my-activities" options={inner('My activities')} />
           <Stack.Screen name="my-trips" options={inner('My trips')} />
           <Stack.Screen name="favourites" options={inner('Favourites')} />

@@ -11,11 +11,16 @@ import { contentProblem, parse } from '../common/validate';
 import { LiveService } from '../common/live.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
+import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { circleOf, tierCounts } from '../common/social';
+import { ReliabilityService } from '../reliability/reliability.controller';
+import { decodeCursor, encodeCursor, scoreActivity, topK } from './feed-ranking';
 
 const HOUR = 3600 * 1000;
+const RANK_POOL = 500; // most activities scored for one feed request (a city's next two days is far fewer)
 const MIN_LEAD = 9 * 60 * 1000; // "at least 10 minutes" in the app, minus a minute of grace for the submit
 
-const createSchema = z.object({
+export const createSchema = z.object({
   title: z.string().trim().min(2).max(80),
   category: z.enum(CATEGORIES),
   tags: z.array(z.string().trim().min(1).max(24)).max(5).default([]),
@@ -32,11 +37,11 @@ const createSchema = z.object({
   language: z.string().max(20).optional(),
 });
 
-const updateSchema = createSchema
+export const updateSchema = createSchema
   .pick({ title: true, description: true, venueName: true, venuePlaceId: true, lat: true, lng: true, startsAt: true, endsAt: true, capacity: true })
   .partial();
 
-const listSchema = z.object({
+export const listSchema = z.object({
   city: z.string().trim().optional(),
   category: z.enum(CATEGORIES).optional(),
   from: z.coerce.date().optional(),
@@ -45,12 +50,14 @@ const listSchema = z.object({
   lng: z.coerce.number().min(-180).max(180).optional(),
   radiusKm: z.coerce.number().min(0.1).max(100).optional(),
   hasSpots: z.enum(['true', 'false']).optional(),
+  // time = soonest first (the map and search); relevance = best match for this person first
+  sort: z.enum(['time', 'relevance']).default('time'),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 
-const requestSchema = z.object({ intro: z.string().trim().max(500).optional() });
-const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
+export const requestSchema = z.object({ intro: z.string().trim().max(500).optional() });
+export const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
 
 type ActivityFull = Activity & {
   host: { id: string; eligibility: string; profile: { displayName: string; photoUrl: string | null } | null };
@@ -112,6 +119,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: AuditService,
     private readonly limiter: RateLimiter,
     private readonly live: LiveService,
+    private readonly reliability: ReliabilityService,
   ) {}
 
   private dto(a: ActivityFull, going: number, extra: Record<string, unknown> = {}) {
@@ -182,6 +190,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    if (q.sort === 'relevance') return this.rankedList(me, q, and, now);
+
     let cursorWhere: Prisma.ActivityWhereInput | undefined;
     if (q.cursor) {
       const [iso, id] = Buffer.from(q.cursor, 'base64url').toString().split('|');
@@ -220,6 +230,70 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  /**
+   * The scored feed. Everything that could be shown (bounded) is scored for this person, the best `limit` come back,
+   * and the cursor continues from the last one. Radius and "has spots" filters run before ranking, so they never leave
+   * a short or empty page.
+   */
+  private async rankedList(me: User, q: z.infer<typeof listSchema>, and: Prisma.ActivityWhereInput[], now: Date) {
+    const cur = q.cursor ? decodeCursor(q.cursor) : null;
+    if (q.cursor && !cur) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
+    const asOf = cur?.asOf ?? now;
+
+    const rows = await this.prisma.activity.findMany({
+      where: { AND: and },
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+      take: RANK_POOL,
+      include: { ...this.hostInclude, _count: { select: { memberships: { where: { state: 'approved' } } } } },
+    });
+    const ids = rows.map((a) => a.id);
+
+    // the viewer's circle (buddies, and people they follow), and who of it is in each candidate
+    const circle = await circleOf(this.prisma, me.id);
+    const everyone = [...circle.buddies, ...circle.following];
+    const peopleByActivity = new Map<string, string[]>();
+    if (everyone.length > 0) {
+      const there = await this.prisma.activityMembership.findMany({
+        where: { activityId: { in: ids }, state: 'approved', userId: { in: everyone } },
+        select: { activityId: true, userId: true },
+      });
+      for (const m of there) peopleByActivity.set(m.activityId, [...(peopleByActivity.get(m.activityId) ?? []), m.userId]);
+      for (const r of rows) if (circle.buddies.has(r.hostId) || circle.following.has(r.hostId)) peopleByActivity.set(r.id, [...(peopleByActivity.get(r.id) ?? []), r.hostId]);
+    }
+
+    const profile = await this.prisma.profile.findUnique({ where: { userId: me.id }, select: { interests: true } });
+    const taste = { interests: new Set((profile?.interests ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) };
+
+    const point = q.lat !== undefined && q.lng !== undefined;
+    const scored: { id: string; score: number; row: (typeof rows)[number]; dist?: number; buddies: number; following: number }[] = [];
+    for (const a of rows) {
+      const going = a._count.memberships;
+      const dist = point && a.lat != null && a.lng != null ? distanceKm(q.lat!, q.lng!, a.lat, a.lng) : undefined;
+      if (q.radiusKm !== undefined && (dist === undefined || dist > q.radiusKm)) continue;
+      if (q.hasSpots === 'true' && a.capacity - going <= 0) continue;
+      const tiers = tierCounts(peopleByActivity.get(a.id) ?? [], circle);
+      const score = scoreActivity(
+        { id: a.id, startsAt: a.startsAt, endsAt: a.endsAt, createdAt: a.createdAt, capacity: a.capacity, going, category: a.category, tags: a.tags ? a.tags.split(',') : [], buddiesGoing: tiers.buddies, followingGoing: tiers.following, distanceKm: dist },
+        taste,
+        asOf,
+      );
+      // after the cursor: a lower score, or the same score with a later id
+      if (cur && !(score < cur.score || (score === cur.score && a.id > cur.id))) continue;
+      scored.push({ id: a.id, score, row: a, dist, buddies: tiers.buddies, following: tiers.following });
+    }
+
+    const best = topK(scored, q.limit + 1);
+    const page = best.slice(0, q.limit);
+    const favs = new Set((await this.prisma.favorite.findMany({ where: { userId: me.id, activityId: { in: page.map((x) => x.id) } } })).map((f) => f.activityId));
+    const last = page[page.length - 1];
+    return {
+      items: page.map((x) =>
+        this.dto(x.row, x.row._count.memberships, { distanceKm: x.dist !== undefined ? Math.round(x.dist * 10) / 10 : undefined, favorited: favs.has(x.id), buddiesGoing: x.buddies, followingGoing: x.following }),
+      ),
+      nextCursor: best.length > q.limit && last ? encodeCursor(asOf, last.score, last.id) : null,
+    };
+  }
+
   async detail(me: User, id: string) {
     await this.expirePendingRequests(id);
     const a = await this.prisma.activity.findUnique({ where: { id }, include: this.hostInclude });
@@ -251,7 +325,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const nominee = a.pendingHostId
       ? await this.prisma.profile.findUnique({ where: { userId: a.pendingHostId }, select: { displayName: true } })
       : null;
+    const hostLevel = (await this.reliability.forViewer(me, [a.hostId])).get(a.hostId) ?? null;
     return this.dto(a, going, {
+      hostReliability: hostLevel,
       isHost: a.hostId === me.id,
       isMember,
       // plan changed by the host: this member is asked to confirm or leave
@@ -261,7 +337,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       // only ever set by the member, after it ended (voluntary)
       myAttendance: isMember ? (membership?.attendance ?? 'unknown') : undefined,
       activitiesHosted,
-      myRequest: request ? { id: request.id, state: request.state, position: request.state === 'waitlisted' ? await this.waitlistPosition(id, request.createdAt) : undefined } : null,
+      myRequest: request ? { id: request.id, state: request.state, position: request.state === 'waitlisted' ? await this.waitlistPosition(id, request.createdAt, request.id) : undefined } : null,
       favorited: !!fav,
       // chat id is withheld until the server has approved this user
       conversationId: conv?.id ?? null,
@@ -425,7 +501,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     if (a.status === 'cancelled') return { ok: true };
     // a finished activity is history: it stays "Completed", it cannot be cancelled afterwards (staff removal still can)
     if (!byStaff && effectiveStatus(a) === 'completed') throw E.conflict('ACTIVITY_FINISHED', 'This activity has already finished');
-    await this.prisma.activity.update({ where: { id }, data: { status: 'cancelled' } });
+    await this.prisma.activity.update({ where: { id }, data: { status: 'cancelled', ...(byStaff ? {} : { cancelledAt: new Date() }) } });
     // close registration: pending requests are declined, accepted attendees notified
     await this.prisma.activityRequest.updateMany({
       where: { activityId: id, state: 'requested' },
@@ -474,7 +550,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
           data: { state: target, intro: dto.intro, decidedAt: null, reviewedBy: null, createdAt: new Date() },
         });
         if (!full) await this.notifyHost(a, me);
-        return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt) : undefined };
+        return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt, r.id) : undefined };
       }
       throw E.conflict('ALREADY_REQUESTED', `You already have a request (${existing.state}) for this activity`, {
         state: existing.state,
@@ -485,7 +561,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       data: { activityId: id, applicantId: me.id, intro: dto.intro, state: target },
     });
     if (!full) await this.notifyHost(a, me);
-    return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt) : undefined };
+    return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt, r.id) : undefined };
   }
 
   private async notifyHost(a: Activity, applicant: User) {
@@ -497,8 +573,10 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 1 = first in line. */
-  private async waitlistPosition(activityId: string, createdAt: Date) {
-    return this.prisma.activityRequest.count({ where: { activityId, state: 'waitlisted', createdAt: { lte: createdAt } } });
+  private async waitlistPosition(activityId: string, createdAt: Date, id: string) {
+    return this.prisma.activityRequest.count({
+      where: { activityId, state: 'waitlisted', OR: [{ createdAt: { lt: createdAt } }, { createdAt, id: { lte: id } }] },
+    });
   }
 
   /**
@@ -511,31 +589,48 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       const a = await this.prisma.activity.findUnique({ where: { id: activityId } });
       if (!a || ['cancelled', 'archived'].includes(a.status) || ['in_progress', 'completed'].includes(effectiveStatus(a))) return;
       if ((await this.goingCount(activityId)) >= a.capacity) return;
-      const waiting = await this.prisma.activityRequest.findMany({
-        where: { activityId, state: 'waitlisted' },
-        orderBy: { createdAt: 'asc' },
-        take: 10,
-        include: { applicant: { select: { state: true } } },
-      });
-      let next: (typeof waiting)[number] | undefined;
-      for (const r of waiting) {
-        if (r.applicant.state !== 'active') continue;
-        if (await this.safety.isBlocked(a.hostId, r.applicantId)) continue;
-        next = r;
-        break;
+      // Greedy: walk the line from the front and take the first person who can still be let in. Anyone passed over
+      // (account no longer active, or blocked by the host) keeps their place in line. The line is read in batches, so a
+      // long run of such people at the front cannot stop the ones behind them.
+      let next: { id: string; applicantId: string } | undefined;
+      let after: { createdAt: Date; id: string } | undefined;
+      while (!next) {
+        const batch = await this.prisma.activityRequest.findMany({
+          where: {
+            activityId,
+            state: 'waitlisted',
+            ...(after ? { OR: [{ createdAt: { gt: after.createdAt } }, { createdAt: after.createdAt, id: { gt: after.id } }] } : {}),
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: 25,
+          include: { applicant: { select: { state: true } } },
+        });
+        if (batch.length === 0) break;
+        for (const r of batch) {
+          if (r.applicant.state !== 'active') continue;
+          if (await this.safety.isBlocked(a.hostId, r.applicantId)) continue;
+          next = r;
+          break;
+        }
+        after = batch[batch.length - 1];
       }
       if (!next) return;
       const who = next;
-      await this.prisma.$transaction(async (tx) => {
+      const placed = await this.prisma.$transaction(async (tx) => {
+        // another request may have taken the last place since we looked
+        if ((await tx.activityMembership.count({ where: { activityId, state: 'approved' } })) >= a.capacity) return false;
+        const still = await tx.activityRequest.updateMany({ where: { id: who.id, state: 'waitlisted' }, data: { state: 'approved', decidedAt: new Date() } });
+        if (still.count === 0) return false; // withdrew or was decided in the meantime
         await tx.activityMembership.upsert({
           where: { activityId_userId: { activityId, userId: who.applicantId } },
           create: { activityId, userId: who.applicantId, role: 'attendee', state: 'approved' },
           update: { state: 'approved' },
         });
-        await tx.activityRequest.update({ where: { id: who.id }, data: { state: 'approved', decidedAt: new Date() } });
         const total = await tx.activityMembership.count({ where: { activityId, state: 'approved' } });
         if (total >= a.capacity) await tx.activity.update({ where: { id: activityId }, data: { status: 'full' } });
+        return true;
       });
+      if (!placed) continue;
       await this.notifications.notify(who.applicantId, 'waitlist_promoted', "A place opened up. You're in!", `You moved off the waiting list and into ${a.title}. You can chat with the group now.`, { activityId });
       await this.audit.log(a.hostId, 'activity.waitlist_promoted', 'activity_request', who.id, { activityId, applicantId: who.applicantId });
     }
@@ -557,9 +652,10 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.hostOwned(me, id);
     const rows = await this.prisma.activityRequest.findMany({
       where: { activityId: id },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: { applicant: { select: { id: true, eligibility: true, profile: true } } },
     });
+    const levels = await this.reliability.forViewer(me, rows.map((r) => r.applicantId));
     return {
       items: rows.map((r) => ({
         id: r.id,
@@ -571,6 +667,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
           displayName: r.applicant.profile?.displayName,
           photoUrl: r.applicant.profile?.photoUrl ?? null,
           verifiedAdult: r.applicant.eligibility === 'verified',
+          reliability: levels.get(r.applicantId) ?? null,
           languages: r.applicant.profile?.languages ? r.applicant.profile.languages.split(',') : [],
           interests: r.applicant.profile?.interests ? r.applicant.profile.interests.split(',') : [],
         },
@@ -667,7 +764,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async setMemberGone(a: Activity, membershipId: string, state: 'withdrawn' | 'removed') {
-    await this.prisma.activityMembership.update({ where: { id: membershipId }, data: { state } });
+    // a member leaving of their own accord is timestamped: leaving at the last minute counts against reliability
+    await this.prisma.activityMembership.update({ where: { id: membershipId }, data: { state, ...(state === 'withdrawn' ? { leftAt: new Date() } : {}) } });
     if (a.status === 'full') await this.prisma.activity.update({ where: { id: a.id }, data: { status: 'published' } });
     await this.fillFromWaitlist(a.id); // the first person waiting takes the place
     this.live.feedChanged();
@@ -765,14 +863,107 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return { favorited: on };
   }
 
-  async myFavorites(me: User) {
-    const favs = await this.prisma.favorite.findMany({
-      where: { userId: me.id, activity: { status: { not: 'cancelled' } } },
-      include: { activity: { include: this.hostInclude } },
-      orderBy: { createdAt: 'desc' },
-    });
+  /** Newest saved first, a page at a time (`limit`, default 100; `cursor` from the last answer). `total` is the whole count. */
+  async myFavorites(me: User, limitRaw?: string, cursorRaw?: string) {
+    const limit = pageLimit(limitRaw, 100);
+    const cur = decodeKeyset(cursorRaw);
+    const live = { userId: me.id, activity: { status: { not: 'cancelled' } } };
+    const [favs, total] = await Promise.all([
+      this.prisma.favorite.findMany({
+        where: { ...live, ...(cur ? { OR: [{ createdAt: { lt: cur.at } }, { createdAt: cur.at, activityId: { lt: cur.id } }] } : {}) },
+        include: { activity: { include: this.hostInclude } },
+        orderBy: [{ createdAt: 'desc' }, { activityId: 'desc' }],
+        take: limit + 1,
+      }),
+      this.prisma.favorite.count({ where: live }),
+    ]);
+    const page = sliceKeyset(favs.map((f) => ({ ...f, id: f.activityId })), limit, (f) => f.createdAt);
     return {
-      items: await Promise.all(favs.map(async (f) => this.dto(f.activity, await this.goingCount(f.activityId), { favorited: true }))),
+      items: await Promise.all(page.items.map(async (f) => this.dto(f.activity, await this.goingCount(f.activityId), { favorited: true }))),
+      nextCursor: page.nextCursor,
+      total,
+    };
+  }
+
+  /**
+   * One tab of "My activities", newest start first, a page at a time. `mine` = hosting or going, `pending` = waiting for a
+   * host (or on the waiting list), `rejected` = declined, `all` = the three together (Profile's latest few), each row
+   * tagged `row: joined | request`. `counts` is how many each tab holds, for the tab labels.
+   */
+  async minePage(me: User, tabRaw: string | undefined, limitRaw?: string, cursorRaw?: string) {
+    await this.expirePendingRequests();
+    const tab = tabRaw === 'pending' || tabRaw === 'rejected' || tabRaw === 'all' ? tabRaw : 'mine';
+    const limit = pageLimit(limitRaw, 20);
+    const cur = decodeKeyset(cursorRaw);
+    const after = (cur ? { OR: [{ activity: { startsAt: { lt: cur.at } } }, { activity: { startsAt: cur.at }, id: { lt: cur.id } }] } : {}) satisfies Prisma.ActivityMembershipWhereInput;
+    const memberWhere = { userId: me.id, state: 'approved' } as const;
+    const requestWhere = (states: string[]) => ({ applicantId: me.id, state: { in: states } });
+    const order = [{ activity: { startsAt: 'desc' as const } }, { id: 'desc' as const }];
+    const memberRows = (take: number) => this.prisma.activityMembership.findMany({ where: { ...memberWhere, ...after }, include: { activity: { include: this.hostInclude } }, orderBy: order, take });
+    const requestRows = (states: string[], take: number) =>
+      this.prisma.activityRequest.findMany({ where: { ...requestWhere(states), ...after }, include: { activity: { include: this.hostInclude } }, orderBy: order, take });
+
+    const [mine, pending, rejected] = await Promise.all([
+      this.prisma.activityMembership.count({ where: memberWhere }),
+      this.prisma.activityRequest.count({ where: requestWhere(['requested', 'waitlisted']) }),
+      this.prisma.activityRequest.count({ where: requestWhere(['declined']) }),
+    ]);
+    const counts = { mine, pending, rejected };
+    const joinedDto = async (m: Awaited<ReturnType<typeof memberRows>>[number]) => this.dto(m.activity, await this.goingCount(m.activityId), { role: m.role });
+    const requestDto = async (r: Awaited<ReturnType<typeof requestRows>>[number]) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, await this.goingCount(r.activityId)) });
+
+    if (tab === 'mine') {
+      const page = sliceKeyset(await memberRows(limit + 1), limit, (m) => m.activity.startsAt);
+      return { items: await Promise.all(page.items.map(joinedDto)), nextCursor: page.nextCursor, counts };
+    }
+    if (tab === 'all') {
+      // both kinds side by side, newest start first: each is read one page deep, merged, and cut to one page
+      const [m, r] = await Promise.all([memberRows(limit + 1), requestRows(['requested', 'waitlisted', 'declined'], limit + 1)]);
+      const merged = [
+        ...m.map((row) => ({ id: row.id, at: row.activity.startsAt, joined: row, request: null })),
+        ...r.map((row) => ({ id: row.id, at: row.activity.startsAt, joined: null, request: row })),
+      ].sort((x, y) => +y.at - +x.at || (x.id < y.id ? 1 : -1));
+      const page = sliceKeyset(merged, limit, (x) => x.at);
+      return {
+        items: await Promise.all(page.items.map(async (x) => (x.joined ? { row: 'joined' as const, ...(await joinedDto(x.joined)) } : { row: 'request' as const, ...(await requestDto(x.request!)) }))),
+        nextCursor: page.nextCursor,
+        counts,
+      };
+    }
+    const page = sliceKeyset(await requestRows(tab === 'pending' ? ['requested', 'waitlisted'] : ['declined'], limit + 1), limit, (r) => r.activity.startsAt);
+    return { items: await Promise.all(page.items.map(requestDto)), nextCursor: page.nextCursor, counts };
+  }
+
+  /**
+   * The plans that are on right now or start within `hours` (default 3), still open: what Home's "Next up" shows. Same
+   * shape as `mine`, but only these few, so Home never downloads the whole history.
+   */
+  async soon(me: User, hoursRaw?: string) {
+    await this.expirePendingRequests();
+    const now = new Date();
+    const hours = Math.min(Math.max(Number(hoursRaw) || 3, 0.25), 48);
+    return this.plansWhere(me, { endsAt: { gt: now }, startsAt: { lte: new Date(+now + hours * HOUR) } });
+  }
+
+  /** The viewer's open plans whose time overlaps [from, to), other than `exclude`: used to warn before joining a clash. */
+  async overlapping(me: User, fromRaw?: string, toRaw?: string, exclude?: string) {
+    const from = new Date(fromRaw ?? '');
+    const to = new Date(toRaw ?? '');
+    if (isNaN(+from) || isNaN(+to) || to <= from) throw E.badRequest('VALIDATION_FAILED', '"from" and "to" must be times, with "to" after "from"');
+    const now = new Date();
+    return this.plansWhere(me, { startsAt: { lt: to }, endsAt: { gt: new Date(Math.max(+from, +now)) }, ...(exclude ? { id: { not: exclude } } : {}) });
+  }
+
+  /** Plans you host, are going to, or have asked for (not declined), not finished or cancelled, matching `when`. */
+  private async plansWhere(me: User, when: Prisma.ActivityWhereInput) {
+    const open = { ...when, status: { notIn: ['cancelled', 'completed', 'archived'] } };
+    const [memberships, requests] = await Promise.all([
+      this.prisma.activityMembership.findMany({ where: { userId: me.id, state: 'approved', activity: open }, include: { activity: { include: this.hostInclude } }, orderBy: { activity: { startsAt: 'asc' } }, take: 50 }),
+      this.prisma.activityRequest.findMany({ where: { applicantId: me.id, state: { in: ['requested', 'waitlisted'] }, activity: open }, include: { activity: { include: this.hostInclude } }, orderBy: { activity: { startsAt: 'asc' } }, take: 50 }),
+    ]);
+    return {
+      joined: await Promise.all(memberships.map(async (m) => this.dto(m.activity, await this.goingCount(m.activityId), { role: m.role }))),
+      requests: await Promise.all(requests.map(async (r) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, await this.goingCount(r.activityId)) }))),
     };
   }
 

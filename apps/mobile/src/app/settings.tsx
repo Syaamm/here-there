@@ -60,8 +60,10 @@ export default function Settings() {
       <Label>Account</Label>
       <Card style={{ padding: 12, borderRadius: 18, gap: 0 }}>
         <ListRow icon="person-outline" title="Edit profile" subtitle="Name, photo, city, bio and interests" onPress={() => go('/edit-profile')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} />
-        <ListRow icon="shield-checkmark-outline" title="Identity verification" subtitle={verification} onPress={() => go('/verify')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last={!!me?.emailVerified} />
-        {!me?.emailVerified ? <ListRow icon="mail-outline" title="Confirm your email" subtitle="Needed before identity verification" onPress={() => go('/onboarding')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last /> : null}
+        <ListRow icon="shield-checkmark-outline" title="Identity verification" subtitle={verification} onPress={() => go('/verify')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} />
+        {!me?.emailVerified ? <ListRow icon="mail-outline" title="Confirm your email" subtitle="Needed before identity verification" onPress={() => go('/onboarding')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
+        {me?.role !== 'guest' ? <ListRow icon="key-outline" title="Change password" subtitle="Other devices are signed out when you change it" onPress={() => go('/change-password')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last={me?.role === 'guest'} /> : null}
+        {me?.role !== 'guest' ? <ListRow icon="download-outline" title="Your data" subtitle="Download a copy, change your email, or delete your account" onPress={() => go('/my-data')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last /> : null}
       </Card>
 
       <Label>Notifications</Label>

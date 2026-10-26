@@ -26,7 +26,12 @@ export default function Join() {
   const act = useAction();
 
   // Plans the person already has that overlap this one. Joining both stays allowed, but they are asked what they want.
-  const mine = useLoad(() => get<MyActivitiesData>('/v1/me/activities'), [], undefined, 'me:activities');
+  const mine = useLoad(
+    () => (a ? get<MyActivitiesData>(`/v1/me/activities/overlapping?${new URLSearchParams({ from: a.startsAt, to: a.endsAt, exclude: a.id })}`) : Promise.resolve(null)),
+    [a?.id, a?.startsAt, a?.endsAt],
+    undefined,
+    'me:clash',
+  );
   const clashes = a ? clashesWith(mine.data, a) : [];
   const [clashOpen, setClashOpen] = useState(false);
   const asked = useRef(false);

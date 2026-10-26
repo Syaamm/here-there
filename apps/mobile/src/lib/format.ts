@@ -43,3 +43,10 @@ export function parseDay(s: string): Date | null {
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return d.getFullYear() === Number(m[1]) && d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
 }
+
+/** The small line on a card about your circle: "2 buddies going", or "1 you follow is going" when no buddy is. */
+export const circleLine = (buddies?: number, following?: number) => {
+  const b = buddies ?? 0;
+  const f = following ?? 0;
+  return b > 0 ? `${b} ${b === 1 ? 'buddy' : 'buddies'} going` : f > 0 ? `${f} you follow ${f === 1 ? 'is' : 'are'} going` : null;
+};
