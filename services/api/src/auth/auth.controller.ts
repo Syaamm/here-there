@@ -155,10 +155,20 @@ export class AuthController {
   @Post('auth/login')
   async login(@Body() body: unknown, @Ip() ip: string) {
     const dto = parse(loginSchema, body);
-    this.limiter.hit(`login:${ip}:${dto.email}`, 10, 15 * 60 * 1000);
+    const window = 15 * 60 * 1000;
+    this.limiter.hit(`login:${ip}:${dto.email}`, 10, window);
+    // Wrong guesses are also counted for the account, whoever makes them and from wherever (so spreading a guessing attack
+    // over many addresses does not help), and for the address, whichever accounts it aims at. A person whose account is
+    // being attacked may be told to wait for up to 15 minutes; that is the price of not letting the guessing continue.
+    this.limiter.check(`login-fail-account:${dto.email}`, 20, window);
+    this.limiter.check(`login-fail-address:${ip}`, 100, window);
     const user = await this.prisma.user.findUnique({ where: { email: dto.email }, include: { profile: true } });
     const ok = user && (await bcrypt.compare(dto.password, user.passwordHash));
-    if (!user || !ok) throw E.unauthorized('INVALID_CREDENTIALS', 'Email or password is incorrect');
+    if (!user || !ok) {
+      this.limiter.record(`login-fail-account:${dto.email}`, window);
+      this.limiter.record(`login-fail-address:${ip}`, window);
+      throw E.unauthorized('INVALID_CREDENTIALS', 'Email or password is incorrect');
+    }
     return this.openSession(user);
   }
 

@@ -11,6 +11,7 @@ import * as follows from '../safety/follows.controller';
 import * as moderation from '../moderation/moderation.controller';
 import * as safety from '../safety/safety.controller';
 import * as matching from '../matching/matching.controller';
+import * as places from '../places/places.controller';
 import * as plan from '../trips/trip-plan.controller';
 import * as trips from '../trips/trips.service';
 
@@ -123,6 +124,7 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   'GET /v1/verification/sandbox/{ref}': { tag: T.verify, summary: 'Development only: the simulated provider page', note: 'Refused when NODE_ENV is production.' },
   'POST /v1/verification/sandbox/{ref}/decide': { tag: T.verify, summary: 'Development only: pick the simulated outcome', note: 'Refused when NODE_ENV is production.' },
   // ---------------------------------------------------------------- HERE
+  'GET /v1/places/search': { tag: T.here, summary: 'Search for a real place by name or address (for the meeting location)', query: places.searchSchema, returns: '{ items: [{ id, name, address, lat, lng }] }, up to 6, best match first. Answers are cached for 10 minutes.', errors: ['PLACES_UNAVAILABLE', 'RATE_LIMITED'] },
   'GET /v1/activities': { tag: T.here, summary: 'Discover activities (filters, distance, ranking)', query: activities.listSchema, returns: page },
   'POST /v1/activities': { tag: T.here, summary: 'Create an activity', body: activities.createSchema, verified: true, errors: ['INVALID_SCHEDULE', 'DUPLICATE_ACTIVITY', 'TOO_MANY_OPEN_ACTIVITIES', 'CONTENT_REJECTED', 'RATE_LIMITED'] },
   'GET /v1/activities/{id}': { tag: T.here, summary: 'Activity detail, with my own status (member, requested, waitlisted...)', errors: ['NOT_FOUND'] },

@@ -28,7 +28,21 @@ export async function createApp() {
   // the live connection (WebSocket at /v1/live) shares the API's port
   app.get(LiveService).attach(app.getHttpServer());
   app.getHttpAdapter().getInstance().disable('x-powered-by');
+  app.getHttpAdapter().getInstance().set('trust proxy', trustProxy(process.env.TRUST_PROXY));
   return app;
+}
+
+/**
+ * Which hops in front of the API (a load balancer, Cloudflare) may say who the visitor is. The rate limits go by that address:
+ * with no setting, every visitor behind a proxy looks like the proxy and shares one limit; trusting the wrong thing lets a
+ * visitor invent their own address. So it is off unless set: TRUST_PROXY=<number of proxies in front, e.g. 1>, or
+ * loopback / linklocal / uniquelocal / addresses. "true" is refused because it believes whatever the visitor sends.
+ */
+export function trustProxy(v: string | undefined): number | string | false {
+  const s = (v ?? '').trim();
+  if (!s || s === 'false' || s === '0') return false;
+  if (s === 'true') throw new Error('TRUST_PROXY=true trusts any address a visitor claims. Use the number of proxies in front (e.g. 1) or their addresses.');
+  return /^\d+$/.test(s) ? Number(s) : s;
 }
 
 async function bootstrap() {

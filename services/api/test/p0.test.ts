@@ -3,6 +3,7 @@ process.env.DATABASE_URL = 'file:./test.db';
 process.env.VERIFICATION_MODE = 'manual';
 process.env.REGISTER_LIMIT_PER_HOUR = '10000';
 process.env.BCRYPT_ROUNDS = '4';
+process.env.TRUST_PROXY = '1';
 
 import { execFileSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
@@ -410,6 +411,54 @@ describe('HERE: create, discover, request, approve, chat', () => {
     assert.equal((await get('/v1/activities?city=milan', c.token)).body.items.some((x: any) => x.id === id), false);
     const audit = await get(`/v1/admin/audit?objectType=activity&objectId=${id}`, adminToken);
     assert.ok(audit.body.items.some((e: any) => e.action === 'activity.cancel'));
+  });
+
+  it('lets people into an instant-join activity at once, while still guarding places, verification and removals', async () => {
+    const host = await verified('InstantHost');
+    const u1 = await verified('Quick1');
+    const u2 = await verified('Quick2');
+    const u3 = await verified('Quick3');
+    const lurker = await signup('Quick4');
+
+    // manual approval stays the default, and only the two known policies are accepted
+    assert.equal((await post('/v1/activities', host.token, activityBody({ joinPolicy: 'whoever' }))).body.code, 'VALIDATION_FAILED');
+    const manual = await post('/v1/activities', host.token, activityBody({ title: 'Manual one', venueName: 'Bar Uno', startsAt: hours(5), endsAt: hours(7) }));
+    assert.equal(manual.body.joinPolicy, 'host_approval');
+    assert.equal((await post(`/v1/activities/${manual.body.id}/requests`, u3.token, {})).body.state, 'requested');
+
+    const made = await post('/v1/activities', host.token, activityBody({ joinPolicy: 'instant' })); // 3 places with the host
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    const id = made.body.id;
+    assert.equal(made.body.joinPolicy, 'instant');
+
+    // an unverified person is still turned away
+    assert.equal((await post(`/v1/activities/${id}/requests`, lurker.token, {})).body.code, 'VERIFICATION_REQUIRED');
+
+    // no waiting for the host: a member, with chat, straight away; the host is told, but there is nothing to approve
+    const r1 = await post(`/v1/activities/${id}/requests`, u1.token, {});
+    assert.equal(r1.status, 201);
+    assert.equal(r1.body.state, 'approved');
+    const seen = await get(`/v1/activities/${id}`, u1.token);
+    assert.equal(seen.body.isMember, true);
+    assert.ok(seen.body.conversationId);
+    assert.equal((await post(`/v1/conversations/${seen.body.conversationId}/messages`, u1.token, { body: 'Hello all' })).status, 201);
+    const alerts = (await get('/v1/notifications', host.token)).body.items;
+    assert.ok(alerts.some((x: any) => x.type === 'member_joined' && x.data.activityId === id));
+    assert.equal(alerts.some((x: any) => x.type === 'join_request' && x.data?.activityId === id), false);
+    assert.equal((await post(`/v1/activities/${id}/requests`, u1.token, {})).body.code, 'ALREADY_REQUESTED');
+
+    // the last place fills it; the next person waits in line and is let in automatically when a place opens
+    assert.equal((await post(`/v1/activities/${id}/requests`, u2.token, {})).body.state, 'approved');
+    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'full');
+    const waiting = await post(`/v1/activities/${id}/requests`, u3.token, {});
+    assert.equal(waiting.body.state, 'waitlisted');
+    assert.equal((await post(`/v1/activities/${id}/leave`, u1.token)).status, 201);
+    assert.equal((await get(`/v1/activities/${id}`, u3.token)).body.isMember, true);
+
+    // a person the host removed cannot just walk back in
+    assert.equal((await call('DELETE', `/v1/activities/${id}/members/${u2.id}`, host.token)).status, 200);
+    assert.equal((await post(`/v1/activities/${id}/requests`, u2.token, {})).body.code, 'ALREADY_REQUESTED');
+    assert.equal((await get(`/v1/activities/${id}`, u2.token)).body.isMember, false);
   });
 
   it('never lets two approvals overfill a one-seat activity', async () => {
@@ -2392,7 +2441,8 @@ describe('confirmed plans, starting-soon reminders, drafts and appeals', () => {
     assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'published');
     // still found in the feed while confirmed
     await join(id, a, host);
-    assert.ok((await get('/v1/activities?city=Milan', b.token)).body.items.some((x: { id: string }) => x.id === id));
+    // (asks for a long page: earlier tests leave many Milan activities in the shared test database, and the feed is oldest first)
+    assert.ok((await get('/v1/activities?city=Milan&limit=50', b.token)).body.items.some((x: { id: string }) => x.id === id));
   });
 
   it('sends one starting-soon reminder, an hour ahead, to people who have been in a while', async () => {
@@ -2975,5 +3025,57 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     const back = await prisma.report.findUnique({ where: { id: rep } });
     assert.deepEqual([back.status, back.assignedTo, !!back.reopenedAt], ['open', null, true]);
     assert.equal((await get('/v1/me/reports', reporter.token)).body.items.find((r: any) => r.id === rep).canAppeal, false);
+  });
+});
+
+describe('sign-in protection, proxies and the seed script', () => {
+  const tryLogin = async (ip: string, email: string, password: string) => {
+    const r = await fetch(`${base}/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ email, password }) });
+    return { status: r.status, body: await r.json() };
+  };
+
+  it('stops a guessing attack on one account even when it comes from many addresses, and keeps other accounts open', async () => {
+    limiter.reset();
+    const target = await signup('Guarded');
+    const other = await signup('Bystander');
+    // 20 wrong guesses, each from a different address: the per-address limit never trips, the per-account one counts them all
+    for (let i = 1; i <= 20; i++) assert.equal((await tryLogin(`10.0.0.${i}`, target.email, 'not-the-password')).body.code, 'INVALID_CREDENTIALS');
+    // now even the right password from a fresh address has to wait
+    assert.equal((await tryLogin('10.0.1.1', target.email, 'a-long-password-1')).body.code, 'RATE_LIMITED');
+    // someone else is not affected
+    assert.equal((await tryLogin('10.0.1.1', other.email, 'a-long-password-1')).status, 201);
+  });
+
+  it('stops one address from trying many different accounts, and tells addresses apart behind a proxy', async () => {
+    limiter.reset();
+    for (let i = 0; i < 100; i++) assert.equal((await tryLogin('10.9.9.9', `nobody${i}@example.com`, 'whatever-it-is')).body.code, 'INVALID_CREDENTIALS');
+    assert.equal((await tryLogin('10.9.9.9', 'nobody-else@example.com', 'whatever-it-is')).body.code, 'RATE_LIMITED');
+    // a different visitor behind the same proxy has their own allowance (needs TRUST_PROXY, which this test run sets to 1)
+    assert.equal((await tryLogin('10.9.9.10', 'nobody-else@example.com', 'whatever-it-is')).body.code, 'INVALID_CREDENTIALS');
+  });
+
+  it('accepts only safe proxy settings', async () => {
+    const { trustProxy } = await import('../src/main');
+    assert.equal(trustProxy(undefined), false);
+    assert.equal(trustProxy(''), false);
+    assert.equal(trustProxy('0'), false);
+    assert.equal(trustProxy('1'), 1);
+    assert.equal(trustProxy('loopback'), 'loopback');
+    assert.throws(() => trustProxy('true'), /trusts any address/);
+  });
+
+  it('refuses to seed a live system with the public admin password or the demo people', () => {
+    const seed = path.join(root, 'dist', 'scripts', 'seed.js');
+    const run = (adminPassword: string) => {
+      try {
+        execFileSync(process.execPath, [seed], { cwd: root, env: { ...process.env, NODE_ENV: 'production', ADMIN_PASSWORD: adminPassword }, stdio: 'pipe' });
+        return '';
+      } catch (e: any) {
+        return String(e.stderr);
+      }
+    };
+    assert.match(run(''), /ADMIN_PASSWORD/); // empty means "not set": the public default is refused
+    assert.match(run('change-me-admin-1'), /ADMIN_PASSWORD/);
+    assert.match(run('too-short'), /at least 14/);
   });
 });

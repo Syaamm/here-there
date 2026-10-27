@@ -1,20 +1,22 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Pressable, Switch, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { AppState, Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { DraftBar } from '@/components/DraftBar';
+import { PlaceSearch, type Place } from '@/components/PlaceSearch';
 import { TabHeader } from '@/components/TabHeader';
-import { Banner, Between, Btn, CheckRow, Chip, ErrorBanner, Field, Row, Screen, Txt, useGo } from '@/components/ui';
-import { post, type Activity } from '@/lib/api';
+import { Banner, Between, Btn, CheckRow, ErrorBanner, Field, Row, Screen, Txt, useGo } from '@/components/ui';
+import { post, put, type Activity, type ServerDraft } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useCity } from '@/lib/city';
 import { catColor, CATS, MILAN_AREAS } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
-import { dropDraft } from '@/lib/drafts';
+import { confirmAsync } from '@/lib/confirm';
+import { currentDraftId, dropDraft, setCurrentDraft, takeCurrentDraft } from '@/lib/drafts';
+import { showToast } from '@/lib/toast';
 import { useTheme } from '@/lib/theme';
 
-const DRAFT = 'ht_activity_draft';
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
 const DURATIONS = [1, 2, 3, 4, 6, 8];
 const LEAD_MIN = 10; // an activity can start no sooner than this many minutes from now
@@ -87,10 +89,61 @@ export function Round({ icon, label, onPress, onLongPress, disabled }: { icon: '
   );
 }
 
-type Draft = { title: string; category: string; dayIdx: number; hour: number; minute: number; duration: number; capacity: number; area: string; venueName: string; description: string };
+type Draft = { title: string; category: string; dayIdx: number; hour: number; minute: number; duration: number; capacity: number; area: string; venueName: string; place: Place | null; description: string; joinPolicy: 'instant' | 'host_approval' };
 
-/** HERE · Create: friction-light, but public-place-only and verified-host-only. Drafts stay on this device. */
+/** One way of letting people in, with its switch (see "Access control"). */
+function AccessRow({ icon, title, text, on, onChange }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; text: string; on: boolean; onChange: (on: boolean) => void }) {
+  const { c } = useTheme();
+  return (
+    <Between>
+      <Row style={{ flex: 1, gap: 10, paddingRight: 10, alignItems: 'flex-start' }}>
+        <Ionicons name={icon} size={20} color={on ? c.forest : c.muted} style={{ marginTop: 1 }} />
+        <View style={{ flex: 1 }}>
+          <Txt variant="h3">{title}</Txt>
+          <Txt variant="muted">{text}</Txt>
+        </View>
+      </Row>
+      <Switch value={on} onValueChange={onChange} trackColor={{ true: '#2F7D65', false: '#ccc' }} thumbColor="#fff" accessibilityLabel={`${title}: ${on ? 'on' : 'off'}`} />
+    </Between>
+  );
+}
+
+/** Something has been typed (the time, size and category always have a value, so they do not count). */
+const hasContent = (f: Draft) => !!(f.title.trim() || f.venueName.trim() || f.place || f.description.trim());
+
+/** Keeps what was typed as a draft in the account, and says so. Called when the person leaves the form. */
+async function stash(form: Draft) {
+  const id = takeCurrentDraft('activity');
+  try {
+    await put<ServerDraft>('/v1/me/drafts', { id: id ?? undefined, kind: 'activity', data: form });
+    showToast('Saved to drafts');
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : 'Could not save your draft', 'error');
+  }
+}
+
+/** Saves the form as a draft but keeps working from it (the app went to the background); false when it could not be saved. */
+async function keep(form: Draft) {
+  try {
+    const d = await put<ServerDraft>('/v1/me/drafts', { id: currentDraftId('activity') ?? undefined, kind: 'activity', data: form });
+    setCurrentDraft('activity', d.id);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * HERE · Create: friction-light, but public-place-only and verified-host-only. Leaving the form (another tab, another
+ * page) saves what was typed as a draft and the form comes back empty; the person's drafts are under "My drafts".
+ * Changing `round` remounts the form, which is what empties it.
+ */
 export function CreateActivity() {
+  const [round, setRound] = useState(0);
+  return <ActivityForm key={round} onReset={() => setRound((r) => r + 1)} />;
+}
+
+function ActivityForm({ onReset }: { onReset: () => void }) {
   const { me } = useMe();
   const { c } = useTheme();
   const go = useGo();
@@ -102,22 +155,52 @@ export function CreateActivity() {
     return () => clearInterval(t);
   }, []);
   const earliest = earliestStart(now);
-  const [f, setF] = useState<Draft>({ title: '', category: 'drinks', dayIdx: 0, hour: earliest.getHours(), minute: earliest.getMinutes(), duration: 2, capacity: 6, area: 'Brera', venueName: '', description: '' });
+  const [f, setF] = useState<Draft>({ title: '', category: 'drinks', dayIdx: 0, hour: earliest.getHours(), minute: earliest.getMinutes(), duration: 2, capacity: 6, area: 'Brera', venueName: '', place: null, description: '', joinPolicy: 'host_approval' });
   const [publicPlace, setPublicPlace] = useState(false);
-  const [saved, setSaved] = useState(false);
   const act = useAction();
+  // the latest form, readable from the leave handler; and whether it was posted (then there is nothing to keep)
+  const latest = useRef(f);
+  latest.current = f;
+  const posted = useRef(false);
+  const left = useRef(false);
+  const reset = useRef(onReset);
+  reset.current = onReset;
+  // the cleanup of a focus effect runs when the screen loses focus (or unmounts); with no dependencies it never runs for any other reason
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        if (left.current) return;
+        left.current = true;
+        if (!posted.current && hasContent(latest.current)) void stash(latest.current);
+        reset.current();
+      },
+      [],
+    ),
+  );
+  // Leaving the app with something typed keeps it as a draft. The notice cannot be drawn over other apps, so it is shown for
+  // 2 seconds when the person comes back (the form is still as they left it, and posting it later removes the draft).
+  const saving = useRef<Promise<boolean> | null>(null);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'background') {
+        saving.current = !posted.current && !left.current && hasContent(latest.current) ? keep(latest.current) : null;
+      } else if (s === 'active' && saving.current) {
+        const pending = saving.current;
+        saving.current = null;
+        void pending.then((ok) => ok && showToast('Draft saved', 'ok', 2000));
+      }
+    });
+    return () => sub.remove();
+  }, []);
+  // "Clear all": everything typed goes, and the form stops being linked to a draft it was opened from (that draft stays as it is)
+  const clearAll = async () => {
+    if (!(await confirmAsync('Clear everything?', 'This removes what you have entered. Drafts you already saved stay in My drafts.', 'Clear all', true))) return;
+    left.current = true; // the form is being emptied on purpose: nothing to save on the way out
+    takeCurrentDraft('activity');
+    reset.current();
+  };
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((p) => ({ ...p, [k]: v }));
   const loadDraft = useCallback((d: Record<string, unknown>) => setF((p) => ({ ...p, ...(d as Partial<Draft>) })), []);
-
-  useEffect(() => {
-    AsyncStorage.getItem(DRAFT)
-      .then((raw) => raw && setF((p) => ({ ...p, ...JSON.parse(raw) })))
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    const t = setTimeout(() => AsyncStorage.setItem(DRAFT, JSON.stringify(f)).then(() => setSaved(true)).catch(() => {}), 600);
-    return () => clearTimeout(t);
-  }, [f]);
 
   const isMilan = city.trim().toLowerCase() === 'milan';
   const verified = me?.eligibility === 'verified';
@@ -139,27 +222,30 @@ export function CreateActivity() {
   const startsAt = new Date(day.d);
   startsAt.setHours(hour, minute, 0, 0);
   const tooSoon = startsAt.getTime() < earliest.getTime();
-  const valid = f.title.trim().length >= 2 && f.venueName.trim().length >= 2 && publicPlace && !tooSoon;
+  const valid = f.title.trim().length >= 2 && (f.place != null || f.venueName.trim().length >= 2) && publicPlace && !tooSoon;
 
   const submit = async () => {
     const endsAt = new Date(+startsAt + f.duration * 3600e3);
-    const geo = isMilan ? MILAN_AREAS[f.area] : undefined;
+    // a place picked from the map search carries its own position; a typed name falls back to the neighbourhood in Milan
+    const geo = f.place ? undefined : isMilan ? MILAN_AREAS[f.area] : undefined;
     const a = await act.run(() =>
       post<Activity>('/v1/activities', {
         title: f.title.trim(),
         category: f.category,
         description: f.description.trim() || undefined,
         city: city.trim(),
-        venueName: isMilan ? `${f.venueName.trim()} (${f.area})` : f.venueName.trim(),
-        lat: geo?.[0],
-        lng: geo?.[1],
+        venueName: f.place ? f.place.name : isMilan ? `${f.venueName.trim()} (${f.area})` : f.venueName.trim(),
+        venuePlaceId: f.place?.id,
+        lat: f.place ? f.place.lat : geo?.[0],
+        lng: f.place ? f.place.lng : geo?.[1],
         startsAt: startsAt.toISOString(),
         endsAt: endsAt.toISOString(),
         capacity: f.capacity,
+        joinPolicy: f.joinPolicy,
       }),
     );
     if (a) {
-      AsyncStorage.removeItem(DRAFT).catch(() => {});
+      posted.current = true;
       void dropDraft('activity');
       go(`/activity/${a.id}`);
     }
@@ -207,7 +293,7 @@ export function CreateActivity() {
           <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>Create an activity</Txt>
           <Txt variant="muted">Plan something for today or tomorrow. It takes about a minute.</Txt>
         </View>
-        {saved ? <Chip label="DRAFT" tone="info" /> : null}
+        <Btn title="Clear all" variant="ghost" small onPress={() => void clearAll()} disabled={!hasContent(f)} />
       </Between>
 
       {!verified && <Banner onPress={() => go('/verify')}>You need a verified identity to publish. You can fill this in now and it is kept as a draft. Verify ›</Banner>}
@@ -295,7 +381,15 @@ export function CreateActivity() {
 
       <Section>
         <Field label="City" value={city} onChangeText={setCity} />
-        {isMilan ? (
+        <PlaceSearch
+          label="Public meeting location"
+          text={f.venueName}
+          onText={(v) => set('venueName', v)}
+          place={f.place}
+          onPlace={(p) => setF((prev) => ({ ...prev, place: p, venueName: p ? p.name : prev.venueName }))}
+          city={city}
+        />
+        {f.place ? null : isMilan ? (
           <>
             <Txt variant="label">Neighborhood</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
@@ -305,9 +399,8 @@ export function CreateActivity() {
             </View>
           </>
         ) : (
-          <Txt variant="small">Map pins are only available in Milan for now. Your activity still appears in the list.</Txt>
+          <Txt variant="small">Pick a place from the search above to show it on the map. Without one, your activity still appears in the list.</Txt>
         )}
-        <Field label="Public meeting location" icon="location-outline" placeholder="e.g. Bar Brera, Parco Sempione north gate" value={f.venueName} onChangeText={(v) => set('venueName', v)} maxLength={100} />
         <View style={{ backgroundColor: c.accentSoft, borderRadius: 12, padding: 10 }}>
           <CheckRow checked={publicPlace} onChange={setPublicPlace}>
             <Txt>This is a public place. First meetings never happen at a private home.</Txt>
@@ -317,13 +410,26 @@ export function CreateActivity() {
 
       <Section>
         <Field label="Description" placeholder="Casual drinks and conversation with new people." multiline value={f.description} onChangeText={(v) => set('description', v)} maxLength={1000} />
-        <Between>
-          <View style={{ flex: 1, paddingRight: 12 }}>
-            <Txt variant="h3">Approve requests manually</Txt>
-            <Txt variant="muted">Members join after host review. Always on for now.</Txt>
-          </View>
-          <Switch value disabled trackColor={{ true: '#2F7D65', false: '#ccc' }} thumbColor="#fff" accessibilityLabel="Approve requests manually, always on" />
-        </Between>
+      </Section>
+
+      <Section>
+        <Txt variant="h3">Access control</Txt>
+        {/* exactly one is always on: turning the one that is on off turns the other on */}
+        <AccessRow
+          icon="flash-outline"
+          title="Instant join"
+          text="Verified people can join immediately, until every place is taken."
+          on={f.joinPolicy === 'instant'}
+          onChange={(on) => set('joinPolicy', on ? 'instant' : 'host_approval')}
+        />
+        <View style={{ height: 1, backgroundColor: c.line }} />
+        <AccessRow
+          icon="hand-left-outline"
+          title="Request to join"
+          text="You approve each person before they can join the group or its chat."
+          on={f.joinPolicy === 'host_approval'}
+          onChange={(on) => set('joinPolicy', on ? 'host_approval' : 'instant')}
+        />
       </Section>
 
       <Btn title="Publish activity" onPress={submit} loading={act.busy} disabled={!valid} />

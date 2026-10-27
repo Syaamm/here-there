@@ -17,6 +17,22 @@ export class RateLimiter {
     this.hits.set(key, arr);
   }
 
+  /** Refuses when `limit` events are already on record inside the window. Does not record one itself. */
+  check(key: string, limit: number, windowMs: number) {
+    const now = Date.now();
+    const arr = (this.hits.get(key) ?? []).filter((t) => now - t < windowMs);
+    this.hits.set(key, arr);
+    if (arr.length >= limit) throw E.tooMany();
+  }
+
+  /** Records one event (a failed sign-in, say) without refusing it. */
+  record(key: string, windowMs: number) {
+    const now = Date.now();
+    const arr = (this.hits.get(key) ?? []).filter((t) => now - t < windowMs);
+    arr.push(now);
+    this.hits.set(key, arr);
+  }
+
   reset() {
     this.hits.clear();
   }

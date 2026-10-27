@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Row, Btn, ErrorBanner, Txt, useGo } from '@/components/ui';
 import { get, put, type ServerDraft } from '@/lib/api';
@@ -11,6 +11,7 @@ import { useAction } from '@/lib/hooks';
  */
 export function DraftBar({ kind, data, onLoad }: { kind: 'activity' | 'trip'; data: Record<string, unknown>; onLoad: (data: Record<string, unknown>) => void }) {
   const go = useGo();
+  const router = useRouter();
   const { draft } = useLocalSearchParams<{ draft?: string }>();
   const [id, setId] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -18,8 +19,14 @@ export function DraftBar({ kind, data, onLoad }: { kind: 'activity' | 'trip'; da
   const loaded = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!draft || loaded.current === draft) return;
+    if (!draft) {
+      loaded.current = null; // the same draft can be opened again later
+      return;
+    }
+    if (loaded.current === draft) return;
     loaded.current = draft;
+    // the address keeps its parameters, so drop it: a blank form later must not reopen this draft
+    router.setParams({ draft: undefined });
     get<{ items: ServerDraft[] }>('/v1/me/drafts')
       .then((r) => {
         const d = r.items.find((x) => x.id === draft);

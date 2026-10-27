@@ -224,6 +224,8 @@ export type Activity = {
   spotsLeft: number;
   status: string;
   visibility: string;
+  /** instant: whoever asks while there is room is in at once; host_approval: the host decides on each request */
+  joinPolicy?: 'host_approval' | 'instant';
   host: HostInfo;
   distanceKm?: number;
   /** the host's reliability level, shown to verified members on the activity page */

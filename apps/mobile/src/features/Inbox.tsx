@@ -23,6 +23,7 @@ type PendingReq = { id: string; state: string; applicant: { id: string; displayN
 
 const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   join_request: 'person-add-outline',
+  member_joined: 'person-add-outline',
   follow: 'people-outline',
   request_approved: 'checkmark-circle-outline',
   waitlist_promoted: 'sparkles-outline',

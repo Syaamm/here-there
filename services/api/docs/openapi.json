@@ -317,6 +317,14 @@
                       "invite_only"
                     ]
                   },
+                  "joinPolicy": {
+                    "default": "host_approval",
+                    "type": "string",
+                    "enum": [
+                      "host_approval",
+                      "instant"
+                    ]
+                  },
                   "language": {
                     "type": "string",
                     "maxLength": 20
@@ -10025,6 +10033,101 @@
         }
       }
     },
+    "/v1/places/search": {
+      "get": {
+        "tags": [
+          "HERE activities"
+        ],
+        "summary": "Search for a real place by name or address (for the meeting location)",
+        "operationId": "Places_search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 80
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items: [{ id, name, address, lat, lng }] }, up to 6, best match first. Answers are cached for 10 minutes."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Error. Codes: `PLACES_UNAVAILABLE`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/polls/{pollId}/close": {
       "post": {
         "tags": [
@@ -13209,6 +13312,7 @@
               "PAYLOAD_TOO_LARGE",
               "PHONE_BLOCKED",
               "PHONE_IN_USE",
+              "PLACES_UNAVAILABLE",
               "PLAN_CANCELLED",
               "PLAN_FULL",
               "POLL_CLOSED",
@@ -13922,6 +14026,12 @@
       "status": 500,
       "meaning": "Something failed on the server. Nothing internal is revealed.",
       "clientShould": "Show a \"try again\" state and retry with a delay."
+    },
+    {
+      "code": "PLACES_UNAVAILABLE",
+      "status": 502,
+      "meaning": "The map service that finds places did not answer.",
+      "clientShould": "Let the person type the place name by hand and carry on without a map position."
     },
     {
       "code": "SOCIAL_UNAVAILABLE",

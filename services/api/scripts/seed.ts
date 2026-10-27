@@ -31,9 +31,20 @@ async function user(email: string, name: string, password: string, extra: { role
   });
 }
 
+const DEFAULT_ADMIN_PASSWORD = 'change-me-admin-1';
+
 async function main() {
   const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@herethere.local';
-  const adminPassword = process.env.ADMIN_PASSWORD ?? 'change-me-admin-1';
+  const adminPassword = process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
+  // On a live system this makes only the admin, and only with a password of your own: the demo people below all share
+  // passwords written in this file, and the default admin password is public.
+  if (process.env.NODE_ENV === 'production') {
+    if (adminPassword === DEFAULT_ADMIN_PASSWORD || adminPassword.length < 14)
+      throw new Error('In production, set ADMIN_PASSWORD to your own password of at least 14 characters (the default is public).');
+    await user(adminEmail, 'Admin', adminPassword, { role: 'admin' });
+    console.log(`Admin ${adminEmail} is ready. Demo people and sample activities are not created in production.`);
+    return;
+  }
   await user(adminEmail, 'Admin', adminPassword, { role: 'admin' });
 
   const sofia = await user('sofia@demo.local', 'Sofia', 'demo-password-1');

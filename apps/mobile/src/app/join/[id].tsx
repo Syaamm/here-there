@@ -45,6 +45,7 @@ export default function Join() {
   if (loading && !a) return <Screen hasHeader><SkeletonDetail /></Screen>;
   if (!a) return <Screen hasHeader><Txt>Activity not found.</Txt></Screen>;
 
+  const instant = a.joinPolicy === 'instant' && a.spotsLeft > 0; // a full activity still has a waiting list the host never has to approve
   const adult = !!me?.adultConfirmed;
   const verified = me?.eligibility === 'verified';
 
@@ -90,7 +91,7 @@ export default function Join() {
         </Banner>
       ) : null}
       {a.spotsLeft === 0 ? <Banner tone="warn">This activity is full. Join the waiting list: if a place opens up, the first person in line is let in automatically and told straight away.</Banner> : null}
-      <Field label="Introduce yourself to the host" placeholder="Hi! I'm new to town and would love to join." multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length} / 500`} />
+      {instant ? null : <Field label="Introduce yourself to the host" placeholder="Hi! I'm new to town and would love to join." multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length} / 500`} />}
 
       <Card style={{ borderRadius: 20, paddingVertical: 6 }}>
         <Txt variant="h3" style={{ fontSize: 18, paddingTop: 8 }}>Before joining</Txt>
@@ -118,8 +119,8 @@ export default function Join() {
         <Btn title="Keep both" variant="ghost" small onPress={() => setClashOpen(false)} />
       </Sheet>
 
-      <Btn title={a.spotsLeft === 0 ? 'Join the waiting list' : 'Send request'} onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree} />
-      <Txt variant="muted" style={{ textAlign: 'center' }}>Chat access opens only after the host approves.</Txt>
+      <Btn title={a.spotsLeft === 0 ? 'Join the waiting list' : instant ? 'Join now' : 'Send request'} onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree} />
+      <Txt variant="muted" style={{ textAlign: 'center' }}>{instant ? 'You join straight away and can chat with the group. The host can still remove anyone.' : 'Chat access opens only after the host approves.'}</Txt>
     </Screen>
   );
 }

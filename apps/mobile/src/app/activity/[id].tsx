@@ -135,6 +135,7 @@ export default function ActivityDetail() {
     else if (a.spotsLeft === 0) primary = { title: 'Join the waiting list', onPress: () => go(`/join/${id}`), caption: 'You are let in automatically, in order, if a place opens' };
     else if (isGuest) primary = { title: 'Create an account to join', onPress: () => logout() };
     else if (!verified) primary = { title: 'Verify your identity to join', onPress: () => go('/verify') };
+    else if (a.joinPolicy === 'instant') primary = { title: 'Join now', onPress: () => go(`/join/${id}`), caption: 'No approval needed: you are in straight away' };
     else primary = { title: 'Request to join', onPress: () => go(`/join/${id}`), caption: 'The host reviews every request' };
   }
 

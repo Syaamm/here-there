@@ -34,6 +34,8 @@ export const createSchema = z.object({
   endsAt: z.coerce.date(),
   capacity: z.number().int().min(2).max(20),
   visibility: z.enum(['public', 'invite_only']).default('public'),
+  // host_approval: the host decides on every request. instant: a verified person who asks while there is room is in at once.
+  joinPolicy: z.enum(['host_approval', 'instant']).default('host_approval'),
   language: z.string().max(20).optional(),
 });
 
@@ -176,6 +178,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       spotsLeft: Math.max(0, a.capacity - going),
       status,
       visibility: a.visibility,
+      joinPolicy: a.joinPolicy,
       language: a.language,
       host: { id: a.host.id, displayName: a.host.profile?.displayName ?? 'Host', photoUrl: a.host.profile?.photoUrl ?? null, verifiedAdult: a.host.eligibility === 'verified' },
       ...extra,
@@ -463,6 +466,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
           endsAt: dto.endsAt,
           capacity: dto.capacity,
           visibility: dto.visibility,
+          joinPolicy: dto.joinPolicy,
           language: dto.language,
           status: 'published',
         },
@@ -591,6 +595,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     // full: the person joins the waiting list (in order of asking) instead of being turned away
     const full = status === 'full' || (await this.goingCount(id)) >= a.capacity;
     const target = full ? 'waitlisted' : 'requested';
+    const instant = a.joinPolicy === 'instant' && !full;
 
     this.limiter.hit(`activity-request:${me.id}`, 20, 24 * HOUR);
 
@@ -604,6 +609,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
           where: { id: existing.id },
           data: { state: target, intro: dto.intro, decidedAt: null, reviewedBy: null, createdAt: new Date() },
         });
+        if (instant) return this.joinNow(a, me, r);
         if (!full) await this.notifyHost(a, me);
         return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt, r.id) : undefined };
       }
@@ -615,8 +621,39 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const r = await this.prisma.activityRequest.create({
       data: { activityId: id, applicantId: me.id, intro: dto.intro, state: target },
     });
+    if (instant) return this.joinNow(a, me, r);
     if (!full) await this.notifyHost(a, me);
     return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt, r.id) : undefined };
+  }
+
+  /**
+   * An "instant join" activity: the person is a member the moment they ask, as long as a place is left. The place is
+   * counted and taken in one step, so two people asking for the last place cannot both get it; the one who loses goes on the
+   * waiting list like on any full activity. The host is told who joined, and can still remove a member later.
+   */
+  private async joinNow(a: Activity, me: User, r: { id: string; createdAt: Date }) {
+    const placed = await this.prisma.$transaction(async (tx) => {
+      const count = await tx.activityMembership.count({ where: { activityId: a.id, state: 'approved' } });
+      if (count >= a.capacity) {
+        await tx.activityRequest.update({ where: { id: r.id }, data: { state: 'waitlisted' } });
+        return false;
+      }
+      await tx.activityRequest.update({ where: { id: r.id }, data: { state: 'approved', decidedAt: new Date() } });
+      await tx.activityMembership.upsert({
+        where: { activityId_userId: { activityId: a.id, userId: me.id } },
+        create: { activityId: a.id, userId: me.id, role: 'attendee', state: 'approved' },
+        update: { state: 'approved' },
+      });
+      if (count + 1 >= a.capacity) await tx.activity.update({ where: { id: a.id }, data: { status: 'full' } });
+      return true;
+    });
+    if (!placed) return { id: r.id, state: 'waitlisted', position: await this.waitlistPosition(a.id, r.createdAt, r.id) };
+    await this.refreshStatus(a.id);
+    const p = await this.prisma.profile.findUnique({ where: { userId: me.id }, select: { displayName: true } });
+    await this.notifications.notify(a.hostId, 'member_joined', 'Someone joined', `${p?.displayName ?? 'Someone'} joined ${a.title}`, { activityId: a.id });
+    await this.audit.log(me.id, 'activity.join_instant', 'activity', a.id);
+    this.live.feedChanged(); // places left changed
+    return { id: r.id, state: 'approved' };
   }
 
   /**

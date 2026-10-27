@@ -10,6 +10,8 @@
   },
   "overrides": {
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "body-parser": "^2.4.0",
+    "multer": "^2.5.0"
   }
 }

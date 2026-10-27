@@ -82,6 +82,7 @@ export const ERROR_GUIDE: Record<string, [string, string]> = {
   PLAN_FULL: ['The trip plan already holds the most lines allowed of that kind (60).', 'Ask the group to tidy the plan first.'],
   NOT_YOUR_LINE: ['Only the person who added a plan line, or the organizer, can change or remove it.', 'Hide the edit actions on other people lines.'],
   NOT_OPTED_IN: ['The person answered about a traveler without having turned travel matching on.', 'Show the opt-in screen.'],
+  PLACES_UNAVAILABLE: ['The map service that finds places did not answer.', 'Let the person type the place name by hand and carry on without a map position.'],
   DRAFT_TOO_LARGE: ['The draft is far longer than any real form.', 'Ask the person to shorten it.'],
   TOO_MANY_DRAFTS: ['The person already keeps the most drafts allowed (10 per kind).', 'Offer to delete an old draft first.'],
   NOT_DECLINED: ['Only a request or application that the host or organizer declined can be asked about again.', 'Hide the Ask again action.'],

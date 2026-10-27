@@ -6,3 +6,8 @@ dist
 .expo
 .vapid-dev.json
 WORKFLOW.md
+
+# private notes and client documents
+docs/PROJECT-HANDOVER.md
+docs/FOR_DEPLOYMENT.md
+docs/client-progress-report-*

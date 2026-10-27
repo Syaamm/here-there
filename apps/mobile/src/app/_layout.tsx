@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { InnerHeader, Logo } from '@/components/TabHeader';
+import { Toast } from '@/components/Toast';
 import { AuthProvider, useMe } from '@/lib/auth';
 import { PhoneFrame } from '@/components/PhoneFrame';
 import { ScaleProvider } from '@/lib/scale';
@@ -114,6 +115,7 @@ function Gate() {
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
+      <Toast />
     </WebFrame>
   );
 }

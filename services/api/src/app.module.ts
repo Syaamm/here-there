@@ -17,6 +17,7 @@ import { AuthGuard } from './common/auth';
 import { PrismaService } from './common/prisma.service';
 import { RateLimiter } from './common/rate-limiter';
 import { DocsController } from './docs/docs.controller';
+import { PlacesController } from './places/places.controller';
 import { AppealsController, AppealsService } from './appeals/appeals.controller';
 import { MatchingController, MatchingService } from './matching/matching.controller';
 import { TripPlanController, TripPlanService } from './trips/trip-plan.controller';
@@ -61,6 +62,7 @@ function jwtSecret() {
     TripPlanController,
     AppealsController,
     ActivitiesController,
+    PlacesController,
     TripsController,
     ConversationsController,
     NotificationsController,
