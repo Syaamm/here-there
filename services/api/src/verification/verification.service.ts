@@ -7,6 +7,7 @@ import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ManualProvider } from './providers/manual.provider';
+import { PersonaProvider } from './providers/persona.provider';
 import { SandboxProvider } from './providers/sandbox.provider';
 import type { IdentityProvider, ProviderOutcome, WebhookHeaders } from './providers/types';
 
@@ -28,7 +29,9 @@ export type ReverifyReason = 'expired' | 'security' | 'fraud_suspected' | 'provi
  *    names and birth dates stay with the provider, which is asked to erase them once we hold the outcome.
  *
  * VERIFICATION_MODE: manual (default: staff decide in the admin console) | auto (instant, dev) | sandbox (local
- * simulated provider with signed webhooks, dev). A real vendor registers as another provider below.
+ * simulated provider with signed webhooks, dev) | persona (Persona's hosted flow: needs the PERSONA_* settings, see
+ * providers/persona.provider.ts; works with Persona's sandbox key in development and the live key in production).
+ * Another vendor registers as another provider below.
  */
 @Injectable()
 export class VerificationService implements OnModuleInit, OnModuleDestroy {
@@ -37,7 +40,8 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     manual: new ManualProvider('manual'),
     auto: new ManualProvider('auto'),
     sandbox: new SandboxProvider(),
-    // veriff: new VeriffProvider(...), sumsub: new SumsubProvider(...), persona: new PersonaProvider(...)
+    persona: new PersonaProvider(),
+    // veriff: new VeriffProvider(...), sumsub: new SumsubProvider(...)
   };
 
   constructor(
@@ -51,6 +55,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     if (process.env.NODE_ENV === 'production' && ['auto', 'sandbox'].includes(this.mode))
       throw new Error(`VERIFICATION_MODE=${this.mode} is for development only and is refused in production`);
     if (!this.providers[this.mode]) throw new Error(`Unknown VERIFICATION_MODE "${this.mode}"`);
+    if (this.mode === 'persona') (this.providers.persona as PersonaProvider).assertReady(); // a half-set-up provider is refused at start-up
     if (process.env.NODE_ENV !== 'test') {
       void this.expireDue().catch(() => {});
       this.timer = setInterval(() => void this.expireDue().catch(() => {}), 3600 * 1000);
@@ -85,7 +90,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
       // which kind of check the latest one was: face (document + selfie match) or document (no face match)
       method: latest?.method ?? null,
       // lets a user who closed the browser continue the same provider session
-      resumeUrl: pending ? this.providers[pending.provider]?.resumeUrl?.(pending.providerRef, baseUrl) : undefined,
+      resumeUrl: pending ? await this.providers[pending.provider]?.resumeUrl?.(pending.providerRef, baseUrl) : undefined,
     };
   }
 
@@ -248,7 +253,8 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     if (!provider || providerName === 'manual' || providerName === 'auto') throw E.notFound('Provider');
     if (providerName === 'sandbox' && (process.env.NODE_ENV === 'production' || this.mode !== 'sandbox')) throw E.notFound('Provider');
 
-    const outcome: ProviderOutcome = provider.parseWebhook(rawBody, headers); // throws 401 on a bad signature
+    const outcome: ProviderOutcome | null = provider.parseWebhook(rawBody, headers); // throws 401 on a bad signature
+    if (!outcome) return { ok: true, ignored: true }; // an event that decides nothing (a check started, a review opened...)
     const check = await this.prisma.verificationCheck.findFirst({ where: { providerRef: outcome.providerRef, provider: provider.name } });
     if (!check) throw E.notFound('Verification');
 

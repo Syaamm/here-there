@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { Btn, Card, Chip, Empty, ErrorBanner, Row, Screen, Spinner, Txt } from '@/components/ui';
 import { get } from '@/lib/api';
 import { useLoad, useRefresh } from '@/lib/hooks';
+import { PagedTail, useCursorList } from '@/lib/paged';
 
 type MyReport = { id: string; category: string; targetType: string; status: string; outcome: string; createdAt: string; canAppeal: boolean };
 const tone = (s: string) => (s === 'resolved' ? 'ok' : s === 'dismissed' ? 'neutral' : 'warn');
@@ -9,7 +10,7 @@ const tone = (s: string) => (s === 'resolved' ? 'ok' : s === 'dismissed' ? 'neut
 /** Reports you made and where each one stands. A dismissed report can be sent back for a second look, once. */
 export default function MyReports() {
   const r = useRouter();
-  const list = useLoad(() => get<{ items: MyReport[] }>('/v1/me/reports'), [], undefined, 'me:reports');
+  const list = useCursorList<MyReport>('/v1/me/reports', {}, 'me:reports');
   const policy = useLoad(() => get<{ coverage: { text: string }; answerWithin: { urgent: string; normal: string } }>('/v1/reports/policy'), [], undefined, 'reports:policy');
   const { refreshing, onRefresh } = useRefresh(() => list.reload());
   const items = list.data?.items ?? [];
@@ -29,6 +30,7 @@ export default function MyReports() {
           {x.canAppeal ? <Btn title="Ask for a second look" variant="secondary" small onPress={() => r.push(`/appeal?kind=report&targetId=${x.id}` as never)} /> : null}
         </Card>
       ))}
+      <PagedTail paged={list} />
     </Screen>
   );
 }

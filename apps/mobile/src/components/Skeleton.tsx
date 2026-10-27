@@ -52,14 +52,14 @@ export function SkeletonRows({ count = 4 }: { count?: number }) {
 }
 
 /** A chat: bubbles on both sides. */
-export function SkeletonChat() {
+export function SkeletonChat({ compact = false }: { compact?: boolean }) {
   return (
     <Block gap={10}>
       <Skeleton w="62%" h={38} r={16} />
       <Skeleton w="48%" h={38} r={16} style={{ alignSelf: 'flex-end' }} />
       <Skeleton w="70%" h={56} r={16} />
-      <Skeleton w="40%" h={38} r={16} style={{ alignSelf: 'flex-end' }} />
-      <Skeleton w="55%" h={38} r={16} />
+      {compact ? null : <Skeleton w="40%" h={38} r={16} style={{ alignSelf: 'flex-end' }} />}
+      {compact ? null : <Skeleton w="55%" h={38} r={16} />}
     </Block>
   );
 }

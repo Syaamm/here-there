@@ -1,12 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMemo, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { TripNextUpCard, TripRow } from '@/components/Cards';
 import { Reveal } from '@/components/Reveal';
 import { Brand, ModeTabs } from '@/components/TabHeader';
 import { VerifyBanner } from '@/components/VerifyBanner';
-import { Btn, Card, Empty, ErrorBanner, Pill, PillRow, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
+import { Btn, Card, Chip, Empty, ErrorBanner, Pill, PillRow, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type MyTripsPage, type Trip } from '@/lib/api';
+import { dateSpan } from '@/lib/format';
+import { useLayout } from '@/lib/layout';
 import { TRIP_TAGS } from '@/lib/constants';
 import { useLoad, useRefresh } from '@/lib/hooks';
 import { useLiveEvents } from '@/lib/live';
@@ -43,8 +45,8 @@ export function ExploreThere() {
   useLiveEvents((e) => {
     if (e.type === 'feed-changed') void feed.reload();
   });
-  // Next up is about YOU: the soonest trip you organise, are going on, or have applied to
-  const mine = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?upcoming=1&limit=1'), [], undefined, 'me:trips:next');
+  // Next up is about YOU: the trips you organise, are going on, or have applied to, soonest first (a handful is enough here)
+  const mine = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?upcoming=1&limit=6'), [], undefined, 'me:trips:next');
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([feed.reload(), mine.reload()]));
 
   // The API searches by destination only, so free text here filters the loaded trips on the device.
@@ -60,13 +62,18 @@ export function ExploreThere() {
   const season = items.filter((t) => inDays(t) >= 30 && inDays(t) < 90);
   const later = items.filter((t) => inDays(t) >= 90);
 
-  const mineNext = (() => {
-    const x = mine.data?.items[0]; // the server sends only the soonest trip still ahead
-    if (!x) return null;
-    return x.row === 'joined'
-      ? { t: x as Trip, label: x.role === 'host' ? 'You organise this' : 'Going', tone: 'ok' as const }
-      : { t: x.trip, label: x.state === 'pending' ? 'Request pending' : 'On the waiting list', tone: 'warn' as const };
-  })();
+  // the server sends only trips still ahead, soonest first; a trip already under way counts too
+  const mineAll = (mine.data?.items ?? []).map((x) =>
+    x.row === 'joined'
+      ? { key: x.id, t: x as Trip, label: x.role === 'host' ? 'You organise this' : 'Going', tone: 'ok' as const }
+      : { key: x.trip.id, t: x.trip, label: x.state === 'pending' ? 'Request pending' : 'On the waiting list', tone: 'warn' as const },
+  );
+  // the cards show the two soonest; "+N more" appears only when there are more than two, and lists just the others
+  const next = mineAll.slice(0, 2);
+  const more = mineAll.slice(2);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const { width, gutter } = useLayout();
+  const cardW = Math.min(480, width - gutter * 2 - 28); // a bit of the next card peeks in, so it is clear you can swipe
   const MAX = 4;
 
   return (
@@ -93,12 +100,35 @@ export function ExploreThere() {
         <Empty title={q || tag ? 'No trips match' : 'No trips yet'}>{q || tag ? 'Try another search or clear the filter.' : 'Propose the first trip and find people to go with.'}</Empty>
       )}
 
-      {mineNext && (
-        <Reveal index={0} style={{ gap: 16 }}>
+      {next.length > 0 && (
+        <Reveal index={0} style={{ gap: 12 }}>
           <SectionHeader title="Next up" />
-          <View style={{ width: '100%', maxWidth: 480 }}>
-            <TripNextUpCard t={mineNext.t} status={{ label: mineNext.label, tone: mineNext.tone }} />
-          </View>
+          {next.length === 1 ? (
+            <View style={{ width: '100%', maxWidth: 480 }}>
+              <TripNextUpCard t={next[0].t} status={{ label: next[0].label, tone: next[0].tone }} />
+            </View>
+          ) : (
+            // several trips of yours: swipe through them, soonest first
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={cardW + 12} snapToAlignment="start" decelerationRate="fast" disableIntervalMomentum style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }}>
+              {next.map((x) => (
+                <View key={x.key} style={{ width: cardW }}>
+                  <TripNextUpCard t={x.t} status={{ label: x.label, tone: x.tone }} />
+                </View>
+              ))}
+            </ScrollView>
+          )}
+          {more.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Plus ${more.length} more of your trips. Show them`}
+              hitSlop={6}
+              onPress={() => setMoreOpen(true)}
+              style={({ pressed }) => [{ alignSelf: 'flex-start', minHeight: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', gap: 4 }, pressed && { opacity: 0.8 }]}
+            >
+              <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>+{more.length} more of your trips</Txt>
+              <Ionicons name="chevron-forward" size={13} color={c.forest} />
+            </Pressable>
+          ) : null}
         </Reveal>
       )}
 
@@ -117,6 +147,29 @@ export function ExploreThere() {
           <Btn title="Propose" small onPress={() => go('/create')} />
         </Card>
       </Reveal>
+
+      <Sheet visible={moreOpen && more.length > 0} title="Also on your trips" onClose={() => setMoreOpen(false)}>
+        <Txt variant="small">The others, soonest first. Tap one to open it.</Txt>
+        {more.map((x) => (
+          <Pressable
+            key={x.key}
+            accessibilityRole="button"
+            accessibilityLabel={`${x.t.destination}, ${dateSpan(x.t.dateStart, x.t.dateEnd)}, ${x.label}`}
+            onPress={() => {
+              setMoreOpen(false);
+              go(`/trip/${x.t.id}`);
+            }}
+            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.line }, pressed && { opacity: 0.8 }]}
+          >
+            <View style={{ flex: 1, gap: 3 }}>
+              <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{x.t.destination}</Txt>
+              <Txt variant="small" numberOfLines={1} style={{ fontSize: 11 }}>{dateSpan(x.t.dateStart, x.t.dateEnd)}</Txt>
+              <View style={{ flexDirection: 'row' }}><Chip label={x.label} tone={x.tone} /></View>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={c.muted} />
+          </Pressable>
+        ))}
+      </Sheet>
 
       <Sheet visible={filterOpen} title="Show" onClose={() => setFilterOpen(false)}>
         <Txt variant="small">Pick how far ahead you want to look.</Txt>

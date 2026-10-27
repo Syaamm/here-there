@@ -6,7 +6,7 @@ import { AuditService } from '../common/audit.service';
 import { CurrentUser, requireVerified } from '../common/auth';
 import { E } from '../common/errors';
 import { LiveService } from '../common/live.service';
-import { pageLimit } from '../common/paging';
+import { beforeKeyset, decodeKeyset, encodeKeyset, pageLimit } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { PushService } from '../common/push.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -94,14 +94,16 @@ export class ConversationsService {
       });
     const blocked = await this.safety.blockedWith(me.id);
     const take = Math.min(Math.max(limit, 1), 100);
+    // newest first, a page at a time: the cursor is the time and id of the oldest message sent so far, so earlier messages
+    // follow exactly after it (two messages sent in the same moment are never skipped)
     const rows = await this.prisma.message.findMany({
       where: {
         conversationId: id,
         moderationState: { not: 'removed' },
         senderId: { notIn: blocked },
-        ...(cursor ? { createdAt: { lt: new Date(Buffer.from(cursor, 'base64url').toString()) } } : {}),
+        ...beforeKeyset(decodeKeyset(cursor)),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: take + 1,
       include: { sender: { select: { id: true, profile: { select: { displayName: true, photoUrl: true } } } } },
     });
@@ -145,8 +147,7 @@ export class ConversationsService {
           sender: { id: m.sender.id, displayName: m.sender.profile?.displayName ?? 'Member', photoUrl: m.sender.profile?.photoUrl ?? null },
         }))
         .reverse(),
-      nextCursor:
-        rows.length > take ? Buffer.from(page[page.length - 1].createdAt.toISOString()).toString('base64url') : null,
+      nextCursor: rows.length > take ? encodeKeyset(page[page.length - 1].createdAt, page[page.length - 1].id) : null,
     };
   }
 

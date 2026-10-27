@@ -10,6 +10,7 @@ import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
 import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
 import { del, get, post, type Trip } from '@/lib/api';
+import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
 import { FLEX } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
@@ -68,7 +69,8 @@ export default function TripDetail() {
         },
       ];
 
-  const share = () => void Share.share({ message: `${t.title}, ${dateSpan(t.dateStart, t.dateEnd)}, from ${t.originCity}` }).catch(() => undefined);
+  // the link opens this trip in the app, or sends the person to the App Store / Google Play when they have not got it
+  const share = () => void Share.share({ message: `${t.title}, ${dateSpan(t.dateStart, t.dateEnd)}, from ${t.originCity}\n${shareLink('trip', t.id)}` }).catch(() => undefined);
   const longText = (t.description?.length ?? 0) > 130;
   const flex = FLEX.find(([v]) => v === t.dateFlexibility)?.[1] ?? t.dateFlexibility;
 
@@ -250,7 +252,7 @@ export default function TripDetail() {
         {t.isHost ? (
           <View style={{ gap: 10 }}>
             {t.conversationId && <Btn title="Open group chat" variant="secondary" onPress={() => go(`/chat/${t.conversationId}`)} />}
-            {t.status !== 'cancelled' ? <Btn title="Plan: itinerary and budget" variant="secondary" onPress={() => go(`/trip-plan/${id}`)} /> : null}
+            {t.status !== 'cancelled' ? <Btn title="Trip Plan" variant="secondary" onPress={() => go(`/trip-plan/${id}`)} /> : null}
             {t.status !== 'cancelled' && new Date(t.dateStart) <= new Date() ? <Btn title="Who came?" variant="secondary" onPress={() => go(`/no-shows/trip/${id}`)} /> : null}
             {t.status !== 'cancelled' && (
               <Btn title="Cancel trip" variant="danger" loading={act.busy} onPress={async () => (await confirmAsync('Cancel this trip?', 'Everyone in the group will be notified.', 'Cancel trip', true)) && void act.run(() => post(`/v1/trips/${id}/cancel`))} />
@@ -259,7 +261,7 @@ export default function TripDetail() {
         ) : t.isMember ? (
           <View style={{ gap: 10 }}>
             <Banner tone="ok">You're in the group.</Banner>
-            <Btn title="Plan: itinerary and budget" variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
+            <Btn title="Trip Plan" variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
             <Banner>Agree dates in the group chat with a date poll. The organizer can put a poll to the group, and everyone confirms the final dates.</Banner>
             <Btn title="Leave trip" variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync('Leave this trip?', undefined, 'Leave')) && void act.run(() => post(`/v1/trips/${id}/leave`))} />
           </View>

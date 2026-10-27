@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser } from '../common/auth';
+import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { REPORT_CATEGORIES, REPORT_TARGETS } from '../common/constants';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
@@ -58,11 +59,15 @@ export class SafetyController {
   }
 
   @Get('blocks')
-  async blocks(@CurrentUser() me: User) {
-    const rows = await this.prisma.block.findMany({
-      where: { blockerId: me.id },
+  async blocks(@CurrentUser() me: User, @Query('limit') limitRaw?: string, @Query('cursor') cursorRaw?: string) {
+    const limit = pageLimit(limitRaw, 20);
+    const found = await this.prisma.block.findMany({
+      where: { blockerId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw)) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: { blocked: { select: { id: true, profile: { select: { displayName: true } } } } },
+      take: limit + 1,
     });
-    return { items: rows.map((b) => ({ userId: b.blockedId, displayName: b.blocked.profile?.displayName })) };
+    const page = sliceKeyset(found, limit, (b) => b.createdAt);
+    return { items: page.items.map((b) => ({ userId: b.blockedId, displayName: b.blocked.profile?.displayName })), nextCursor: page.nextCursor };
   }
 }

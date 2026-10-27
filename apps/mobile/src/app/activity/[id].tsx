@@ -11,6 +11,7 @@ import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
 import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Sheet, Txt, useGo } from '@/components/ui';
 import { del, get, post, type Activity } from '@/lib/api';
+import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
 import { catColor, CATS } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
@@ -104,7 +105,8 @@ export default function ActivityDetail() {
     if (mode !== 'here') switchMode('here');
     router.navigate(`/discover?focus=${a.id}&t=${Date.now()}` as never);
   };
-  const share = () => void Share.share({ message: `${a.title}, ${timeText} at ${a.venueName}, ${a.city}` }).catch(() => undefined);
+  // the link opens this activity in the app, or sends the person to the App Store / Google Play when they have not got it
+  const share = () => void Share.share({ message: `${a.title}, ${timeText} at ${a.venueName}, ${a.city}\n${shareLink('activity', a.id)}` }).catch(() => undefined);
   const longText = (a.description?.length ?? 0) > 130;
   const soon = startsIn(a);
 

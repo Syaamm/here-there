@@ -10,6 +10,8 @@ These are the periods the clean-up job uses today. The job runs once a day (and 
 | Safety reports, closed | 730 days | when closed | `RETENTION_REPORTS_DAYS` (730) | Open and in-review reports are never deleted by the job |
 | Audit log | 730 days | the event | `RETENTION_AUDIT_DAYS` (730) | Holds ids and action names, not message text |
 | Identity-check history | 365 days | the decision | `RETENTION_IDENTITY_CHECKS_DAYS` (365) | A person's newest check is always kept, because their status rests on it. Never holds documents or faces |
+| Identity inquiry at the provider (ID images, selfie, name, birth date) | erased right after the decision | the decision | `PERSONA_REDACT` (erased unless set to `false`, which is for testing only) | Our code asks the provider to redact it once we hold the outcome. What the provider still keeps must be confirmed in the data processing agreement **[CONFIRM]** |
+| Shared-link pages and place searches | nothing stored | | | The page shows live data of a public plan; a place search is not recorded |
 | Travel matching wishes and yes / pass answers | 90 days | the last change (a wish also ends when its dates pass) | `RETENTION_MATCHING_DAYS` (90) | Private to the person |
 | Messages in a private travel-match chat | 90 days | when each message was sent | `RETENTION_MATCHING_DAYS` (90) | A message a report points at is kept until the report ages out |
 | Drafts (activities and trips saved for later) | 90 days | the last change | `RETENTION_DRAFTS_DAYS` (90) | Private to the person; deleted with the account |

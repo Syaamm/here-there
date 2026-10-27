@@ -78,6 +78,7 @@ export const ERROR_GUIDE: Record<string, [string, string]> = {
   MARK_WINDOW_CLOSED: ['The 48 hours after the plan ended, in which a host can say who did not come, have passed.', 'Hide the action; the host can no longer add notes.'],
   PLAN_CANCELLED: ['The plan was cancelled, so nobody can be noted as not coming.', 'Hide the action.'],
   SECOND_REVIEWER: ['The moderator who made a decision cannot review the appeal of it (an administrator can).', 'Hand the appeal to another moderator.'],
+  DAY_PASSED: ['The itinerary line is on a day that has already passed (the trip has started), so it cannot be added, changed, moved or removed.', 'Only offer days from today on, and hide Edit and Remove on lines whose canEdit is false.'],
   DAY_OUT_OF_RANGE: ['The day of a plan line is more than a week outside the dates of the trip.', 'Let the person pick a day inside the trip.'],
   PLAN_FULL: ['The trip plan already holds the most lines allowed of that kind (60).', 'Ask the group to tidy the plan first.'],
   NOT_YOUR_LINE: ['Only the person who added a plan line, or the organizer, can change or remove it.', 'Hide the edit actions on other people lines.'],
@@ -123,6 +124,8 @@ export const ERROR_GUIDE: Record<string, [string, string]> = {
   UNSUPPORTED_MEDIA_TYPE: ['The content type is not accepted here.', 'Fix the client.'],
   REQUEST_FAILED: ['Another 4xx failure that has no specific code.', 'Show the message.'],
   // ---- server (5xx)
+  VERIFICATION_UNAVAILABLE: ['The identity check service (the provider) could not be reached or could not start the check.', 'Show a "try again in a moment" state. Nothing was started, so starting again is safe.'],
+  VERIFICATION_METHOD_UNAVAILABLE: ['The kind of identity check asked for (for example the document-only route) is not set up with the provider.', 'Offer the other route, or tell the person it is not available right now.'],
   INTERNAL_ERROR: ['Something failed on the server. Nothing internal is revealed.', 'Show a "try again" state and retry with a delay.'],
 };
 

@@ -1,20 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, Pressable, Switch, View } from 'react-native';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { DraftBar } from '@/components/DraftBar';
 import { PlaceSearch, type Place } from '@/components/PlaceSearch';
 import { TabHeader } from '@/components/TabHeader';
 import { Banner, Between, Btn, CheckRow, ErrorBanner, Field, Row, Screen, Txt, useGo } from '@/components/ui';
-import { post, put, type Activity, type ServerDraft } from '@/lib/api';
+import { post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useCity } from '@/lib/city';
 import { catColor, CATS, MILAN_AREAS } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
-import { confirmAsync } from '@/lib/confirm';
-import { currentDraftId, dropDraft, setCurrentDraft, takeCurrentDraft } from '@/lib/drafts';
-import { showToast } from '@/lib/toast';
+import { dropDraft } from '@/lib/drafts';
+import { useFormDraft } from '@/lib/formDraft';
 import { useTheme } from '@/lib/theme';
 
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
@@ -111,28 +109,6 @@ function AccessRow({ icon, title, text, on, onChange }: { icon: React.ComponentP
 /** Something has been typed (the time, size and category always have a value, so they do not count). */
 const hasContent = (f: Draft) => !!(f.title.trim() || f.venueName.trim() || f.place || f.description.trim());
 
-/** Keeps what was typed as a draft in the account, and says so. Called when the person leaves the form. */
-async function stash(form: Draft) {
-  const id = takeCurrentDraft('activity');
-  try {
-    await put<ServerDraft>('/v1/me/drafts', { id: id ?? undefined, kind: 'activity', data: form });
-    showToast('Saved to drafts');
-  } catch (e) {
-    showToast(e instanceof Error ? e.message : 'Could not save your draft', 'error');
-  }
-}
-
-/** Saves the form as a draft but keeps working from it (the app went to the background); false when it could not be saved. */
-async function keep(form: Draft) {
-  try {
-    const d = await put<ServerDraft>('/v1/me/drafts', { id: currentDraftId('activity') ?? undefined, kind: 'activity', data: form });
-    setCurrentDraft('activity', d.id);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * HERE · Create: friction-light, but public-place-only and verified-host-only. Leaving the form (another tab, another
  * page) saves what was typed as a draft and the form comes back empty; the person's drafts are under "My drafts".
@@ -158,47 +134,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const [f, setF] = useState<Draft>({ title: '', category: 'drinks', dayIdx: 0, hour: earliest.getHours(), minute: earliest.getMinutes(), duration: 2, capacity: 6, area: 'Brera', venueName: '', place: null, description: '', joinPolicy: 'host_approval' });
   const [publicPlace, setPublicPlace] = useState(false);
   const act = useAction();
-  // the latest form, readable from the leave handler; and whether it was posted (then there is nothing to keep)
-  const latest = useRef(f);
-  latest.current = f;
-  const posted = useRef(false);
-  const left = useRef(false);
-  const reset = useRef(onReset);
-  reset.current = onReset;
-  // the cleanup of a focus effect runs when the screen loses focus (or unmounts); with no dependencies it never runs for any other reason
-  useFocusEffect(
-    useCallback(
-      () => () => {
-        if (left.current) return;
-        left.current = true;
-        if (!posted.current && hasContent(latest.current)) void stash(latest.current);
-        reset.current();
-      },
-      [],
-    ),
-  );
-  // Leaving the app with something typed keeps it as a draft. The notice cannot be drawn over other apps, so it is shown for
-  // 2 seconds when the person comes back (the form is still as they left it, and posting it later removes the draft).
-  const saving = useRef<Promise<boolean> | null>(null);
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (s) => {
-      if (s === 'background') {
-        saving.current = !posted.current && !left.current && hasContent(latest.current) ? keep(latest.current) : null;
-      } else if (s === 'active' && saving.current) {
-        const pending = saving.current;
-        saving.current = null;
-        void pending.then((ok) => ok && showToast('Draft saved', 'ok', 2000));
-      }
-    });
-    return () => sub.remove();
-  }, []);
-  // "Clear all": everything typed goes, and the form stops being linked to a draft it was opened from (that draft stays as it is)
-  const clearAll = async () => {
-    if (!(await confirmAsync('Clear everything?', 'This removes what you have entered. Drafts you already saved stay in My drafts.', 'Clear all', true))) return;
-    left.current = true; // the form is being emptied on purpose: nothing to save on the way out
-    takeCurrentDraft('activity');
-    reset.current();
-  };
+  // leaving saves a draft and empties the form, "Clear all", and saving on leaving the app: shared with the trip form
+  const { posted, clearAll } = useFormDraft('activity', f, hasContent, onReset);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((p) => ({ ...p, [k]: v }));
   const loadDraft = useCallback((d: Record<string, unknown>) => setF((p) => ({ ...p, ...(d as Partial<Draft>) })), []);
 

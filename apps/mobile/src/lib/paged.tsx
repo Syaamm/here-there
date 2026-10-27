@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SkeletonRows } from '@/components/Skeleton';
 import { useOnScrollEnd } from '@/components/ui';
 import { get } from './api';
+import { PAGE_STEP, screenBatch } from './batch';
 import { cursorDeps, patchCache, useLoad } from './hooks';
 
 /** How much of a list is drawn: a first batch, then a bigger one each time the reader nears the end (like a social feed). */
@@ -61,9 +62,9 @@ const pageUrl = (path: string, params: Record<string, string>, limit: number, cu
   `${path}?${new URLSearchParams({ ...params, limit: String(limit), ...(cursor ? { cursor } : {}) })}`;
 
 /**
- * A list read from the server a page at a time. It looks exactly like `usePaged`: 6 rows first, then 5 more each time the
- * reader nears the end, with grey rows at the bottom meanwhile. The difference is that the rows really are fetched then:
- * the server sends only the next 5 after the last one shown (a cursor), never the whole list.
+ * A list read from the server a page at a time: enough rows to fill the window first (see screenBatch), then a normal page of
+ * 20 each time the reader nears the end, with grey rows at the bottom meanwhile. The rows really are fetched then: the server
+ * sends only the next page after the last row shown (a cursor), never the whole list.
  *
  * It keeps the last answer (so the page opens at once) and can poll. A refresh asks again for as many rows as are already
  * loaded, so what you scrolled past does not vanish and a new row at the top cannot make a row in the middle go missing.
@@ -73,9 +74,9 @@ export function useCursorList<T, X extends object = object>(
   path: string,
   params: Record<string, string>,
   cacheKey: string,
-  opts: { pollMs?: number; animate?: boolean; keep?: boolean; first?: number; step?: number; idOf?: (x: T) => string; /** load nothing yet (a search that has not been asked) */ skip?: boolean } = {},
+  opts: { pollMs?: number; animate?: boolean; keep?: boolean; first?: number; step?: number; /** about how tall one row is, to size the first page to the window */ rowHeight?: number; idOf?: (x: T) => string; /** load nothing yet (a search that has not been asked) */ skip?: boolean } = {},
 ) {
-  const { pollMs, animate, keep, first = FIRST_BATCH, step = NEXT_BATCH, skip, idOf = rowId } = opts;
+  const { pollMs, animate, keep, first = screenBatch(opts.rowHeight), step = PAGE_STEP, skip, idOf = rowId } = opts;
   const key = cursorDeps(path, params)[0] + (skip ? '#skipped' : '');
   const latest = useRef<(CursorPage<T> & X) | null>(null);
   const list = useLoad(

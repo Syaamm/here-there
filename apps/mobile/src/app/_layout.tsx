@@ -1,6 +1,6 @@
-import { Stack, usePathname } from 'expo-router';
+import { Stack, useRouter, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { InnerHeader, Logo } from '@/components/TabHeader';
@@ -10,6 +10,7 @@ import { PhoneFrame } from '@/components/PhoneFrame';
 import { ScaleProvider } from '@/lib/scale';
 import { installWebScrolling } from '@/lib/webScroll';
 import { restoreLoadCache } from '@/lib/hooks';
+import { forgetLink, takeLink } from '@/lib/shareLink';
 import { trackPath } from '@/lib/nav';
 import { ThemeProvider, useTheme } from '@/lib/theme';
 
@@ -44,6 +45,23 @@ function Gate() {
     if (me?.id) void restoreLoadCache(me.id).finally(() => setRemembered(me.id));
     else setRemembered(null);
   }, [me?.id]);
+
+  // A shared link tapped while signed out is kept (see +native-intent). When the app was opened signed in, the router has
+  // already gone to it; when it was opened signed out, signing in carries on to it, once.
+  const router = useRouter();
+  const startedSignedIn = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!ready || startedSignedIn.current !== null) return;
+    startedSignedIn.current = !!me;
+    if (me) forgetLink();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+  useEffect(() => {
+    if (startedSignedIn.current !== false || !me || remembered !== me.id) return;
+    const target = takeLink();
+    if (target) router.push(target as never);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.id, remembered]);
 
   if (!ready || (me && remembered !== me.id))
     return (

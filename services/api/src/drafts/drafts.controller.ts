@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { z } from 'zod';
 import { ActivitiesService } from '../activities/activities.service';
+import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser } from '../common/auth';
 import { E } from '../common/errors';
@@ -21,7 +22,9 @@ const saveSchema = z.object({
 
 const dto = (d: { id: string; kind: string; data: string; updatedAt: Date }) => {
   const data = JSON.parse(d.data) as Record<string, unknown>;
-  const title = typeof data.title === 'string' && data.title.trim() ? data.title.trim().slice(0, 80) : null;
+  // an activity is named by its title; a trip has none, so it is named by where it goes
+  const name = typeof data.title === 'string' && data.title.trim() ? data.title : typeof data.destination === 'string' ? data.destination : '';
+  const title = name.trim() ? name.trim().slice(0, 80) : null;
   return { id: d.id, kind: d.kind, title, data, updatedAt: d.updatedAt };
 };
 
@@ -40,9 +43,11 @@ export class DraftsController {
   ) {}
 
   @Get()
-  async list(@CurrentUser() me: User) {
-    const rows = await this.prisma.draft.findMany({ where: { userId: me.id }, orderBy: { updatedAt: 'desc' }, take: MAX_DRAFTS * 2 });
-    return { items: rows.map(dto) };
+  async list(@CurrentUser() me: User, @Query('limit') limitRaw?: string, @Query('cursor') cursorRaw?: string) {
+    const limit = pageLimit(limitRaw, 20);
+    const found = await this.prisma.draft.findMany({ where: { userId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw), 'updatedAt') }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
+    const page = sliceKeyset(found, limit, (d) => d.updatedAt);
+    return { items: page.items.map(dto), nextCursor: page.nextCursor };
   }
 
   /** Creates a draft, or replaces the one named by `id`. */

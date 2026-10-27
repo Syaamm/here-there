@@ -1,14 +1,15 @@
 import { useRouter } from 'expo-router';
 import { Btn, Card, Chip, Empty, ErrorBanner, Row, Screen, Spinner, Txt } from '@/components/ui';
-import { del, get, type ServerDraft } from '@/lib/api';
-import { useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { del, type ServerDraft } from '@/lib/api';
+import { useAction, useRefresh } from '@/lib/hooks';
+import { PagedTail, useCursorList } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 
 /** Activities and trips saved for later. Opening one fills the create form with it. */
 export default function Drafts() {
   const r = useRouter();
   const { switchMode, mode } = useTheme();
-  const list = useLoad(() => get<{ items: ServerDraft[] }>('/v1/me/drafts'), [], undefined, 'me:drafts');
+  const list = useCursorList<ServerDraft>('/v1/me/drafts', {}, 'me:drafts');
   const { refreshing, onRefresh } = useRefresh(() => list.reload());
   const act = useAction(() => void list.reload());
   const items = list.data?.items ?? [];
@@ -38,6 +39,7 @@ export default function Drafts() {
           </Row>
         </Card>
       ))}
+      <PagedTail paged={list} />
     </Screen>
   );
 }

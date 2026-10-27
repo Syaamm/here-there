@@ -75,8 +75,8 @@ export function Inbox() {
   const [tab, setTab] = useState<Tab>('alerts');
   const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number }>('/v1/notifications'), [], 60_000, 'inbox:notifs', { animate: true }); // new alerts arrive by the live connection; this is only the slow fallback
   // the alert rows themselves: the server sends them a few at a time, newest first (chat messages are on the Chats tab)
-  const alertList = useCursorList<Notif, { unreadCount: number }>('/v1/notifications', { scope: 'alerts' }, 'inbox:alerts', { pollMs: 60_000, animate: true });
-  const convs = useCursorList<ConversationRef>('/v1/me/conversations', {}, 'inbox:convs', { animate: true });
+  const alertList = useCursorList<Notif, { unreadCount: number }>('/v1/notifications', { scope: 'alerts' }, 'inbox:alerts', { pollMs: 60_000, animate: true, rowHeight: 76 });
+  const convs = useCursorList<ConversationRef>('/v1/me/conversations', {}, 'inbox:convs', { animate: true, rowHeight: 73 });
 
   useEffect(() => {
     if (notifs.data) setUnread(notifs.data.unreadCount);

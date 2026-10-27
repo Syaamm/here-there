@@ -9,7 +9,7 @@ import { catColor, CATS } from '@/lib/constants';
 import { get, post, type Reliability, type Activity } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { ago, when } from '@/lib/format';
-import { Paged } from '@/lib/paged';
+import { PagedTail, useCursorList } from '@/lib/paged';
 import { useAction, useLoad } from '@/lib/hooks';
 
 type Req = {
@@ -19,14 +19,14 @@ type Req = {
   createdAt: string;
   applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; reliability?: Reliability | null; languages: string[]; interests: string[] };
 };
-const ORDER: Record<string, number> = { requested: 0, waitlisted: 1, approved: 2, declined: 3, withdrawn: 4 };
 
 /** HERE · Host reviews applicants. The server creates membership only on approval. */
 export default function HostReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const go = useGo();
   const act = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
-  const reqs = useLoad(() => get<{ items: Req[] }>(`/v1/activities/${id}/requests`), [id], 10_000);
+  // a page at a time, the ones waiting for an answer first (the server orders them); `pending` counts them all
+  const reqs = useCursorList<Req, { pending: number }>(`/v1/activities/${id}/requests`, {}, 'host:requests', { pollMs: 10_000 });
   const refresh = () => {
     void act.reload();
     void reqs.reload();
@@ -42,8 +42,8 @@ export default function HostReview() {
       </Screen>
     );
 
-  const items = [...(reqs.data?.items ?? [])].sort((x, y) => ORDER[x.state] - ORDER[y.state] || +new Date(x.createdAt) - +new Date(y.createdAt));
-  const pending = items.filter((r) => r.state === 'requested').length;
+  const items = reqs.items;
+  const pending = reqs.data?.pending ?? 0;
   const full = !!a && a.going >= a.capacity;
   const decide = (r: Req, decision: 'approve' | 'decline') => mutate.run(() => post(`/v1/activities/${id}/requests/${r.id}/decision`, { decision }));
 
@@ -68,7 +68,7 @@ export default function HostReview() {
       <Txt variant="h2" style={{ fontSize: 22 }}>Pending requests · {pending}</Txt>
       {reqs.data && items.length === 0 && <Empty title="No requests yet">When people ask to join, you'll see them here.</Empty>}
 
-      <Paged items={items} render={(r) => (
+      {items.map((r) => (
         <Card key={r.id}>
           <Between>
             <Row>
@@ -122,7 +122,8 @@ export default function HostReview() {
           )}
           {r.state === 'withdrawn' && <Chip label="Withdrawn by the applicant" tone="neutral" />}
         </Card>
-      )} />
+      ))}
+      <PagedTail paged={reqs} />
       <Banner>Chat access is granted only after a real server-side approval, and removed the moment you reverse it.</Banner>
     </Screen>
   );

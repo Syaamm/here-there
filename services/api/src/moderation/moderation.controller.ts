@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Injectable, OnModuleDestroy, OnModuleInit, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Injectable, OnModuleDestroy, OnModuleInit, Param, Post, Query } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
+import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { CurrentUser, Public, Staff } from '../common/auth';
 import { URGENT_CATEGORIES } from '../common/constants';
 import { E } from '../common/errors';
@@ -82,11 +83,15 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** What the person who reported sees: where each report stands, in plain words (never the moderator's notes). */
-  async mine(me: User) {
-    const rows = await this.prisma.report.findMany({ where: { reporterId: me.id }, orderBy: { createdAt: 'desc' }, take: 30 });
+  async mine(me: User, limitRaw?: string, cursorRaw?: string) {
+    const limit = pageLimit(limitRaw, 20);
+    const found = await this.prisma.report.findMany({ where: { reporterId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw)) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
+    const page = sliceKeyset(found, limit, (r) => r.createdAt);
+    const rows = page.items;
     const appealed = new Set((await this.prisma.appeal.findMany({ where: { userId: me.id, kind: 'report', targetId: { in: rows.map((r) => r.id) } }, select: { targetId: true } })).map((a) => a.targetId));
     const words: Record<string, string> = { open: 'Waiting for a moderator', in_review: 'Being reviewed', resolved: 'We took action', dismissed: 'We found nothing to act on' };
     return {
+      nextCursor: page.nextCursor,
       items: rows.map((r) => ({
         id: r.id,
         category: r.category,
@@ -324,8 +329,8 @@ export class ModerationController {
   }
 
   @Get('me/reports')
-  mine(@CurrentUser() me: User) {
-    return this.moderation.mine(me);
+  mine(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.moderation.mine(me, limit, cursor);
   }
 
   @Staff(...ALL)

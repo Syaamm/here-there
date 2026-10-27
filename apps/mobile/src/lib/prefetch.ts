@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { get, type ConversationRef } from './api';
 import { feedRange } from './feed';
 import { cursorDeps, primeCache } from './hooks';
+import { screenBatch } from './batch';
 
 /**
  * Right after sign-in (and each time the app opens) the pages people go to first are loaded quietly in the background and
@@ -15,12 +16,12 @@ export async function prefetchApp(me: { id: string; profile?: { homeCity?: strin
 
   const jobs: [string, unknown[], string][] = [
     ['inbox:notifs', [], '/v1/notifications'],
-    ['inbox:alerts', cursorDeps('/v1/notifications', { scope: 'alerts' }), '/v1/notifications?scope=alerts&limit=6'],
-    ['inbox:convs', cursorDeps('/v1/me/conversations', {}), '/v1/me/conversations?limit=6'],
+    ['inbox:alerts', cursorDeps('/v1/notifications', { scope: 'alerts' }), `/v1/notifications?scope=alerts&limit=${screenBatch(76)}`],
+    ['inbox:convs', cursorDeps('/v1/me/conversations', {}), `/v1/me/conversations?limit=${screenBatch(73)}`],
     ['me:soon', [], '/v1/me/activities/soon?hours=4'],
     ['me:acts:recent', [], '/v1/me/activities/page?tab=all&limit=3'],
     ['me:trips', [], '/v1/me/trips/page?limit=2'],
-    ['me:trips:next', [], '/v1/me/trips/page?upcoming=1&limit=1'],
+    ['me:trips:next', [], '/v1/me/trips/page?upcoming=1&limit=6'],
     ['me:favs', [], '/v1/me/favorites?limit=3'],
     ['me:stats', [me.id], `/v1/users/${me.id}`],
     ['feed:here', [city, ''], `/v1/activities?${feed}`],

@@ -25,12 +25,14 @@ export function DraftBar({ kind, data, onLoad }: { kind: 'activity' | 'trip'; da
     }
     if (loaded.current === draft) return;
     loaded.current = draft;
-    // the address keeps its parameters, so drop it: a blank form later must not reopen this draft
-    router.setParams({ draft: undefined });
     get<{ items: ServerDraft[] }>('/v1/me/drafts')
       .then((r) => {
         const d = r.items.find((x) => x.id === draft);
-        if (!d) return;
+        // an activity draft is for the HERE form and a trip draft for the THERE form; while the app is still switching
+        // between them the wrong form may be on screen for a moment, and it must leave the draft for the right one
+        if (!d || d.kind !== kind) return;
+        // the address keeps its parameters, so drop it: a blank form later must not reopen this draft
+        router.setParams({ draft: undefined });
         setId(d.id);
         setCurrentDraft(kind, d.id);
         onLoad(d.data);

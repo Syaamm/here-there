@@ -3,6 +3,7 @@ import { User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
+import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { CurrentUser, Public, Staff } from '../common/auth';
 import { EmailService } from '../common/email.service';
 import { E } from '../common/errors';
@@ -116,9 +117,11 @@ export class AppealsService {
     return { id: a.id, state: a.state };
   }
 
-  async mine(me: User) {
-    const rows = await this.prisma.appeal.findMany({ where: { userId: me.id }, orderBy: { createdAt: 'desc' }, take: 20 });
-    return { items: rows.map((a) => this.dto(a)) };
+  async mine(me: User, limitRaw?: string, cursorRaw?: string) {
+    const limit = pageLimit(limitRaw, 20);
+    const found = await this.prisma.appeal.findMany({ where: { userId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw)) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
+    const page = sliceKeyset(found, limit, (a) => a.createdAt);
+    return { items: page.items.map((a) => this.dto(a)), nextCursor: page.nextCursor };
   }
 
   /** What the person sees: their words, the state and the moderator's note. Never who decided. */
@@ -244,8 +247,8 @@ export class AppealsController {
   }
 
   @Get('me/appeals')
-  mine(@CurrentUser() me: User) {
-    return this.appeals.mine(me);
+  mine(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.appeals.mine(me, limit, cursor);
   }
 
   @Public()

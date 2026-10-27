@@ -42,6 +42,7 @@ Every failed request returns the same body:
 | `SAME_PASSWORD` | 400 | The new password equals the current one. | Ask for a different password. |
 | `TOO_MANY_ATTEMPTS` | 400 | Too many wrong codes were entered; the code is locked. | Ask for a new code. |
 | `VALIDATION_FAILED` | 400 | One or more fields are missing or invalid. `details` lists each field as { path, message }. | Show each message next to its field. |
+| `VERIFICATION_METHOD_UNAVAILABLE` | 400 | The kind of identity check asked for (for example the document-only route) is not set up with the provider. | Offer the other route, or tell the person it is not available right now. |
 
 ## Not signed in (401)
 
@@ -114,6 +115,7 @@ Every failed request returns the same body:
 | `CANNOT_REMOVE_ORGANIZER` | 409 | The organizer cannot be removed from their own trip. | Hide "remove" on the organizer. |
 | `CAPACITY_BELOW_MEMBERS` | 409 | The new capacity is lower than the number of approved members. | Show the minimum allowed. |
 | `CONVERSATION_CLOSED` | 409 | The chat is read-only (24 hours after the end, or the activity or trip was cancelled). | Show the chat as read-only. |
+| `DAY_PASSED` | 409 | The itinerary line is on a day that has already passed (the trip has started), so it cannot be added, changed, moved or removed. | Only offer days from today on, and hide Edit and Remove on lines whose canEdit is false. |
 | `DISPUTE_CLOSED` | 409 | The 7 days to dispute the note have passed. | Hide the Dispute button. |
 | `DUPLICATE_ACTIVITY` | 409 | The host already has the same activity at that time or place. | Offer to edit the existing one. |
 | `EMAIL_TAKEN` | 409 | An account with this email already exists. | Offer sign-in or password reset. |

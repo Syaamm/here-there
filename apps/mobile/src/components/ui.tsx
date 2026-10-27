@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useIsFocused, useRouter } from 'expo-router';
 import { Children, createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, Modal, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Text, TextInput } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { photoSrc } from '@/lib/api';
@@ -464,12 +464,18 @@ export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: n
   );
 }
 
-/** Bottom sheet. Closes on backdrop tap or the Android back button. */
+/** Bottom sheet. Closes on backdrop tap, the Android back button, a tap on its top edge, or by dragging that edge down. */
 export function Sheet({ visible, title, onClose, children }: { visible: boolean; title: string; onClose: () => void; children: ReactNode }) {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const { isTablet } = useLayout();
   const { height } = useWindowDimensions();
+  // like a page: the sheet ends where the keyboard begins, and the field being typed in scrolls into view above it
+  const keyboard = useKeyboardInset();
+  const typing = useKeyboardShown();
+  const body = useRef<ScrollViewInstance>(null);
+  const bodyY = useRef(0);
+  useScrollFieldIntoView(body, bodyY, visible, true);
   const [mounted, setMounted] = useState(visible);
   const slide = useRef(new Animated.Value(0)).current; // 0 away, 1 in place
   const shade = useRef(new Animated.Value(0)).current; // the dark backdrop, separate from the sheet
@@ -477,6 +483,22 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
   // what the sheet showed while open, so it does not change or empty out while it slides away
   const shown = useRef({ title, children });
   if (visible) shown.current = { title, children };
+  // how far the reader has pulled the sheet down with a finger (on top of its slide-in position)
+  const drag = useRef(new Animated.Value(0)).current;
+  const closeNow = useRef(onClose);
+  closeNow.current = onClose;
+  // the top edge (grab bar and title) is the handle: a tap or a pull down past ~80px (or a quick flick) closes the sheet
+  const handle = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, g) => drag.setValue(Math.max(0, g.dy)),
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80 || g.vy > 0.8 || (Math.abs(g.dy) < 6 && Math.abs(g.dx) < 6)) closeNow.current();
+        else Animated.spring(drag, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
+      },
+      onPanResponderTerminate: () => Animated.spring(drag, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start(),
+    }),
+  ).current;
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
@@ -488,6 +510,7 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
     const t = (ms: number) => (reduce.current ? 1 : ms);
     if (visible) {
       setMounted(true);
+      drag.setValue(0);
       slide.setValue(0);
       shade.setValue(0);
       Animated.parallel([
@@ -509,7 +532,7 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
   const rise = isTablet ? slide.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) : slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] });
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end' }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
+      <Animated.View style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end', paddingBottom: keyboard }}>
         <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)', opacity: shade }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         </Animated.View>
@@ -517,14 +540,22 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
         <Animated.View
           style={[
             s.sheet,
-            { backgroundColor: c.surface, paddingBottom: insets.bottom + 16, transform: [{ translateY: rise }] },
+            { backgroundColor: c.surface, paddingBottom: typing ? 16 : insets.bottom + 16, transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
             isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 22, paddingBottom: 18, opacity: slide },
           ]}
         >
-          <Txt variant="h2">{shown.current.title}</Txt>
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>{shown.current.children}</ScrollView>
+          {isTablet ? (
+            <Txt variant="h2">{shown.current.title}</Txt>
+          ) : (
+            // grab bar plus title: the part to tap or pull down. Padding makes the touch area generous.
+            <View {...handle.panHandlers} accessible accessibilityRole="button" accessibilityLabel="Close" style={{ marginTop: -18, paddingTop: 10, paddingBottom: 4, gap: 10 }}>
+              <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: c.line }} />
+              <Txt variant="h2">{shown.current.title}</Txt>
+            </View>
+          )}
+          <ScrollView ref={body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" scrollEventThrottle={16} onScroll={(e) => (bodyY.current = e.nativeEvent.contentOffset.y)} contentContainerStyle={{ gap: 12 }}>{shown.current.children}</ScrollView>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </Animated.View>
     </Modal>
   );
 }

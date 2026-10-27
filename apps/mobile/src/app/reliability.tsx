@@ -3,12 +3,13 @@ import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { Btn, Card, Chip, ErrorBanner, Field, Row, Screen, Sheet, Spinner, Txt } from '@/components/ui';
 import { get, post, type MyNoShow, type MyReliability } from '@/lib/api';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { useCursorList } from '@/lib/paged';
 
 /** Your level, kept simple: the level, one line, and anything a host said that you can answer. */
 export default function Reliability() {
   const rel = useLoad(() => get<MyReliability>('/v1/me/reliability'), [], undefined, 'me:reliability');
   const info = useLoad(() => get<{ items: { what: string; how: string; why: string }[] }>('/v1/reliability/info'), [], undefined, 'reliability:info');
-  const notes = useLoad(() => get<{ items: MyNoShow[] }>('/v1/me/no-shows'), [], undefined, 'me:noshows');
+  const notes = useCursorList<MyNoShow>('/v1/me/no-shows', {}, 'me:noshows');
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([rel.reload(), notes.reload()]));
   const [disputing, setDisputing] = useState<MyNoShow | null>(null);
   const [text, setText] = useState('');

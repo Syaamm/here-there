@@ -40,6 +40,7 @@ export function useKeyboardInset() {
 }
 
 let keyboardHeight = 0; // how tall the keyboard is right now (0 when it is down)
+let sheetsOpen = 0; // pop-up sheets showing: while one is, the page behind it must not scroll for a field that is in the sheet
 const focusListeners = new Set<() => void>();
 /** Called by every text field when it gets focus, so a page can scroll it into view. */
 export const notifyInputFocus = () => focusListeners.forEach((f) => f());
@@ -48,13 +49,16 @@ export const notifyInputFocus = () => focusListeners.forEach((f) => f());
  * Keeps the text field you are typing in above the keyboard. The page ends at the bottom of the screen and is padded by
  * the keyboard's height (useKeyboardInset), so it is the visible part above the keyboard that scrolls: when a field
  * gets focus, or the keyboard comes up under it, the page scrolls just far enough to show it with some air below.
- * `active` is false for a page that is not the one on screen, so hidden pages never scroll.
+ * `active` is false for a page that is not the one on screen, so hidden pages never scroll. A pop-up sheet passes
+ * `inSheet`: it scrolls for its own fields, and while it is open the page behind stays still.
  */
-export function useScrollFieldIntoView(scroller: RefObject<ScrollViewInstance | null>, offset: MutableRefObject<number>, active: boolean) {
+export function useScrollFieldIntoView(scroller: RefObject<ScrollViewInstance | null>, offset: MutableRefObject<number>, active: boolean, inSheet = false) {
   useEffect(() => {
     if (Platform.OS === 'web' || !active) return;
+    if (inSheet) sheetsOpen++;
     const reveal = () => {
       if (!keyboardHeight) return;
+      if (sheetsOpen > 0 && !inSheet) return;
       const input = TextInput.State.currentlyFocusedInput?.();
       if (!input) return;
       input.measureInWindow((_x, y, _w, h) => {
@@ -73,11 +77,12 @@ export function useScrollFieldIntoView(scroller: RefObject<ScrollViewInstance | 
     const onFocus = () => setTimeout(reveal, 90); // moving from one field to the next while the keyboard stays up
     focusListeners.add(onFocus);
     return () => {
+      if (inSheet) sheetsOpen--;
       show.remove();
       hide.remove();
       focusListeners.delete(onFocus);
     };
-  }, [scroller, offset, active]);
+  }, [scroller, offset, active, inSheet]);
 }
 
 /**

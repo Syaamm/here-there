@@ -68,8 +68,8 @@ export class ActivitiesController {
   }
 
   @Get('activities/:id/requests')
-  requests(@CurrentUser() me: User, @Param('id') id: string) {
-    return this.activities.listRequests(me, id);
+  requests(@CurrentUser() me: User, @Param('id') id: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.activities.listRequests(me, id, limit, cursor);
   }
 
   @Post('activities/:id/requests/:requestId/decision')

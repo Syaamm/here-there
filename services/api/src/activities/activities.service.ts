@@ -11,7 +11,7 @@ import { contentProblem, parse } from '../common/validate';
 import { LiveService } from '../common/live.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
-import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset } from '../common/paging';
 import { circleOf, tierCounts } from '../common/social';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { decodeCursor, encodeCursor, scoreActivity, topK } from './feed-ranking';
@@ -766,16 +766,27 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return { ok: true };
   }
 
-  async listRequests(me: User, id: string) {
+  /** The host's requests a page at a time: the ones waiting for an answer first, then the waiting list, approved, declined, withdrawn. */
+  async listRequests(me: User, id: string, limitRaw?: string, cursorRaw?: string) {
     await this.expirePendingRequests(id);
     await this.hostOwned(me, id);
-    const rows = await this.prisma.activityRequest.findMany({
-      where: { activityId: id },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      include: { applicant: { select: { id: true, eligibility: true, profile: true } } },
-    });
+    const limit = pageLimit(limitRaw, 20);
+    const [page, pending] = await Promise.all([
+      pageByGroup(['requested', 'waitlisted', 'approved', 'declined', 'withdrawn'], limit, cursorRaw, (state, after, take) =>
+        this.prisma.activityRequest.findMany({
+          where: { activityId: id, state, ...afterKeyset(after) },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          include: { applicant: { select: { id: true, eligibility: true, profile: true } } },
+          take,
+        }),
+      ),
+      this.prisma.activityRequest.count({ where: { activityId: id, state: 'requested' } }),
+    ]);
+    const rows = page.items;
     const levels = await this.reliability.forViewer(me, rows.map((r) => r.applicantId));
     return {
+      nextCursor: page.nextCursor,
+      pending, // how many wait for an answer in all, not only on this page
       items: rows.map((r) => ({
         id: r.id,
         state: r.state,

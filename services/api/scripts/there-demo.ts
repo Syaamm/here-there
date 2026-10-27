@@ -94,7 +94,7 @@ Sign in as there-you@demo.local (Tess) in the app, switch to THERE, then:
 
 SHARED PLAN AND DATES
   Open "Demo: Porto week (confirm the dates)": the card lists who has confirmed the dates (Ana and Bruno yes, you waiting).
-  Tap "I can travel on these dates", then "Plan: itinerary and budget" to add, edit and remove lines.
+  Tap "I can travel on these dates", then "Trip Plan" to add, edit and remove lines.
   Open "Demo: Lisbon weekend": you are not in it, so there is no plan button.
   "Demo: Seville long weekend (already finished)" shows as Completed.
 

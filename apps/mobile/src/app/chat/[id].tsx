@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useIsFocused, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Keyboard, Linking, Pressable, ScrollView, View, type ScrollViewInstance, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,7 +8,8 @@ import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
 import { CatPhoto } from '@/components/CatPhoto';
 import { SkeletonChat } from '@/components/Skeleton';
-import { Avatar, Banner, Btn, DateField, Empty, ErrorBanner, Field, Screen, Sheet, Spinner, Txt, useGo } from '@/components/ui';
+import { Appear, setViewport } from '@/components/Pop';
+import { Avatar, Banner, Btn, DateField, Empty, ErrorBanner, Field, Screen, Sheet, Txt, useGo } from '@/components/ui';
 import { ApiError, get, post, type ConversationRef, type GroupInfo, type Notif, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
@@ -127,7 +128,7 @@ function Chat({ id }: { id: string }) {
   const focused = useIsFocused();
   const inFront = useRef(focused);
   inFront.current = focused;
-  const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[] }>(`/v1/conversations/${id}/messages${inFront.current ? '?read=1' : ''}`), [id], 30_000, 'chat:msgs', { animate: true });
+  const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[]; nextCursor?: string | null }>(`/v1/conversations/${id}/messages${inFront.current ? '?read=1' : ''}`), [id], 30_000, 'chat:msgs', { animate: true });
   // a new message for this chat (or a reconnect) loads at once; the 30-second poll above is only the safety net
   useLiveEvents((e) => {
     if (!inFront.current) return; // not on screen: it loads when you open it
@@ -138,6 +139,66 @@ function Chat({ id }: { id: string }) {
   useEffect(() => {
     if (arrived >= 0) refreshUnread();
   }, [arrived]);
+  // ---- earlier messages: the screen opens on the newest ones, and scrolling up near the top loads the page before them,
+  // as in any chat app. What has been loaded stays; the screen keeps its place while the older ones are added above.
+  const [older, setOlder] = useState<Msg[]>([]);
+  const [olderCursor, setOlderCursor] = useState<string | null | undefined>(undefined); // undefined: not known yet; null: no more
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const busyOlder = useRef(false);
+  // The reader's place, written down just before earlier messages are added above it. When the list grows, it is moved down by
+  // exactly the height that was added, so the same message stays under the reader's eyes (nothing jumps).
+  const place = useRef<{ height: number; y: number } | null>(null);
+  const contentHeight = useRef(0);
+  const scrollY = useRef(0);
+  const newestPage = useRef<Msg[]>([]);
+  const before = (a: Msg, b: Msg) => a.createdAt < b.createdAt || (a.createdAt === b.createdAt && a.id < b.id);
+  const inOrder = (rows: Msg[]) => [...new Map(rows.map((m) => [m.id, m])).values()].sort((a, b) => (before(a, b) ? -1 : 1));
+  useEffect(() => {
+    setOlder([]);
+    setOlderCursor(undefined);
+    newestPage.current = [];
+  }, [id]);
+  useEffect(() => {
+    const cur = msgs.data?.items;
+    if (!msgs.data || !cur) return;
+    if (olderCursor === undefined) setOlderCursor(msgs.data.nextCursor ?? null);
+    if (!cur.length) {
+      newestPage.current = cur;
+      return;
+    }
+    // the newest page is the truth for its own time span (a message staff removed is gone from it); messages that slid out of
+    // it as new ones arrived join the earlier ones, so nothing already read disappears
+    const start = cur[0];
+    const have = new Set(cur.map((m) => m.id));
+    const slid = newestPage.current.filter((m) => !have.has(m.id) && before(m, start));
+    newestPage.current = cur;
+    setOlder((prev) => {
+      const kept = prev.filter((m) => before(m, start));
+      return kept.length === prev.length && !slid.length ? prev : inOrder([...kept, ...slid]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msgs.data]);
+  const loadOlder = async () => {
+    if (!olderCursor || busyOlder.current) return;
+    busyOlder.current = true;
+    setLoadingOlder(true);
+    try {
+      const r = await get<{ items: Msg[]; nextCursor: string | null }>(`/v1/conversations/${id}/messages?limit=30&cursor=${encodeURIComponent(olderCursor)}`);
+      if (r.items.length) {
+        place.current = { height: contentHeight.current, y: scrollY.current };
+        setTimeout(() => (place.current = null), 1500); // if nothing was added after all, forget it
+      }
+      setOlder((prev) => inOrder([...r.items, ...prev]));
+      setOlderCursor(r.nextCursor);
+    } catch {
+      // the next time the top is reached it asks again
+    } finally {
+      busyOlder.current = false;
+      setLoadingOlder(false);
+    }
+  };
+  const shown = [...older, ...(msgs.data?.items ?? [])];
+
   const [text, setText] = useState('');
   const typing = useKeyboardShown();
   const bottomGap = typing ? 0 : Math.max(insets.bottom, 10); // no dock here: the chat fills the screen, down to the home bar
@@ -208,6 +269,11 @@ function Chat({ id }: { id: string }) {
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     stick.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 80;
+    scrollY.current = contentOffset.y;
+    setViewport(contentOffset.y, layoutMeasurement.height, contentSize.height); // the rows fade in as they come into view
+    // a few screens before the top (and not while the screen is still settling on its first load): load the earlier messages,
+    // so they are already there by the time the reader scrolls up to them
+    if (loaded.current && contentOffset.y < 900) void loadOlder();
   };
 
   // The server marks this chat's alert read when its messages are fetched in front, so nothing is asked again here. What
@@ -349,7 +415,14 @@ function Chat({ id }: { id: string }) {
         </View>
       ) : null}
 
-      <ScrollView ref={list} showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 10, gap: 3 }} onScroll={onScroll} scrollEventThrottle={100} onContentSizeChange={() => {
+      <ScrollView ref={list} showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 10, gap: 3 }} onScroll={onScroll} scrollEventThrottle={16} onContentSizeChange={(_w, h) => {
+          contentHeight.current = h;
+          // earlier messages were just added above: move down by what was added, so the reader stays on the same message
+          if (place.current && h > place.current.height) {
+            list.current?.scrollTo({ y: place.current.y + (h - place.current.height), animated: false });
+            place.current = null;
+            return;
+          }
           if (!stick.current) return;
           // the first load jumps to the latest message; later ones glide
           list.current?.scrollToEnd({ animated: loaded.current });
@@ -359,9 +432,19 @@ function Chat({ id }: { id: string }) {
           <Ionicons name="lock-closed-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
           <Text style={{ flex: 1, color: c.text, fontSize: 12.5, lineHeight: 17 }}>Only approved members can see this chat. Meet at public venues, and report anything that feels wrong. Hold a message to report or block.</Text>
         </View>
+        {/* The top of the history. While there are earlier messages it is a fixed-height area: grey message shapes while they load,
+            empty otherwise, so it never changes size and nothing moves when loading starts. At the very first message it becomes a line. */}
+        {olderCursor ? (
+          <View style={{ height: 164, overflow: 'hidden' }}>{loadingOlder ? <SkeletonChat compact /> : null}</View>
+        ) : older.length > 0 && olderCursor === null ? (
+          <View style={{ height: 34, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: c.muted, fontSize: 11 }}>Start of the conversation</Text>
+          </View>
+        ) : null}
         {msgs.loading && !msgs.data && <SkeletonChat />}
         {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>No messages yet. Say hi 👋</Txt>}
-        {msgs.data?.items.map((m, i, all) => {
+        {shown.map((m, i, all) => {
+          const earlierBatch = i < older.length; // loaded above the newest page: it fades in when scrolled to
           const mine = m.sender.id === me?.id;
           const newDay = i === 0 || dayLabel(all[i - 1].createdAt) !== dayLabel(m.createdAt);
           // in a run of messages from one person the name shows once, on the first
@@ -373,22 +456,22 @@ function Chat({ id }: { id: string }) {
           ) : null;
           if (m.kind === 'system')
             return (
-              <Fragment key={m.id}>
+              <Appear key={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
                 {day}
                 <View style={{ alignSelf: 'center', maxWidth: '88%', backgroundColor: c.accentSoft, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, marginVertical: 4 }}>
                   <Text style={{ color: c.text, fontSize: 12.5, lineHeight: 17, textAlign: 'center' }}>{m.body}</Text>
                 </View>
-              </Fragment>
+              </Appear>
             );
           if (m.kind === 'poll')
             return (
-              <Fragment key={m.id}>
+              <Appear key={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
                 {day}
                 <PollCard m={m} amHost={amHost} busy={plan.busy} onVote={(v) => vote(m.poll!.id, v)} onClose={(adopt) => void closePoll(m.poll!.id, adopt)} />
-              </Fragment>
+              </Appear>
             );
           return (
-            <Fragment key={m.id}>
+            <Appear key={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
               {day}
               <Pressable
                 accessibilityLabel={`${mine ? 'You' : m.sender.displayName}: ${m.body}, ${hhmm(m.createdAt)}`}
@@ -414,7 +497,7 @@ function Chat({ id }: { id: string }) {
                   <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>Opens outside the app. We do not check it. Never send money or ID documents.</Text>
                 ) : null}
               </Pressable>
-            </Fragment>
+            </Appear>
           );
         })}
       </ScrollView>

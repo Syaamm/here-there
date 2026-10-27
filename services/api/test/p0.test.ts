@@ -8,6 +8,7 @@ process.env.TRUST_PROXY = '1';
 import { execFileSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import * as bcrypt from 'bcryptjs';
@@ -1204,6 +1205,124 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
     return { u, url: s.body.url as string, ref: s.body.url.split('/').pop() as string };
   }
 
+  // ---- Persona (a real vendor): its API is stood in for here; the app, the database and the webhook are the real ones
+  const PERSONA_ENV = { PERSONA_API_KEY: 'persona_sandbox_key', PERSONA_WEBHOOK_SECRET: 'whsec_it_secret', PERSONA_TEMPLATE_ID: 'itmpl_face', PERSONA_TEMPLATE_ID_DOCUMENT: 'itmpl_doc', VERIFICATION_MODE: 'persona' } as Record<string, string>;
+  type PCall = { url: string; method: string; body: any };
+  async function persona<T>(fn: (calls: PCall[]) => Promise<T>) {
+    const keys = [...Object.keys(PERSONA_ENV), 'PERSONA_TEMPLATE_ENFORCES_18', 'PERSONA_REDACT'];
+    const before = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    delete process.env.PERSONA_TEMPLATE_ENFORCES_18;
+    delete process.env.PERSONA_REDACT;
+    Object.assign(process.env, PERSONA_ENV);
+    const real = globalThis.fetch;
+    const calls: PCall[] = [];
+    let n = 0;
+    const reply = (status: number, json: unknown) => new Response(JSON.stringify(json), { status });
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      const u = String(url);
+      if (!u.startsWith('https://api.withpersona.com')) return real(url, init);
+      calls.push({ url: u, method: String(init?.method), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (init?.method === 'POST' && u.endsWith('/inquiries')) return reply(201, { data: { id: `inq_ITEST${++n}`, attributes: { status: 'created' } }, meta: { 'one-time-link': `https://withpersona.com/verify?code=first${n}` } });
+      if (init?.method === 'POST' && u.endsWith('/generate-one-time-link')) return reply(200, { data: {}, meta: { 'one-time-link': 'https://withpersona.com/verify?code=fresh' } });
+      if (init?.method === 'DELETE') return reply(200, { data: {} });
+      return reply(404, {});
+    }) as typeof fetch;
+    try {
+      return await fn(calls);
+    } finally {
+      globalThis.fetch = real;
+      for (const [k, v] of Object.entries(before)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+      process.env.VERIFICATION_MODE = 'manual';
+    }
+  }
+  const personaEvent = (inquiryId: string, name: string, birthdate?: string) => ({
+    data: { type: 'event', id: 'evt_it', attributes: { name, payload: { data: { type: 'inquiry', id: inquiryId, attributes: { status: 'approved', 'name-first': 'Giulia' } }, included: [{ type: 'verification/government-id', id: 'ver_1', attributes: { status: 'passed', ...(birthdate ? { birthdate } : {}) } }] } } },
+  });
+  const personaHook = (payload: object, secret = PERSONA_ENV.PERSONA_WEBHOOK_SECRET) => {
+    const raw = JSON.stringify(payload);
+    const t = Math.floor(Date.now() / 1000);
+    const v1 = createHmac('sha256', secret).update(`${t}.${raw}`).digest('hex');
+    return fetch(`${base}/v1/verification/webhook/persona`, { method: 'POST', headers: { 'content-type': 'application/json', 'persona-signature': `t=${t},v1=${v1}` }, body: raw });
+  };
+  const bornYearsAgo = (years: number) => new Date(Date.now() - years * 365.25 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+  it('verifies a person through Persona: a one-time link, a signed result, then their personal data erased at Persona', async () => {
+    await persona(async (calls) => {
+      const u = await signup('PersonaAdult');
+      await confirmEmail(u);
+      const s = await post('/v1/me/verification', u.token, { consent: true });
+      assert.equal(s.status, 201, JSON.stringify(s.body));
+      assert.equal(s.body.eligibility, 'pending');
+      assert.match(s.body.url, /^https:\/\/withpersona\.com\/verify\?code=first/);
+      const created = calls.find((c) => c.method === 'POST' && c.url.endsWith('/inquiries'))!;
+      assert.equal(created.body.data.attributes['inquiry-template-id'], 'itmpl_face');
+      assert.equal(created.body.meta['auto-create-account-reference-id'], u.id);
+      assert.doesNotMatch(JSON.stringify(created.body), new RegExp(u.email.replace('.', '\\.')), 'the email address is never sent to Persona');
+      const check = await prisma.verificationCheck.findFirst({ where: { userId: u.id } });
+      assert.equal(check.provider, 'persona');
+      assert.match(check.providerRef, /^inq_ITEST/);
+
+      // the person closed the page: they get a fresh link for the same check
+      const again = await get('/v1/me/verification', u.token);
+      assert.equal(again.body.resumeUrl, 'https://withpersona.com/verify?code=fresh');
+
+      // not signed by Persona: refused, and the person stays pending
+      assert.equal((await personaHook(personaEvent(check.providerRef, 'inquiry.approved', bornYearsAgo(30)), 'a_forged_secret')).status, 401);
+      assert.equal((await get('/v1/me', u.token)).body.eligibility, 'pending');
+
+      // an event that decides nothing is acknowledged and changes nothing
+      assert.equal((await personaHook(personaEvent(check.providerRef, 'inquiry.started'))).ok, true);
+      assert.equal((await get('/v1/me', u.token)).body.eligibility, 'pending');
+
+      // the signed approval
+      const ok = await personaHook(personaEvent(check.providerRef, 'inquiry.approved', bornYearsAgo(30)));
+      assert.equal(ok.ok, true);
+      assert.equal((await get('/v1/me', u.token)).body.eligibility, 'verified');
+      const stored = await prisma.verificationCheck.findFirst({ where: { userId: u.id } });
+      assert.equal(JSON.stringify(stored).includes('Giulia'), false, 'no name is stored');
+      await new Promise((r) => setTimeout(r, 200));
+      assert.ok(calls.some((c) => c.method === 'DELETE' && c.url.endsWith(`/inquiries/${check.providerRef}`)), 'the inquiry was redacted at Persona');
+
+      // a repeat of the same message changes nothing
+      assert.equal((await personaHook(personaEvent(check.providerRef, 'inquiry.approved', bornYearsAgo(30)))).ok, true);
+      assert.equal((await get('/v1/me', u.token)).body.eligibility, 'verified');
+    });
+  });
+
+  it('offers the route with no selfie, and never marks someone as an adult without proof', async () => {
+    await persona(async (calls) => {
+      // document only: the template with no selfie
+      const d = await signup('PersonaDoc');
+      await confirmEmail(d);
+      const sd = await post('/v1/me/verification', d.token, { consent: true, method: 'document' });
+      assert.equal(sd.status, 201, JSON.stringify(sd.body));
+      assert.equal(calls.filter((c) => c.url.endsWith('/inquiries')).at(-1)!.body.data.attributes['inquiry-template-id'], 'itmpl_doc');
+
+      // a person under 18 is not verified, and cannot simply try again
+      const m = await signup('PersonaMinor');
+      await confirmEmail(m);
+      await post('/v1/me/verification', m.token, { consent: true });
+      const mc = await prisma.verificationCheck.findFirst({ where: { userId: m.id } });
+      await personaHook(personaEvent(mc.providerRef, 'inquiry.approved', bornYearsAgo(16)));
+      assert.equal((await get('/v1/me', m.token)).body.eligibility, 'rejected');
+      assert.equal((await prisma.verificationCheck.findFirst({ where: { userId: m.id } })).rejectionReason, 'underage');
+      assert.equal((await post('/v1/me/verification', m.token, { consent: true })).body.code, 'VERIFICATION_BLOCKED');
+
+      // an approval that carries no age information is not accepted (the template must collect it, or refuse under-18s itself)
+      const n = await signup('PersonaNoAge');
+      await confirmEmail(n);
+      await post('/v1/me/verification', n.token, { consent: true });
+      const nc = await prisma.verificationCheck.findFirst({ where: { userId: n.id } });
+      const quiet = console.error;
+      console.error = () => {};
+      try {
+        await personaHook(personaEvent(nc.providerRef, 'inquiry.approved'));
+      } finally {
+        console.error = quiet;
+      }
+      assert.equal((await get('/v1/me', n.token)).body.eligibility, 'rejected');
+    });
+  });
   it('keeps email, adult and identity as three separate statuses', async () => {
     const u = await signup('Statuses');
     let me = (await get('/v1/me', u.token)).body;
@@ -2534,7 +2653,9 @@ describe('confirmed plans, starting-soon reminders, drafts and appeals', () => {
     assert.equal((await post(`/v1/me/drafts/${t.body.id}/publish`, me.token)).status, 201);
     for (let i = 0; i < 10; i++) assert.equal((await put(me.token, { kind: 'activity', data: { title: `d${i}` } })).status, 200);
     assert.equal((await put(me.token, { kind: 'activity', data: { title: 'one too many' } })).body.code, 'TOO_MANY_DRAFTS');
-    assert.equal((await put(me.token, { kind: 'trip', data: { destination: 'Rome' } })).status, 200, 'the limit is per kind');
+    const rome = await put(me.token, { kind: 'trip', data: { destination: 'Rome' } });
+    assert.equal(rome.status, 200, 'the limit is per kind');
+    assert.equal(rome.body.title, 'Rome', 'a trip draft is named by its destination, not "Untitled"');
   });
 
   it('lets a declined person ask the host to look again, once', async () => {
@@ -2677,14 +2798,14 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     const b1 = await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Hostel, 4 nights', amount: 220 });
     await post(`/v1/trips/${t.id}/plan/items`, org.token, { kind: 'budget', title: 'Food', amount: 150 });
     const plan = (await get(`/v1/trips/${t.id}/plan`, mem.token)).body;
-    assert.equal(plan.itinerary.days.length, 2);
+    assert.equal(plan.itinerary.days.length, 1);
     assert.equal(plan.itinerary.days[0].items[0].title, 'Ribeira walk');
-    assert.equal(plan.itinerary.days[1].day, null, 'lines without a day go last');
+    assert.equal(plan.itinerary.ideas.total, 1, 'lines without a day come separately, with their count');
     assert.equal(plan.budget.perPersonTotal, 370);
     assert.equal(plan.budget.comparison, 'under');
     assert.match(plan.budget.note, /never collects or holds money/);
     assert.equal(plan.itinerary.days[0].items[0].canEdit, true);
-    assert.equal(plan.itinerary.days[1].items[0].canEdit, false, 'someone else line');
+    assert.equal(plan.itinerary.ideas.items[0].canEdit, false, 'someone else line');
 
     // validation: no days on budget notes, no amounts on itinerary lines, days inside the trip, plain-text rules
     assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Taxi', day })).status, 400);
@@ -2696,11 +2817,43 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     const first = plan.itinerary.days[0].items[0].id;
     assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${b1.body.id}`, org.token, { amount: 200 })).status, 200, 'the organizer can change any line');
     assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${first}`, mem.token, { note: 'Meet at the station' })).status, 200);
-    const orgLine = plan.itinerary.days[1].items[0].id;
+    const orgLine = plan.itinerary.ideas.items[0].id;
     assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${orgLine}`, mem.token, { title: 'Mine now' })).body.code, 'NOT_YOUR_LINE');
     assert.equal((await call('DELETE', `/v1/trips/${t.id}/plan/items/${orgLine}`, mem.token)).status, 403);
     assert.equal((await call('DELETE', `/v1/trips/${t.id}/plan/items/${orgLine}`, org.token)).status, 200);
     assert.equal((await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget.perPersonTotal, 350);
+
+    // times: optional, only on itinerary lines, 24-hour; inside a day, lines with no time come first, then the clock
+    const addLine = (body: Record<string, unknown>) => post(`/v1/trips/${t.id}/plan/items`, mem.token, body);
+    assert.equal((await addLine({ kind: 'itinerary', title: 'Late dinner', day, time: '19:00' })).status, 201);
+    const breakfast = await addLine({ kind: 'itinerary', title: 'Breakfast', day, time: '09:30' });
+    assert.equal(breakfast.status, 201);
+    assert.equal((await addLine({ kind: 'itinerary', title: 'Bad time', day, time: '25:99' })).status, 400);
+    assert.equal((await addLine({ kind: 'budget', title: 'Timed cost', amount: 5, time: '10:00' })).status, 400, 'budget notes have no time');
+    const timed = (await get(`/v1/trips/${t.id}/plan`, org.token)).body;
+    assert.deepEqual(timed.itinerary.days[0].items.map((i: { title: string }) => i.title), ['Ribeira walk', 'Breakfast', 'Late dinner']);
+    assert.deepEqual(timed.itinerary.days[0].items.map((i: { time: string | null }) => i.time), [null, '09:30', '19:00']);
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${breakfast.body.id}`, mem.token, { time: '20:15' })).status, 200);
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${breakfast.body.id}`, mem.token, { time: 'late' })).status, 400);
+    assert.deepEqual((await get(`/v1/trips/${t.id}/plan`, org.token)).body.itinerary.days[0].items.map((i: { title: string }) => i.title), ['Ribeira walk', 'Late dinner', 'Breakfast'], 'a changed time moves the line');
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${breakfast.body.id}`, mem.token, { time: null })).status, 200);
+    assert.equal((await get(`/v1/trips/${t.id}/plan`, org.token)).body.itinerary.days[0].items.find((i: { title: string }) => i.title === 'Breakfast').time, null, 'a time can be taken off again');
+    // a cost does not need a price: it is noted with none, counts for nothing in the total, and a price can be added or taken off later
+    const before = (await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget.perPersonTotal;
+    const unpriced = await addLine({ kind: 'budget', title: 'Souvenirs, price to decide' });
+    assert.equal(unpriced.status, 201, JSON.stringify(unpriced.body));
+    let withNone = (await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget;
+    assert.equal(withNone.items.find((i: { title: string }) => i.title.startsWith('Souvenirs')).amount, null);
+    assert.equal(withNone.perPersonTotal, before, 'no price, nothing added to the total');
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${unpriced.body.id}`, mem.token, { amount: 40 })).status, 200);
+    assert.equal((await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget.perPersonTotal, before + 40);
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${unpriced.body.id}`, mem.token, { amount: null })).status, 200);
+    withNone = (await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget;
+    assert.equal(withNone.perPersonTotal, before, 'taking the price off puts the total back');
+    // the plan says what the trip budget covers, so the notes are read against the right thing
+    assert.equal(typeof timed.budget.includesTransport, 'boolean');
+    assert.equal(timed.budget.statedMin < timed.budget.statedMax, true);
+
     // a member who left no longer sees it
     await post(`/v1/trips/${t.id}/leave`, mem.token);
     assert.equal((await get(`/v1/trips/${t.id}/plan`, mem.token)).status, 403);
@@ -2718,6 +2871,315 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     assert.deepEqual(before.map((p: any) => [p.role, p.datesConfirmed]).sort(), [['member', false], ['organizer', true]].sort());
     await post(`/v1/trips/${t.id}/confirm-dates`, mem.token);
     assert.equal((await get(`/v1/trips/${t.id}`, mem.token)).body.participants.every((p: any) => p.datesConfirmed === true), true);
+  });
+
+  it('reads every list that can grow a page at a time: requests, applications, blocks, reports, appeals, notes and drafts', async () => {
+    type Row = { id?: string; userId?: string; state?: string };
+    // every page of a list, as one array; each page is checked to be no longer than asked
+    const walk = async (url: string, token: string, limit: number) => {
+      const seen: Row[] = [];
+      let cursor = '';
+      for (let n = 0; n < 12; n++) {
+        const r = (await get(`${url}${url.includes('?') ? '&' : '?'}limit=${limit}${cursor}`, token)).body;
+        assert.ok(r.items.length <= limit, 'a page is never longer than asked');
+        seen.push(...r.items);
+        if (!r.nextCursor) break;
+        cursor = `&cursor=${r.nextCursor}`;
+      }
+      return seen;
+    };
+    const key = (x: Row) => x.id ?? x.userId;
+
+    // HERE: the host's requests, the ones waiting first, a page at a time
+    const host = await verified('PgHost');
+    const people = [];
+    for (let i = 1; i <= 5; i++) people.push(await verified(`PgGuest${i}`));
+    const actId = (await post('/v1/activities', host.token, activityBody({ capacity: 20 }))).body.id;
+    const reqIds: string[] = [];
+    for (const p of people) reqIds.push((await post(`/v1/activities/${actId}/requests`, p.token, {})).body.id);
+    await post(`/v1/activities/${actId}/requests/${reqIds[0]}/decision`, host.token, { decision: 'approve' });
+    await post(`/v1/activities/${actId}/requests/${reqIds[1]}/decision`, host.token, { decision: 'approve' });
+    await post(`/v1/activities/${actId}/requests/${reqIds[2]}/decision`, host.token, { decision: 'decline' });
+    const reqUrl = `/v1/activities/${actId}/requests`;
+    const whole = (await get(`${reqUrl}?limit=50`, host.token)).body;
+    assert.deepEqual(whole.items.map((i: Row) => i.state), ['requested', 'requested', 'approved', 'approved', 'declined'], 'waiting first, then approved, then declined');
+    assert.equal(whole.pending, 2);
+    assert.equal(whole.nextCursor, null);
+    const r1 = (await get(`${reqUrl}?limit=3`, host.token)).body;
+    assert.deepEqual(r1.items.map((i: Row) => i.state), ['requested', 'requested', 'approved']);
+    assert.ok(r1.nextCursor, 'there is more');
+    assert.equal(r1.pending, 2, 'the waiting count covers every page');
+    const r2 = (await get(`${reqUrl}?limit=3&cursor=${r1.nextCursor}`, host.token)).body;
+    assert.deepEqual(r2.items.map((i: Row) => i.state), ['approved', 'declined'], 'the next page carries on inside the group it stopped in');
+    assert.equal(r2.nextCursor, null);
+    const everyReq = await walk(reqUrl, host.token, 2);
+    assert.equal(new Set(everyReq.map(key)).size, 5, 'every request once, none twice');
+    assert.equal((await get(`${reqUrl}?cursor=nonsense`, host.token)).status, 400);
+    assert.equal((await get(`${reqUrl}?limit=2`, people[0].token)).status, 403, 'only the host can read them');
+
+    // THERE: the organizer's applications
+    const org = await verified('PgOrg');
+    const first = await verified('PgFirst');
+    const t = await groupOf(org, first);
+    for (let i = 1; i <= 3; i++) {
+      const u = await verified(`PgApplicant${i}`);
+      assert.equal((await post(`/v1/trips/${t.id}/applications`, u.token, apply)).status, 201);
+    }
+    const appUrl = `/v1/trips/${t.id}/applications`;
+    const wholeApps = (await get(`${appUrl}?limit=50`, org.token)).body;
+    assert.deepEqual(wholeApps.items.map((i: Row) => i.state), ['pending', 'pending', 'pending', 'approved']);
+    assert.equal(wholeApps.pending, 3);
+    const a1 = (await get(`${appUrl}?limit=2`, org.token)).body;
+    assert.deepEqual(a1.items.map((i: Row) => i.state), ['pending', 'pending']);
+    const a2 = (await get(`${appUrl}?limit=2&cursor=${a1.nextCursor}`, org.token)).body;
+    assert.deepEqual(a2.items.map((i: Row) => i.state), ['pending', 'approved']);
+    assert.equal(a2.nextCursor, null);
+
+    // people I blocked
+    for (const p of people) assert.equal((await post('/v1/blocks', host.token, { userId: p.id })).status, 201);
+    const blocked = await walk('/v1/blocks', host.token, 2);
+    assert.deepEqual(new Set(blocked.map(key)), new Set(people.map((p) => p.id)), 'all five, once each');
+    assert.equal(blocked.length, 5);
+
+    // reports I made, appeals, and no-show notes: newest first
+    const ago = (n: number) => new Date(Date.now() - n * 60_000);
+    const madeReports: string[] = [];
+    const madeAppeals: string[] = [];
+    const madeNotes: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      madeReports.push((await prisma.report.create({ data: { reporterId: host.id, targetType: 'user', targetId: people[0].id, category: 'spam', createdAt: ago(i) } })).id);
+      madeAppeals.push((await prisma.appeal.create({ data: { userId: host.id, kind: 'verification', message: 'Please look again at this decision.', createdAt: ago(i) } })).id);
+      madeNotes.push((await prisma.attendanceMark.create({ data: { kind: 'activity', targetId: `pg-plan-${i}`, userId: host.id, markedById: people[0].id, title: `Plan ${i}`, planEndsAt: ago(i), markedAt: ago(i) } })).id);
+    }
+    for (const [url, ids] of [['/v1/me/reports', madeReports], ['/v1/me/appeals', madeAppeals], ['/v1/me/no-shows', madeNotes]] as const) {
+      const firstPage = (await get(`${url}?limit=3`, host.token)).body;
+      assert.equal(firstPage.items.length, 3, url);
+      assert.ok(firstPage.nextCursor, `${url} has a second page`);
+      const everyRow = await walk(url, host.token, 3);
+      assert.deepEqual(everyRow.map(key), ids, `${url}: newest first, every row once`);
+    }
+
+    // drafts
+    for (let i = 1; i <= 4; i++) assert.equal((await call('PUT', '/v1/me/drafts', host.token, { kind: 'activity', data: { title: `Draft ${i}` } })).status, 200);
+    const drafts = await walk('/v1/me/drafts', host.token, 3);
+    assert.equal(new Set(drafts.map(key)).size, 4);
+    assert.equal((await get('/v1/me/drafts?limit=3', host.token)).body.items.length, 3);
+  });
+
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36';
+  const DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36';
+  const APP_STORE = 'https://apps.apple.com/it/app/here-there/id1234567890';
+  const PLAY_STORE = 'https://play.google.com/store/apps/details?id=io.herethere.app';
+  const page = async (url: string, ua = DESKTOP) => {
+    const r = await fetch(base + url, { headers: { 'user-agent': ua }, redirect: 'manual' });
+    return { status: r.status, html: await r.text(), headers: r.headers };
+  };
+  const withEnv = async (vars: Record<string, string | undefined>, fn: () => Promise<void>) => {
+    const before = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+    for (const [k, v] of Object.entries(vars)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+    try {
+      await fn();
+    } finally {
+      for (const [k, v] of Object.entries(before)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+    }
+  };
+
+  it('describes a public activity with only the title, the day and the city, and sends each kind of device the right way', async () => {
+    const host = await verified('ShareHost');
+    const created = await post('/v1/activities', host.token, activityBody({ title: 'Sunset aperitivo', venueName: 'Secret Rooftop Bar', city: 'Milan' }));
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.id as string;
+
+    await withEnv({ APP_STORE_URL: APP_STORE, PLAY_STORE_URL: PLAY_STORE }, async () => {
+      const desk = await page(`/a/${id}`);
+      assert.equal(desk.status, 200);
+      assert.match(desk.html, /Sunset aperitivo/);
+      assert.match(desk.html, /Milan/);
+      assert.doesNotMatch(desk.html, /Secret Rooftop Bar/, 'no venue for someone who is not signed in');
+      assert.doesNotMatch(desk.html, /<script/i, 'the page runs no scripts');
+      assert.ok(desk.html.includes(APP_STORE) && desk.html.includes(PLAY_STORE), 'a computer is shown both stores');
+      assert.doesNotMatch(desk.html, /http-equiv="refresh"/, 'a computer is not sent anywhere');
+      assert.match(desk.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+      assert.equal(desk.headers.get('x-robots-tag'), 'noindex');
+
+      const ios = await page(`/a/${id}`, IPHONE);
+      assert.ok(ios.html.includes(`http-equiv="refresh" content="2;url=${APP_STORE}"`), 'an iPhone goes on to the App Store');
+      assert.ok(ios.html.includes(`herethere://a/${id}`), 'and can still open the app by hand');
+      assert.ok(!ios.html.includes(PLAY_STORE) || !ios.html.includes('refresh" content="2;url=' + PLAY_STORE));
+
+      const droid = await page(`/a/${id}`, ANDROID);
+      assert.ok(droid.html.includes(`http-equiv="refresh" content="2;url=${PLAY_STORE}"`), 'an Android phone goes on to Google Play');
+      assert.ok(droid.html.includes(`intent://a/${id}#Intent;scheme=herethere;package=io.herethere.app;S.browser_fallback_url=${encodeURIComponent(PLAY_STORE)};end`), 'with a button that opens the app, and Google Play if it is not there');
+    });
+
+    // before the app is in the stores there is nothing to send people to, and the page says so
+    await withEnv({ APP_STORE_URL: undefined, PLAY_STORE_URL: undefined }, async () => {
+      const ios = await page(`/a/${id}`, IPHONE);
+      assert.equal(ios.status, 200);
+      assert.doesNotMatch(ios.html, /http-equiv="refresh"/);
+      assert.match(ios.html, /coming soon/i);
+    });
+    // a store address that is not https is ignored
+    await withEnv({ APP_STORE_URL: 'javascript:alert(1)', PLAY_STORE_URL: undefined }, async () => {
+      assert.doesNotMatch((await page(`/a/${id}`, IPHONE)).html, /javascript:/);
+    });
+  });
+
+  it('shows a trip with its destination and dates, and treats everything not public as a plan that does not exist', async () => {
+    const org = await verified('ShareOrg');
+    const mem = await verified('ShareMem');
+    const t = await groupOf(org, mem, { title: 'Lisbon in the autumn' });
+    const tripPage = await page(`/t/${t.id}`);
+    assert.equal(tripPage.status, 200);
+    assert.match(tripPage.html, /Lisbon in the autumn/);
+    assert.match(tripPage.html, /Trip on THERE/);
+    assert.doesNotMatch(tripPage.html, /PlanMem|ShareMem|ShareOrg/, 'no names of people');
+
+    const host = await verified('ShareHidden');
+    const act = async (over: Record<string, unknown>) => (await post('/v1/activities', host.token, activityBody({ title: 'Hidden plan', ...over }))).body.id as string;
+    const cancelled = await act({ title: 'Hidden plan A', startsAt: hours(5), endsAt: hours(6) });
+    await prisma.activity.update({ where: { id: cancelled }, data: { status: 'cancelled' } });
+    const inviteOnly = await act({ title: 'Hidden plan B', startsAt: hours(8), endsAt: hours(9) });
+    await prisma.activity.update({ where: { id: inviteOnly }, data: { visibility: 'invite_only' } });
+    const done = await act({ title: 'Hidden plan C', startsAt: hours(11), endsAt: hours(12) });
+    await prisma.activity.update({ where: { id: done }, data: { status: 'completed' } });
+    for (const id of [cancelled, inviteOnly, done, 'does-not-exist']) {
+      const r = await page(`/a/${id}`);
+      assert.equal(r.status, 404, id);
+      assert.doesNotMatch(r.html, /Hidden plan/, 'its title is not given away');
+    }
+    await prisma.trip.update({ where: { id: t.id }, data: { status: 'cancelled' } });
+    const gone = await page(`/t/${t.id}`);
+    assert.equal(gone.status, 404);
+    assert.doesNotMatch(gone.html, /Lisbon in the autumn/);
+  });
+
+  it('writes a title as plain text, never as markup', async () => {
+    const host = await verified('ShareEscape');
+    const id = (await post('/v1/activities', host.token, activityBody({ title: 'Safe title' }))).body.id as string;
+    await prisma.activity.update({ where: { id }, data: { title: '<img src=x onerror=alert(1)> & "quotes"' } });
+    const r = await page(`/a/${id}`);
+    assert.doesNotMatch(r.html, /<img src=x/);
+    assert.match(r.html, /&lt;img src=x onerror=alert\(1\)&gt; &amp; &quot;quotes&quot;/);
+  });
+
+  it('publishes the two files that make phones open the app straight from the link, once they are set up', async () => {
+    await withEnv({ APPLE_TEAM_ID: undefined, ANDROID_CERT_SHA256: undefined }, async () => {
+      assert.equal((await page('/.well-known/apple-app-site-association')).status, 404, 'not published before the Apple team id is known');
+      assert.equal((await page('/.well-known/assetlinks.json')).status, 404);
+    });
+    await withEnv({ APPLE_TEAM_ID: 'ABCDE12345', ANDROID_CERT_SHA256: 'AA:BB:CC, DD:EE:FF' }, async () => {
+      const apple = await page('/.well-known/apple-app-site-association');
+      assert.equal(apple.status, 200);
+      assert.match(apple.headers.get('content-type') ?? '', /application\/json/);
+      const a = JSON.parse(apple.html);
+      assert.deepEqual(a.applinks.details[0].appIDs, ['ABCDE12345.io.herethere.app']);
+      assert.deepEqual(a.applinks.details[0].components, [{ '/': '/a/*' }, { '/': '/t/*' }]);
+      const droid = await page('/.well-known/assetlinks.json');
+      assert.equal(droid.status, 200);
+      const d = JSON.parse(droid.html);
+      assert.equal(d[0].target.package_name, 'io.herethere.app');
+      assert.deepEqual(d[0].target.sha256_cert_fingerprints, ['AA:BB:CC', 'DD:EE:FF']);
+    });
+  });
+
+  it('reads a chat\'s history a page at a time, newest first, so every earlier message can be reached', async () => {
+    const host = await verified('HistHost');
+    const guest = await verified('HistGuest');
+    const actId = (await post('/v1/activities', host.token, activityBody())).body.id;
+    const req = await post(`/v1/activities/${actId}/requests`, guest.token, {});
+    await post(`/v1/activities/${actId}/requests/${req.body.id}/decision`, host.token, { decision: 'approve' });
+    const conv = await prisma.conversation.findUnique({ where: { activityId: actId } });
+    for (let i = 1; i <= 9; i++) {
+      const r = await post(`/v1/conversations/${conv.id}/messages`, i % 2 ? host.token : guest.token, { body: `Hello number ${i}` });
+      assert.equal(r.status, 201, JSON.stringify(r.body));
+    }
+    // two messages sent in the very same moment: a page boundary between them must not lose either
+    const rows = await prisma.message.findMany({ where: { conversationId: conv.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+    await prisma.message.update({ where: { id: rows[5].id }, data: { createdAt: rows[4].createdAt } });
+    const expected = (await prisma.message.findMany({ where: { conversationId: conv.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })).map((m: { id: string }) => m.id);
+
+    const url = `/v1/conversations/${conv.id}/messages`;
+    const first = (await get(`${url}?limit=3`, host.token)).body;
+    assert.equal(first.items.length, 3, 'the latest page only');
+    assert.deepEqual(first.items.map((m: { id: string }) => m.id), expected.slice(-3), 'the newest three, oldest of them first');
+    assert.ok(first.nextCursor, 'there are earlier messages');
+
+    // scroll up page by page and put each earlier page above what is already there
+    let shown: string[] = first.items.map((m: { id: string }) => m.id);
+    let cursor: string | null = first.nextCursor;
+    for (let n = 0; cursor && n < 10; n++) {
+      const page = (await get(`${url}?limit=3&cursor=${cursor}`, host.token)).body;
+      assert.ok(page.items.length <= 3);
+      shown = [...page.items.map((m: { id: string }) => m.id), ...shown];
+      cursor = page.nextCursor;
+    }
+    assert.deepEqual(shown, expected, 'every message once, in order, none skipped');
+    assert.equal(cursor, null, 'the last page says there is no more');
+
+    assert.equal((await get(`${url}?cursor=nonsense`, host.token)).status, 400);
+    // an earlier page is still only for the group
+    const outsider = await verified('HistOutsider');
+    assert.equal((await get(`${url}?limit=3&cursor=${first.nextCursor}`, outsider.token)).status, 403);
+  });
+
+  it('sends only a first few ideas and budget notes with the plan, and the rest a page at a time', async () => {
+    const org = await verified('PagePlanOrg');
+    const mem = await verified('PagePlanMem');
+    const out = await verified('PagePlanOut');
+    const t = await groupOf(org, mem);
+    for (let i = 1; i <= 7; i++) assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: `Cost ${i}`, amount: 10 })).status, 201);
+    for (let i = 1; i <= 5; i++) assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: `Idea ${i}` })).status, 201);
+    const plan = (await get(`/v1/trips/${t.id}/plan`, mem.token)).body;
+    assert.equal(plan.budget.items.length, 3, 'only the first few notes come with the plan');
+    assert.equal(plan.budget.total, 7);
+    assert.equal(plan.budget.perPersonTotal, 70, 'the total still counts every note');
+    assert.equal(plan.itinerary.ideas.items.length, 3);
+    assert.equal(plan.itinerary.ideas.total, 5);
+    const seen: string[] = [];
+    let cursor = '';
+    for (let n = 0; n < 5; n++) {
+      const page = (await get(`/v1/trips/${t.id}/plan/items?kind=budget&limit=3${cursor}`, mem.token)).body;
+      seen.push(...page.items.map((i: { title: string }) => i.title));
+      if (!page.nextCursor) break;
+      cursor = `&cursor=${page.nextCursor}`;
+    }
+    assert.deepEqual(seen, ['Cost 1', 'Cost 2', 'Cost 3', 'Cost 4', 'Cost 5', 'Cost 6', 'Cost 7'], 'every note, once, in the order added');
+    assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=ideas&limit=10`, mem.token)).body.items.length, 5);
+    assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=nonsense`, mem.token)).status, 400);
+    assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=budget`, out.token)).status, 403, 'outsiders cannot read it');
+  });
+
+  it('once a trip has started, only today and the days to come can have their itinerary changed', async () => {
+    const org = await verified('PastOrg');
+    const mem = await verified('PastMem');
+    const t = await groupOf(org, mem);
+    const DAYMS = 24 * 3600 * 1000;
+    const noon = (offset: number) => new Date(new Date(Date.now() + offset * DAYMS).toISOString().slice(0, 10) + 'T12:00:00Z');
+    // before the trip starts every day is open
+    const early = await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Early plan', day: new Date(+new Date(t.dateStart) + DAYMS).toISOString() });
+    assert.equal(early.status, 201);
+    // the trip is now on its third day
+    await prisma.trip.update({ where: { id: t.id }, data: { dateStart: new Date(Date.now() - 3 * DAYMS), dateEnd: new Date(Date.now() + 3 * DAYMS) } });
+    await prisma.tripItem.update({ where: { id: early.body.id }, data: { day: noon(-2) } });
+    const plan = (await get(`/v1/trips/${t.id}/plan`, mem.token)).body;
+    const past = plan.itinerary.days.find((d: { day: string }) => d.day === noon(-2).toISOString().slice(0, 10));
+    assert.equal(past.locked, true, 'a day that has passed is marked locked');
+    assert.equal(past.items[0].canEdit, false, 'and its lines cannot be edited');
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${early.body.id}`, mem.token, { title: 'Changed' })).body.code, 'DAY_PASSED');
+    assert.equal((await call('DELETE', `/v1/trips/${t.id}/plan/items/${early.body.id}`, mem.token)).body.code, 'DAY_PASSED');
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Too late', day: noon(-2).toISOString() })).body.code, 'DAY_PASSED');
+    // today, the days after it, and an idea with no day stay open
+    const today = await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Today plan', day: noon(0).toISOString() });
+    assert.equal(today.status, 201, JSON.stringify(today.body));
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Tomorrow plan', day: noon(1).toISOString() })).status, 201);
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'An idea' })).status, 201);
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${today.body.id}`, mem.token, { note: 'Bring water' })).status, 200);
+    // nothing can be moved onto a day that has passed
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${today.body.id}`, mem.token, { day: noon(-2).toISOString() })).body.code, 'DAY_PASSED');
+    // budget notes are not tied to a day
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Taxi', amount: 20 })).status, 201);
   });
 
   it('records a trip as completed once its last day has passed', async () => {

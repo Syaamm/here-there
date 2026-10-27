@@ -1,8 +1,9 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Btn, Card, Chip, ErrorBanner, Field, Row, Screen, Spinner, Txt } from '@/components/ui';
-import { get, post, type MyAppeal } from '@/lib/api';
-import { useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { post, type MyAppeal } from '@/lib/api';
+import { useAction, useRefresh } from '@/lib/hooks';
+import { PagedTail, useCursorList } from '@/lib/paged';
 
 const ASK: Record<string, { title: string; hint: string }> = {
   verification: { title: 'Ask for a review of your identity check', hint: 'Tell us what you think went wrong. A person on our team will look again.' },
@@ -16,7 +17,7 @@ const STATE: Record<MyAppeal['state'], { label: string; tone: 'warn' | 'ok' | 'b
 /** Asking staff to look at a decision again, and what became of earlier requests. One request per decision. */
 export default function Appeal() {
   const { kind, targetType, targetId } = useLocalSearchParams<{ kind?: string; targetType?: string; targetId?: string }>();
-  const mine = useLoad(() => get<{ items: MyAppeal[] }>('/v1/me/appeals'), [], undefined, 'me:appeals');
+  const mine = useCursorList<MyAppeal>('/v1/me/appeals', {}, 'me:appeals');
   const { refreshing, onRefresh } = useRefresh(() => mine.reload());
   const [text, setText] = useState('');
   const send = useAction(() => {
@@ -56,6 +57,7 @@ export default function Appeal() {
           {a.decision ? <Txt>{a.decision}</Txt> : null}
         </Card>
       ))}
+      <PagedTail paged={mine} />
       {!ask && !mine.loading && items.length === 0 ? <Txt variant="muted">You have not asked for any reviews.</Txt> : null}
     </Screen>
   );

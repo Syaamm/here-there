@@ -38,8 +38,8 @@ export class TripsController {
   }
 
   @Get('trips/:id/applications')
-  applications(@CurrentUser() me: User, @Param('id') id: string) {
-    return this.trips.listApplications(me, id);
+  applications(@CurrentUser() me: User, @Param('id') id: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.trips.listApplications(me, id, limit, cursor);
   }
 
   @Post('trips/:id/appeal')

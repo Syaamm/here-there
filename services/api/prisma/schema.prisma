@@ -549,6 +549,7 @@ model TripItem {
   trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
   kind        String   // itinerary | budget
   day         DateTime? // itinerary: the day it is planned for (empty = not decided yet)
+  startTime   String?   // itinerary: the time of day as "HH:MM" (empty = any time that day)
   title       String
   note        String?
   amount      Int?     // budget: estimated cost per person, in the trip's currency

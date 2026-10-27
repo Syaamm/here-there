@@ -13,6 +13,9 @@
   ],
   "tags": [
     {
+      "name": "Shared links"
+    },
+    {
       "name": "HERE activities"
     },
     {
@@ -49,6 +52,170 @@
     }
   ],
   "paths": {
+    "/.well-known/apple-app-site-association": {
+      "get": {
+        "tags": [
+          "Shared links"
+        ],
+        "summary": "Tells iPhones which links open the app (Universal Links)",
+        "operationId": "Share_apple",
+        "description": "Public. Apple reads it when the app is installed or updated.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "JSON, or 404 until APPLE_TEAM_ID is set"
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/assetlinks.json": {
+      "get": {
+        "tags": [
+          "Shared links"
+        ],
+        "summary": "Tells Android which links open the app (App Links)",
+        "operationId": "Share_android",
+        "description": "Public. Google checks it when the app is installed.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "JSON, or 404 until ANDROID_CERT_SHA256 is set"
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/a/{id}": {
+      "get": {
+        "tags": [
+          "Shared links"
+        ],
+        "summary": "A shared activity link: sends people to the app, or to the App Store / Google Play",
+        "operationId": "Share_activity",
+        "description": "Public. Where the app is installed the phone opens the app on this link and never loads the page (iOS Universal Links, Android App Links).",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A web page (HTML), not JSON. It shows only the title, the day and the city, and only for a public plan that is still on; anything else gets the same page with a 404 status. On an iPhone or an Android phone it moves on to the store by itself."
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/t/{id}": {
+      "get": {
+        "tags": [
+          "Shared links"
+        ],
+        "summary": "A shared trip link: sends people to the app, or to the App Store / Google Play",
+        "operationId": "Share_trip",
+        "description": "Public. Works like /a/{id}.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A web page (HTML), not JSON. It shows only the title, the destination and the dates, and only for a trip that is still open; anything else gets the same page with a 404 status."
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/activities": {
       "get": {
         "tags": [
@@ -1902,7 +2069,7 @@
         "tags": [
           "HERE activities"
         ],
-        "summary": "The host's list of join requests",
+        "summary": "The host's join requests, a page at a time: waiting for an answer first, then the waiting list, approved, declined, withdrawn",
         "operationId": "Activities_requests",
         "parameters": [
           {
@@ -1916,7 +2083,17 @@
         ],
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Also { pending }: how many wait for an answer in all, not only on this page."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `INVALID_CURSOR`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -5746,11 +5923,11 @@
         "tags": [
           "Safety, blocks and follows"
         ],
-        "summary": "People I have blocked",
+        "summary": "People I have blocked, newest first",
         "operationId": "Safety_blocks",
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { userId, displayName }."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -6828,11 +7005,11 @@
         "tags": [
           "Profile and photo"
         ],
-        "summary": "My appeals and what was decided",
+        "summary": "My appeals and what was decided, newest first",
         "operationId": "Appeals_mine",
         "responses": {
           "200": {
-            "description": "{ items: [{ id, kind, what, state, decision, createdAt, decidedAt }] }"
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, kind, what, state, decision, createdAt, decidedAt }."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -7238,7 +7415,7 @@
         "operationId": "Drafts_list",
         "responses": {
           "200": {
-            "description": "{ items: [{ id, kind, title, data, updatedAt }] }. Only the owner ever sees them."
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, kind, title, data, updatedAt }, most recently saved first. Only the owner ever sees them."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -8286,11 +8463,11 @@
         "tags": [
           "Profile and photo"
         ],
-        "summary": "Notes hosts made that I did not come",
+        "summary": "Notes hosts made that I did not come, newest first",
         "operationId": "Reliability_mineMarks",
         "responses": {
           "200": {
-            "description": "{ items: [{ id, title, state, canDispute, disputeUntil, counts }] }"
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, title, state, canDispute, disputeUntil, counts }."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -8964,7 +9141,7 @@
         "operationId": "Moderation_mine",
         "responses": {
           "200": {
-            "description": "{ items: [{ id, category, targetType, status, outcome, createdAt, canAppeal }] }. A dismissed report can be appealed once with POST /v1/me/appeals (kind report)."
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, category, targetType, status, outcome, createdAt, canAppeal }, newest first. A dismissed report can be appealed once with POST /v1/me/appeals (kind report)."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -9660,7 +9837,7 @@
             "description": "{ state, url }: send the person to the provider's hosted page. method \"document\" is the check with no selfie and no face match."
           },
           "400": {
-            "description": "The request is not acceptable. Codes: `CONSENT_REQUIRED`, `VALIDATION_FAILED`",
+            "description": "The request is not acceptable. Codes: `CONSENT_REQUIRED`, `VALIDATION_FAILED`, `VERIFICATION_METHOD_UNAVAILABLE`",
             "content": {
               "application/json": {
                 "schema": {
@@ -9701,6 +9878,16 @@
           },
           "500": {
             "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Error. Codes: `VERIFICATION_UNAVAILABLE`",
             "content": {
               "application/json": {
                 "schema": {
@@ -11457,7 +11644,7 @@
         "tags": [
           "THERE trips"
         ],
-        "summary": "The organizer's list of applications",
+        "summary": "The organizer's applications, a page at a time: waiting first, then the waiting list, approved, declined, withdrawn, expired",
         "operationId": "Trips_applications",
         "parameters": [
           {
@@ -11471,7 +11658,17 @@
         ],
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Also { pending }: how many wait for an answer in all, not only on this page."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `INVALID_CURSOR`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -12546,6 +12743,88 @@
       }
     },
     "/v1/trips/{id}/plan/items": {
+      "get": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "All ideas (kind=ideas) or budget notes (kind=budget) of the plan, a page at a time",
+        "operationId": "TripPlan_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page)."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `INVALID_CURSOR`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "THERE trips"
@@ -12589,6 +12868,10 @@
                   "day": {
                     "type": "string",
                     "format": "date-time"
+                  },
+                  "time": {
+                    "type": "string",
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
                   },
                   "amount": {
                     "type": "integer",
@@ -12649,7 +12932,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `PLAN_FULL`, `TRIP_CLOSED`",
+            "description": "Conflicts with the current state. Codes: `DAY_PASSED`, `PLAN_FULL`, `TRIP_CLOSED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -12741,7 +13024,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `TRIP_CLOSED`",
+            "description": "Conflicts with the current state. Codes: `DAY_PASSED`, `TRIP_CLOSED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -12830,6 +13113,17 @@
                       }
                     ]
                   },
+                  "time": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "amount": {
                     "anyOf": [
                       {
@@ -12892,7 +13186,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `TRIP_CLOSED`",
+            "description": "Conflicts with the current state. Codes: `DAY_PASSED`, `TRIP_CLOSED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -13255,6 +13549,7 @@
               "CONTENT_REJECTED",
               "CONVERSATION_CLOSED",
               "DAY_OUT_OF_RANGE",
+              "DAY_PASSED",
               "DISPUTE_CLOSED",
               "DRAFT_TOO_LARGE",
               "DUPLICATE_ACTIVITY",
@@ -13338,7 +13633,9 @@
               "UNSUPPORTED_MEDIA_TYPE",
               "VALIDATION_FAILED",
               "VERIFICATION_BLOCKED",
+              "VERIFICATION_METHOD_UNAVAILABLE",
               "VERIFICATION_REQUIRED",
+              "VERIFICATION_UNAVAILABLE",
               "WRONG_PASSWORD"
             ],
             "description": "Stable machine-readable reason. Branch on this."
@@ -13510,6 +13807,12 @@
       "status": 400,
       "meaning": "One or more fields are missing or invalid. `details` lists each field as { path, message }.",
       "clientShould": "Show each message next to its field."
+    },
+    {
+      "code": "VERIFICATION_METHOD_UNAVAILABLE",
+      "status": 400,
+      "meaning": "The kind of identity check asked for (for example the document-only route) is not set up with the provider.",
+      "clientShould": "Offer the other route, or tell the person it is not available right now."
     },
     {
       "code": "INVALID_CREDENTIALS",
@@ -13824,6 +14127,12 @@
       "clientShould": "Show the chat as read-only."
     },
     {
+      "code": "DAY_PASSED",
+      "status": 409,
+      "meaning": "The itinerary line is on a day that has already passed (the trip has started), so it cannot be added, changed, moved or removed.",
+      "clientShould": "Only offer days from today on, and hide Edit and Remove on lines whose canEdit is false."
+    },
+    {
       "code": "DISPUTE_CLOSED",
       "status": 409,
       "meaning": "The 7 days to dispute the note have passed.",
@@ -14032,6 +14341,12 @@
       "status": 502,
       "meaning": "The map service that finds places did not answer.",
       "clientShould": "Let the person type the place name by hand and carry on without a map position."
+    },
+    {
+      "code": "VERIFICATION_UNAVAILABLE",
+      "status": 502,
+      "meaning": "The identity check service (the provider) could not be reached or could not start the check.",
+      "clientShould": "Show a \"try again in a moment\" state. Nothing was started, so starting again is safe."
     },
     {
       "code": "SOCIAL_UNAVAILABLE",

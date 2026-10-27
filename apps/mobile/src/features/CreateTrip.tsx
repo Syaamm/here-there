@@ -1,22 +1,21 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useState, type ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
 import { DraftBar } from '@/components/DraftBar';
 import { TabHeader } from '@/components/TabHeader';
 import { Text, TextInput } from '@/components/ScaledText';
-import { Banner, Btn, CheckRow, Chip, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
+import { Banner, Between, Btn, CheckRow, Chip, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
 import { post, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { FLEX, GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
 import { money, parseDay } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
+import { useFormDraft } from '@/lib/formDraft';
 import { useTheme } from '@/lib/theme';
 import { Section } from './CreateActivity';
 
-const DRAFT = 'ht_trip_draft_v2';
 const STEPS = 4;
 /** The four date choices shown as one segmented control. */
 const FLEX_CHOICES: readonly (readonly [string, string])[] = [
@@ -68,7 +67,7 @@ function Segments({ label, options, value, onChange }: { label: string; options:
 }
 
 /** A bordered tile with a small label above the value, like the route and date boxes. */
-function Tile({ label, children, style }: { label: string; children: ReactNode; style?: object }) {
+export function Tile({ label, children, style }: { label: string; children: ReactNode; style?: object }) {
   const { c } = useTheme();
   return (
     <View style={[{ borderWidth: 1, borderColor: c.line, borderRadius: 12, backgroundColor: c.surface, paddingHorizontal: 10, paddingVertical: 6, gap: 0 }, style]}>
@@ -78,8 +77,20 @@ function Tile({ label, children, style }: { label: string; children: ReactNode; 
   );
 }
 
-/** THERE · Create: four short steps, like a form in any travel app. A trip is a proposal, never a booking or an offer to sell travel. Drafts stay on this device. */
+/** Something has been entered by the person (the origin city is filled in for them, and the other choices start with a value, so they do not count). */
+const hasContent = (f: Draft) => !!(f.destination.trim() || f.description.trim() || f.start || f.end || f.min || f.max || f.tags.length);
+
+/**
+ * THERE · Create: four short steps, like a form in any travel app. A trip is a proposal, never a booking or an offer to sell
+ * travel. It behaves like the HERE form: leaving it saves what was typed as a draft and it comes back empty. Changing `round`
+ * remounts the form, which is what empties it (and takes it back to the first step).
+ */
 export function CreateTrip() {
+  const [round, setRound] = useState(0);
+  return <TripForm key={round} onReset={() => setRound((r) => r + 1)} />;
+}
+
+function TripForm({ onReset }: { onReset: () => void }) {
   const { me } = useMe();
   const { c } = useTheme();
   const go = useGo();
@@ -91,16 +102,8 @@ export function CreateTrip() {
   const act = useAction();
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((p) => ({ ...p, [k]: v }));
   const loadDraft = useCallback((d: Record<string, unknown>) => setF((p) => ({ ...p, ...(d as Partial<Draft>) })), []);
-
-  useEffect(() => {
-    AsyncStorage.getItem(DRAFT)
-      .then((raw) => raw && setF((p) => ({ ...p, ...JSON.parse(raw) })))
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    const t = setTimeout(() => AsyncStorage.setItem(DRAFT, JSON.stringify(f)).catch(() => {}), 600);
-    return () => clearTimeout(t);
-  }, [f]);
+  // leaving saves a draft and empties the form, "Clear all", and saving on leaving the app: shared with the activity form
+  const { posted, clearAll } = useFormDraft('trip', f, hasContent, onReset);
 
   const start = parseDay(f.start);
   const end = parseDay(f.end);
@@ -155,7 +158,7 @@ export function CreateTrip() {
       }),
     );
     if (t) {
-      AsyncStorage.removeItem(DRAFT).catch(() => {});
+      posted.current = true;
       void dropDraft('trip');
       go(`/trip/${t.id}`);
     }
@@ -195,10 +198,13 @@ export function CreateTrip() {
         </View>
       }
     >
-      <View style={{ gap: 2 }}>
-        <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{titles[step]}</Txt>
-        <Txt variant="muted">{lines[step]}</Txt>
-      </View>
+      <Between>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{titles[step]}</Txt>
+          <Txt variant="muted">{lines[step]}</Txt>
+        </View>
+        <Btn title="Clear all" variant="ghost" small onPress={() => void clearAll()} disabled={!hasContent(f)} />
+      </Between>
 
       {!verified && <Banner onPress={() => go('/verify')}>You need a verified identity to publish a trip. You can fill this in now and it is kept as a draft. Verify ›</Banner>}
       <ErrorBanner message={act.error} />

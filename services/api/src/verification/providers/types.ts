@@ -24,11 +24,14 @@ export interface IdentityProvider {
    */
   createSession(user: { id: string; email: string }, ctx: { checkId: string; baseUrl: string; method: 'face' | 'document' }): Promise<{ providerRef: string; url?: string }>;
 
-  /** Lets a user who closed the browser pick the same session up again. */
-  resumeUrl?(providerRef: string, baseUrl: string): string | undefined;
+  /** Lets a user who closed the browser pick the same session up again (it may ask the provider for a fresh link). */
+  resumeUrl?(providerRef: string, baseUrl: string): string | undefined | Promise<string | undefined>;
 
-  /** Verifies the webhook signature (throw on failure) and normalises the body. Must ignore every field not listed in ProviderOutcome. */
-  parseWebhook(rawBody: Buffer, headers: WebhookHeaders): ProviderOutcome;
+  /**
+   * Verifies the webhook signature (throw on failure) and normalises the body. Must ignore every field not listed in
+   * ProviderOutcome. Returns null for an event that decides nothing yet (a check started, a review opened...).
+   */
+  parseWebhook(rawBody: Buffer, headers: WebhookHeaders): ProviderOutcome | null;
 
   /** Asks the provider to erase the session's personal data now that we hold the outcome. */
   eraseSession?(providerRef: string): Promise<void>;

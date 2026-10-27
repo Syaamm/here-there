@@ -65,7 +65,8 @@ development-only network allowances (plain HTTP to a local server).
 - [ ] Real app icon, adaptive icon and splash (the files in `assets/` are Expo placeholders).
 - [ ] Apple Developer account (99 USD/year) and Google Play Console (25 USD one-time).
 - [ ] Privacy policy and terms URLs (both stores require them), data-safety / privacy-label answers.
-- [ ] A real identity-verification provider and push notifications (see "Not built yet").
+- [ ] A real identity-verification provider (Persona is built, see `docs/FOR_DEPLOYMENT.md`) and push notifications (see "Not built yet").
+- [ ] Shared links: set `SHARE_DOMAIN` (for example `herethere.app`) and `EXPO_PUBLIC_SHARE_URL` for store builds, and publish the two `/.well-known` files from the API so the app opens straight from a link (`docs/FOR_DEPLOYMENT.md`, "Shared links").
 
 ## What's inside
 
@@ -83,12 +84,14 @@ src/lib/            API client, auth, theme, hooks
 
 ## Not built yet
 
-- Push notifications (alerts are in-app; they refresh while the app is open).
-- THERE date polls and shared itinerary (the API doesn't have them yet), and travel-buddy matching.
-- Waitlists, quiet hours, appeals, account deletion/export.
-- Instant chat (messages refresh every 3 seconds while a chat is open; WebSockets come later).
-- Free-text search is filtered on the phone because the API has no text search yet.
-- Maps: only Milan has map data in the pilot.
+- Push notifications on real devices (the code exists but is untested; Expo Go cannot receive push, and Android needs Firebase in a real build).
+- A working live identity provider (Persona is connected but still in sandbox testing).
+- Host transfer when a host leaves (a host can only cancel), per-chat mute, trip waiting list and trip reminders, quiet hours.
+- Free-text search of activities is still filtered on the phone.
+- Deferred deep linking (after installing from a shared link the person taps the link again).
+- Maps: only Milan has map data in the pilot; Android needs a Google Maps key.
+
+Built since this list was first written: THERE date polls, shared itinerary and budget notes, travel-buddy matching, the HERE waiting list, appeals, account deletion and export, live chat updates over a WebSocket, drafts, place search, shared links, and server-side paging with chat history loaded on scroll.
 
 ## Checks
 

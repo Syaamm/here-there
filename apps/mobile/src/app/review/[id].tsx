@@ -6,7 +6,7 @@ import { get, post, type Trip, type Reliability } from '@/lib/api';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { confirmAsync } from '@/lib/confirm';
 import { ago, dateSpan } from '@/lib/format';
-import { Paged } from '@/lib/paged';
+import { PagedTail, useCursorList } from '@/lib/paged';
 import { useAction, useLoad } from '@/lib/hooks';
 
 type App = {
@@ -17,13 +17,13 @@ type App = {
   createdAt: string;
   applicant: { id: string; displayName?: string; photoUrl?: string | null; verifiedAdult: boolean; reliability?: Reliability | null; languages: string[]; interests: string[] };
 };
-const ORDER: Record<string, number> = { pending: 0, waitlisted: 1, approved: 2, declined: 3, withdrawn: 4, expired: 5 };
 
 /** THERE · Organizer reviews applications. Private chat opens only after an approval the server records. */
 export default function ReviewTrip() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const trip = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
-  const apps = useLoad(() => get<{ items: App[] }>(`/v1/trips/${id}/applications`), [id], 10_000);
+  // a page at a time, the ones waiting for an answer first (the server orders them); `pending` counts them all
+  const apps = useCursorList<App, { pending: number }>(`/v1/trips/${id}/applications`, {}, 'review:applications', { pollMs: 10_000 });
   const refresh = () => {
     void trip.reload();
     void apps.reload();
@@ -39,8 +39,8 @@ export default function ReviewTrip() {
       </Screen>
     );
 
-  const items = [...(apps.data?.items ?? [])].sort((x, y) => (ORDER[x.state] ?? 9) - (ORDER[y.state] ?? 9) || +new Date(x.createdAt) - +new Date(y.createdAt));
-  const pending = items.filter((a) => a.state === 'pending').length;
+  const items = apps.items;
+  const pending = apps.data?.pending ?? 0;
   const full = !!t && t.members >= t.maxCapacity;
   const decide = (a: App, decision: 'approve' | 'decline') => mutate.run(() => post(`/v1/trips/${id}/applications/${a.id}/decision`, { decision }));
 
@@ -57,7 +57,7 @@ export default function ReviewTrip() {
       <Txt variant="h2">Pending applications · {pending}</Txt>
       {apps.data && items.length === 0 && <Empty title="No applications yet">Travelers who want to join will appear here.</Empty>}
 
-      <Paged items={items} render={(a) => (
+      {items.map((a) => (
         <Card key={a.id}>
           <Between>
             <Row>
@@ -109,7 +109,8 @@ export default function ReviewTrip() {
           )}
           {['withdrawn', 'expired'].includes(a.state) && <Chip label={a.state === 'withdrawn' ? 'Withdrawn by the applicant' : 'Expired'} tone="neutral" />}
         </Card>
-      )} />
+      ))}
+      <PagedTail paged={apps} />
       <Banner>Only accepted members receive private planning and chat access. Never ask applicants for identity documents or money.</Banner>
     </Screen>
   );

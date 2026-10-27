@@ -251,7 +251,7 @@ export function TripCard({ t }: { t: Trip }) {
   const { c } = useTheme();
   const full = t.spotsLeft === 0 || t.status === 'full';
   return (
-    <Card onPress={() => go(`/trip/${t.id}`)} accessibilityLabel={`${t.title}, ${dateSpan(t.dateStart, t.dateEnd)}, estimated ${money(t.budget.min, t.budget.currency)} to ${money(t.budget.max, t.budget.currency)} per person`} style={{ gap: 6, borderRadius: 20 }}>
+    <Card onPress={() => go(`/trip/${t.id}`)} accessibilityLabel={`${t.title}, ${dateSpan(t.dateStart, t.dateEnd)}, estimated ${money(t.budget.min, t.budget.currency)} to ${money(t.budget.max, t.budget.currency)} per person, ${t.members} of ${t.maxCapacity} travelers`} style={{ gap: 6, borderRadius: 20 }}>
       <Row style={{ justifyContent: 'space-between' }}>
         <Chip label="✈ Trip proposal" tone="neutral" />
         {t.match ? (
@@ -263,12 +263,13 @@ export function TripCard({ t }: { t: Trip }) {
       <Txt variant="h3">{t.destination}</Txt>
       <Txt variant="small">
         {dateSpan(t.dateStart, t.dateEnd)}
-        {t.dateFlexibility !== 'exact' ? ' (flexible)' : ''} · {t.members}/{t.maxCapacity} travelers
+        {t.dateFlexibility !== 'exact' ? ' (flexible)' : ''}
       </Txt>
       <Text style={{ color: c.text, fontWeight: '700' }}>
         {money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)} <Text style={{ fontWeight: '400', color: c.muted }}>pp estimate{t.budget.includesTransport ? ', incl. travel' : ', excl. travel'}</Text>
       </Text>
       {t.match?.budgetScopeMismatch ? <Txt variant="small" color={c.warnFg}>Budget covers a different scope than you searched (travel included or not).</Txt> : null}
+      <Txt variant="small">{t.members}/{t.maxCapacity} travelers</Txt>
       <Row style={{ flexWrap: 'wrap', gap: 6 }}>
         {t.tags.slice(0, 4).map((x) => (
           <Chip key={x} label={x} tone="neutral" />
@@ -320,7 +321,7 @@ export function TripRow({ t }: { t: Trip }) {
         </Txt>
         <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
           {t.match?.dates === 'approximate' ? <Text style={{ color: c.warnFg, fontWeight: '800' }}>Approximate dates · </Text> : null}
-          {t.members} of {t.maxCapacity} going · {money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)}
+          {money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)} · {t.members} of {t.maxCapacity} going
           {full ? <Text style={{ color: c.danger, fontWeight: '800' }}> · Full</Text> : null}
         </Txt>
         {circleLine(t.buddiesGoing, t.followingGoing) ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>{circleLine(t.buddiesGoing, t.followingGoing)}</Txt> : null}

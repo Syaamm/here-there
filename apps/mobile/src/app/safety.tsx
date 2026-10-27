@@ -1,15 +1,16 @@
 import { View } from 'react-native';
 import { useEffect } from 'react';
 import { Banner, Between, Btn, Card, Chip, ErrorBanner, ListRow, Screen, Txt, useGo } from '@/components/ui';
-import { del, get } from '@/lib/api';
+import { del } from '@/lib/api';
 import { useMe } from '@/lib/auth';
-import { useAction, useLoad } from '@/lib/hooks';
+import { useAction } from '@/lib/hooks';
+import { PagedTail, useCursorList } from '@/lib/paged';
 
 /** Safety controls shared by HERE and THERE: identity verification status, blocking, and plain-language guidance. */
 export default function Safety() {
   const { me, reload } = useMe();
   const go = useGo();
-  const blocks = useLoad(() => get<{ items: { userId: string; displayName?: string }[] }>('/v1/blocks'), [], undefined, 'blocks');
+  const blocks = useCursorList<{ userId: string; displayName?: string }>('/v1/blocks', {}, 'blocks');
   // always re-check the latest verification result when this screen is opened
   useEffect(() => {
     void reload();
@@ -46,6 +47,7 @@ export default function Safety() {
             <Btn title="Unblock" variant="secondary" small disabled={unblock.busy} onPress={() => unblock.run(() => del(`/v1/blocks/${b.userId}`))} />
           </Between>
         ))}
+        <PagedTail paged={blocks} rows={1} />
       </Card>
 
       <View>

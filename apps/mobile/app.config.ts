@@ -8,6 +8,9 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
  */
 const APP_ID = 'io.herethere.app';
 const isProd = process.env.APP_ENV === 'production';
+// The domain whose shared links (/a/<id>, /t/<id>) open the app straight from a message. Set it for store builds; it also
+// needs the two files the API serves under /.well-known (see docs/FOR_DEPLOYMENT.md).
+const SHARE_DOMAIN = process.env.SHARE_DOMAIN?.trim();
 
 // Map keys are optional in development (Expo Go has its own). Standalone Android builds need one.
 const mapKeys = {
@@ -31,6 +34,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: APP_ID,
     supportsTablet: true, // runs natively on iPad (not as a stretched iPhone app)
+    ...(SHARE_DOMAIN ? { associatedDomains: [`applinks:${SHARE_DOMAIN}`] } : {}),
     config: { usesNonExemptEncryption: false },
     infoPlist: {
       // Development only: lets the app talk to the API on your computer over the local network.
@@ -47,6 +51,21 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       monochromeImage: './assets/android-icon-monochrome.png',
     },
     predictiveBackGestureEnabled: false,
+    ...(SHARE_DOMAIN
+      ? {
+          intentFilters: [
+            {
+              action: 'VIEW',
+              autoVerify: true,
+              data: [
+                { scheme: 'https', host: SHARE_DOMAIN, pathPrefix: '/a/' },
+                { scheme: 'https', host: SHARE_DOMAIN, pathPrefix: '/t/' },
+              ],
+              category: ['BROWSABLE', 'DEFAULT'],
+            },
+          ],
+        }
+      : {}),
   },
   plugins: [
     'expo-router',

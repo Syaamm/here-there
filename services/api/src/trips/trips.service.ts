@@ -3,7 +3,7 @@ import { Prisma, Trip, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { requireVerified } from '../common/auth';
-import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset } from '../common/paging';
 import { decodeCursor, encodeCursor, topK } from '../activities/feed-ranking';
 import { circleOf, crowd, tierCounts } from '../common/social';
 import { ReliabilityService } from '../reliability/reliability.controller';
@@ -519,15 +519,26 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     return { ok: true };
   }
 
-  async listApplications(me: User, id: string) {
+  /** The organiser's applications a page at a time: the ones waiting first, then the waiting list, approved, declined, withdrawn, expired. */
+  async listApplications(me: User, id: string, limitRaw?: string, cursorRaw?: string) {
     await this.hostOwned(me, id);
-    const rows = await this.prisma.tripApplication.findMany({
-      where: { tripId: id },
-      orderBy: { createdAt: 'asc' },
-      include: { applicant: { select: { id: true, eligibility: true, profile: true } } },
-    });
+    const limit = pageLimit(limitRaw, 20);
+    const [page, pending] = await Promise.all([
+      pageByGroup(['pending', 'waitlisted', 'approved', 'declined', 'withdrawn', 'expired'], limit, cursorRaw, (state, after, take) =>
+        this.prisma.tripApplication.findMany({
+          where: { tripId: id, state, ...afterKeyset(after) },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          include: { applicant: { select: { id: true, eligibility: true, profile: true } } },
+          take,
+        }),
+      ),
+      this.prisma.tripApplication.count({ where: { tripId: id, state: 'pending' } }),
+    ]);
+    const rows = page.items;
     const levels = await this.reliability.forViewer(me, rows.map((a) => a.applicantId));
     return {
+      nextCursor: page.nextCursor,
+      pending, // how many wait for an answer in all, not only on this page
       items: rows.map((a) => ({
         id: a.id,
         state: a.state,

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Injectable, Param, Post, Query } from '@
 import { User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
+import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { CurrentUser, Public, Staff } from '../common/auth';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
@@ -279,10 +280,14 @@ export class ReliabilityService {
   }
 
   /** The notes made about me, newest first, so I can see them and dispute one. */
-  async mineMarks(me: User) {
+  async mineMarks(me: User, limitRaw?: string, cursorRaw?: string) {
     const now = new Date();
-    const rows = await this.prisma.attendanceMark.findMany({ where: { userId: me.id }, orderBy: { markedAt: 'desc' }, take: 20 });
+    const limit = pageLimit(limitRaw, 20);
+    const found = await this.prisma.attendanceMark.findMany({ where: { userId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw), 'markedAt') }, orderBy: [{ markedAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
+    const page = sliceKeyset(found, limit, (m) => m.markedAt);
+    const rows = page.items;
     return {
+      nextCursor: page.nextCursor,
       items: rows.map((m) => ({
         id: m.id,
         kind: m.kind,
@@ -355,8 +360,8 @@ export class ReliabilityController {
 
   /** Notes the hosts have made about me. */
   @Get('me/no-shows')
-  mineMarks(@CurrentUser() me: User) {
-    return this.reliability.mineMarks(me);
+  mineMarks(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.reliability.mineMarks(me, limit, cursor);
   }
 
   @Post('no-shows/:markId/dispute')

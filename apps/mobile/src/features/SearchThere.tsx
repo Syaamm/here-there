@@ -1,7 +1,11 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState } from 'react';
+import { Pressable } from 'react-native';
 import { TripRow } from '@/components/Cards';
+import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
+import { Text } from '@/components/ScaledText';
 import { TabHeader } from '@/components/TabHeader';
-import { Banner, Between, Btn, CheckRow, DateField, Empty, ErrorBanner, Field, Row, Screen, Spinner, Split, Txt } from '@/components/ui';
+import { Banner, Between, Btn, CheckRow, Empty, ErrorBanner, Field, Row, Screen, Spinner, Split, Txt } from '@/components/ui';
 import { get, type Trip } from '@/lib/api';
 import { FLEX, GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
 import { parseDay } from '@/lib/format';
@@ -9,6 +13,7 @@ import { useAction } from '@/lib/hooks';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 import { Choice, Section } from './CreateActivity';
+import { Tile } from './CreateTrip';
 import { View } from 'react-native';
 
 
@@ -33,7 +38,9 @@ export function SearchThere() {
 
   const fromD = from ? parseDay(from) : null;
   const toD = to ? parseDay(to) : null;
-  const dateErr = (from && !fromD ? 'Use the format YYYY-MM-DD' : null) ?? (to && !toD ? 'Use the format YYYY-MM-DD' : null) ?? (fromD && toD && toD < fromD ? 'The end date is before the start date' : null);
+  const [calendar, setCalendar] = useState<null | 'start' | 'end'>(null);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   const search = async () => {
     const p = new URLSearchParams({ flexibility: flex, ...(openOnly && { openOnly: 'true' }) });
@@ -56,6 +63,8 @@ export function SearchThere() {
 
   const chips = { flexDirection: 'row', flexWrap: 'wrap', gap: 6 } as const;
   return (
+    // the calendar sits just above the dock, outside the scrolling page, so this fills the tab like the create form does
+    <View style={{ flex: 1 }}>
     <Screen tabBar wide header={<TabHeader />}>
       <View>
         <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>Search trips</Txt>
@@ -72,14 +81,31 @@ export function SearchThere() {
             </Section>
 
             <Section>
-              <Row style={{ gap: 10, alignItems: 'flex-start' }}>
-                <View style={{ flex: 1 }}>
-                  <DateField label="Earliest departure" placeholder="YYYY-MM-DD" value={from} onChangeText={setFrom} error={dateErr} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <DateField label="Latest return" placeholder="Optional" value={to} onChangeText={setTo} />
-                </View>
+              {/* the same calendar as when creating a trip: tap a box, pick the days */}
+              <Row style={{ gap: 10, alignItems: 'stretch' }}>
+                {(['start', 'end'] as const).map((k) => {
+                  const d = k === 'start' ? fromD : toD;
+                  const label = k === 'start' ? 'Earliest departure' : 'Latest return';
+                  return (
+                    <Pressable key={k} accessibilityRole="button" accessibilityLabel={`${label}: ${d ? shortDay(d) : 'any date'}. Opens a calendar`} onPress={() => setCalendar(k)} style={({ pressed }) => [{ flex: 1 }, pressed && { opacity: 0.85 }]}>
+                      <Tile label={label} style={{ minHeight: 52, justifyContent: 'center' }}>
+                        {d ? (
+                          <>
+                            <Text style={{ color: c.text, fontSize: 14, fontWeight: '800' }}>{shortDay(d)}</Text>
+                            <Text style={{ color: c.muted, fontSize: 11 }}>{d.getFullYear()}</Text>
+                          </>
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="calendar-outline" size={16} color={c.muted} />
+                            <Text style={{ color: c.muted, fontSize: 13, fontWeight: '700' }}>Any date</Text>
+                          </View>
+                        )}
+                      </Tile>
+                    </Pressable>
+                  );
+                })}
               </Row>
+              {from || to ? <Btn title="Clear dates" variant="ghost" small onPress={() => (setFrom(''), setTo(''))} style={{ alignSelf: 'flex-start' }} /> : null}
               <Txt variant="label">Date flexibility</Txt>
               <View style={chips}>
                 {FLEX.map(([v, l]) => (
@@ -121,7 +147,7 @@ export function SearchThere() {
             </Section>
 
             <ErrorBanner message={results.error?.message} />
-            <Btn title="Search" onPress={search} loading={!!query && results.loading && !results.data} disabled={!!dateErr} />
+            <Btn title="Search" onPress={search} loading={!!query && results.loading && !results.data} />
           </>
         }
         right={
@@ -146,5 +172,21 @@ export function SearchThere() {
         }
       />
     </Screen>
+      <DateRangeSheet
+        visible={calendar !== null}
+        focus={calendar ?? 'start'}
+        start={from}
+        end={to}
+        min={today}
+        max={lastPlanningDay(6)}
+        maxNights={200}
+        onClose={() => setCalendar(null)}
+        onDone={(s, e) => {
+          setFrom(s);
+          setTo(e);
+          setCalendar(null);
+        }}
+      />
+    </View>
   );
 }
