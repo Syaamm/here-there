@@ -189,6 +189,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
 
     const where: Prisma.TripWhereInput = {
       status: { in: q.openOnly === 'true' ? ['published'] : ['published', 'full', 'planning', 'confirmed'] },
+      dateStart: { gt: now }, // a trip that has started is no longer offered: people already on it see it under Taking part
       dateEnd: { gte: now },
       hostId: { notIn: blocked },
       OR: [{ visibility: 'public' }, { hostId: me.id }, { memberships: { some: { userId: me.id, state: 'approved' } } }],
@@ -291,15 +292,17 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     const isMember = m?.state === 'approved';
     if (t.visibility === 'invite_only' && !isMember && t.hostId !== me.id) throw E.notFound('Trip');
 
-    const [members, app, conv] = await Promise.all([
+    const [members, app, conv, fav] = await Promise.all([
       this.prisma.tripMembership.findMany({
         where: { tripId: id, state: 'approved' },
         include: { user: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } } },
       }),
       this.prisma.tripApplication.findUnique({ where: { tripId_applicantId: { tripId: id, applicantId: me.id } } }),
       isMember ? this.prisma.conversation.findUnique({ where: { tripId: id } }) : null,
+      this.prisma.tripFavorite.findUnique({ where: { userId_tripId: { userId: me.id, tripId: id } } }),
     ]);
     return this.dto(t, members.length, {
+      favorited: !!fav,
       isHost: t.hostId === me.id,
       isMember,
       canAppealRemoval: t.hostId === me.id && t.status === 'cancelled' && !t.cancelledAt && !(await this.prisma.appeal.findFirst({ where: { userId: me.id, kind: 'removal', targetId: id }, select: { id: true } })),
@@ -596,6 +599,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         }
       });
       await this.dropConfirmedIfSmall(tripId);
+      if (t.status === 'full') await this.announceOpenSpot(tripId);
       await this.notifications.notify(a.applicantId, 'application_declined', 'Application not approved', `Your application for ${t.title} was not approved.`, { tripId });
     }
     await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId }, a.applicantId); // the organizer's "applied" alert is answered
@@ -610,6 +614,54 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     if (t?.status === 'confirmed' && (await this.memberCount(tripId)) < t.minCapacity) await this.prisma.trip.update({ where: { id: tripId }, data: { status: 'published' } });
   }
 
+  // ---------------------------------------------------------------- favourites
+  /** Save a trip with the heart, or take it out. Only a trip that is still ahead can be saved; removing is always allowed. */
+  async favorite(me: User, id: string, on: boolean) {
+    const t = await this.prisma.trip.findUnique({ where: { id } });
+    if (!t) throw E.notFound('Trip');
+    if (on) {
+      if (t.status === 'cancelled') throw E.conflict('TRIP_CLOSED', 'This trip was cancelled, so it cannot be saved');
+      if (!['published', 'full', 'planning', 'confirmed'].includes(t.status) || t.dateStart <= new Date()) throw E.conflict('TRIP_CLOSED', 'This trip has already started, so it cannot be saved');
+      await this.prisma.tripFavorite.upsert({ where: { userId_tripId: { userId: me.id, tripId: id } }, create: { userId: me.id, tripId: id }, update: {} });
+    } else {
+      await this.prisma.tripFavorite.deleteMany({ where: { userId: me.id, tripId: id } });
+    }
+    return { favorited: on };
+  }
+
+  /** The trips you saved, newest first (cancelled ones are left out). */
+  async myFavorites(me: User) {
+    const favs = await this.prisma.tripFavorite.findMany({
+      where: { userId: me.id, trip: { status: { not: 'cancelled' } } },
+      include: { trip: { include: this.hostInclude } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    const counts = new Map((await this.prisma.tripMembership.groupBy({ by: ['tripId'], where: { tripId: { in: favs.map((f) => f.tripId) }, state: 'approved' }, _count: { _all: true } })).map((g) => [g.tripId, g._count._all]));
+    return { items: favs.map((f) => this.dto(f.trip, counts.get(f.tripId) ?? 0, { favorited: true })), total: favs.length };
+  }
+
+  /**
+   * A full trip has room again: tell the people who saved it with the heart. Anyone who is in the group, or has already
+   * applied (an application is already their place in line), is left out, and so is the organizer and anyone they blocked.
+   */
+  private async announceOpenSpot(tripId: string) {
+    const t = await this.prisma.trip.findUnique({ where: { id: tripId } });
+    if (!t || !['published', 'confirmed', 'planning'].includes(t.status) || t.dateStart <= new Date()) return;
+    if ((await this.memberCount(tripId)) >= t.maxCapacity) return;
+    const saved = (await this.prisma.tripFavorite.findMany({ where: { tripId, userId: { not: t.hostId }, user: { state: 'active' } }, select: { userId: true } })).map((f) => f.userId);
+    if (saved.length === 0) return;
+    const [members, apps] = await Promise.all([
+      this.prisma.tripMembership.findMany({ where: { tripId, userId: { in: saved }, state: 'approved' }, select: { userId: true } }),
+      this.prisma.tripApplication.findMany({ where: { tripId, applicantId: { in: saved }, state: { in: ['pending', 'waitlisted', 'approved'] } }, select: { applicantId: true } }),
+    ]);
+    const busy = new Set([...members.map((m) => m.userId), ...apps.map((a) => a.applicantId)]);
+    for (const userId of saved) {
+      if (busy.has(userId) || (await this.safety.isBlocked(t.hostId, userId))) continue;
+      await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${t.title} has room again. Apply before it fills up.`, { tripId });
+    }
+  }
+
   // ---------------------------------------------------------------- exits
   /** Members can leave without organizer permission (spec 7.3). */
   async leave(me: User, id: string) {
@@ -622,6 +674,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, applicantId: me.id }, data: { state: 'withdrawn' } });
     if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
     await this.dropConfirmedIfSmall(id);
+    if (t.status === 'full') await this.announceOpenSpot(id);
     await this.audit.log(me.id, 'trip.member_left', 'trip', id);
     this.live.feedChanged();
     return { ok: true };
@@ -636,6 +689,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.tripMembership.update({ where: { id: m.id }, data: { state: 'removed' } });
     if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
     await this.dropConfirmedIfSmall(id);
+    if (t.status === 'full') await this.announceOpenSpot(id);
     await this.audit.log(me.id, 'trip.member_removed', 'trip', id, { userId, byStaff });
     this.live.feedChanged();
     await this.notifications.notify(userId, 'removed', 'Removed from trip', `You were removed from ${t.title}.`, { tripId: id });

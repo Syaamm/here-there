@@ -74,11 +74,13 @@ export default function ActivityDetail() {
   const req = a.myRequest?.state;
   const closed = ['in_progress', 'completed', 'cancelled', 'archived'].includes(a.status);
   const over = a.status === 'completed' || a.status === 'archived';
+  // a cancelled plan, or one that has started, cannot be saved or shared (a saved one can still be taken out)
+  const ahead = !closed && +new Date(a.startsAt) > Date.now();
 
   const canHandOver = a.isHost && !over && a.status !== 'cancelled' && !a.handover && (a.participants ?? []).some((p) => p.role !== 'host' && p.verifiedAdult);
   const menu = [
     ...(canHandOver ? [{ label: t('Hand over hosting'), onSelect: () => setHanding(true) }] : []),
-    { label: a.favorited ? t('Remove from favourites') : t('Add to favourites'), onSelect: () => void act.run(() => (a.favorited ? del(`/v1/activities/${id}/favorite`) : post(`/v1/activities/${id}/favorite`))) },
+    ...(ahead || a.favorited ? [{ label: a.favorited ? t('Remove from favourites') : t('Add to favourites'), onSelect: () => void act.run(() => (a.favorited ? del(`/v1/activities/${id}/favorite`) : post(`/v1/activities/${id}/favorite`))) }] : []),
     ...(a.isHost
       ? []
       : [
@@ -388,7 +390,7 @@ export default function ActivityDetail() {
       <View pointerEvents="box-none" style={{ position: 'absolute', top, left: gutter, right: gutter, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <FloatingButton round size={38} fx="nudge" icon="chevron-back" label={t('Go back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          {isGuest ? null : (
+          {isGuest || !(ahead || fav) ? null : (
             <FloatingButton
               round
               size={38}
@@ -403,7 +405,7 @@ export default function ActivityDetail() {
               }}
             />
           )}
-          <FloatingButton round size={38} icon="share-social-outline" label={t('Share this activity')} onPress={share} />
+          {ahead ? <FloatingButton round size={38} icon="share-social-outline" label={t('Share this activity')} onPress={share} /> : null}
           {isGuest ? null : <Menu floating round size={38} items={menu} />}
         </View>
       </View>

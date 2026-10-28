@@ -549,7 +549,10 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       );
       await this.audit.log(me.id, 'activity.material_change', 'activity', id, { venueChanged, timeChanged });
     }
-    if (dto.capacity !== undefined) await this.fillFromWaitlist(id); // a higher limit lets people in off the waiting list
+    if (dto.capacity !== undefined) {
+      await this.fillFromWaitlist(id); // a higher limit lets people in off the waiting list
+      if (a.status === 'full') await this.announceOpenSpot(id);
+    }
     this.live.feedChanged();
     return this.detail(me, id);
   }
@@ -695,6 +698,32 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.activityRequest.count({
       where: { activityId, state: 'waitlisted', OR: [{ createdAt: { lt: createdAt } }, { createdAt, id: { lte: id } }] },
     });
+  }
+
+  private async isFull(activityId: string) {
+    return (await this.prisma.activity.findUnique({ where: { id: activityId }, select: { status: true } }))?.status === 'full';
+  }
+
+  /**
+   * A full activity has room again (and the waiting list did not take it): tell the people who saved it with the heart.
+   * Anyone who is going, or already asked (their place in line is theirs), is left out, and so is the host and anyone the
+   * host has blocked. Called after fillFromWaitlist, so a place the waiting list took is never announced.
+   */
+  async announceOpenSpot(activityId: string) {
+    const a = await this.prisma.activity.findUnique({ where: { id: activityId } });
+    if (!a || !['published', 'confirmed'].includes(a.status) || a.startsAt <= new Date()) return;
+    if ((await this.goingCount(activityId)) >= a.capacity) return;
+    const saved = (await this.prisma.favorite.findMany({ where: { activityId, userId: { not: a.hostId }, user: { state: 'active' } }, select: { userId: true } })).map((f) => f.userId);
+    if (saved.length === 0) return;
+    const [members, requests] = await Promise.all([
+      this.prisma.activityMembership.findMany({ where: { activityId, userId: { in: saved }, state: 'approved' }, select: { userId: true } }),
+      this.prisma.activityRequest.findMany({ where: { activityId, applicantId: { in: saved }, state: { in: ['requested', 'waitlisted', 'approved'] } }, select: { applicantId: true } }),
+    ]);
+    const busy = new Set([...members.map((m) => m.userId), ...requests.map((r) => r.applicantId)]);
+    for (const userId of saved) {
+      if (busy.has(userId) || (await this.safety.isBlocked(a.hostId, userId))) continue;
+      await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${a.title} has room again. Ask to join before it fills up.`, { activityId });
+    }
   }
 
   /**
@@ -845,6 +874,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       });
     } else {
       // decline, including reversing an earlier approval (access is revoked immediately)
+      const wasFull = await this.isFull(activityId);
       await this.prisma.$transaction(async (tx) => {
         await tx.activityRequest.update({
           where: { id: r.id },
@@ -860,6 +890,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         activityId,
       });
       await this.fillFromWaitlist(activityId); // a reversed approval frees a place too
+      if (wasFull) await this.announceOpenSpot(activityId);
     }
     await this.notifications.settleRequest(a.hostId, 'join_request', { activityId }, r.applicantId); // the host's "wants to join" alert is answered
     await this.audit.log(me.id, `activity.request.${decision}`, 'activity_request', r.id, { activityId, applicantId: r.applicantId });
@@ -895,10 +926,12 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async setMemberGone(a: Activity, membershipId: string, state: 'withdrawn' | 'removed') {
+    const wasFull = await this.isFull(a.id);
     // a member leaving of their own accord is timestamped: leaving at the last minute counts against reliability
     await this.prisma.activityMembership.update({ where: { id: membershipId }, data: { state, ...(state === 'withdrawn' ? { leftAt: new Date() } : {}) } });
     await this.refreshStatus(a.id);
     await this.fillFromWaitlist(a.id); // the first person waiting takes the place
+    if (wasFull) await this.announceOpenSpot(a.id); // and if nobody was waiting, the people who saved it hear of the free place
     this.live.feedChanged();
   }
 
@@ -983,6 +1016,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const a = await this.prisma.activity.findUnique({ where: { id } });
     if (!a) throw E.notFound('Activity');
     if (on) {
+      // only a plan that is still ahead can be saved; taking a saved one out is always allowed
+      if (a.status === 'cancelled') throw E.conflict('ACTIVITY_CLOSED', 'This activity was cancelled, so it cannot be saved');
+      if (!['published', 'full', 'confirmed'].includes(a.status) || a.startsAt <= new Date()) throw E.conflict('ACTIVITY_CLOSED', 'This activity has already started, so it cannot be saved');
       await this.prisma.favorite.upsert({
         where: { userId_activityId: { userId: me.id, activityId: id } },
         create: { userId: me.id, activityId: id },

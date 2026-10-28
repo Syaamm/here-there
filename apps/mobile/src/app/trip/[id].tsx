@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AskAgain } from '@/components/AskAgain';
@@ -35,6 +35,11 @@ export default function TripDetail() {
   const { data: trip, error, loading, reload } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'trip' | 'user'; id: string } | null>(null);
+  // the heart answers at once; the server confirms a moment later (a failed save puts it back)
+  const [favNow, setFavNow] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (favNow !== null && !!trip?.favorited === favNow) setFavNow(null); // the server has caught up
+  }, [trip?.favorited, favNow]);
 
   if (loading && !trip)
     return (
@@ -53,6 +58,9 @@ export default function TripDetail() {
   const app = trip.myApplication;
   const closed = ['cancelled', 'completed'].includes(trip.status);
   const full = trip.status === 'full' || trip.spotsLeft === 0;
+  // a cancelled trip, or one that has started, cannot be saved or shared (a saved one can still be taken out)
+  const ahead = !closed && +new Date(trip.dateStart) > Date.now();
+  const fav = favNow ?? !!trip.favorited;
 
   const menu = trip.isHost || isGuest
     ? []
@@ -292,7 +300,22 @@ export default function TripDetail() {
       <View pointerEvents="box-none" style={{ position: 'absolute', top, left: gutter, right: gutter, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <FloatingButton round size={38} fx="nudge" icon="chevron-back" label={t('Go back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <FloatingButton round size={38} icon="share-social-outline" label={t('Share this trip')} onPress={share} />
+          {isGuest || !(ahead || fav) ? null : (
+            <FloatingButton
+              round
+              size={38}
+              fx="pop"
+              icon={fav ? 'heart' : 'heart-outline'}
+              color={fav ? '#FF6B6B' : '#fff'}
+              label={fav ? t('Remove from favourites') : t('Add to favourites')}
+              onPress={() => {
+                const next = !fav;
+                setFavNow(next);
+                void act.run(() => (next ? post(`/v1/trips/${id}/favorite`) : del(`/v1/trips/${id}/favorite`))).then((r) => r === undefined && setFavNow(null));
+              }}
+            />
+          )}
+          {ahead ? <FloatingButton round size={38} icon="share-social-outline" label={t('Share this trip')} onPress={share} /> : null}
           {menu.length ? <Menu floating round size={38} items={menu} /> : null}
         </View>
       </View>

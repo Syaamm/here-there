@@ -29,7 +29,7 @@ const base = {
   infoBg: '#E9F0ED',
   infoFg: '#2C4A41',
   // the floating dock: a frosted pill, and the fade behind it
-  dockFill: 'rgba(255,255,255,0.88)',
+  dockFill: 'rgba(255,255,255,0.97)',
   fadeFrom: 'rgba(255,255,255,0)',
   fadeTo: 'rgba(255,255,255,0.78)',
   /** the stand-in picture block of a detail page (until real photos exist) */
@@ -73,7 +73,7 @@ const there: typeof base & { bg: string; headerBg: string } = {
   badFg: '#8A2F1E',
   infoBg: '#DDD7C9',
   infoFg: '#2C4A41',
-  dockFill: 'rgba(244,241,234,0.92)',
+  dockFill: 'rgba(244,241,234,0.97)',
   fadeFrom: 'rgba(233,229,221,0)',
   fadeTo: 'rgba(233,229,221,0.82)',
   heroBlock: '#D8CDB5',

@@ -54,7 +54,7 @@ export function ExploreThere() {
   // The API searches by destination only, so free text here filters the loaded trips on the device.
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const all = [...(feed.data?.items ?? [])].sort((a, b) => +new Date(a.dateStart) - +new Date(b.dateStart));
+    const all = (feed.data?.items ?? []).filter((x) => +new Date(x.dateStart) > Date.now()).sort((a, b) => +new Date(a.dateStart) - +new Date(b.dateStart));
     return needle ? all.filter((x) => `${x.title} ${x.destination} ${x.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
   }, [feed.data, q]);
 
@@ -70,9 +70,13 @@ export function ExploreThere() {
       ? { key: x.id, t: x as Trip, label: x.role === 'host' ? t('You organise this') : t('Going'), tone: 'ok' as const }
       : { key: x.trip.id, t: x.trip, label: x.state === 'pending' ? t('Request pending') : t('On the waiting list'), tone: 'warn' as const },
   );
+  // a trip that has started is no longer "next": it moves to Taking part (an application to one is simply over)
+  const underWay = (x: { t: Trip }) => +new Date(x.t.dateStart) <= now;
+  const taking = mineAll.filter((x) => underWay(x) && x.tone === 'ok');
+  const ahead = mineAll.filter((x) => !underWay(x));
   // the cards show the two soonest; "+N more" appears only when there are more than two, and lists just the others
-  const next = mineAll.slice(0, 2);
-  const more = mineAll.slice(2);
+  const next = ahead.slice(0, 2);
+  const more = ahead.slice(2);
   const [moreOpen, setMoreOpen] = useState(false);
   const { width, gutter } = useLayout();
   const cardW = Math.min(480, width - gutter * 2 - 28); // a bit of the next card peeks in, so it is clear you can swipe
@@ -100,6 +104,25 @@ export function ExploreThere() {
 
       {feed.data && items.length === 0 && (
         <Empty title={q || tag ? t('No trips match') : t('No trips yet')}>{q || tag ? t('Try another search.') : t('Be the first to propose one.')}</Empty>
+      )}
+
+      {taking.length > 0 && (
+        <Reveal index={0} style={{ gap: 12 }}>
+          <SectionHeader title={t('Taking part')} />
+          {taking.length === 1 ? (
+            <View style={{ width: '100%', maxWidth: 480 }}>
+              <TripNextUpCard t={taking[0].t} status={{ label: t(taking[0].label), tone: taking[0].tone }} />
+            </View>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={cardW + 12} snapToAlignment="start" decelerationRate="fast" disableIntervalMomentum style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }}>
+              {taking.map((x) => (
+                <View key={x.key} style={{ width: cardW }}>
+                  <TripNextUpCard t={x.t} status={{ label: t(x.label), tone: x.tone }} />
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </Reveal>
       )}
 
       {next.length > 0 && (

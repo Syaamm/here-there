@@ -5,7 +5,6 @@
   "scripts": {
     "api": "npm start -w @here-there/api",
     "admin": "npm run dev -w @here-there/admin",
-    "web": "npm run dev -w @here-there/here",
     "mobile": "npm start -w @here-there/mobile"
   },
   "overrides": {

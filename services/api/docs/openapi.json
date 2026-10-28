@@ -1182,6 +1182,7 @@
         ],
         "summary": "Save an activity to favourites",
         "operationId": "Activities_favorite",
+        "description": "Refused (ACTIVITY_CLOSED) once the activity is cancelled or has started. Removing a favourite is always allowed.",
         "parameters": [
           {
             "name": "id",
@@ -1218,6 +1219,16 @@
           },
           "404": {
             "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `ACTIVITY_CLOSED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -8142,6 +8153,60 @@
         }
       }
     },
+    "/v1/me/favorite-trips": {
+      "get": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "My favourite trips",
+        "operationId": "Trips_favorites",
+        "responses": {
+          "200": {
+            "description": "{ items: Trip[], total }. Newest saved first, cancelled trips left out."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/me/favorites": {
       "get": {
         "tags": [
@@ -12252,6 +12317,163 @@
         }
       }
     },
+    "/v1/trips/{id}/favorite": {
+      "delete": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Remove a trip from favourites",
+        "operationId": "Trips_unfavorite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "Save a trip to favourites",
+        "operationId": "Trips_favorite",
+        "description": "Refused (TRIP_CLOSED) once the trip is cancelled or has started. Removing a favourite is always allowed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `TRIP_CLOSED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/trips/{id}/leave": {
       "post": {
         "tags": [
@@ -14078,8 +14300,8 @@
     {
       "code": "ACTIVITY_CLOSED",
       "status": 409,
-      "meaning": "The activity can no longer be edited (it started or finished).",
-      "clientShould": "Hide the edit action."
+      "meaning": "The activity can no longer be edited, joined or saved (it was cancelled, started or finished).",
+      "clientShould": "Hide the edit, join, favourite and share actions."
     },
     {
       "code": "ACTIVITY_FINISHED",
@@ -14354,8 +14576,8 @@
     {
       "code": "TRIP_CLOSED",
       "status": 409,
-      "meaning": "The trip can no longer be edited.",
-      "clientShould": "Hide the edit action."
+      "meaning": "The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over).",
+      "clientShould": "Hide the edit, apply, favourite and share actions."
     },
     {
       "code": "TRIP_FULL",

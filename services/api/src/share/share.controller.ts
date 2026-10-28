@@ -45,7 +45,7 @@ export class ShareController {
     const cfg = shareConfig();
     const a = await this.prisma.activity.findUnique({ where: { id: id.slice(0, 64) }, select: { id: true, title: true, city: true, startsAt: true, status: true, visibility: true } });
     // an invite-only plan is described to no one outside it
-    const item: ShareItem = a && a.visibility === 'public' && ACTIVITY_SHAREABLE.includes(a.status) ? { kind: 'activity', id: a.id, title: a.title, lines: activityLines(a, cfg.timeZone) } : null;
+    const item: ShareItem = a && a.visibility === 'public' && ACTIVITY_SHAREABLE.includes(a.status) && a.startsAt > new Date() ? { kind: 'activity', id: a.id, title: a.title, lines: activityLines(a, cfg.timeZone) } : null;
     const page = renderSharePage('activity', id.slice(0, 64), item, ua, cfg);
     this.send(res, page.status, page.html);
   }
@@ -56,7 +56,7 @@ export class ShareController {
     this.visit(ip);
     const cfg = shareConfig();
     const t = await this.prisma.trip.findUnique({ where: { id: id.slice(0, 64) }, select: { id: true, title: true, destination: true, dateStart: true, dateEnd: true, status: true } });
-    const item: ShareItem = t && TRIP_SHAREABLE.includes(t.status) ? { kind: 'trip', id: t.id, title: t.title, lines: tripLines(t, cfg.timeZone) } : null;
+    const item: ShareItem = t && TRIP_SHAREABLE.includes(t.status) && t.dateStart > new Date() ? { kind: 'trip', id: t.id, title: t.title, lines: tripLines(t, cfg.timeZone) } : null;
     const page = renderSharePage('trip', id.slice(0, 64), item, ua, cfg);
     this.send(res, page.status, page.html);
   }

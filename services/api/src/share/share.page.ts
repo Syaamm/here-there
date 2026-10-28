@@ -37,7 +37,7 @@ export type ShareItem = { kind: 'activity' | 'trip'; id: string; title: string; 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 /** Only plans that are still on, and open to anyone, are described. Anything else looks the same as a plan that never existed. */
-export const ACTIVITY_SHAREABLE = ['published', 'full', 'confirmed', 'in_progress'];
+export const ACTIVITY_SHAREABLE = ['published', 'full', 'confirmed']; // and it has not started yet (the share page checks the time too)
 export const TRIP_SHAREABLE = ['published', 'full', 'planning', 'confirmed'];
 
 const dayFormat = (d: Date, tz: string, withTime: boolean) =>

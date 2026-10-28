@@ -902,6 +902,32 @@ describe('HERE: create, discover, request, approve, chat', () => {
     assert.equal((await get('/v1/me/favorites', u.token)).body.items[0].id, id);
     assert.equal((await get('/v1/me/activities', host.token)).body.joined[0].role, 'host');
   });
+
+  it('does not let a cancelled or started activity be saved or shared, but always lets a saved one be removed', async () => {
+    const host = await verified('HostClosed');
+    const fan = await verified('FanClosed');
+    const shareStatus = async (id: string) => (await fetch(`${base}/a/${id}`, { redirect: 'manual' })).status;
+    const ahead = (await post('/v1/activities', host.token, activityBody({ title: 'Still ahead' }))).body.id as string;
+    assert.equal((await post(`/v1/activities/${ahead}/favorite`, fan.token)).status < 300, true);
+    assert.equal(await shareStatus(ahead), 200);
+
+    // cancelled: it cannot be saved, it has no share page, and a copy saved earlier can still be removed
+    assert.equal((await post(`/v1/activities/${ahead}/cancel`, host.token)).status, 201);
+    const cancelled = (await post('/v1/activities', host.token, activityBody({ title: 'Cancelled soon' }))).body.id as string;
+    assert.equal((await post(`/v1/activities/${cancelled}/cancel`, host.token)).status, 201);
+    const refused = await post(`/v1/activities/${cancelled}/favorite`, fan.token);
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.code, 'ACTIVITY_CLOSED');
+    assert.equal(await shareStatus(cancelled), 404);
+    assert.equal((await call('DELETE', `/v1/activities/${ahead}/favorite`, fan.token)).status, 200);
+
+    // started: the same
+    const started = (await post('/v1/activities', host.token, activityBody({ title: 'Already running' }))).body.id as string;
+    assert.equal(await shareStatus(started), 200);
+    await prisma.activity.update({ where: { id: started }, data: { startsAt: new Date(Date.now() - 600_000), endsAt: new Date(Date.now() + 3_600_000) } });
+    assert.equal((await post(`/v1/activities/${started}/favorite`, fan.token)).body.code, 'ACTIVITY_CLOSED');
+    assert.equal(await shareStatus(started), 404);
+  });
 });
 
 describe('safety: blocks, reports, suspension, moderation', () => {
@@ -3582,5 +3608,139 @@ describe('sign-in protection, proxies and the seed script', () => {
     assert.match(run(''), /ADMIN_PASSWORD/); // empty means "not set": the public default is refused
     assert.match(run('change-me-admin-1'), /ADMIN_PASSWORD/);
     assert.match(run('too-short'), /at least 14/);
+  });
+});
+
+describe('favourites: trips can be saved, and savers hear when a place opens', () => {
+  const alerts = async (u: { token: string }, type: string) => (await get('/v1/notifications', u.token)).body.items.filter((n: { type: string }) => n.type === type);
+  const tripBody = (over: Record<string, unknown> = {}) => ({
+    title: 'Lisbon long weekend',
+    destination: 'Lisbon, Portugal',
+    originCity: 'Milan',
+    dateStart: new Date(Date.now() + 40 * 24 * 3600 * 1000).toISOString(),
+    dateEnd: new Date(Date.now() + 44 * 24 * 3600 * 1000).toISOString(),
+    dateFlexibility: 'exact',
+    budgetMin: 600,
+    budgetMax: 900,
+    budgetIncludesTransport: true,
+    tags: ['food'],
+    groupSize: '2-3',
+    ...over,
+  });
+
+  it('tells people who saved a full activity when a place frees up, but not those already going or waiting', async () => {
+    const host = await verified('OpenHost');
+    const a = await verified('OpenA');
+    const fan = await verified('OpenFan');
+    const waiter = await verified('OpenWaiter');
+    const id = (await post('/v1/activities', host.token, activityBody({ title: 'Tiny table', capacity: 2 }))).body.id as string;
+    const reqA = await post(`/v1/activities/${id}/requests`, a.token, {});
+    await post(`/v1/activities/${id}/requests/${reqA.body.id}/decision`, host.token, { decision: 'approve' });
+    assert.equal((await get(`/v1/activities/${id}`, host.token)).body.status, 'full');
+    // one person saves it, another saves it and joins the waiting list
+    assert.equal((await post(`/v1/activities/${id}/favorite`, fan.token)).status, 201);
+    assert.equal((await post(`/v1/activities/${id}/favorite`, waiter.token)).status, 201);
+    assert.equal((await post(`/v1/activities/${id}/requests`, waiter.token, {})).body.state, 'waitlisted');
+
+    // a place frees up and the waiting list takes it: nothing to announce
+    assert.equal((await post(`/v1/activities/${id}/leave`, a.token)).status, 201);
+    assert.equal((await get(`/v1/activities/${id}`, waiter.token)).body.isMember, true);
+    assert.equal((await alerts(fan, 'spot_opened')).length, 0);
+
+    // it frees up again and nobody is waiting: the person who saved it is told, once; the one who was going is not
+    assert.equal((await call('DELETE', `/v1/activities/${id}/members/${waiter.id}`, host.token)).status, 200);
+    const told = await alerts(fan, 'spot_opened');
+    assert.equal(told.length, 1);
+    assert.equal(told[0].data.activityId, id);
+    assert.equal((await alerts(waiter, 'spot_opened')).length, 0);
+    assert.equal((await alerts(host, 'spot_opened')).length, 0);
+
+    // a plan that was not full says nothing when someone leaves it
+    const roomy = (await post('/v1/activities', host.token, activityBody({ title: 'Roomy table', capacity: 5 }))).body.id as string;
+    const reqR = await post(`/v1/activities/${roomy}/requests`, a.token, {});
+    await post(`/v1/activities/${roomy}/requests/${reqR.body.id}/decision`, host.token, { decision: 'approve' });
+    await post(`/v1/activities/${roomy}/favorite`, fan.token);
+    await post(`/v1/activities/${roomy}/leave`, a.token);
+    assert.equal((await alerts(fan, 'spot_opened')).length, 1, 'still just the first one');
+  });
+
+  it('lets trips be saved with the heart, shows them in the list, and refuses cancelled and started ones', async () => {
+    const org = await verified('HeartOrg');
+    const fan = await verified('HeartFan');
+    const t = (await post('/v1/trips', org.token, tripBody())).body.id as string;
+    assert.equal((await get(`/v1/trips/${t}`, fan.token)).body.favorited, false);
+    assert.equal((await post(`/v1/trips/${t}/favorite`, fan.token)).status, 201);
+    assert.equal((await get(`/v1/trips/${t}`, fan.token)).body.favorited, true);
+    const list = (await get('/v1/me/favorite-trips', fan.token)).body;
+    assert.deepEqual(list.items.map((x: { id: string }) => x.id), [t]);
+    assert.equal(list.items[0].favorited, true);
+    assert.equal((await call('DELETE', `/v1/trips/${t}/favorite`, fan.token)).status, 200);
+    assert.equal((await get('/v1/me/favorite-trips', fan.token)).body.items.length, 0);
+
+    const gone = (await post('/v1/trips', org.token, tripBody({ title: 'Cancelled trip' }))).body.id as string;
+    assert.equal((await post(`/v1/trips/${gone}/cancel`, org.token)).status, 201);
+    const refused = await post(`/v1/trips/${gone}/favorite`, fan.token);
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.code, 'TRIP_CLOSED');
+    assert.equal((await fetch(`${base}/t/${gone}`, { redirect: 'manual' })).status, 404);
+
+    const begun = (await post('/v1/trips', org.token, tripBody({ title: 'Already under way' }))).body.id as string;
+    await prisma.trip.update({ where: { id: begun }, data: { dateStart: new Date(Date.now() - 86_400_000), dateEnd: new Date(Date.now() + 3 * 86_400_000) } });
+    assert.equal((await post(`/v1/trips/${begun}/favorite`, fan.token)).body.code, 'TRIP_CLOSED');
+    assert.equal((await fetch(`${base}/t/${begun}`, { redirect: 'manual' })).status, 404);
+  });
+
+  it('tells people who saved a full trip when a place frees up, but not those in the group or already applied', async () => {
+    const org = await verified('FullOrg');
+    const m1 = await verified('FullM1');
+    const m2 = await verified('FullM2');
+    const fan = await verified('FullFan');
+    const t = (await post('/v1/trips', org.token, tripBody({ title: 'Full house trip' }))).body.id as string;
+    const apply = { intro: 'I love food and walking.', confirmBudget: true, confirmDates: true, confirmGuidelines: true };
+    for (const who of [m1, m2]) {
+      const ap = await post(`/v1/trips/${t}/applications`, who.token, apply);
+      assert.equal((await post(`/v1/trips/${t}/applications/${ap.body.id}/decision`, org.token, { decision: 'approve' })).body.state, 'approved');
+    }
+    assert.equal((await get(`/v1/trips/${t}`, org.token)).body.status, 'full');
+    assert.equal((await post(`/v1/trips/${t}/favorite`, fan.token)).status, 201);
+    assert.equal((await post(`/v1/trips/${t}/favorite`, m2.token)).status, 201);
+
+    assert.equal((await post(`/v1/trips/${t}/leave`, m1.token)).status, 201);
+    const told = await alerts(fan, 'spot_opened');
+    assert.equal(told.length, 1);
+    assert.equal(told[0].data.tripId, t);
+    assert.equal((await alerts(m2, 'spot_opened')).length, 0, 'someone already in the group is not told');
+    assert.equal((await alerts(org, 'spot_opened')).length, 0);
+  });
+});
+
+describe('THERE feed: a trip that has started is no longer offered', () => {
+  it('leaves a started trip out of discovery, but keeps it in the list of the people on it', async () => {
+    const org = await verified('UnderWayOrg');
+    const stranger = await verified('UnderWayViewer');
+    const day = 24 * 3600 * 1000;
+    const body = (title: string, startOffset: number) => ({
+      title,
+      destination: 'Underwayville, Norway',
+      originCity: 'Milan',
+      dateStart: new Date(Date.now() + startOffset * day).toISOString(),
+      dateEnd: new Date(Date.now() + (startOffset + 6) * day).toISOString(),
+      dateFlexibility: 'exact',
+      budgetMin: 500,
+      budgetMax: 800,
+      budgetIncludesTransport: true,
+      tags: ['nature'],
+      groupSize: '2-3',
+    });
+    const ahead = (await post('/v1/trips', org.token, body('Still ahead trip', 10))).body.id as string;
+    const begun = (await post('/v1/trips', org.token, body('Already under way trip', 10))).body.id as string;
+    await prisma.trip.update({ where: { id: begun }, data: { dateStart: new Date(Date.now() - 2 * day), dateEnd: new Date(Date.now() + 4 * day) } });
+
+    const titles = async (who: { token: string }) => (await get('/v1/trips?destination=underwayville&limit=50', who.token)).body.items.map((x: { title: string }) => x.title);
+    assert.deepEqual(await titles(stranger), ['Still ahead trip']);
+    assert.deepEqual(await titles(org), ['Still ahead trip'], 'not even for the organizer, whose own list shows it under their trips');
+    const mine = (await get('/v1/me/trips/page?upcoming=1&limit=6', org.token)).body.items.map((x: { title: string }) => x.title).sort();
+    assert.deepEqual(mine, ['Already under way trip', 'Still ahead trip']);
+    assert.ok(ahead && begun);
   });
 });

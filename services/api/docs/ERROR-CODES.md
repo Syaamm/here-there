@@ -100,7 +100,7 @@ Every failed request returns the same body:
 | --- | --- | --- | --- |
 | `ACCOUNT_EXISTS` | 409 | An account with this email exists but its email was never confirmed, so it is not linked automatically. | Ask the person to sign in with the password. |
 | `ACTIVITY_CANCELLED` | 409 | The activity was cancelled. | Refresh the activity and show it as cancelled. |
-| `ACTIVITY_CLOSED` | 409 | The activity can no longer be edited (it started or finished). | Hide the edit action. |
+| `ACTIVITY_CLOSED` | 409 | The activity can no longer be edited, joined or saved (it was cancelled, started or finished). | Hide the edit, join, favourite and share actions. |
 | `ACTIVITY_FINISHED` | 409 | The activity has already finished. | Refresh and show it as completed. |
 | `ACTIVITY_FULL` | 409 | No seats left (the person may be put on the waiting list instead). | Show "full" or the waiting-list option. |
 | `ALREADY_APPEALED` | 409 | This decision was already appealed once (a suspension: once every 30 days). | Show the earlier appeal and its answer. |
@@ -146,7 +146,7 @@ Every failed request returns the same body:
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (5). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
-| `TRIP_CLOSED` | 409 | The trip can no longer be edited. | Hide the edit action. |
+| `TRIP_CLOSED` | 409 | The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over). | Hide the edit, apply, favourite and share actions. |
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |
 
 ## Limits (413, 415, 429)

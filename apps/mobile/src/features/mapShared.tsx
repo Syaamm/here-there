@@ -52,6 +52,38 @@ export const fmtKm = (km: number) => (km < 1 ? tr('under 1 km') : km < 10 ? `${k
 
 type Distance = { status: 'idle' | 'locating' | 'denied' | 'error' | 'done'; me?: Fix };
 
+const foundCenters = new Map<string, [number, number] | null>(); // cities already looked up, so each is searched once per session
+
+/**
+ * Where a city is on the map. A few are known; any other city the person types is looked up once through our place search
+ * (the first result is the city itself). Until it is found, or when it cannot be, this is null.
+ */
+function useCityCenter(city: string): { at: [number, number] | null; looking: boolean } {
+  const key = city.trim().toLowerCase();
+  const known = CITY_CENTERS[key];
+  const [found, setFound] = useState<{ key: string; at: [number, number] | null } | null>(null);
+  useEffect(() => {
+    if (known || key.length < 3) return;
+    if (foundCenters.has(key)) {
+      setFound({ key, at: foundCenters.get(key) ?? null });
+      return;
+    }
+    let live = true;
+    get<{ items: { lat: number; lng: number }[] }>(`/v1/places/search?${new URLSearchParams({ q: city.trim() })}`)
+      .then((r) => {
+        const at: [number, number] | null = r.items[0] ? [r.items[0].lat, r.items[0].lng] : null;
+        foundCenters.set(key, at);
+        if (live) setFound({ key, at });
+      })
+      .catch(() => live && setFound({ key, at: null })); // not remembered: a failed search is tried again next time
+    return () => {
+      live = false;
+    };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const done = found?.key === key;
+  return { at: known ?? (done ? found.at : null), looking: !known && key.length >= 3 && !done };
+}
+
 /** Everything both map screens share: the data, "Near me", and which pin is selected. Venues only, never people. */
 export function useMapData() {
   const { t } = useT();
@@ -102,13 +134,24 @@ export function useMapData() {
     for (const g of by.values()) g.items.sort((x, y) => +new Date(x.startsAt) - +new Date(y.startsAt));
     return [...by.values()];
   }, [pins]);
+  const { at: cityCenter, looking: findingCity } = useCityCenter(city);
   const selected = groups.find((g) => g.key === selectedKey) ?? null;
   const setSelected = (g: Group | null) => {
     setSelectedKey(g?.key ?? null);
     setActiveId(null);
     setDist({ status: 'idle' });
   };
-  const center = near ? ([near.lat, near.lng] as [number, number]) : (CITY_CENTERS[city.toLowerCase()] ?? (pins[0] ? ([pins[0].lat, pins[0].lng] as [number, number]) : null));
+  const center = near ? ([near.lat, near.lng] as [number, number]) : (cityCenter ?? (pins[0] ? ([pins[0].lat, pins[0].lng] as [number, number]) : null));
+  const cityCenterRef = useRef(cityCenter);
+  cityCenterRef.current = cityCenter;
+
+  // Picking another city moves the map there (the map itself is only built once, so it has to be told).
+  const centerKey = cityCenter ? `${cityCenter[0]},${cityCenter[1]}` : '';
+  const shownCenter = useRef(centerKey);
+  useEffect(() => {
+    if (centerKey && centerKey !== shownCenter.current && cityCenter) setTarget({ lat: cityCenter[0], lng: cityCenter[1], zoom: 'city' });
+    shownCenter.current = centerKey;
+  }, [centerKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Arriving from the list with ?focus=<activity id>: select that venue and move the map to it, once per arrival.
   useEffect(() => {
@@ -127,8 +170,6 @@ export function useMapData() {
   }, [focus, stamp, pins]);
 
   // Leaving the map puts it back to the default view: whole city, every activity, nothing selected.
-  const cityRef = useRef(city);
-  cityRef.current = city;
   useFocusEffect(
     useCallback(
       () => () => {
@@ -137,7 +178,7 @@ export function useMapData() {
         setDist({ status: 'idle' });
         setNear(null);
         setCat('');
-        const home = CITY_CENTERS[cityRef.current.toLowerCase()];
+        const home = cityCenterRef.current;
         setTarget(home ? { lat: home[0], lng: home[1], zoom: 'city' } : null);
       },
       [],
@@ -171,7 +212,7 @@ export function useMapData() {
     setDist(r.ok ? { status: 'done', me: { lat: r.lat, lng: r.lng } } : { status: r.reason });
   };
 
-  return { city, setCity, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target };
+  return { city, setCity, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
 }
 
 /** The teardrop pin's width: a little bigger for a place with more activities. */

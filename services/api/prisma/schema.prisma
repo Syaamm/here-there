@@ -71,6 +71,7 @@ model User {
   blocksReceived    Block[]  @relation("blocked")
   reportsMade       Report[] @relation("reporter")
   favorites         Favorite[]
+  tripFavorites     TripFavorite[]
   following         Follow[] @relation("follower")
   followers         Follow[] @relation("followed")
   recoveryCodes     MfaRecoveryCode[]
@@ -281,6 +282,7 @@ model Trip {
   datesState            String   @default("tentative") // tentative | proposed (final dates put to the group; everyone must confirm)
   conversation          Conversation?
   items                 TripItem[]
+  favorites             TripFavorite[]
 
   @@index([destinationKey, dateStart])
 }
@@ -389,6 +391,17 @@ model Favorite {
   createdAt  DateTime @default(now())
 
   @@id([userId, activityId])
+}
+
+// A trip saved with the heart (like Favorite, for activities).
+model TripFavorite {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, tripId])
 }
 
 // One person following another. Two people who follow each other are "buddies". Never visible to anyone but the two of them.

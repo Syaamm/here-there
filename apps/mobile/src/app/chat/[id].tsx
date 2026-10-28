@@ -14,7 +14,7 @@ import { ApiError, get, post, type ConversationRef, type GroupInfo, type Notif, 
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, dayLabel, hhmm, parseDay } from '@/lib/format';
-import { useKeyboardInset, useKeyboardShown } from '@/lib/keyboard';
+import { useKeyboardOverlap, useKeyboardShown } from '@/lib/keyboard';
 import { cursorDeps, patchCache, useAction, useLoad } from '@/lib/hooks';
 import { BackArrow } from '@/components/TabHeader';
 import { statusTop } from '@/lib/layout';
@@ -205,7 +205,7 @@ function Chat({ id }: { id: string }) {
   const [text, setText] = useState('');
   const typing = useKeyboardShown();
   const bottomGap = typing ? 0 : Math.max(insets.bottom, 10); // no dock here: the chat fills the screen, down to the home bar
-  const keyboard = useKeyboardInset();
+  const { inset: keyboard, box: chatBox, onLayout: chatLayout } = useKeyboardOverlap();
   // leaving by the swipe-back (or the arrow): the keyboard goes down while the screen goes sideways
   const navigation = useNavigation();
   useEffect(() => navigation.addListener('transitionStart' as never, ((e: { data?: { closing?: boolean } }) => e?.data?.closing && Keyboard.dismiss()) as never), [navigation]); // the chat ends at the bottom edge, so the keyboard simply pushes it up by its own height
@@ -384,7 +384,7 @@ function Chat({ id }: { id: string }) {
     // on tablets and desktops the conversation is a centred, readable column rather than edge to edge
     <>
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: c.bg }}>
-    <Animated.View style={{ flex: 1, width: '100%', maxWidth: 760, backgroundColor: c.bg, paddingBottom: keyboard }}>
+    <Animated.View ref={chatBox} onLayout={chatLayout} style={{ flex: 1, width: '100%', maxWidth: 760, backgroundColor: c.bg, paddingBottom: keyboard }}>
       <Stack.Screen options={{ title: conv?.title ?? t('Group chat') }} />
       {/* the chat's own top row: back, who it is (tap for group info), and the menu */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: statusTop(insets.top) + 8, paddingBottom: 6, paddingHorizontal: 12 }}>

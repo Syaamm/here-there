@@ -28,6 +28,7 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   follow: 'people-outline',
   request_approved: 'checkmark-circle-outline',
   waitlist_promoted: 'sparkles-outline',
+  spot_opened: 'add-circle-outline',
   request_declined: 'close-circle-outline',
   trip_application: 'person-add-outline',
   application_approved: 'checkmark-circle-outline',

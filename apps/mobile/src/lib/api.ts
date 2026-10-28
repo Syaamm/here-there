@@ -256,6 +256,8 @@ export type Activity = {
 
 export type Trip = {
   id: string;
+  /** saved with the heart by the person looking */
+  favorited?: boolean;
   title: string;
   destination: string;
   originCity: string;

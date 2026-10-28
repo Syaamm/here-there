@@ -10,7 +10,7 @@ import { sc, useScale } from '@/lib/scale';
 import { PageTransition } from './PageTransition';
 import { SkeletonRows } from './Skeleton';
 import { useDockSpace } from '@/lib/dock';
-import { formatDay, useKeyboardInset, useKeyboardShown, useScrollFieldIntoView } from '@/lib/keyboard';
+import { formatDay, useKeyboardOverlap, useKeyboardShown, useScrollFieldIntoView } from '@/lib/keyboard';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
@@ -74,7 +74,7 @@ export function Screen({
   // never closer to the top than a phone's status bar needs (a browser reports no inset, a real phone does)
   const top = statusTop(insets.top);
   const typing = useKeyboardShown();
-  const keyboard = useKeyboardInset(); // the page ends at the bottom edge: the keyboard pushes it up by exactly its height
+  const { inset: keyboard, box: pageBox, onLayout: pageLayout } = useKeyboardOverlap(); // the page ends at the bottom edge: the keyboard pushes it up by what it covers
   const scroller = useRef<ScrollViewInstance>(null);
   const viewH = useRef(0);
   const contentH = useRef(0);
@@ -148,7 +148,7 @@ export function Screen({
     </View>
   );
   return (
-    <Animated.View style={{ flex: 1, backgroundColor: c.bg, paddingBottom: keyboard }}>
+    <Animated.View ref={pageBox} onLayout={pageLayout} style={{ flex: 1, backgroundColor: c.bg, paddingBottom: keyboard }}>
       {header ? (
         <View style={{ paddingTop: top + headerGap, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
           <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{header}</View>
@@ -475,7 +475,7 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
   const { isTablet } = useLayout();
   const { height } = useWindowDimensions();
   // like a page: the sheet ends where the keyboard begins, and the field being typed in scrolls into view above it
-  const keyboard = useKeyboardInset();
+  const { inset: keyboard, box: sheetBox, onLayout: sheetLayout } = useKeyboardOverlap();
   const typing = useKeyboardShown();
   const body = useRef<ScrollViewInstance>(null);
   const bodyY = useRef(0);
@@ -536,7 +536,7 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
   const rise = isTablet ? slide.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) : slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] });
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <Animated.View style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end', paddingBottom: keyboard }}>
+      <Animated.View ref={sheetBox} onLayout={sheetLayout} style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end', paddingBottom: keyboard }}>
         <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)', opacity: shade }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={tr('Close')} />
         </Animated.View>

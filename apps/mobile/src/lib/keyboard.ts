@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
-import { Animated, Dimensions, Easing, Keyboard, Platform, TextInput, type ScrollViewInstance } from 'react-native';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
+import { Animated, Dimensions, Easing, Keyboard, Platform, TextInput, type HostInstance, type ScrollViewInstance } from 'react-native';
 
 /** True while the on-screen keyboard is up (phones). The floating dock hides then, so its room at the bottom is given back. */
 export function useKeyboardShown() {
@@ -17,26 +17,70 @@ export function useKeyboardShown() {
 }
 
 /**
- * How much of the screen's bottom the on-screen keyboard covers, as an animated number that follows the keyboard's own
- * movement. Put it as the bottom padding of a screen that ends at the bottom edge (a chat): the input then sits exactly
- * on top of the keyboard, with no guessing about offsets and no gap.
+ * How much of THIS screen's bottom the on-screen keyboard covers, as an animated number that follows the keyboard's own
+ * movement. Put `inset` as the bottom padding of a screen that ends at the bottom edge (a chat, a form, a sheet), `box`
+ * as that view's ref and `onLayout` as its onLayout: the input then sits exactly on top of the keyboard.
+ *
+ * It measures where the screen really ends, rather than assuming the whole keyboard height. Some phones also shrink the
+ * window when the keyboard opens; padding by the full height then pushed everything up twice and left a gap. Measured,
+ * a window that already made room needs no padding, and one that did not gets exactly what is missing. It looks again
+ * whenever the screen's own size changes.
  */
-export function useKeyboardInset() {
+export function useKeyboardOverlap() {
   const inset = useRef(new Animated.Value(0)).current;
+  const box = useRef<HostInstance>(null);
+  const top = useRef(Infinity); // where the keyboard's top edge is, in window coordinates (Infinity while it is down)
+  const shown = useRef(0);
+  const duration = useRef(250);
+  const go = useCallback(
+    (to: number) => {
+      if (Math.abs(to - shown.current) < 1) return;
+      shown.current = to;
+      Animated.timing(inset, { toValue: to, duration: duration.current, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+    },
+    [inset],
+  );
+  const measure = useCallback(() => {
+    const view = box.current;
+    if (top.current === Infinity || !view) return go(0);
+    view.measureInWindow((_x, y, _w, h) => go(Math.max(0, y + h - top.current)));
+  }, [go]);
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const ios = Platform.OS === 'ios';
-    const move = (to: number, ms: number) => Animated.timing(inset, { toValue: to, duration: ms, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
     const subs = ios
       ? [
           // one event covers showing, hiding and the keyboard changing height (emoji, suggestions)
-          Keyboard.addListener('keyboardWillChangeFrame', (e) => move(Math.max(0, Dimensions.get('window').height - e.endCoordinates.screenY), e.duration || 250)),
-          Keyboard.addListener('keyboardWillHide', (e) => move(0, e.duration || 250)),
+          Keyboard.addListener('keyboardWillChangeFrame', (e) => {
+            duration.current = e.duration || 250;
+            top.current = e.endCoordinates.screenY >= Dimensions.get('window').height ? Infinity : e.endCoordinates.screenY;
+            measure();
+          }),
+          Keyboard.addListener('keyboardWillHide', (e) => {
+            duration.current = e.duration || 250;
+            top.current = Infinity;
+            measure();
+          }),
         ]
-      : [Keyboard.addListener('keyboardDidShow', (e) => move(e.endCoordinates.height, 120)), Keyboard.addListener('keyboardDidHide', () => move(0, 120))];
+      : [
+          Keyboard.addListener('keyboardDidShow', (e) => {
+            duration.current = 120;
+            top.current = Dimensions.get('window').height - e.endCoordinates.height;
+            measure();
+          }),
+          Keyboard.addListener('keyboardDidHide', () => {
+            duration.current = 120;
+            top.current = Infinity;
+            measure();
+          }),
+        ];
     return () => subs.forEach((s) => s.remove());
-  }, [inset]);
-  return inset;
+  }, [measure]);
+  // the screen changed size (the phone made room for the keyboard itself, or the keyboard changed height): look again
+  const onLayout = useCallback(() => {
+    if (top.current !== Infinity) measure();
+  }, [measure]);
+  return { inset, box, onLayout };
 }
 
 let keyboardHeight = 0; // how tall the keyboard is right now (0 when it is down)
@@ -47,7 +91,7 @@ export const notifyInputFocus = () => focusListeners.forEach((f) => f());
 
 /**
  * Keeps the text field you are typing in above the keyboard. The page ends at the bottom of the screen and is padded by
- * the keyboard's height (useKeyboardInset), so it is the visible part above the keyboard that scrolls: when a field
+ * the keyboard's height (useKeyboardOverlap), so it is the visible part above the keyboard that scrolls: when a field
  * gets focus, or the keyboard comes up under it, the page scrolls just far enough to show it with some air below.
  * `active` is false for a page that is not the one on screen, so hidden pages never scroll. A pop-up sheet passes
  * `inSheet`: it scrolls for its own fields, and while it is open the page behind stays still.

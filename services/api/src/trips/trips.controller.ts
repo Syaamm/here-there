@@ -62,6 +62,21 @@ export class TripsController {
     return this.trips.withdraw(me, id);
   }
 
+  @Post('trips/:id/favorite')
+  favorite(@CurrentUser() me: User, @Param('id') id: string) {
+    return this.trips.favorite(me, id, true);
+  }
+
+  @Delete('trips/:id/favorite')
+  unfavorite(@CurrentUser() me: User, @Param('id') id: string) {
+    return this.trips.favorite(me, id, false);
+  }
+
+  @Get('me/favorite-trips')
+  favorites(@CurrentUser() me: User) {
+    return this.trips.myFavorites(me);
+  }
+
   @Post('trips/:id/leave')
   leave(@CurrentUser() me: User, @Param('id') id: string) {
     return this.trips.leave(me, id);

@@ -87,7 +87,7 @@ export class AccountService {
 
   private async collect(me: User) {
     const id = me.id;
-    const [user, profile, hosted, memberships, requests, tripsHosted, tripMemberships, applications, favorites, following, followers, blocks, messages, notifications, reports, checks, activity] =
+    const [user, profile, hosted, memberships, requests, tripsHosted, tripMemberships, applications, favorites, tripFavorites, following, followers, blocks, messages, notifications, reports, checks, activity] =
       await Promise.all([
         this.prisma.user.findUniqueOrThrow({ where: { id } }),
         this.prisma.profile.findUnique({ where: { userId: id } }),
@@ -98,6 +98,7 @@ export class AccountService {
         this.prisma.tripMembership.findMany({ where: { userId: id }, include: { trip: { select: { id: true, title: true, dateStart: true } } } }),
         this.prisma.tripApplication.findMany({ where: { applicantId: id }, include: { trip: { select: { id: true, title: true, dateStart: true } } } }),
         this.prisma.favorite.findMany({ where: { userId: id }, include: { activity: { select: { id: true, title: true, startsAt: true } } } }),
+        this.prisma.tripFavorite.findMany({ where: { userId: id }, include: { trip: { select: { id: true, title: true, dateStart: true } } } }),
         this.prisma.follow.findMany({ where: { followerId: id }, include: { following: { select: { id: true, profile: { select: { displayName: true } } } } } }),
         this.prisma.follow.findMany({ where: { followingId: id }, include: { follower: { select: { id: true, profile: { select: { displayName: true } } } } } }),
         this.prisma.block.findMany({ where: { blockerId: id }, include: { blocked: { select: { id: true, profile: { select: { displayName: true } } } } } }),
@@ -139,6 +140,7 @@ export class AccountService {
         applications: applications.map((a) => ({ tripId: a.tripId, title: a.trip.title, state: a.state, intro: a.intro, appliedAt: a.createdAt })),
       },
       favourites: favorites.map((f) => ({ activityId: f.activityId, title: f.activity.title, savedAt: f.createdAt })),
+      favouriteTrips: tripFavorites.map((f) => ({ tripId: f.tripId, title: f.trip.title, savedAt: f.createdAt })),
       following: following.map((f) => ({ ...who(f.following), since: f.createdAt })),
       followers: followers.map((f) => ({ ...who(f.follower), since: f.createdAt })),
       blocked: blocks.map((b) => ({ ...who(b.blocked), since: b.createdAt })),
@@ -220,6 +222,7 @@ export class AccountService {
       this.prisma.pushSubscription.deleteMany({ where: { userId: id } }),
       this.prisma.contactCode.deleteMany({ where: { userId: id } }),
       this.prisma.favorite.deleteMany({ where: { userId: id } }),
+      this.prisma.tripFavorite.deleteMany({ where: { userId: id } }),
       this.prisma.follow.deleteMany({ where: { OR: [{ followerId: id }, { followingId: id }] } }),
       this.prisma.block.deleteMany({ where: { OR: [{ blockerId: id }, { blockedId: id }] } }),
       this.prisma.profilePhoto.deleteMany({ where: { userId: id } }),
