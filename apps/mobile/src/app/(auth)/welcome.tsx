@@ -10,6 +10,7 @@ import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useTheme, type Mode } from '@/lib/theme';
+import { useT } from '@/lib/i18n';
 
 
 /** Each product has its own welcome screen: photo that fades into the page colour, big name, two buttons. */
@@ -20,9 +21,7 @@ const LOOK = {
     title: 'HERE.',
     titleColor: '#FFFFFF',
     line1: 'Be here. Be together.',
-    line2: 'Make something happen today.',
     line1Color: '#FFFFFF',
-    line2Color: '#B7C7C1',
     btnBg: '#FFFFFF',
     btnText: '#0F2F28',
     footer: '18+ only · Privacy first · Terms apply',
@@ -35,9 +34,7 @@ const LOOK = {
     title: 'THERE.',
     titleColor: '#143A30',
     line1: 'Go there. Together.',
-    line2: 'Your next trip starts with people.',
     line1Color: '#16201D',
-    line2Color: '#4A524E',
     btnBg: '#143A30',
     btnText: '#FFFFFF',
     footer: '18+ only · Verified traveler community',
@@ -50,8 +47,9 @@ type Look = (typeof LOOK)[Mode];
 
 /** A faint, out-of-focus name of the other product. Tapping it switches. The blur is a text shadow, so it costs nothing. */
 function OtherName({ label, color, onPress }: { label: string; color: string; onPress: () => void }) {
+  const { t } = useT();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`Switch to ${label}`} hitSlop={14} onPress={onPress} style={{ paddingBottom: 12 }}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t('Switch to {name}', { name: label })} hitSlop={14} onPress={onPress} style={{ paddingBottom: 12 }}>
       <Text style={{ fontSize: 24, fontWeight: '800', letterSpacing: -0.5, color: `${color}40`, textShadowColor: `${color}40`, textShadowRadius: 3, textShadowOffset: { width: 0, height: 0 } }}>{label}</Text>
     </Pressable>
   );
@@ -59,6 +57,7 @@ function OtherName({ label, color, onPress }: { label: string; color: string; on
 
 /** One complete welcome page. Both are always mounted; switching only cross-fades their opacity. */
 function Page({ mode, active, onSwitch, onCreate, onSignIn, onExplore, busy, error }: { mode: Mode; active: boolean; onSwitch: () => void; onCreate: () => void; onSignIn: () => void; onExplore: () => void; busy: boolean; error?: string | null }) {
+  const { t } = useT();
   const look: Look = LOOK[mode];
   const insets = useSafeAreaInsets();
   const other = mode === 'here' ? LOOK.there : LOOK.here;
@@ -82,19 +81,18 @@ function Page({ mode, active, onSwitch, onCreate, onSignIn, onExplore, busy, err
               <Text accessibilityRole="header" style={{ color: look.titleColor, fontSize: 52, lineHeight: 58, fontWeight: '800', letterSpacing: -1.5 }}>{look.title}</Text>
               <OtherName label={other.title.replace('.', '')} color={look.titleColor} onPress={onSwitch} />
             </View>
-            <Text style={{ color: look.line1Color, fontSize: 16, fontWeight: '600', marginTop: 6 }}>{look.line1}</Text>
-            <Text style={{ color: look.line2Color, fontSize: 16 }}>{look.line2}</Text>
+            <Text style={{ color: look.line1Color, fontSize: 16, fontWeight: '600', marginTop: 6 }}>{t(look.line1)}</Text>
           </View>
           <View style={{ gap: 12 }}>
             <ErrorBanner message={error} />
-            {button('Create an account', onCreate)}
-            {button(busy ? 'One moment…' : 'Explore the demo', onExplore)}
+            {button(t('Create an account'), onCreate)}
+            {button(busy ? t('One moment…') : t('Explore the demo'), onExplore)}
           </View>
           <View style={{ alignItems: 'center', gap: 12 }}>
             <Pressable accessibilityRole="link" hitSlop={12} onPress={onSignIn} style={{ minHeight: 32, justifyContent: 'center' }}>
-              <Text style={{ color: look.titleColor, fontSize: 14, fontWeight: '700' }}>I already have an account</Text>
+              <Text style={{ color: look.titleColor, fontSize: 14, fontWeight: '700' }}>{t('I already have an account')}</Text>
             </Pressable>
-            <Text style={{ color: look.footerColor, fontSize: 12 }}>{look.footer}</Text>
+            <Text style={{ color: look.footerColor, fontSize: 12 }}>{t(look.footer)}</Text>
           </View>
         </View>
       </View>

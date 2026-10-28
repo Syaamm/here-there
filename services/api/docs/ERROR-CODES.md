@@ -29,10 +29,12 @@ Every failed request returns the same body:
 | `INVALID_CURSOR` | 400 | The paging cursor is malformed or was made for a different list. | Restart the list from the first page. |
 | `INVALID_DATES` | 400 | The dates are not allowed (for example a trip that starts in the past). | Ask the person to choose other dates. |
 | `INVALID_IMAGE` | 400 | The upload is not a readable JPEG, PNG or WebP picture. | Ask for another picture. |
+| `INVALID_LINK` | 400 | A signed download link is malformed or its signature is wrong. | Ask for a new link. |
 | `INVALID_PAYLOAD` | 400 | A webhook body is not valid JSON. | Provider-side problem; no user action. |
 | `INVALID_SCHEDULE` | 400 | The start or end time breaks the rules (not far enough ahead, too long, end before start). | Ask the person to change the time. |
 | `INVALID_SETUP_CODE` | 400 | The first code from the authenticator app was wrong while switching two-step sign-in on. | Ask for the next code; check the phone clock. |
 | `INVALID_TARGET` | 400 | The action cannot be aimed at that person (yourself, for example). | Hide the action for that target. |
+| `LINK_EXPIRED` | 400 | A signed download link is older than its two minutes. | Ask for a new link. |
 | `MFA_NOT_STARTED` | 400 | Switching on was attempted before a secret was created. | Start the setup first. |
 | `NO_DATES` | 400 | A poll without dates was chosen as the trip dates. | Hide "use these dates" for date-less polls. |
 | `NO_IMAGE` | 400 | The picture request had no image bytes in the body. | Fix the client; send the image as the request body. |

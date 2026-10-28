@@ -9,8 +9,8 @@ Not legal advice. This lists what to settle **before a real provider that matche
 - With the document-only option no selfie is taken and nothing biometric is used.
 - A rejected person can retry (5 a day); staff can reset or overturn a rejection. An "under 18" result can only be reopened by an admin.
 - Verification is valid for 1 year, then asked again.
-- A real provider, **Persona**, is connected (27 October 2026) and is being tried in its **sandbox**; a manual and a local simulated provider also exist. No real faces are processed anywhere yet.
-- Once we hold the outcome, our code asks Persona to **redact the inquiry** (its ID images, selfie, name and birth date are deleted).
+- A real provider, **Persona**, is connected (27 October 2026) and works in its **sandbox** (28 October); an **iDenfy** adapter is built but untried; a manual and a local simulated provider also exist. No real faces are processed anywhere yet.
+- Once we hold the outcome, our code asks the provider (Persona, or iDenfy's delete call) to **redact the inquiry** (its ID images, selfie, name and birth date are deleted).
 - A "verified" outcome counts as adult only when the provider's message shows a birth date of 18 or over (or the template itself refuses under-18s); an approval with no age information is refused and logged.
 - The document-only route needs its own provider template with **no selfie step**; it is made separately from the face template.
 

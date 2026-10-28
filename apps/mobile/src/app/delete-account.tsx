@@ -5,6 +5,7 @@ import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useState } from 'react';
 import { useTheme } from '@/lib/theme';
+import { useT } from '@/lib/i18n';
 
 const WHAT: string[] = [
   'Plans and trips you host that have not finished are cancelled, and the people in them are told.',
@@ -18,6 +19,7 @@ const WHAT: string[] = [
 export default function DeleteAccount() {
   const { logout } = useMe();
   const go = useGo();
+  const { t } = useT();
   const { c } = useTheme();
   const [password, setPassword] = useState('');
   const [word, setWord] = useState('');
@@ -32,21 +34,21 @@ export default function DeleteAccount() {
 
   return (
     <Screen hasHeader maxWidth={520}>
-      <Banner tone="bad">Deleting your account cannot be undone.</Banner>
+      <Banner tone="bad">{t('Deleting your account cannot be undone.')}</Banner>
       <Card style={{ padding: 14, borderRadius: 18, gap: 8 }}>
-        <Txt variant="h3">What happens</Txt>
-        {WHAT.map((t) => (
-          <View key={t} style={{ flexDirection: 'row', gap: 8 }}>
+        <Txt variant="h3">{t('What happens')}</Txt>
+        {WHAT.map((w) => (
+          <View key={w} style={{ flexDirection: 'row', gap: 8 }}>
             <Txt variant="small" color={c.muted}>•</Txt>
-            <Txt variant="small" style={{ flex: 1 }}>{t}</Txt>
+            <Txt variant="small" style={{ flex: 1 }}>{t(w)}</Txt>
           </View>
         ))}
       </Card>
-      <Btn title="Download a copy of my data first" variant="secondary" small onPress={() => go('/my-data')} />
+      <Btn title={t('Download a copy of my data first')} variant="secondary" small onPress={() => go('/my-data')} />
       <ErrorBanner message={act.error} />
-      <Field label="Your password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" />
-      <Field label="Type DELETE to confirm" value={word} onChangeText={setWord} autoCapitalize="characters" autoCorrect={false} hint="Capital letters, exactly as shown" onSubmitEditing={submit} />
-      <Btn title="Delete my account" variant="danger" onPress={submit} loading={act.busy} disabled={!ready} />
+      <Field label={t('Your password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" />
+      <Field label={t('Type DELETE to confirm')} value={word} onChangeText={setWord} autoCapitalize="characters" autoCorrect={false} hint={t('Capital letters')} onSubmitEditing={submit} />
+      <Btn title={t('Delete my account')} variant="danger" onPress={submit} loading={act.busy} disabled={!ready} />
     </Screen>
   );
 }

@@ -13,9 +13,11 @@ import { useMe } from '@/lib/auth';
 import { catColor, CATS } from '@/lib/constants';
 import { hhmm, when } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 /** HERE · Join request. Chat stays closed until the host approves. */
 export default function Join() {
+  const { t, tn } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { me } = useMe();
   const router = useRouter();
@@ -43,7 +45,7 @@ export default function Join() {
   }, [clashes.length]);
 
   if (loading && !a) return <Screen hasHeader><SkeletonDetail /></Screen>;
-  if (!a) return <Screen hasHeader><Txt>Activity not found.</Txt></Screen>;
+  if (!a) return <Screen hasHeader><Txt>{t('Activity not found.')}</Txt></Screen>;
 
   const instant = a.joinPolicy === 'instant' && a.spotsLeft > 0; // a full activity still has a waiting list the host never has to approve
   const adult = !!me?.adultConfirmed;
@@ -52,7 +54,7 @@ export default function Join() {
   // free up the time: leave what they are in, withdraw what they asked for, cancel what they host (asked first)
   const freeUp = async () => {
     for (const x of clashes) {
-      if (x.label === 'You host this' && !(await confirmAsync(`Cancel "${x.activity.title}"?`, 'You host it. Everyone who joined is told it is cancelled.', 'Cancel activity', true))) return;
+      if (x.label === 'You host this' && !(await confirmAsync(t('Cancel "{title}"?', { title: x.activity.title }), t('You host it. Everyone who joined is told it is cancelled.'), t('Cancel activity'), true))) return;
     }
     const ok = await act.run(async () => {
       for (const x of clashes) {
@@ -68,7 +70,7 @@ export default function Join() {
     }
   };
   const first = clashes[0];
-  const freeLabel = !first ? '' : clashes.length > 1 ? `Free up my time (${clashes.length} plans)` : first.kind === 'pending' ? `Withdraw my request for "${first.activity.title}"` : first.label === 'You host this' ? `Cancel my activity "${first.activity.title}"` : `Leave "${first.activity.title}"`;
+  const freeLabel = !first ? '' : clashes.length > 1 ? t('Free up my time ({n} plans)', { n: clashes.length }) : first.kind === 'pending' ? t('Withdraw my request for "{title}"', { title: first.activity.title }) : first.label === 'You host this' ? t('Cancel my activity "{title}"', { title: first.activity.title }) : t('Leave "{title}"', { title: first.activity.title });
 
   const submit = async () => {
     const r = await act.run(() => post(`/v1/activities/${id}/requests`, { intro: intro.trim() || undefined }));
@@ -81,46 +83,44 @@ export default function Join() {
       <CatPhoto category={a.category} style={{ height: 190, borderRadius: 24 }} />
       <View>
         <Txt variant="h1" style={{ fontSize: 30, lineHeight: 36 }}>{a.title}</Txt>
-        <Txt variant="muted">{when(a.startsAt)} · {a.venueName} · {a.going}/{a.capacity} going</Txt>
+        <Txt variant="muted">{when(a.startsAt)} · {a.venueName} · {t('{going}/{capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
       </View>
 
       <ErrorBanner message={act.error} />
       {clashes.length > 0 ? (
         <Banner tone="warn" onPress={() => setClashOpen(true)}>
-          {clashes.length === 1 ? `This overlaps with "${first.activity.title}" (${hhmm(first.activity.startsAt)} to ${hhmm(first.activity.endsAt)}).` : `This overlaps with ${clashes.length} plans you already have.`} Tap to choose.
+          {clashes.length === 1 ? t('This overlaps with "{title}" ({from} to {to}).', { title: first.activity.title, from: hhmm(first.activity.startsAt), to: hhmm(first.activity.endsAt) }) : t('This overlaps with {n} plans you already have.', { n: clashes.length })} {t('Tap to choose.')}
         </Banner>
       ) : null}
-      {a.spotsLeft === 0 ? <Banner tone="warn">This activity is full. Join the waiting list: if a place opens up, the first person in line is let in automatically and told straight away.</Banner> : null}
-      {instant ? null : <Field label="Introduce yourself to the host" placeholder="Hi! I'm new to town and would love to join." multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length} / 500`} />}
+      {a.spotsLeft === 0 ? <Banner tone="warn">{t('This activity is full. You can join the waiting list.')}</Banner> : null}
+      {instant ? null : <Field label={t('Introduce yourself to the host')} placeholder={t('Say hi')} multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length} / 500`} />}
 
       <Card style={{ borderRadius: 20, paddingVertical: 6 }}>
-        <Txt variant="h3" style={{ fontSize: 18, paddingTop: 8 }}>Before joining</Txt>
-        <CheckLine ok={adult} text="I am at least 18 years old" />
-        <CheckLine ok={verified} text={verified ? 'Identity verified' : 'Identity verification required'} action={!verified ? <Btn title="Verify now" small variant="secondary" onPress={() => go('/verify')} style={{ alignSelf: 'flex-start' }} /> : undefined} />
+        <Txt variant="h3" style={{ fontSize: 18, paddingTop: 8 }}>{t('Before joining')}</Txt>
+        <CheckLine ok={adult} text={t('I am at least 18 years old')} />
+        <CheckLine ok={verified} text={verified ? t('Identity verified') : t('Identity verification required')} action={!verified ? <Btn title={t('Verify now')} small variant="secondary" onPress={() => go('/verify')} style={{ alignSelf: 'flex-start' }} /> : undefined} />
         <View style={{ paddingVertical: 12 }}>
           <CheckRow checked={agree} onChange={setAgree}>
-            <Txt>I agree to the group guidelines: be respectful, meet in public, and report anything that feels wrong.</Txt>
+            <Txt>{t('I agree to the group guidelines: be respectful, meet in public, and report anything that feels wrong.')}</Txt>
           </CheckRow>
         </View>
       </Card>
 
-      <Sheet visible={clashOpen && clashes.length > 0} title="This overlaps with a plan you already have" onClose={() => setClashOpen(false)}>
+      <Sheet visible={clashOpen && clashes.length > 0} title={t('This overlaps with a plan you already have')} onClose={() => setClashOpen(false)}>
         {clashes.map((x) => (
           <View key={x.key} style={{ gap: 4 }}>
             <Txt variant="h3" style={{ fontSize: 15 }}>{x.activity.title}</Txt>
-            <Txt variant="muted">{when(x.activity.startsAt)} to {hhmm(x.activity.endsAt)}</Txt>
-            <View style={{ flexDirection: 'row' }}><Chip label={x.label} tone={x.tone} /></View>
+            <Txt variant="muted">{t('{from} to {to}', { from: when(x.activity.startsAt), to: hhmm(x.activity.endsAt) })}</Txt>
+            <View style={{ flexDirection: 'row' }}><Chip label={t(x.label)} tone={x.tone} /></View>
           </View>
         ))}
-        <Txt variant="small">"{a.title}" runs {hhmm(a.startsAt)} to {hhmm(a.endsAt)}. You can't be at both. What would you like to do?</Txt>
         <ErrorBanner message={act.error} />
         <Btn title={freeLabel} onPress={() => void freeUp()} loading={act.busy} />
-        <Btn title={`Don't join "${a.title}"`} variant="secondary" onPress={() => router.back()} />
-        <Btn title="Keep both" variant="ghost" small onPress={() => setClashOpen(false)} />
+        <Btn title={t('Don\'t join "{title}"', { title: a.title })} variant="secondary" onPress={() => router.back()} />
+        <Btn title={t('Keep both')} variant="ghost" small onPress={() => setClashOpen(false)} />
       </Sheet>
 
-      <Btn title={a.spotsLeft === 0 ? 'Join the waiting list' : instant ? 'Join now' : 'Send request'} onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree} />
-      <Txt variant="muted" style={{ textAlign: 'center' }}>{instant ? 'You join straight away and can chat with the group. The host can still remove anyone.' : 'Chat access opens only after the host approves.'}</Txt>
+      <Btn title={a.spotsLeft === 0 ? t('Join the waiting list') : instant ? t('Join now') : t('Send request')} onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree} />
     </Screen>
   );
 }

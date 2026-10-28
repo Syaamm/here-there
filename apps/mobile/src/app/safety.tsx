@@ -1,15 +1,17 @@
 import { View } from 'react-native';
 import { useEffect } from 'react';
-import { Banner, Between, Btn, Card, Chip, ErrorBanner, ListRow, Screen, Txt, useGo } from '@/components/ui';
+import { Between, Btn, Card, Chip, ErrorBanner, ListRow, Screen, Txt, useGo } from '@/components/ui';
 import { del } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { PagedTail, useCursorList } from '@/lib/paged';
+import { useT } from '@/lib/i18n';
 
 /** Safety controls shared by HERE and THERE: identity verification status, blocking, and plain-language guidance. */
 export default function Safety() {
   const { me, reload } = useMe();
   const go = useGo();
+  const { t, tn } = useT();
   const blocks = useCursorList<{ userId: string; displayName?: string }>('/v1/blocks', {}, 'blocks');
   // always re-check the latest verification result when this screen is opened
   useEffect(() => {
@@ -20,40 +22,37 @@ export default function Safety() {
 
   return (
     <Screen hasHeader>
-      <Txt variant="h1" style={{ fontSize: 34, lineHeight: 40 }}>Feel confident meeting people.</Txt>
-      <Txt variant="muted">HERE and THERE provide safety features, not a guarantee of personal safety. Choose public places and trust your judgment.</Txt>
+      <Txt variant="h1" style={{ fontSize: 34, lineHeight: 40 }}>{t('Feel confident meeting people.')}</Txt>
+      <Txt variant="muted">{t('Safety features, not a guarantee. Meet in public places.')}</Txt>
 
       <Card>
         <Between>
-          <Txt variant="h3">Identity verification</Txt>
-          {e === 'verified' ? <Chip label="Verified adult" tone="ok" /> : e === 'pending' ? <Chip label="Pending" tone="warn" /> : e === 'rejected' ? <Chip label="Not approved" tone="bad" /> : e === 'expired' ? <Chip label="Expired" tone="warn" /> : e === 'reverification_required' ? <Chip label="Re-check needed" tone="warn" /> : <Chip label="Not started" tone="neutral" />}
+          <Txt variant="h3">{t('Identity verification')}</Txt>
+          {e === 'verified' ? <Chip label={t('Verified adult')} tone="ok" /> : e === 'pending' ? <Chip label={t('Pending')} tone="warn" /> : e === 'rejected' ? <Chip label={t('Not approved')} tone="bad" /> : e === 'expired' ? <Chip label={t('Expired')} tone="warn" /> : e === 'reverification_required' ? <Chip label={t('Re-check needed')} tone="warn" /> : <Chip label={t('Not started')} tone="neutral" />}
         </Between>
-        <Txt variant="small">A specialist provider checks your ID and matches a selfie, to confirm you are a real adult. Only the result is shared with others, never your documents. Browsing is open to everyone. You need this to join, host or chat, in HERE and THERE.</Txt>
-        {e === 'pending' && <Banner tone="warn">Your check is being reviewed. We'll notify you as soon as there's a decision.</Banner>}
-        {e === 'verified' && <Banner tone="ok">You're verified. You can host, join and chat in activities and trips.</Banner>}
-        <Btn title={e === 'verified' ? 'View verification' : e === 'pending' ? 'View status' : e === 'rejected' ? 'Try verification again' : e === 'expired' || e === 'reverification_required' ? 'Verify again' : 'Get verified'} variant={e === 'verified' ? 'secondary' : 'primary'} onPress={() => go('/verify')} />
+        <Txt variant="small">{t('Only the result is shared, never your documents.')}</Txt>
+        <Btn title={e === 'verified' ? t('View verification') : e === 'pending' ? t('View status') : e === 'rejected' ? t('Try verification again') : e === 'expired' || e === 'reverification_required' ? t('Verify again') : t('Get verified')} variant={e === 'verified' ? 'secondary' : 'primary'} onPress={() => go('/verify')} />
       </Card>
 
-      <ListRow icon="flag-outline" title="Report a user, activity or trip" subtitle="Tap ⋯ on any activity, trip or message. Reports reach our moderation team." />
+      <ListRow icon="flag-outline" title={t('Report a user, activity or trip')} subtitle={t('Tap ⋯ on anything to report it.')} />
 
       <Card>
-        <Txt variant="h3">Blocked people</Txt>
-        <Txt variant="small">Blocking applies across HERE and THERE. Blocked people can't see or contact you, and you won't see them.</Txt>
+        <Txt variant="h3">{t('Blocked people')}</Txt>
         <ErrorBanner message={unblock.error} />
-        {blocks.data?.items.length === 0 && <Txt variant="muted">You haven't blocked anyone.</Txt>}
+        {blocks.data?.items.length === 0 && <Txt variant="muted">{t('You haven\'t blocked anyone.')}</Txt>}
         {blocks.data?.items.map((b) => (
           <Between key={b.userId}>
             <Txt>{b.displayName ?? b.userId}</Txt>
-            <Btn title="Unblock" variant="secondary" small disabled={unblock.busy} onPress={() => unblock.run(() => del(`/v1/blocks/${b.userId}`))} />
+            <Btn title={t('Unblock')} variant="secondary" small disabled={unblock.busy} onPress={() => unblock.run(() => del(`/v1/blocks/${b.userId}`))} />
           </Between>
         ))}
         <PagedTail paged={blocks} rows={1} />
       </Card>
 
       <View>
-        <ListRow icon="location-outline" title="Location controls" subtitle="We never publish a participant's live location. The map only shows public venues." />
-        <ListRow icon="lock-closed-outline" title="Private group chat" subtitle="Only approved members can read the conversation. Access ends the moment you leave or are removed." />
-        <ListRow icon="call-outline" title="Emergency support" subtitle="If you are at risk, contact local emergency services right away (112 in the EU). We can't respond to emergencies." last />
+        <ListRow icon="location-outline" title={t('Location controls')} subtitle={t('We never share live location.')} />
+        <ListRow icon="lock-closed-outline" title={t('Private group chat')} subtitle={t('Only approved members can read it.')} />
+        <ListRow icon="call-outline" title={t('Emergency support')} subtitle={t('If you are at risk, contact local emergency services right away (112 in the EU). We can\'t respond to emergencies.')} last />
       </View>
     </Screen>
   );

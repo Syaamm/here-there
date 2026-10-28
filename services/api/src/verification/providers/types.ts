@@ -33,6 +33,9 @@ export interface IdentityProvider {
    */
   parseWebhook(rawBody: Buffer, headers: WebhookHeaders): ProviderOutcome | null;
 
+  /** Asks the provider for the session's outcome directly: the safety net for a webhook that never arrived. Null while undecided. */
+  lookup?(providerRef: string): Promise<ProviderOutcome | null>;
+
   /** Asks the provider to erase the session's personal data now that we hold the outcome. */
   eraseSession?(providerRef: string): Promise<void>;
 }

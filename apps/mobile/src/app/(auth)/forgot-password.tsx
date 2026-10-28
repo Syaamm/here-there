@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Banner, Btn, ErrorBanner, Field, Screen, Txt } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useAction } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 const MIN = 10;
 
@@ -12,6 +13,7 @@ const MIN = 10;
  */
 export default function ForgotPassword() {
   const router = useRouter();
+  const { t, tn } = useT();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState<{ to: string; devCode?: string } | null>(null);
   const [code, setCode] = useState('');
@@ -47,28 +49,27 @@ export default function ForgotPassword() {
 
   return (
     <Screen maxWidth={520}>
-      <Btn title="‹ Back" variant="ghost" small onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))} style={{ alignSelf: 'flex-start' }} />
-      <Txt variant="h1">Reset your password</Txt>
+      <Btn title={t('‹ Back')} variant="ghost" small onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))} style={{ alignSelf: 'flex-start' }} />
+      <Txt variant="h1">{t('Reset your password')}</Txt>
 
       {!sent ? (
         <>
-          <Txt variant="muted">Enter the email address of your account and we will send you a 6-digit code.</Txt>
           <ErrorBanner message={ask.error} />
-          <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" onSubmitEditing={send} />
-          <Btn title="Send the code" onPress={send} loading={ask.busy} disabled={!email.trim()} />
+          <Field label={t('Email')} value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" onSubmitEditing={send} />
+          <Btn title={t('Send the code')} onPress={send} loading={ask.busy} disabled={!email.trim()} />
         </>
       ) : (
         <>
-          <Txt variant="muted">If there is an account for {sent.to}, we have sent a 6-digit code to it. It expires in 15 minutes. Check your spam folder if you cannot see it.</Txt>
-          {sent.devCode ? <Banner tone="warn">Dev mode: no mail server is connected, so your code is {sent.devCode}. Real accounts get it by email.</Banner> : null}
+          <Txt variant="muted">{t('If {email} has an account, we sent it a code.', { email: sent.to })}</Txt>
+          {sent.devCode ? <Banner tone="warn">{t('Dev mode: your code is {code}.', { code: sent.devCode })}</Banner> : null}
           <ErrorBanner message={reset.error ?? ask.error} />
-          <Field label="6-digit code" value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" />
-          {sent.devCode ? <Btn title="Fill in the code" variant="secondary" small onPress={() => setCode(sent.devCode!)} /> : null}
-          <Field label="New password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" hint={`At least ${MIN} characters`} error={tooShort ? `Use at least ${MIN} characters` : null} />
-          <Field label="New password again" value={again} onChangeText={setAgain} secureTextEntry autoComplete="new-password" textContentType="newPassword" error={mismatch ? 'The two passwords are not the same' : null} onSubmitEditing={submit} />
-          <Btn title="Set new password" onPress={submit} loading={reset.busy} disabled={!ready} />
-          <Btn title={wait > 0 ? `Send a new code (${wait}s)` : 'Send a new code'} variant="secondary" onPress={send} loading={ask.busy} disabled={wait > 0} />
-          <Btn title="Use a different email" variant="ghost" onPress={() => { setSent(null); setCode(''); ask.setError(null); reset.setError(null); }} />
+          <Field label={t('6-digit code')} value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" />
+          {sent.devCode ? <Btn title={t('Fill in the code')} variant="secondary" small onPress={() => setCode(sent.devCode!)} /> : null}
+          <Field label={t('New password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" hint={t('At least {n} characters', { n: MIN })} error={tooShort ? t('Use at least {n} characters', { n: MIN }) : null} />
+          <Field label={t('New password again')} value={again} onChangeText={setAgain} secureTextEntry autoComplete="new-password" textContentType="newPassword" error={mismatch ? t('The two passwords are not the same') : null} onSubmitEditing={submit} />
+          <Btn title={t('Set new password')} onPress={submit} loading={reset.busy} disabled={!ready} />
+          <Btn title={wait > 0 ? t('Send a new code ({s}s)', { s: wait }) : t('Send a new code')} variant="secondary" onPress={send} loading={ask.busy} disabled={wait > 0} />
+          <Btn title={t('Use a different email')} variant="ghost" onPress={() => { setSent(null); setCode(''); ask.setError(null); reset.setError(null); }} />
         </>
       )}
     </Screen>

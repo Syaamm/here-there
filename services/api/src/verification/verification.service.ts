@@ -7,7 +7,9 @@ import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ManualProvider } from './providers/manual.provider';
+import { IdenfyProvider } from './providers/idenfy.provider';
 import { PersonaProvider } from './providers/persona.provider';
+import { allowsSimulated, isDemo } from '../common/demo';
 import { SandboxProvider } from './providers/sandbox.provider';
 import type { IdentityProvider, ProviderOutcome, WebhookHeaders } from './providers/types';
 
@@ -30,7 +32,8 @@ export type ReverifyReason = 'expired' | 'security' | 'fraud_suspected' | 'provi
  *
  * VERIFICATION_MODE: manual (default: staff decide in the admin console) | auto (instant, dev) | sandbox (local
  * simulated provider with signed webhooks, dev) | persona (Persona's hosted flow: needs the PERSONA_* settings, see
- * providers/persona.provider.ts; works with Persona's sandbox key in development and the live key in production).
+ * providers/persona.provider.ts; works with Persona's sandbox key in development and the live key in production) |
+ * idenfy (iDenfy's hosted flow, EU data centres: needs the IDENFY_* settings, see providers/idenfy.provider.ts).
  * Another vendor registers as another provider below.
  */
 @Injectable()
@@ -41,6 +44,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     auto: new ManualProvider('auto'),
     sandbox: new SandboxProvider(),
     persona: new PersonaProvider(),
+    idenfy: new IdenfyProvider(),
     // veriff: new VeriffProvider(...), sumsub: new SumsubProvider(...)
   };
 
@@ -52,10 +56,11 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    if (process.env.NODE_ENV === 'production' && ['auto', 'sandbox'].includes(this.mode))
-      throw new Error(`VERIFICATION_MODE=${this.mode} is for development only and is refused in production`);
+    if (!allowsSimulated() && ['auto', 'sandbox'].includes(this.mode))
+      throw new Error(`VERIFICATION_MODE=${this.mode} is for development only and is refused in production (a demo server may set DEMO_MODE=true)`);
     if (!this.providers[this.mode]) throw new Error(`Unknown VERIFICATION_MODE "${this.mode}"`);
     if (this.mode === 'persona') (this.providers.persona as PersonaProvider).assertReady(); // a half-set-up provider is refused at start-up
+    if (this.mode === 'idenfy') (this.providers.idenfy as IdenfyProvider).assertReady();
     if (process.env.NODE_ENV !== 'test') {
       void this.expireDue().catch(() => {});
       this.timer = setInterval(() => void this.expireDue().catch(() => {}), 3600 * 1000);
@@ -67,7 +72,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
   }
 
   get mode() {
-    return process.env.VERIFICATION_MODE ?? 'manual';
+    return process.env.VERIFICATION_MODE ?? (isDemo() ? 'sandbox' : 'manual');
   }
   private get provider() {
     return this.providers[this.mode];
@@ -75,7 +80,15 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
 
   // ---------------------------------------------------------------- reading
   async status(user: User, baseUrl: string) {
-    const latest = await this.prisma.verificationCheck.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+    let latest = await this.prisma.verificationCheck.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+    // a webhook that never arrived must not leave someone pending for ever: ask the provider (at most every few seconds per check)
+    if (user.eligibility === 'pending' && latest?.eligibility === 'pending') {
+      const decided = await this.reconcile(latest);
+      if (decided) {
+        user = (await this.prisma.user.findUnique({ where: { id: user.id } })) ?? user;
+        latest = await this.prisma.verificationCheck.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+      }
+    }
     const pending = user.eligibility === 'pending' && latest?.eligibility === 'pending' ? latest : null;
     return {
       eligibility: user.eligibility,
@@ -92,6 +105,25 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
       // lets a user who closed the browser continue the same provider session
       resumeUrl: pending ? await this.providers[pending.provider]?.resumeUrl?.(pending.providerRef, baseUrl) : undefined,
     };
+  }
+
+  private lastLookup = new Map<string, number>();
+  /** True when the provider's own answer settled this pending check. Never throws: a provider outage just leaves it pending. */
+  private async reconcile(check: { id: string; provider: string; providerRef: string }) {
+    const provider = this.providers[check.provider];
+    if (!provider?.lookup || check.providerRef.startsWith('pending_')) return false;
+    const now = Date.now();
+    if (now - (this.lastLookup.get(check.id) ?? 0) < 5000) return false;
+    this.lastLookup.set(check.id, now);
+    if (this.lastLookup.size > 1000) this.lastLookup.clear();
+    try {
+      const outcome = await provider.lookup(check.providerRef);
+      if (!outcome) return false;
+      await this.applyOutcome(provider.name, outcome);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ---------------------------------------------------------------- starting a check
@@ -251,11 +283,15 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
   async handleWebhook(providerName: string, rawBody: Buffer, headers: WebhookHeaders) {
     const provider = this.providers[providerName];
     if (!provider || providerName === 'manual' || providerName === 'auto') throw E.notFound('Provider');
-    if (providerName === 'sandbox' && (process.env.NODE_ENV === 'production' || this.mode !== 'sandbox')) throw E.notFound('Provider');
+    if (providerName === 'sandbox' && (!allowsSimulated() || this.mode !== 'sandbox')) throw E.notFound('Provider');
 
     const outcome: ProviderOutcome | null = provider.parseWebhook(rawBody, headers); // throws 401 on a bad signature
     if (!outcome) return { ok: true, ignored: true }; // an event that decides nothing (a check started, a review opened...)
-    const check = await this.prisma.verificationCheck.findFirst({ where: { providerRef: outcome.providerRef, provider: provider.name } });
+    return this.applyOutcome(provider.name, outcome);
+  }
+
+  private async applyOutcome(providerName: string, outcome: ProviderOutcome) {
+    const check = await this.prisma.verificationCheck.findFirst({ where: { providerRef: outcome.providerRef, provider: providerName } });
     if (!check) throw E.notFound('Verification');
 
     // the provider withdrew an earlier approval (fraud signal, regulatory change...)

@@ -18,9 +18,11 @@ import { dateSpan, money } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { statusTop, useLayout } from '@/lib/layout';
 import { useTheme } from '@/lib/theme';
+import { useT } from '@/lib/i18n';
 
 /** THERE · Trip detail. A proposal with an estimated budget. Never a booking, never a guaranteed departure. Laid out like an activity. */
 export default function TripDetail() {
+  const { t, tn } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { me, isGuest, logout } = useMe();
   const { c } = useTheme();
@@ -30,39 +32,39 @@ export default function TripDetail() {
   const HERO = c.heroBlock;
   const { gutter } = useLayout();
   const [expanded, setExpanded] = useState(false);
-  const { data: t, error, loading, reload } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
+  const { data: trip, error, loading, reload } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'trip' | 'user'; id: string } | null>(null);
 
-  if (loading && !t)
+  if (loading && !trip)
     return (
       <Screen hero={<Hero plain color={HERO} emoji="✈️" />}>
         <SkeletonDetail />
       </Screen>
     );
-  if (error || !t)
+  if (error || !trip)
     return (
       <Screen hero={<Hero plain color={HERO} emoji="✈️" />}>
-        <Empty title="Trip not found">It may have been cancelled or is no longer available.</Empty>
+        <Empty title={t('Trip not found')}>{t('It may have been cancelled or is no longer available.')}</Empty>
       </Screen>
     );
 
   const verified = me?.eligibility === 'verified';
-  const app = t.myApplication;
-  const closed = ['cancelled', 'completed'].includes(t.status);
-  const full = t.status === 'full' || t.spotsLeft === 0;
+  const app = trip.myApplication;
+  const closed = ['cancelled', 'completed'].includes(trip.status);
+  const full = trip.status === 'full' || trip.spotsLeft === 0;
 
-  const menu = t.isHost || isGuest
+  const menu = trip.isHost || isGuest
     ? []
     : [
-        { label: 'Report this trip', onSelect: () => setReport({ type: 'trip', id: t.id }) },
-        { label: `Report ${t.host.displayName}`, onSelect: () => setReport({ type: 'user', id: t.host.id }) },
+        { label: t('Report this trip'), onSelect: () => setReport({ type: 'trip', id: trip.id }) },
+        { label: t('Report {name}', { name: trip.host.displayName }), onSelect: () => setReport({ type: 'user', id: trip.host.id }) },
         {
-          label: `Block ${t.host.displayName}`,
+          label: t('Block {name}', { name: trip.host.displayName }),
           danger: true,
           onSelect: async () => {
-            if (await confirmAsync(`Block ${t.host.displayName}?`, "You won't see each other's trips or activities, in HERE or THERE.", 'Block', true)) {
-              await act.run(() => post('/v1/blocks', { userId: t.host.id }));
+            if (await confirmAsync(t('Block {name}?', { name: trip.host.displayName }), t("You won't see each other's trips or activities, in HERE or THERE."), t('Block'), true)) {
+              await act.run(() => post('/v1/blocks', { userId: trip.host.id }));
               router.back();
             }
           },
@@ -70,33 +72,33 @@ export default function TripDetail() {
       ];
 
   // the link opens this trip in the app, or sends the person to the App Store / Google Play when they have not got it
-  const share = () => void Share.share({ message: `${t.title}, ${dateSpan(t.dateStart, t.dateEnd)}, from ${t.originCity}\n${shareLink('trip', t.id)}` }).catch(() => undefined);
-  const longText = (t.description?.length ?? 0) > 130;
-  const flex = FLEX.find(([v]) => v === t.dateFlexibility)?.[1] ?? t.dateFlexibility;
+  const share = () => void Share.share({ message: `${t('{title}, {dates}, from {city}', { title: trip.title, dates: dateSpan(trip.dateStart, trip.dateEnd), city: trip.originCity })}\n${shareLink('trip', trip.id)}` }).catch(() => undefined);
+  const longText = (trip.description?.length ?? 0) > 130;
+  const flex = FLEX.find(([v]) => v === trip.dateFlexibility)?.[1] ?? trip.dateFlexibility;
 
   const top = statusTop(insets.top) + 8;
   const PHOTO = 250 + top; // the picture's full height
   const STRIP = top + 84; // what is left of it once collapsed: the button row plus the sheet's rounded edge
 
   // who is going: up to three faces, open places drawn as dashed rings, and a bar with one segment per place
-  const going = t.participants ?? [];
+  const going = trip.participants ?? [];
   const faces = going.slice(0, 3);
-  const rings = Math.max(0, Math.min(3, t.maxCapacity) - faces.length);
-  const segs = Math.min(t.maxCapacity, 12);
-  const filled = Math.min(segs, Math.round((t.members / Math.max(t.maxCapacity, 1)) * segs));
+  const rings = Math.max(0, Math.min(3, trip.maxCapacity) - faces.length);
+  const segs = Math.min(trip.maxCapacity, 12);
+  const filled = Math.min(segs, Math.round((trip.members / Math.max(trip.maxCapacity, 1)) * segs));
 
   // The one main action sits in a bar fixed to the bottom; the lesser ones stay in the page.
   type Primary = { title: string; onPress?: () => void; variant?: 'secondary'; disabled?: boolean; loading?: boolean; caption?: string };
   let primary: Primary | null = null;
   if (!closed) {
-    if (t.isHost) primary = { title: 'Review applications', onPress: () => go(`/review/${id}`) };
-    else if (t.isMember) primary = t.conversationId ? { title: 'Open group chat', onPress: () => go(`/chat/${t.conversationId}`) } : null;
-    else if (app && app.state === 'pending') primary = { title: 'Withdraw application', variant: 'secondary', loading: act.busy, onPress: () => void act.run(() => del(`/v1/trips/${id}/applications/mine`)) };
+    if (trip.isHost) primary = { title: t('Review applications'), onPress: () => go(`/review/${id}`) };
+    else if (trip.isMember) primary = trip.conversationId ? { title: t('Open group chat'), onPress: () => go(`/chat/${trip.conversationId}`) } : null;
+    else if (app && app.state === 'pending') primary = { title: t('Withdraw application'), variant: 'secondary', loading: act.busy, onPress: () => void act.run(() => del(`/v1/trips/${id}/applications/mine`)) };
     else if (app && ['declined', 'waitlisted'].includes(app.state)) primary = null;
-    else if (full) primary = { title: 'This group is full', disabled: true };
-    else if (isGuest) primary = { title: 'Create an account to apply', onPress: () => logout() };
-    else if (!verified) primary = { title: 'Verify your identity to apply', onPress: () => go('/verify') };
-    else primary = { title: app ? 'Apply again' : 'Request to join', onPress: () => go(`/apply/${id}`), caption: 'The organizer reviews every application' };
+    else if (full) primary = { title: t('This group is full'), disabled: true };
+    else if (isGuest) primary = { title: t('Create an account to apply'), onPress: () => logout() };
+    else if (!verified) primary = { title: t('Verify your identity to apply'), onPress: () => go('/verify') };
+    else primary = { title: app ? t('Apply again') : t('Request to join'), onPress: () => go(`/apply/${id}`) };
   }
 
   return (
@@ -121,23 +123,23 @@ export default function TripDetail() {
         <Stack.Screen options={{ headerShown: false }} />
 
         <Row style={{ gap: 8, flexWrap: 'wrap' }}>
-          <Chip label="Trip proposal" tone="ok" />
-          {t.status === 'cancelled' ? <Chip label="Cancelled" tone="bad" /> : t.status === 'completed' ? <Chip label="Completed" tone="neutral" /> : t.status === 'confirmed' ? <Chip label="Confirmed" tone="ok" /> : full ? <Chip label="Group full" tone="warn" /> : <Chip label={`${t.spotsLeft} places open`} tone="warn" />}
+          <Chip label={t('Trip proposal')} tone="ok" />
+          {trip.status === 'cancelled' ? <Chip label={t('Cancelled')} tone="bad" /> : trip.status === 'completed' ? <Chip label={t('Completed')} tone="neutral" /> : trip.status === 'confirmed' ? <Chip label={t('Confirmed')} tone="ok" /> : full ? <Chip label={t('Group full')} tone="warn" /> : <Chip label={tn(trip.spotsLeft, '{n} place open', '{n} places open')} tone="warn" />}
         </Row>
-        <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{t.title}</Txt>
+        <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{trip.title}</Txt>
 
-        {t.status === 'cancelled' && <Banner tone="bad">This trip was cancelled.</Banner>}
-        {t.canAppealRemoval ? <Btn title="Ask for a review" variant="secondary" onPress={() => go(`/appeal?kind=removal&targetType=trip&targetId=${id}`)} /> : null}
+        {trip.status === 'cancelled' && <Banner tone="bad">{t('This trip was cancelled.')}</Banner>}
+        {trip.canAppealRemoval ? <Btn title={t('Ask for a review')} variant="secondary" onPress={() => go(`/appeal?kind=removal&targetType=trip&targetId=${id}`)} /> : null}
         <ErrorBanner message={act.error} />
 
-        <Pressable accessibilityRole="button" accessibilityLabel={`${t.host.displayName}, organizer. Open profile`} onPress={() => go(`/user/${t.host.id}`)}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('{name}, organizer. Open profile', { name: trip.host.displayName })} onPress={() => go(`/user/${trip.host.id}`)}>
           <Row style={{ gap: 14 }}>
-            <Avatar name={t.host.displayName} uri={t.host.photoUrl} size={42} />
+            <Avatar name={trip.host.displayName} uri={trip.host.photoUrl} size={42} />
             <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>Organized by {t.host.displayName}</Txt>
+              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('Organized by {name}', { name: trip.host.displayName })}</Txt>
               <Row style={{ gap: 6 }}>
-                {t.host.verifiedAdult ? <Ionicons name="shield-checkmark" size={13} color={c.green} /> : null}
-                <Txt variant="small" style={{ flex: 1 }}>{t.host.verifiedAdult ? 'Verified adult' : 'Organizer'}</Txt>
+                {trip.host.verifiedAdult ? <Ionicons name="shield-checkmark" size={13} color={c.green} /> : null}
+                <Txt variant="small" style={{ flex: 1 }}>{trip.host.verifiedAdult ? t('Verified adult') : t('Organizer')}</Txt>
               </Row>
             </View>
           </Row>
@@ -150,8 +152,8 @@ export default function TripDetail() {
               <Ionicons name="calendar-outline" size={18} color={c.forest} />
             </View>
             <View style={{ flex: 1, gap: 1 }}>
-              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{dateSpan(t.dateStart, t.dateEnd)}</Txt>
-              <Txt variant="muted">{flex}</Txt>
+              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{dateSpan(trip.dateStart, trip.dateEnd)}</Txt>
+              <Txt variant="muted">{t(flex)}</Txt>
             </View>
           </Row>
           <View style={{ height: 1, backgroundColor: c.line, marginHorizontal: 16 }} />
@@ -160,8 +162,7 @@ export default function TripDetail() {
               <Ionicons name="airplane-outline" size={18} color={c.forest} />
             </View>
             <View style={{ flex: 1, gap: 1 }}>
-              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>From {t.originCity}</Txt>
-              <Txt variant="muted">Others can leave from other cities</Txt>
+              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('From {city}', { city: trip.originCity })}</Txt>
             </View>
           </Row>
           <View style={{ height: 1, backgroundColor: c.line, marginHorizontal: 16 }} />
@@ -170,28 +171,28 @@ export default function TripDetail() {
               <Ionicons name="wallet-outline" size={18} color={c.forest} />
             </View>
             <View style={{ flex: 1, gap: 1 }}>
-              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)} per person</Txt>
-              <Txt variant="muted">{t.budget.label}. {t.budget.scope}</Txt>
+              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{money(trip.budget.min, trip.budget.currency)}–{money(trip.budget.max, trip.budget.currency)} {t('per person')}</Txt>
+              <Txt variant="muted">{trip.budget.label}. {trip.budget.scope}</Txt>
             </View>
           </Row>
         </View>
 
-        {t.tags.length ? (
+        {trip.tags.length ? (
           <Row style={{ flexWrap: 'wrap', gap: 6 }}>
-            {t.tags.map((x) => (
+            {trip.tags.map((x) => (
               <Chip key={x} label={x} tone="neutral" />
             ))}
           </Row>
         ) : null}
 
-        {t.description ? (
+        {trip.description ? (
           <View style={{ gap: 4 }}>
             <Txt variant="muted" numberOfLines={expanded ? undefined : 3} style={{ lineHeight: 20 }}>
-              {t.description}
+              {trip.description}
             </Txt>
             {longText ? (
-              <Pressable accessibilityRole="button" accessibilityLabel={expanded ? 'Read less' : 'Read more'} onPress={() => setExpanded((v) => !v)} hitSlop={8}>
-                <Txt bold color={c.green}>{expanded ? 'read less' : 'read more'}</Txt>
+              <Pressable accessibilityRole="button" accessibilityLabel={expanded ? t('Read less') : t('Read more')} onPress={() => setExpanded((v) => !v)} hitSlop={8}>
+                <Txt bold color={c.green}>{expanded ? t('read less') : t('read more')}</Txt>
               </Pressable>
             ) : null}
           </View>
@@ -199,13 +200,13 @@ export default function TripDetail() {
 
         <View style={{ gap: 12 }}>
           <Row style={{ justifyContent: 'space-between' }}>
-            <Txt variant="h2" accessibilityRole="header" style={{ fontSize: 16, lineHeight: 21 }}>Who's going</Txt>
+            <Txt variant="h2" accessibilityRole="header" style={{ fontSize: 16, lineHeight: 21 }}>{t("Who's going")}</Txt>
             <Txt variant="h3" style={{ fontSize: 12 }} color={full ? c.danger : c.green}>
-              {full ? 'Full' : `${t.spotsLeft} ${t.spotsLeft === 1 ? 'place' : 'places'} left`}
+              {full ? t('Full') : tn(trip.spotsLeft, '{n} place left', '{n} places left')}
             </Txt>
           </Row>
           <Row style={{ gap: 14 }}>
-            <View accessible accessibilityLabel={`Going: ${going.map((p) => p.displayName).join(', ')}`} style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View accessible accessibilityLabel={t('Going: {names}', { names: going.map((p) => p.displayName).join(', ') })} style={{ flexDirection: 'row', alignItems: 'center' }}>
               {faces.map((p, i) => (
                 <View key={p.id} style={{ marginLeft: i === 0 ? 0 : -10, borderRadius: 999, borderWidth: 2, borderColor: c.bg }}>
                   <Avatar name={p.displayName} uri={p.photoUrl} size={30} />
@@ -216,7 +217,7 @@ export default function TripDetail() {
               ))}
             </View>
             <View style={{ flex: 1, gap: 8 }}>
-              <Txt variant="muted">{t.members} of {t.maxCapacity} going · goes ahead with {t.minCapacity}+</Txt>
+              <Txt variant="muted">{t('{going} of {capacity} going · goes ahead with {min}+', { going: trip.members, capacity: trip.maxCapacity, min: trip.minCapacity })}</Txt>
               <View accessibilityElementsHidden importantForAccessibility="no" style={{ flexDirection: 'row', gap: 4 }}>
                 {Array.from({ length: segs }).map((_, i) => (
                   <View key={i} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: i < filled ? c.green : c.line }} />
@@ -228,45 +229,44 @@ export default function TripDetail() {
 
         <Row style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, gap: 10, alignItems: 'flex-start' }}>
           <Ionicons name="lock-closed-outline" size={16} color={c.forest} />
-          <Txt variant="small" style={{ flex: 1, color: c.text, lineHeight: 17 }}>Your exact location stays private. The group chat and private plans open once the organizer approves your application.</Txt>
+          <Txt variant="small" style={{ flex: 1, color: c.text, lineHeight: 17 }}>{t('Your exact location stays private. The group chat and private plans open once the organizer approves your application.')}</Txt>
         </Row>
 
-        {t.datesState === 'proposed' && !closed ? (
+        {trip.datesState === 'proposed' && !closed ? (
           <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
-            <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>Final dates: {dateSpan(t.dateStart, t.dateEnd)}</Txt>
-            <Txt variant="small">{t.datesConfirmedCount ?? 0} of {t.members} travelers confirmed. Everyone has to confirm for the dates to be final.</Txt>
-            {(t.participants ?? []).map((p) => (
+            <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('Final dates: {dates}', { dates: dateSpan(trip.dateStart, trip.dateEnd) })}</Txt>
+            <Txt variant="small">{t('{n} of {total} travelers confirmed.', { n: trip.datesConfirmedCount ?? 0, total: trip.members })}</Txt>
+            {(trip.participants ?? []).map((p) => (
               <Row key={p.id} style={{ gap: 8, alignItems: 'center' }}>
                 <Ionicons name={p.datesConfirmed ? 'checkmark-circle' : 'time-outline'} size={18} color={p.datesConfirmed ? c.green : c.muted} />
-                <Txt variant="small" style={{ flex: 1, color: c.text }}>{p.displayName}{p.role === 'organizer' || p.role === 'host' ? ' (organizer)' : ''}</Txt>
-                <Txt variant="small">{p.datesConfirmed ? 'Confirmed' : 'Waiting'}</Txt>
+                <Txt variant="small" style={{ flex: 1, color: c.text }}>{p.displayName}{p.role === 'organizer' || p.role === 'host' ? ` ${t('(organizer)')}` : ''}</Txt>
+                <Txt variant="small">{p.datesConfirmed ? t('Confirmed') : t('Waiting')}</Txt>
               </Row>
             ))}
-            {t.isMember && !t.myDatesConfirmed ? <Btn title="I can travel on these dates" small loading={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/confirm-dates`))} /> : t.myDatesConfirmed ? <Txt variant="small" bold color={c.green}>You confirmed these dates ✓</Txt> : null}
+            {trip.isMember && !trip.myDatesConfirmed ? <Btn title={t('I can travel on these dates')} small loading={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/confirm-dates`))} /> : trip.myDatesConfirmed ? <Txt variant="small" bold color={c.green}>{t('You confirmed these dates ✓')}</Txt> : null}
           </View>
         ) : null}
 
-        <Banner>{t.disclaimer}</Banner>
+        <Banner>{trip.disclaimer}</Banner>
 
         {/* the lesser actions; the main one is in the bar below */}
-        {t.isHost ? (
+        {trip.isHost ? (
           <View style={{ gap: 10 }}>
-            {t.conversationId && <Btn title="Open group chat" variant="secondary" onPress={() => go(`/chat/${t.conversationId}`)} />}
-            {t.status !== 'cancelled' ? <Btn title="Trip Plan" variant="secondary" onPress={() => go(`/trip-plan/${id}`)} /> : null}
-            {t.status !== 'cancelled' && new Date(t.dateStart) <= new Date() ? <Btn title="Who came?" variant="secondary" onPress={() => go(`/no-shows/trip/${id}`)} /> : null}
-            {t.status !== 'cancelled' && (
-              <Btn title="Cancel trip" variant="danger" loading={act.busy} onPress={async () => (await confirmAsync('Cancel this trip?', 'Everyone in the group will be notified.', 'Cancel trip', true)) && void act.run(() => post(`/v1/trips/${id}/cancel`))} />
+            {trip.conversationId && <Btn title={t('Open group chat')} variant="secondary" onPress={() => go(`/chat/${trip.conversationId}`)} />}
+            {trip.status !== 'cancelled' ? <Btn title={t('Trip Plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} /> : null}
+            {trip.status !== 'cancelled' && new Date(trip.dateStart) <= new Date() ? <Btn title={t('Who came?')} variant="secondary" onPress={() => go(`/no-shows/trip/${id}`)} /> : null}
+            {trip.status !== 'cancelled' && (
+              <Btn title={t('Cancel trip')} variant="danger" loading={act.busy} onPress={async () => (await confirmAsync(t('Cancel this trip?'), t('Everyone in the group will be notified.'), t('Cancel trip'), true)) && void act.run(() => post(`/v1/trips/${id}/cancel`))} />
             )}
           </View>
-        ) : t.isMember ? (
+        ) : trip.isMember ? (
           <View style={{ gap: 10 }}>
-            <Banner tone="ok">You're in the group.</Banner>
-            <Btn title="Trip Plan" variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
-            <Banner>Agree dates in the group chat with a date poll. The organizer can put a poll to the group, and everyone confirms the final dates.</Banner>
-            <Btn title="Leave trip" variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync('Leave this trip?', undefined, 'Leave')) && void act.run(() => post(`/v1/trips/${id}/leave`))} />
+            <Banner tone="ok">{t("You're in the group.")}</Banner>
+            <Btn title={t('Trip Plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
+            <Btn title={t('Leave trip')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this trip?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/trips/${id}/leave`))} />
           </View>
         ) : app && app.state === 'pending' ? (
-          <Banner tone="warn">{app.message}. You can't see the group chat or private plans until you're approved.</Banner>
+          <Banner tone="warn">{app.message}</Banner>
         ) : app && ['declined', 'waitlisted'].includes(app.state) ? (
           <View style={{ gap: 10 }}>
             <Banner tone={app.state === 'declined' ? 'bad' : 'warn'}>{app.message}</Banner>
@@ -290,9 +290,9 @@ export default function TripDetail() {
 
       {/* fixed over the page: back on the left; share and more on the right */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top, left: gutter, right: gutter, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <FloatingButton round size={38} fx="nudge" icon="chevron-back" label="Go back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
+        <FloatingButton round size={38} fx="nudge" icon="chevron-back" label={t('Go back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <FloatingButton round size={38} icon="share-social-outline" label="Share this trip" onPress={share} />
+          <FloatingButton round size={38} icon="share-social-outline" label={t('Share this trip')} onPress={share} />
           {menu.length ? <Menu floating round size={38} items={menu} /> : null}
         </View>
       </View>

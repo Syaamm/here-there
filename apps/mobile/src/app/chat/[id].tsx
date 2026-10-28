@@ -20,6 +20,7 @@ import { BackArrow } from '@/components/TabHeader';
 import { statusTop } from '@/lib/layout';
 import { useLiveEvents } from '@/lib/live';
 import { refreshUnread } from '@/lib/unread';
+import { t, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
 type PollInfo = { id: string; title: string; dateStart: string | null; dateEnd: string | null; state: 'open' | 'adopted' | 'closed'; accept: number; reject: number; myVote: 'accept' | 'reject' | null };
@@ -35,6 +36,7 @@ const hostOf = (url: string) => {
 
 /** A date poll in the chat: everyone answers accept or reject; the organizer can turn the dates into the trip's final dates. */
 function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolean; busy: boolean; onVote: (v: 'accept' | 'reject') => void; onClose: (adopt: boolean) => void }) {
+  const { t } = useT();
   const { c } = useTheme();
   const p = m.poll;
   if (!p) return null;
@@ -44,7 +46,7 @@ function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolea
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${label}. ${v === 'accept' ? p.accept : p.reject} so far`}
+        accessibilityLabel={t('{label}. {n} so far', { label, n: v === 'accept' ? p.accept : p.reject })}
         accessibilityState={{ selected: on, disabled: !open || busy }}
         disabled={!open || busy}
         onPress={() => onVote(v)}
@@ -59,7 +61,7 @@ function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolea
     <View style={{ alignSelf: 'center', width: '92%', backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 16, padding: 12, gap: 10, marginVertical: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Ionicons name="calendar-outline" size={16} color={c.green} />
-        <Text style={{ color: c.green, fontWeight: '800', fontSize: 11, letterSpacing: 0.6 }}>DATE POLL · {open ? 'OPEN' : p.state === 'adopted' ? 'DATES CHOSEN' : 'CLOSED'}</Text>
+        <Text style={{ color: c.green, fontWeight: '800', fontSize: 11, letterSpacing: 0.6 }}>{open ? t('DATE POLL · OPEN') : p.state === 'adopted' ? t('DATE POLL · DATES CHOSEN') : t('DATE POLL · CLOSED')}</Text>
       </View>
       <Text style={{ color: c.text, fontWeight: '800', fontSize: 15, lineHeight: 20 }}>{p.title}</Text>
       {p.dateStart && p.dateEnd ? (
@@ -68,16 +70,15 @@ function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolea
         </View>
       ) : null}
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        {choice('accept', 'Accept', 'checkmark')}
-        {choice('reject', 'Reject', 'close')}
+        {choice('accept', t('Accept'), 'checkmark')}
+        {choice('reject', t('Reject'), 'close')}
       </View>
       {amHost && open ? (
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          {p.dateStart && p.dateEnd ? <Btn title="Use these dates" small onPress={() => onClose(true)} loading={busy} style={{ flex: 1 }} /> : null}
-          <Btn title="Close poll" small variant="secondary" onPress={() => onClose(false)} loading={busy} style={{ flex: 1 }} />
+          {p.dateStart && p.dateEnd ? <Btn title={t('Use these dates')} small onPress={() => onClose(true)} loading={busy} style={{ flex: 1 }} /> : null}
+          <Btn title={t('Close poll')} small variant="secondary" onPress={() => onClose(false)} loading={busy} style={{ flex: 1 }} />
         </View>
       ) : null}
-      {amHost && open && p.dateStart ? <Text style={{ color: c.muted, fontSize: 11, lineHeight: 15 }}>Using these dates asks every member to confirm them. Nobody is committed until they do.</Text> : null}
     </View>
   );
 }
@@ -85,17 +86,18 @@ function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolea
 /** Opens an outside address, after a safety notice. */
 async function openLink(url: string) {
   const full = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-  if (await confirmAsync('Leave HERE & THERE?', `This opens ${hostOf(full)} in your browser. We don't check outside websites. Never send money, deposits or ID documents to anyone you met through the app, and book travel only with suppliers you trust.`, 'Open link')) void Linking.openURL(full);
+  if (await confirmAsync(t('Leave HERE & THERE?'), t("This opens {site} in your browser. We don't check outside websites. Never send money, deposits or ID documents to anyone you met through the app, and book travel only with suppliers you trust.", { site: hostOf(full) }), t('Open link'))) void Linking.openURL(full);
 }
 
 /** A message's text, with any web address in it pressable (it shows the safety notice before it opens). */
 function Linkified({ text, linkColor }: { text: string; linkColor: string }) {
+  const { t } = useT();
   const parts = text.split(/((?:https?:\/\/|www\.)[^\s]+)/gi);
   return (
     <>
       {parts.map((part, i) =>
         i % 2 === 1 ? (
-          <Text key={i} accessibilityRole="link" accessibilityHint="Opens a safety notice first" onPress={() => void openLink(part)} style={{ color: linkColor, textDecorationLine: 'underline', fontWeight: '700' }}>
+          <Text key={i} accessibilityRole="link" accessibilityHint={t('Opens a safety notice first')} onPress={() => void openLink(part)} style={{ color: linkColor, textDecorationLine: 'underline', fontWeight: '700' }}>
             {part}
           </Text>
         ) : (
@@ -117,6 +119,7 @@ export default function ChatRoute() {
 }
 
 function Chat({ id }: { id: string }) {
+  const { t, tn } = useT();
   const { me } = useMe();
   const { c } = useTheme();
   const router = useRouter();
@@ -215,8 +218,8 @@ function Chat({ id }: { id: string }) {
   // a refusal (a risky link, a request for money) goes away by itself after a few seconds
   useEffect(() => {
     if (!send.error) return;
-    const t = setTimeout(() => send.setError(null), 6000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => send.setError(null), 6000);
+    return () => clearTimeout(timer);
   }, [send.error]);
   // THERE: the trip itself, for the final-dates confirmation under the chat's title
   const tripId = info.data?.scope === 'trip' ? info.data.scopeId : undefined;
@@ -239,7 +242,7 @@ function Chat({ id }: { id: string }) {
   });
   const pFrom = pollFrom ? parseDay(pollFrom) : null;
   const pTo = pollTo ? parseDay(pollTo) : null;
-  const pollErr = (pollFrom && !pFrom ? 'Use the format YYYY-MM-DD' : null) ?? (pollTo && !pollFrom ? 'Add the start date too' : null) ?? (pollTo && !pTo ? 'Use the format YYYY-MM-DD' : null) ?? (pFrom && pTo && pTo < pFrom ? 'The end date is before the start date' : null);
+  const pollErr = (pollFrom && !pFrom ? t('Use the format YYYY-MM-DD') : null) ?? (pollTo && !pollFrom ? t('Add the start date too') : null) ?? (pollTo && !pTo ? t('Use the format YYYY-MM-DD') : null) ?? (pFrom && pTo && pTo < pFrom ? t('The end date is before the start date') : null);
   const createPoll = async () => {
     const r = await plan.run(() => post(`/v1/conversations/${id}/polls`, { title: pollTitle.trim(), ...(pFrom && { dateStart: pFrom.toISOString(), dateEnd: (pTo ?? pFrom).toISOString() }) }));
     if (r) {
@@ -252,7 +255,7 @@ function Chat({ id }: { id: string }) {
   };
   const vote = (pollId: string, v: 'accept' | 'reject') => void plan.run(() => post(`/v1/polls/${pollId}/vote`, { vote: v }));
   const closePoll = async (pollId: string, adopt: boolean) => {
-    if (adopt && !(await confirmAsync('Use these dates?', 'Every member is asked to confirm them. Nobody is committed until they do.', 'Use dates'))) return;
+    if (adopt && !(await confirmAsync(t('Use these dates?'), t('Every member is asked to confirm them. Nobody is committed until they do.'), t('Use dates')))) return;
     void plan.run(() => post(`/v1/polls/${pollId}/close`, { adopt }));
   };
   const confirmDates = () => tripId && void plan.run(() => post(`/v1/trips/${tripId}/confirm-dates`));
@@ -305,16 +308,16 @@ function Chat({ id }: { id: string }) {
 
   const leave = async () => {
     if (!conv) return;
-    if (await confirmAsync(conv.scope === 'trip' ? 'Leave this group and the trip?' : 'Leave this group and the activity?', conv.scope === 'trip' ? 'Leaving the group also takes you out of the trip.' : 'Leaving the group also takes you out of the activity.', 'Leave', true)) {
+    if (await confirmAsync(conv.scope === 'trip' ? t('Leave this group and the trip?') : t('Leave this group and the activity?'), conv.scope === 'trip' ? t('Leaving the group also takes you out of the trip.') : t('Leaving the group also takes you out of the activity.'), t('Leave'), true)) {
       const r = await send.run(() => post(conv.scope === 'trip' ? `/v1/trips/${conv.scopeId}/leave` : `/v1/activities/${conv.scopeId}/leave`));
       if (r) router.back();
     }
   };
 
   const block = async (m: Msg) => {
-    if (await confirmAsync(`Block ${m.sender.displayName}?`, "Their messages will be hidden from you and they can't contact you, in HERE or THERE.", 'Block', true)) {
+    if (await confirmAsync(t('Block {name}?', { name: m.sender.displayName }), t("Their messages will be hidden from you and they can't contact you, in HERE or THERE."), t('Block'), true)) {
       const r = await safety.run(() => post('/v1/blocks', { userId: m.sender.id }));
-      if (r) setNote(`You blocked ${m.sender.displayName}. Their messages are hidden, and you can unblock them in Safety & privacy.`);
+      if (r) setNote(t('You blocked {name}. Their messages are hidden, and you can unblock them in Safety & privacy.', { name: m.sender.displayName }));
     }
   };
 
@@ -323,8 +326,8 @@ function Chat({ id }: { id: string }) {
   if (needsVerify)
     return (
       <Screen hasHeader>
-        <Empty title="Verify to chat">Group chat is for verified adults. You can keep exploring, and chat opens as soon as you're verified.</Empty>
-        <Btn title="Get verified" onPress={() => go('/verify')} />
+        <Empty title={t('Verify to chat')} />
+        <Btn title={t('Get verified')} onPress={() => go('/verify')} />
       </Screen>
     );
 
@@ -332,65 +335,65 @@ function Chat({ id }: { id: string }) {
   if (msgs.data?.ended && conv?.scope === 'match')
     return (
       <Screen hasHeader>
-        <Empty title="This chat has ended">One of you ended it, or it is no longer available. You can still find other travelers to match with.</Empty>
-        <Btn title="Back" variant="secondary" onPress={() => router.back()} />
+        <Empty title={t('This chat has ended')} />
+        <Btn title={t('Back')} variant="secondary" onPress={() => router.back()} />
       </Screen>
     );
   if (msgs.data?.ended)
     return (
       <Screen hasHeader>
-        <Empty title="This chat has ended">The {conv?.scope === 'trip' ? 'trip' : 'activity'} was cancelled by the {conv?.scope === 'trip' ? 'organizer' : 'host'}, so its group chat was closed.</Empty>
-        {conv ? <Btn title={conv.scope === 'trip' ? 'View trip' : 'View activity'} variant="secondary" onPress={() => go(conv.scope === 'trip' ? `/trip/${conv.scopeId}` : `/activity/${conv.scopeId}`)} /> : null}
+        <Empty title={t('This chat has ended')} />
+        {conv ? <Btn title={conv.scope === 'trip' ? t('View trip') : t('View activity')} variant="secondary" onPress={() => go(conv.scope === 'trip' ? `/trip/${conv.scopeId}` : `/activity/${conv.scopeId}`)} /> : null}
       </Screen>
     );
 
   if (locked)
     return (
       <Screen hasHeader>
-        <Empty title="Chat is for approved members">Once the organizer approves your request, the group chat opens here.</Empty>
+        <Empty title={t('Chat is for approved members')} />
       </Screen>
     );
 
   const amHost = !!info.data?.members.find((m) => m.isMe && m.role === 'host');
   const them = info.data?.members.find((m) => !m.isMe);
   const endMatch = async () => {
-    if (await confirmAsync('End this chat?', 'It closes for both of you and cannot be reopened.', 'End chat', true)) {
+    if (await confirmAsync(t('End this chat?'), t('It closes for both of you and cannot be reopened.'), t('End chat'), true)) {
       const r = await send.run(() => post(`/v1/me/travel-match/chats/${id}/end`));
       if (r) router.back();
     }
   };
   const menu = conv?.scope === 'match' ? [
-    ...(them ? [{ label: 'View profile', onSelect: () => go(`/user/${them.id}`) }] : []),
-    { label: 'Safety tools', onSelect: () => go('/safety') },
-    { label: 'End chat', danger: true, onSelect: () => void endMatch() },
+    ...(them ? [{ label: t('View profile'), onSelect: () => go(`/user/${them.id}`) }] : []),
+    { label: t('Safety tools'), onSelect: () => go('/safety') },
+    { label: t('End chat'), danger: true, onSelect: () => void endMatch() },
   ] : [
-    { label: 'Group info', onSelect: () => go(`/group/${id}`) },
-    ...(conv ? [{ label: conv.scope === 'trip' ? 'View trip' : 'View activity', onSelect: () => go(conv.scope === 'trip' ? `/trip/${conv.scopeId}` : `/activity/${conv.scopeId}`) }] : []),
-    { label: 'Safety tools', onSelect: () => go('/safety') },
+    { label: t('Group info'), onSelect: () => go(`/group/${id}`) },
+    ...(conv ? [{ label: conv.scope === 'trip' ? t('View trip') : t('View activity'), onSelect: () => go(conv.scope === 'trip' ? `/trip/${conv.scopeId}` : `/activity/${conv.scopeId}`) }] : []),
+    { label: t('Safety tools'), onSelect: () => go('/safety') },
     // hosts cannot leave their own group: they cancel the activity instead (see Group info)
-    ...(amHost ? [] : [{ label: 'Leave group', danger: true, onSelect: leave }]),
+    ...(amHost ? [] : [{ label: t('Leave group'), danger: true, onSelect: leave }]),
   ];
   const closedText =
     info.data?.status === 'archived'
-      ? 'This chat is archived. The activity has ended, so you can read it but not write.'
+      ? t('This chat is archived: read only.')
       : info.data?.status === 'completed'
-        ? 'This activity has ended, so the chat is read-only now.'
-        : 'This conversation is closed. The activity or trip was cancelled.';
+        ? t('This activity has ended: read only.')
+        : t('This conversation is closed.');
 
   return (
     // on tablets and desktops the conversation is a centred, readable column rather than edge to edge
     <>
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: c.bg }}>
     <Animated.View style={{ flex: 1, width: '100%', maxWidth: 760, backgroundColor: c.bg, paddingBottom: keyboard }}>
-      <Stack.Screen options={{ title: conv?.title ?? 'Group chat' }} />
+      <Stack.Screen options={{ title: conv?.title ?? t('Group chat') }} />
       {/* the chat's own top row: back, who it is (tap for group info), and the menu */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: statusTop(insets.top) + 8, paddingBottom: 6, paddingHorizontal: 12 }}>
         <BackArrow />
-        <Pressable accessibilityRole="button" accessibilityLabel={`${conv?.title ?? 'Group'}. Open group info`} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('{title}. Open group info', { title: conv?.title ?? t('Group') })} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           {info.data?.category ? <CatPhoto category={info.data.category} style={{ width: 38, height: 38, borderRadius: 19 }} /> : <Avatar name={conv?.title} size={38} />}
           <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={{ color: c.text, fontWeight: '800', fontSize: 16 }}>{conv?.title ?? 'Group chat'}</Text>
-            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{conv?.scope === 'match' ? `Travel match${conv.place ? ` · ${conv.place}` : ''}` : info.data ? `${info.data.members.length} ${info.data.members.length === 1 ? 'person' : 'people'} · tap for group info` : conv?.scope === 'trip' ? 'Trip group' : 'Activity group'}</Text>
+            <Text numberOfLines={1} style={{ color: c.text, fontWeight: '800', fontSize: 16 }}>{conv?.title ?? t('Group chat')}</Text>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{conv?.scope === 'match' ? `${t('Travel match')}${conv.place ? ` · ${conv.place}` : ''}` : info.data ? t('{people} · tap for group info', { people: tn(info.data.members.length, '{n} person', '{n} people') }) : conv?.scope === 'trip' ? t('Trip group') : t('Activity group')}</Text>
           </View>
         </Pressable>
         <Menu items={menu} />
@@ -403,11 +406,11 @@ function Chat({ id }: { id: string }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, backgroundColor: c.accentSoft, paddingLeft: 12, paddingRight: 4, paddingVertical: 4 }}>
               <Ionicons name="calendar-outline" size={14} color={c.forest} />
               <Text numberOfLines={2} style={{ flex: 1, color: c.text, fontSize: 12, lineHeight: 16 }}>
-                <Text style={{ fontWeight: '800' }}>Final dates {dateSpan(trip.data.dateStart, trip.data.dateEnd)}</Text> · {trip.data.datesConfirmedCount ?? 0} of {trip.data.members} confirmed{trip.data.myDatesConfirmed ? ' ✓' : ''}
+                <Text style={{ fontWeight: '800' }}>{t('Final dates {dates}', { dates: dateSpan(trip.data.dateStart, trip.data.dateEnd) })}</Text> · {t('{done} of {total} confirmed', { done: trip.data.datesConfirmedCount ?? 0, total: trip.data.members })}{trip.data.myDatesConfirmed ? ' ✓' : ''}
               </Text>
               {trip.data.isMember && !trip.data.myDatesConfirmed ? (
-                <Pressable accessibilityRole="button" accessibilityLabel="Confirm you can travel on these dates" disabled={plan.busy} onPress={confirmDates} hitSlop={6} style={({ pressed }) => [{ height: 28, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85 }]}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Confirm</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('Confirm you can travel on these dates')} disabled={plan.busy} onPress={confirmDates} hitSlop={6} style={({ pressed }) => [{ height: 28, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85 }]}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{t('Confirm')}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -430,7 +433,7 @@ function Chat({ id }: { id: string }) {
         }} keyboardShouldPersistTaps="handled">
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: c.sand, borderRadius: 14, padding: 10, marginBottom: 6 }}>
           <Ionicons name="lock-closed-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
-          <Text style={{ flex: 1, color: c.text, fontSize: 12.5, lineHeight: 17 }}>Only approved members can see this chat. Meet at public venues, and report anything that feels wrong. Hold a message to report or block.</Text>
+          <Text style={{ flex: 1, color: c.text, fontSize: 12.5, lineHeight: 17 }}>{t('Only approved members can see this chat. Meet at public venues, and report anything that feels wrong. Hold a message to report or block.')}</Text>
         </View>
         {/* The top of the history. While there are earlier messages it is a fixed-height area: grey message shapes while they load,
             empty otherwise, so it never changes size and nothing moves when loading starts. At the very first message it becomes a line. */}
@@ -438,11 +441,11 @@ function Chat({ id }: { id: string }) {
           <View style={{ height: 164, overflow: 'hidden' }}>{loadingOlder ? <SkeletonChat compact /> : null}</View>
         ) : older.length > 0 && olderCursor === null ? (
           <View style={{ height: 34, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: c.muted, fontSize: 11 }}>Start of the conversation</Text>
+            <Text style={{ color: c.muted, fontSize: 11 }}>{t('Start of the conversation')}</Text>
           </View>
         ) : null}
         {msgs.loading && !msgs.data && <SkeletonChat />}
-        {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>No messages yet. Say hi 👋</Txt>}
+        {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>{t('No messages yet. Say hi 👋')}</Txt>}
         {shown.map((m, i, all) => {
           const earlierBatch = i < older.length; // loaded above the newest page: it fades in when scrolled to
           const mine = m.sender.id === me?.id;
@@ -474,16 +477,16 @@ function Chat({ id }: { id: string }) {
             <Appear key={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
               {day}
               <Pressable
-                accessibilityLabel={`${mine ? 'You' : m.sender.displayName}: ${m.body}, ${hhmm(m.createdAt)}`}
-                accessibilityHint={mine ? undefined : 'Press and hold for report and block options'}
-                accessibilityActions={mine ? undefined : [{ name: 'more', label: 'Report or block' }]}
+                accessibilityLabel={`${mine ? t('You') : m.sender.displayName}: ${m.body}, ${hhmm(m.createdAt)}`}
+                accessibilityHint={mine ? undefined : t('Press and hold for report and block options')}
+                accessibilityActions={mine ? undefined : [{ name: 'more', label: t('Report or block') }]}
                 onAccessibilityAction={() => setPicked(m)}
                 onLongPress={mine ? undefined : () => setPicked(m)}
                 delayLongPress={350}
                 style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '78%', backgroundColor: mine ? c.forest : c.surface, borderWidth: mine ? 0 : 1, borderColor: c.line, borderRadius: 14, borderBottomRightRadius: mine ? 4 : 14, borderBottomLeftRadius: mine ? 14 : 4, paddingHorizontal: 10, paddingVertical: 5, marginTop: showName || newDay ? 5 : 0 }}
               >
                 {showName && (
-                  <Pressable accessibilityRole="link" accessibilityLabel={`View ${m.sender.displayName}'s profile`} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6}>
+                  <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6}>
                     <Text style={{ color: c.green, fontWeight: '800', fontSize: 11.5, marginBottom: 1 }}>{m.sender.displayName}</Text>
                   </Pressable>
                 )}
@@ -494,7 +497,7 @@ function Chat({ id }: { id: string }) {
                 </Text>
                 {/* a message with a web address carries its own caution, before anyone taps it */}
                 {/(?:https?:\/\/|www\.)/i.test(m.body) ? (
-                  <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>Opens outside the app. We do not check it. Never send money or ID documents.</Text>
+                  <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>{t('Opens outside the app. We do not check it. Never send money or ID documents.')}</Text>
                 ) : null}
               </Pressable>
             </Appear>
@@ -512,18 +515,18 @@ function Chat({ id }: { id: string }) {
       ) : (
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', paddingHorizontal: 12, paddingTop: 6, paddingBottom: bottomGap + 8 }}>
           {amHost && conv?.scope === 'trip' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Add a date poll" onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
               <Ionicons name="add" size={22} color={c.forest} />
             </Pressable>
           ) : null}
           <TextInput
-            accessibilityLabel="Write a message"
+            accessibilityLabel={t('Write a message')}
             value={text}
             onChangeText={(v) => {
               setText(v);
               if (send.error) send.setError(null); // the refusal was about the old text
             }}
-            placeholder="Write a message…"
+            placeholder={t('Write a message…')}
             placeholderTextColor={c.placeholder}
             maxLength={2000}
             multiline
@@ -532,7 +535,7 @@ function Chat({ id }: { id: string }) {
           />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Send message"
+            accessibilityLabel={t('Send message')}
             accessibilityState={{ disabled: !text.trim() || send.busy }}
             disabled={!text.trim() || send.busy}
             onPress={submit}
@@ -543,26 +546,25 @@ function Chat({ id }: { id: string }) {
         </View>
       )}
       <ReportSheet target={reportMsg ? { type: 'message', id: reportMsg.id, category: reportMsg.category } : null} onClose={() => setReportMsg(null)} />
-      <Sheet visible={adding === 'poll'} title="Date poll" onClose={() => setAdding(null)}>
-        <Field label="Question" placeholder="Can everyone travel on these dates?" value={pollTitle} onChangeText={setPollTitle} maxLength={120} />
+      <Sheet visible={adding === 'poll'} title={t('Date poll')} onClose={() => setAdding(null)}>
+        <Field label={t('Question')} placeholder={t('Can everyone travel on these dates?')} value={pollTitle} onChangeText={setPollTitle} maxLength={120} />
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
           <View style={{ flex: 1 }}>
-            <DateField label="From (optional)" placeholder="YYYY-MM-DD" value={pollFrom} onChangeText={setPollFrom} error={pollErr} />
+            <DateField label={t('From (optional)')} placeholder="YYYY-MM-DD" value={pollFrom} onChangeText={setPollFrom} error={pollErr} />
           </View>
           <View style={{ flex: 1 }}>
-            <DateField label="To (optional)" placeholder="YYYY-MM-DD" value={pollTo} onChangeText={setPollTo} />
+            <DateField label={t('To (optional)')} placeholder="YYYY-MM-DD" value={pollTo} onChangeText={setPollTo} />
           </View>
         </View>
-        <Txt variant="small">With dates, you can turn the result into the trip's final dates. Members then confirm them one by one.</Txt>
         <ErrorBanner message={plan.error} />
-        <Btn title="Post poll" onPress={createPoll} loading={plan.busy} disabled={pollTitle.trim().length < 3 || !!pollErr} />
+        <Btn title={t('Post poll')} onPress={createPoll} loading={plan.busy} disabled={pollTitle.trim().length < 3 || !!pollErr} />
       </Sheet>
-      <Sheet visible={!!picked} title={picked ? `Message from ${picked.sender.displayName}` : ''} onClose={() => setPicked(null)}>
+      <Sheet visible={!!picked} title={picked ? t('Message from {name}', { name: picked.sender.displayName }) : ''} onClose={() => setPicked(null)}>
         <Txt variant="muted" numberOfLines={3}>{picked?.body}</Txt>
-        <Btn title="View profile" variant="secondary" onPress={() => { const m = picked!; setPicked(null); go(`/user/${m.sender.id}`); }} />
-        <Btn title="Report message" variant="secondary" onPress={() => { const m = picked!; setPicked(null); setReportMsg({ id: m.id }); }} />
-        <Btn title="Report as spam" variant="secondary" onPress={() => { const m = picked!; setPicked(null); setReportMsg({ id: m.id, category: 'spam' }); }} />
-        <Btn title={`Block ${picked?.sender.displayName ?? ''}`} variant="danger" onPress={() => { const m = picked!; setPicked(null); void block(m); }} />
+        <Btn title={t('View profile')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); go(`/user/${m.sender.id}`); }} />
+        <Btn title={t('Report message')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); setReportMsg({ id: m.id }); }} />
+        <Btn title={t('Report as spam')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); setReportMsg({ id: m.id, category: 'spam' }); }} />
+        <Btn title={t('Block {name}', { name: picked?.sender.displayName ?? '' })} variant="danger" onPress={() => { const m = picked!; setPicked(null); void block(m); }} />
       </Sheet>
     </Animated.View>
     </View>

@@ -6563,6 +6563,42 @@
         }
       }
     },
+    "/v1/export/zip": {
+      "get": {
+        "tags": [
+          "Sign-in and account"
+        ],
+        "summary": "The ZIP copy of my data (signed link, no login header)",
+        "operationId": "Account_zip",
+        "description": "Public: the signed link in the t parameter is the login. It names the person, the language and an expiry.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The ZIP file (application/zip)."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `INVALID_LINK`, `LINK_EXPIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/follows": {
       "post": {
         "tags": [
@@ -8051,16 +8087,17 @@
         }
       }
     },
-    "/v1/me/export": {
-      "get": {
+    "/v1/me/export/zip-link": {
+      "post": {
         "tags": [
           "Sign-in and account"
         ],
-        "summary": "Download everything stored about me (data access right, spec 9.2)",
-        "operationId": "Account_export",
+        "summary": "A two-minute link to download a copy of my data (ZIP)",
+        "operationId": "Account_zipLink",
+        "description": "Data access right, spec 9.2.",
         "responses": {
           "200": {
-            "description": "A JSON copy of the profile, plans, messages, follows, alerts, identity-check outcomes and account activity. Limited to 3 per day."
+            "description": "{ url, expiresInSeconds }. Open the url to download a ZIP with my-data.json (profile, plans, messages, follows, alerts, identity-check outcomes, account activity) and a README. Limited to 1 a day. Body: { lang?: \"en\" | \"it\" }."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -9087,7 +9124,7 @@
         "operationId": "Reliability_mine",
         "responses": {
           "200": {
-            "description": "{ level, label, line }: just the level and one short line. The full breakdown is in GET /v1/me/export, and in the admin console for staff."
+            "description": "{ level, label, line }: just the level and one short line. The full breakdown is in the data download (my-data.json), and in the admin console for staff."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -13344,7 +13381,7 @@
         ],
         "summary": "Development only: the simulated provider page",
         "operationId": "Verification_sandboxPage",
-        "description": "Refused when NODE_ENV is production.",
+        "description": "Refused when NODE_ENV is production, unless DEMO_MODE=true.",
         "security": [],
         "parameters": [
           {
@@ -13390,7 +13427,7 @@
         ],
         "summary": "Development only: pick the simulated outcome",
         "operationId": "Verification_sandboxDecide",
-        "description": "Refused when NODE_ENV is production.",
+        "description": "Refused when NODE_ENV is production, unless DEMO_MODE=true.",
         "security": [],
         "parameters": [
           {
@@ -13566,6 +13603,7 @@
               "INVALID_CURSOR",
               "INVALID_DATES",
               "INVALID_IMAGE",
+              "INVALID_LINK",
               "INVALID_MFA_CODE",
               "INVALID_PAYLOAD",
               "INVALID_SCHEDULE",
@@ -13577,6 +13615,7 @@
               "INVITE_ONLY",
               "IS_HOST",
               "IS_ORGANIZER",
+              "LINK_EXPIRED",
               "MARK_LOCKED",
               "MARK_NOT_OPEN",
               "MARK_WINDOW_CLOSED",
@@ -13731,6 +13770,12 @@
       "clientShould": "Ask for another picture."
     },
     {
+      "code": "INVALID_LINK",
+      "status": 400,
+      "meaning": "A signed download link is malformed or its signature is wrong.",
+      "clientShould": "Ask for a new link."
+    },
+    {
       "code": "INVALID_PAYLOAD",
       "status": 400,
       "meaning": "A webhook body is not valid JSON.",
@@ -13753,6 +13798,12 @@
       "status": 400,
       "meaning": "The action cannot be aimed at that person (yourself, for example).",
       "clientShould": "Hide the action for that target."
+    },
+    {
+      "code": "LINK_EXPIRED",
+      "status": 400,
+      "meaning": "A signed download link is older than its two minutes.",
+      "clientShould": "Ask for a new link."
     },
     {
       "code": "MFA_NOT_STARTED",

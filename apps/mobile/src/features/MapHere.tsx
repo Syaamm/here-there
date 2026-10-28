@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, type Region } from 'react-native-maps';
 import { HeaderBar, TabHeader } from '@/components/TabHeader';
 import { Empty } from '@/components/ui';
+import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { PinIcon } from './PinIcon';
 import { MapOverlay, useMapData, type Group } from './mapShared';
@@ -37,6 +38,7 @@ function DebugCounts() {
  * change to show, and then goes back to being a still picture. Selecting or deselecting one pin never touches the others.
  */
 const MapPin = memo(function MapPin({ g, active, onSelect }: { g: Group; active: boolean; onSelect: (g: Group) => void }) {
+  const { tn } = useT();
   if (__DEV__) dbg.pins++;
   const [track, setTrack] = useState(true); // drawn live while it first appears, and again for a moment after it is (de)selected
   useEffect(() => {
@@ -46,7 +48,7 @@ const MapPin = memo(function MapPin({ g, active, onSelect }: { g: Group; active:
   }, [active]);
   const coordinate = useMemo(() => ({ latitude: g.lat, longitude: g.lng }), [g.lat, g.lng]);
   return (
-    <Marker anchor={{ x: 0.5, y: 1 }} coordinate={coordinate} title={g.items.length > 1 ? `${g.items.length} activities` : g.items[0].title} tracksViewChanges={track} onPress={() => onSelect(g)}>
+    <Marker anchor={{ x: 0.5, y: 1 }} coordinate={coordinate} title={g.items.length > 1 ? tn(g.items.length, '{n} activity', '{n} activities') : g.items[0].title} tracksViewChanges={track} onPress={() => onSelect(g)}>
       <PinIcon category={g.items[0].category} full={g.items.every((a) => a.spotsLeft === 0)} active={active} count={g.items.length} />
     </Marker>
   );
@@ -57,6 +59,7 @@ const MapPin = memo(function MapPin({ g, active, onSelect }: { g: Group; active:
  * Tap an icon for its card, "List ↗" for the full list. Location is asked only when "Near me" is tapped.
  */
 export function MapHere() {
+  const { t } = useT();
   const { c } = useTheme();
   const data = useMapData();
   const { center, groups, selected, setSelected, target, zoomCmd } = data;
@@ -85,7 +88,7 @@ export function MapHere() {
   if (!center)
     return (
       <View style={{ flex: 1, backgroundColor: c.bg, padding: 24, justifyContent: 'center' }}>
-        <Empty title="No map for this city yet">We only have map data for Milan in this pilot. You can still browse the list.</Empty>
+        <Empty title={t('No map for this city yet')}>{t('Only Milan is on the map for now.')}</Empty>
       </View>
     );
 
@@ -104,7 +107,7 @@ export function MapHere() {
         onRegionChangeComplete={(r) => (region.current = r)}
         showsPointsOfInterests={false}
         toolbarEnabled={false}
-        accessibilityLabel="Map of activity venues"
+        accessibilityLabel={t('Map of activity venues')}
       >
         {groups.map((g) => (
           <MapPin key={g.key} g={g} active={selected?.key === g.key} onSelect={onSelect} />

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, BackHandler, Easing, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useDockSpace } from '@/lib/dock';
 import { isoDay, parseDay } from '@/lib/format';
+import { t as tr, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { Btn, Txt } from './ui';
@@ -18,7 +19,7 @@ const same = (a: Date | null, b: Date | null) => !!a && !!b && a.getTime() === b
 const nights = (a: Date, b: Date) => Math.round((+b - +a) / DAY);
 
 /** "Fri, 20 Nov" */
-export const shortDay = (d: Date) => `${WEEKDAYS[d.getDay()].slice(0, 3)}, ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`;
+export const shortDay = (d: Date) => `${tr(WEEKDAYS[d.getDay()]).slice(0, 3)}, ${d.getDate()} ${tr(MONTHS[d.getMonth()]).slice(0, 3)}`;
 
 /** The last day a trip may be planned for: the end of the month that is `months` months after this one. */
 export const lastPlanningDay = (months = 6, from = new Date()) => new Date(from.getFullYear(), from.getMonth() + months + 1, 0);
@@ -51,6 +52,7 @@ export function DateRangeSheet({
   onClose: () => void;
   onDone: (start: string, end: string) => void;
 }) {
+  const { t, tn } = useT();
   const { c } = useTheme();
   const dock = useDockSpace();
   const today = startOfDay(new Date());
@@ -122,7 +124,7 @@ export function DateRangeSheet({
   const canNext = new Date(month.getFullYear(), month.getMonth() + 1, 1) <= last;
   const step = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
 
-  const summary = !from ? 'Pick the day you leave' : target === 'end' ? (to ? `${nights(from, to)} ${nights(from, to) === 1 ? 'night' : 'nights'} · tap another day to change your return` : 'Now pick the day you come back') : 'Pick the day you leave';
+  const summary = !from ? t('Pick your departure day') : target === 'end' ? (to ? tn(nights(from, to), '{n} night', '{n} nights') : t('Pick your return day')) : t('Pick your departure day');
   if (!mounted) return null;
 
   const arrow = (dir: -1 | 1, label: string, ok: boolean) => (
@@ -135,7 +137,7 @@ export function DateRangeSheet({
     // fills the tab above the dock, so the dock itself is never covered
     <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { bottom: dock, zIndex: 20, justifyContent: 'flex-end' }]}>
       <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.35)', opacity: slide }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close the calendar" />
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={t('Close the calendar')} />
       </Animated.View>
       <Animated.View
         accessibilityViewIsModal
@@ -161,16 +163,16 @@ export function DateRangeSheet({
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          {arrow(-1, 'Previous month', canPrev)}
-          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 14 }}>{MONTHS[month.getMonth()]} {month.getFullYear()}</Text>
-          {arrow(1, 'Next month', canNext)}
+          {arrow(-1, t('Previous month'), canPrev)}
+          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 14 }}>{t(MONTHS[month.getMonth()])} {month.getFullYear()}</Text>
+          {arrow(1, t('Next month'), canNext)}
         </View>
 
         <View>
           <View style={{ flexDirection: 'row' }}>
             {WEEK.map((w) => (
               <View key={w} style={{ flex: 1, alignItems: 'center', paddingVertical: 2 }}>
-                <Text style={{ color: c.muted, fontSize: 10, fontWeight: '700' }}>{w}</Text>
+                <Text style={{ color: c.muted, fontSize: 10, fontWeight: '700' }}>{t(w)}</Text>
               </View>
             ))}
           </View>
@@ -191,7 +193,7 @@ export function DateRangeSheet({
                     )}
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}${isStart ? ', leaving' : ''}${isEnd ? ', returning' : ''}`}
+                      accessibilityLabel={`${t(WEEKDAYS[d.getDay()])} ${d.getDate()} ${t(MONTHS[d.getMonth()])} ${d.getFullYear()}${isStart ? t(', leaving') : ''}${isEnd ? t(', returning') : ''}`}
                       accessibilityState={{ selected: edge, disabled: off }}
                       disabled={off}
                       onPress={() => pick(d)}
@@ -207,29 +209,28 @@ export function DateRangeSheet({
         </View>
 
         <View accessibilityRole="tablist" style={{ flexDirection: 'row', gap: 8 }}>
-          {([['start', 'Depart', from], ['end', 'Return', to]] as const).map(([k, label, d]) => {
+          {([['start', t('Depart'), from], ['end', t('Return'), to]] as const).map(([k, label, d]) => {
             const on = target === k;
             const locked = k === 'end' && !from; // pick the leaving day first
             return (
               <Pressable
                 key={k}
                 accessibilityRole="tab"
-                accessibilityLabel={`${label}: ${d ? shortDay(d) : 'not chosen'}`}
+                accessibilityLabel={`${label}: ${d ? shortDay(d) : t('not chosen')}`}
                 accessibilityState={{ selected: on, disabled: locked }}
                 disabled={locked}
                 onPress={() => setTarget(k)}
                 style={{ flex: 1, borderRadius: 12, borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.accentSoft : 'transparent', paddingVertical: 6, paddingHorizontal: 10, opacity: locked ? 0.55 : 1 }}
               >
                 <Text style={{ color: c.muted, fontSize: 10 }}>{label}</Text>
-                <Text style={{ color: c.text, fontSize: 13, fontWeight: '800' }}>{d ? shortDay(d) : 'Select date'}</Text>
+                <Text style={{ color: c.text, fontSize: 13, fontWeight: '800' }}>{d ? shortDay(d) : t('Select date')}</Text>
               </Pressable>
             );
           })}
         </View>
         <Txt variant="small" style={{ textAlign: 'center', color: c.text }}>{summary}</Txt>
-        <Txt variant="small" style={{ textAlign: 'center', fontSize: 11 }}>You can plan up to {MONTHS[last.getMonth()]} {last.getFullYear()}.</Txt>
         <Btn
-          title="Done"
+          title={t('Done')}
           small
           disabled={!from}
           onPress={() => {

@@ -11,6 +11,7 @@ import { confirmAsync } from '@/lib/confirm';
 import { ago, when } from '@/lib/format';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useAction, useLoad } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 type Req = {
   id: string;
@@ -22,6 +23,7 @@ type Req = {
 
 /** HERE · Host reviews applicants. The server creates membership only on approval. */
 export default function HostReview() {
+  const { t } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const go = useGo();
   const act = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
@@ -38,7 +40,7 @@ export default function HostReview() {
   if (reqs.error && !reqs.data)
     return (
       <Screen hasHeader>
-        <Empty title="Only the host can review requests">{reqs.error.message}</Empty>
+        <Empty title={t('Only the host can review requests')}>{reqs.error.message}</Empty>
       </Screen>
     );
 
@@ -49,24 +51,24 @@ export default function HostReview() {
 
   return (
     <Screen hasHeader onRefresh={refresh} refreshing={false}>
-      <Txt variant="h1" style={{ fontSize: 34, lineHeight: 40 }}>Your activity</Txt>
+      <Txt variant="h1" style={{ fontSize: 34, lineHeight: 40 }}>{t('Your activity')}</Txt>
       {a && (
         <Card style={{ borderRadius: 20, gap: 12 }}>
           <Row style={{ gap: 14 }}>
             <CatPhoto category={a.category} style={{ width: 68, height: 68, borderRadius: 16 }} />
             <View style={{ flex: 1, gap: 2 }}>
               <Txt variant="h3" style={{ fontSize: 18 }}>{a.title}</Txt>
-              <Txt variant="muted">{when(a.startsAt)} · {a.going} of {a.capacity} approved</Txt>
+              <Txt variant="muted">{when(a.startsAt)} · {t('{going} of {capacity} approved', { going: a.going, capacity: a.capacity })}</Txt>
             </View>
           </Row>
           <ProgressBar value={a.going} max={a.capacity} />
-          {a.status !== 'cancelled' && new Date(a.startsAt) <= new Date() ? <Btn title="Who came? ›" variant="secondary" small onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
-          {full && <Banner tone="warn">This activity is full. Reverse an approval to free a place.</Banner>}
+          {a.status !== 'cancelled' && new Date(a.startsAt) <= new Date() ? <Btn title={t('Who came? ›')} variant="secondary" small onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
+          {full && <Banner tone="warn">{t('Full. Reverse an approval to free a place.')}</Banner>}
         </Card>
       )}
       <ErrorBanner message={mutate.error} />
-      <Txt variant="h2" style={{ fontSize: 22 }}>Pending requests · {pending}</Txt>
-      {reqs.data && items.length === 0 && <Empty title="No requests yet">When people ask to join, you'll see them here.</Empty>}
+      <Txt variant="h2" style={{ fontSize: 22 }}>{t('Pending requests')} · {pending}</Txt>
+      {reqs.data && items.length === 0 && <Empty title={t('No requests yet')} />}
 
       {items.map((r) => (
         <Card key={r.id}>
@@ -74,8 +76,8 @@ export default function HostReview() {
             <Row>
               <Avatar name={r.applicant.displayName} uri={r.applicant.photoUrl} />
               <View>
-                <Txt variant="h3">{r.applicant.displayName ?? 'Member'} {r.applicant.verifiedAdult ? '✓' : ''}</Txt>
-                <Txt variant="small">{r.applicant.verifiedAdult ? 'Verified adult' : 'Not verified'}{r.applicant.languages.length ? ` · ${r.applicant.languages.join(', ')}` : ''}</Txt>
+                <Txt variant="h3">{r.applicant.displayName ?? t('Member')} {r.applicant.verifiedAdult ? '✓' : ''}</Txt>
+                <Txt variant="small">{r.applicant.verifiedAdult ? t('Verified adult') : t('Not verified')}{r.applicant.languages.length ? ` · ${r.applicant.languages.join(', ')}` : ''}</Txt>
                 {r.applicant.reliability ? <View style={{ marginTop: 4, alignSelf: 'flex-start' }}><ReliabilityChip r={r.applicant.reliability} /></View> : null}
               </View>
             </Row>
@@ -88,43 +90,42 @@ export default function HostReview() {
               ))}
             </Row>
           )}
-          <Txt>{r.intro || 'No introduction.'}</Txt>
+          <Txt>{r.intro || t('No introduction.')}</Txt>
 
           {r.state === 'requested' && (
             <Row>
-              <Btn title="Decline" variant="secondary" disabled={mutate.busy} onPress={() => decide(r, 'decline')} style={{ flex: 1 }} />
-              <Btn title="Approve" disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} style={{ flex: 1 }} />
+              <Btn title={t('Decline')} variant="secondary" disabled={mutate.busy} onPress={() => decide(r, 'decline')} style={{ flex: 1 }} />
+              <Btn title={t('Approve')} disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} style={{ flex: 1 }} />
             </Row>
           )}
           {r.state === 'approved' && (
             <Between>
-              <Chip label="Approved · in the group chat" tone="ok" />
+              <Chip label={t('Approved · in the group chat')} tone="ok" />
               <Btn
-                title="Reverse"
+                title={t('Reverse')}
                 variant="danger"
                 small
                 disabled={mutate.busy}
-                onPress={async () => (await confirmAsync(`Reverse approval for ${r.applicant.displayName}?`, 'They lose chat access immediately.', 'Reverse', true)) && void decide(r, 'decline')}
+                onPress={async () => (await confirmAsync(t('Reverse approval for {name}?', { name: r.applicant.displayName ?? t('Member') }), t('They lose chat access immediately.'), t('Reverse'), true)) && void decide(r, 'decline')}
               />
             </Between>
           )}
           {r.state === 'declined' && (
             <Between>
-              <Chip label="Declined" tone="bad" />
-              <Btn title="Approve instead" variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} />
+              <Chip label={t('Declined')} tone="bad" />
+              <Btn title={t('Approve instead')} variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} />
             </Between>
           )}
           {r.state === 'waitlisted' && (
             <Between>
-              <Chip label="On the waiting list" tone="warn" />
-              <Btn title="Approve now" variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} />
+              <Chip label={t('On the waiting list')} tone="warn" />
+              <Btn title={t('Approve now')} variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} />
             </Between>
           )}
-          {r.state === 'withdrawn' && <Chip label="Withdrawn by the applicant" tone="neutral" />}
+          {r.state === 'withdrawn' && <Chip label={t('Withdrawn by the applicant')} tone="neutral" />}
         </Card>
       ))}
       <PagedTail paged={reqs} />
-      <Banner>Chat access is granted only after a real server-side approval, and removed the moment you reverse it.</Banner>
     </Screen>
   );
 }

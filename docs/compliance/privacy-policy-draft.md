@@ -41,7 +41,7 @@ Companies that help us run the service, under contract: **[HOSTING]**, **[EMAIL 
 Group chat messages are kept 90 days after the plan or trip ends. Alerts: 90 days once read, 1 year if never read. Closed safety reports and our activity records: 2 years. Old identity-check results: 1 year after the decision. When you delete your account, your personal details are erased straight away. The current list is always in the app under Settings, Your data, and may change as we update it. **[KEEP THIS IN LINE WITH retention-schedule.md]**
 
 ## Your rights
-You can, at any time and for free: see and **download your data** (Settings, Your data), **correct it** (Edit profile, Change email, Change password), **delete your account** (Settings, Your data, Delete my account), withdraw consent you gave, object to or ask us to restrict some uses (write to us), and complain to the data protection authority. In Italy that is the Garante per la protezione dei dati personali (garanteprivacy.it).
+You can, at any time and for free: see and **download your data** (Settings, Your data: a ZIP file with everything we hold about you), **correct it** (Edit profile, Change email, Change password), **delete your account** (Settings, Your data, Delete my account), withdraw consent you gave, object to or ask us to restrict some uses (write to us), and complain to the data protection authority. In Italy that is the Garante per la protezione dei dati personali (garanteprivacy.it).
 
 When you delete your account we erase your name, photo, bio, email, phone number, messages, favourites, follows and identity details. We may keep messages that someone reported, and the safety records of our team, for as long as needed to protect people and defend legal claims, then delete them.
 

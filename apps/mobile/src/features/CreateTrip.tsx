@@ -13,6 +13,7 @@ import { money, parseDay } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
+import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Section } from './CreateActivity';
 
@@ -31,10 +32,11 @@ type Draft = { destination: string; originCity: string; description: string; sta
 /** A card of the form with a small capitalised title and an optional note on the right ("8 nights", "3 selected"). */
 function Block({ title, right, children }: { title: string; right?: string; children: ReactNode }) {
   const { c } = useTheme();
+  const { t } = useT();
   return (
     <Section>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text accessibilityRole="header" style={{ color: c.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.9 }}>{title}</Text>
+        <Text accessibilityRole="header" style={{ color: c.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.9 }}>{t(title)}</Text>
         {right ? <Text style={{ color: c.muted, fontSize: 11, fontWeight: '700' }}>{right}</Text> : null}
       </View>
       {children}
@@ -45,6 +47,7 @@ function Block({ title, right, children }: { title: string; right?: string; chil
 /** Two or more options in one rounded track; the chosen one is lifted. */
 function Segments({ label, options, value, onChange }: { label: string; options: readonly (readonly [string, string])[]; value: string; onChange: (v: string) => void }) {
   const { c } = useTheme();
+  const { t } = useT();
   return (
     <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: 'row', backgroundColor: c.sand, borderRadius: 12, padding: 3, gap: 3 }}>
       {options.map(([v, l]) => {
@@ -53,12 +56,12 @@ function Segments({ label, options, value, onChange }: { label: string; options:
           <Pressable
             key={v}
             accessibilityRole="radio"
-            accessibilityLabel={l}
+            accessibilityLabel={t(l)}
             accessibilityState={{ selected: on }}
             onPress={() => onChange(v)}
             style={{ flex: 1, minHeight: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.surface : 'transparent', borderWidth: 1, borderColor: on ? c.line : 'transparent' }}
           >
-            <Text style={{ color: on ? c.text : c.muted, fontWeight: on ? '800' : '600', fontSize: 12 }}>{l}</Text>
+            <Text style={{ color: on ? c.text : c.muted, fontWeight: on ? '800' : '600', fontSize: 12 }}>{t(l)}</Text>
           </Pressable>
         );
       })}
@@ -69,9 +72,10 @@ function Segments({ label, options, value, onChange }: { label: string; options:
 /** A bordered tile with a small label above the value, like the route and date boxes. */
 export function Tile({ label, children, style }: { label: string; children: ReactNode; style?: object }) {
   const { c } = useTheme();
+  const { t } = useT();
   return (
     <View style={[{ borderWidth: 1, borderColor: c.line, borderRadius: 12, backgroundColor: c.surface, paddingHorizontal: 10, paddingVertical: 6, gap: 0 }, style]}>
-      <Text style={{ color: c.muted, fontSize: 10 }}>{label}</Text>
+      <Text style={{ color: c.muted, fontSize: 10 }}>{t(label)}</Text>
       {children}
     </View>
   );
@@ -91,6 +95,7 @@ export function CreateTrip() {
 }
 
 function TripForm({ onReset }: { onReset: () => void }) {
+  const { t, tn } = useT();
   const { me } = useMe();
   const { c } = useTheme();
   const go = useGo();
@@ -118,17 +123,17 @@ function TripForm({ onReset }: { onReset: () => void }) {
 
   // what is still missing, so a button can say so instead of sitting there greyed out
   const detailProblems = [
-    f.originCity.trim().length < 2 && 'where you leave from',
-    f.destination.trim().length < 2 && 'a destination',
-    !start && 'a departure date',
-    !!start && !end && 'a return date',
-    !!start && start < tomorrow && 'a departure from tomorrow on',
-    (nights ?? 0) > 90 && 'a trip of at most 90 nights',
-    ((!!start && start > lastDay) || (!!end && end > lastDay)) && 'dates within the next 6 months',
-    (!f.min || !f.max || Number.isNaN(min) || Number.isNaN(max)) && 'a budget range',
-    !Number.isNaN(min) && !Number.isNaN(max) && !!f.min && !!f.max && max <= min && 'a maximum budget higher than the minimum',
+    f.originCity.trim().length < 2 && t('where you leave from'),
+    f.destination.trim().length < 2 && t('a destination'),
+    !start && t('a departure date'),
+    !!start && !end && t('a return date'),
+    !!start && start < tomorrow && t('a departure from tomorrow on'),
+    (nights ?? 0) > 90 && t('a trip of at most 90 nights'),
+    ((!!start && start > lastDay) || (!!end && end > lastDay)) && t('dates within the next 6 months'),
+    (!f.min || !f.max || Number.isNaN(min) || Number.isNaN(max)) && t('a budget range'),
+    !Number.isNaN(min) && !Number.isNaN(max) && !!f.min && !!f.max && max <= min && t('a maximum budget higher than the minimum'),
   ].filter(Boolean) as string[];
-  const publishProblems = [...detailProblems, !agree && 'the guidelines ticked'].filter(Boolean) as string[];
+  const publishProblems = [...detailProblems, !agree && t('the guidelines ticked')].filter(Boolean) as string[];
   const verified = me?.eligibility === 'verified';
 
   const next = () => {
@@ -141,7 +146,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
 
   const publish = async () => {
     if (publishProblems.length || !start || !end) return setTried(true);
-    const t = await act.run(() =>
+    const created = await act.run(() =>
       post<Trip>('/v1/trips', {
         destination: f.destination.trim(),
         originCity: f.originCity.trim(),
@@ -157,23 +162,17 @@ function TripForm({ onReset }: { onReset: () => void }) {
         groupSize: f.size,
       }),
     );
-    if (t) {
+    if (created) {
       posted.current = true;
       void dropDraft('trip');
-      go(`/trip/${t.id}`);
+      go(`/trip/${created.id}`);
     }
   };
 
-  const titles = ['Where are we going?', 'Review your trip', 'Group guidelines', 'Ready to publish'];
-  const lines = [
-    "Propose a trip and we'll match you with compatible travelers. Details stay open until you agree on them together.",
-    'Check everything once more. You can still go back and change it.',
-    'A trip is a proposal. These rules keep every group safe.',
-    'Your trip goes live in the feed. Nobody is charged and nothing is booked.',
-  ];
+  const titles = [t('Where are we going?'), t('Review your trip'), t('Group guidelines'), t('Ready to publish')];
   const input = { color: c.text, fontSize: 14, fontWeight: '700' as const, paddingVertical: 0, minHeight: 22, minWidth: 0 };
-  const flexLabel = FLEX.find(([v]) => v === f.flex)?.[1] ?? '';
-  const groupLabel = GROUP_SIZES.find(([v]) => v === f.size)?.[1] ?? '';
+  const flexLabel = t(FLEX.find(([v]) => v === f.flex)?.[1] ?? '');
+  const groupLabel = t(GROUP_SIZES.find(([v]) => v === f.size)?.[1] ?? '');
 
   return (
     <View style={{ flex: 1 }}>
@@ -184,11 +183,11 @@ function TripForm({ onReset }: { onReset: () => void }) {
         <View style={{ gap: 8 }}>
           <TabHeader compact />
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Pressable accessibilityRole="button" accessibilityLabel={step > 0 ? 'Previous step' : 'Go back'} hitSlop={10} onPress={back} style={{ width: 44, height: 30, alignItems: 'flex-start', justifyContent: 'center' }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={step > 0 ? t('Previous step') : t('Go back')} hitSlop={10} onPress={back} style={{ width: 44, height: 30, alignItems: 'flex-start', justifyContent: 'center' }}>
               <Ionicons name="chevron-back" size={22} color={c.text} />
             </Pressable>
-            <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 14 }}>Create a trip</Text>
-            <Text accessibilityLabel={`Step ${step + 1} of ${STEPS}`} style={{ color: c.muted, fontSize: 12, fontWeight: '700', width: 44, textAlign: 'right' }}>{step + 1} of {STEPS}</Text>
+            <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 14 }}>{t('Create a trip')}</Text>
+            <Text accessibilityLabel={t('Step {n} of {total}', { n: step + 1, total: STEPS })} style={{ color: c.muted, fontSize: 12, fontWeight: '700', width: 44, textAlign: 'right' }}>{t('{n} of {total}', { n: step + 1, total: STEPS })}</Text>
           </View>
           <View accessibilityElementsHidden importantForAccessibility="no" style={{ flexDirection: 'row', gap: 5 }}>
             {Array.from({ length: STEPS }, (_, i) => (
@@ -201,12 +200,11 @@ function TripForm({ onReset }: { onReset: () => void }) {
       <Between>
         <View style={{ flex: 1, gap: 2 }}>
           <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{titles[step]}</Txt>
-          <Txt variant="muted">{lines[step]}</Txt>
         </View>
-        <Btn title="Clear all" variant="ghost" small onPress={() => void clearAll()} disabled={!hasContent(f)} />
+        <Btn title={t('Clear all')} variant="ghost" small onPress={() => void clearAll()} disabled={!hasContent(f)} />
       </Between>
 
-      {!verified && <Banner onPress={() => go('/verify')}>You need a verified identity to publish a trip. You can fill this in now and it is kept as a draft. Verify ›</Banner>}
+      {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
       <ErrorBanner message={act.error} />
 
       {step === 0 && (
@@ -221,21 +219,21 @@ function TripForm({ onReset }: { onReset: () => void }) {
               </View>
               <View style={{ flex: 1, gap: 8 }}>
                 <Tile label="Departing from *">
-                  <TextInput accessibilityLabel="Departing from" placeholder="Milan, Italy" placeholderTextColor={c.placeholder} value={f.originCity} onChangeText={(v) => set('originCity', v)} maxLength={60} style={input} />
+                  <TextInput accessibilityLabel={t('Departing from')} placeholder={t('Milan, Italy')} placeholderTextColor={c.placeholder} value={f.originCity} onChangeText={(v) => set('originCity', v)} maxLength={60} style={input} />
                 </Tile>
                 <Tile label="Destination *">
-                  <TextInput accessibilityLabel="Destination" placeholder="Tokyo & Kyoto, Japan" placeholderTextColor={c.placeholder} value={f.destination} onChangeText={(v) => set('destination', v)} maxLength={100} style={input} />
+                  <TextInput accessibilityLabel={t('Destination')} placeholder={t('Tokyo & Kyoto, Japan')} placeholderTextColor={c.placeholder} value={f.destination} onChangeText={(v) => set('destination', v)} maxLength={100} style={input} />
                 </Tile>
               </View>
             </View>
           </Block>
 
-          <Block title="WHEN" right={nights !== null && nights >= 0 ? `${nights} ${nights === 1 ? 'night' : 'nights'}` : undefined}>
+          <Block title="WHEN" right={nights !== null && nights >= 0 ? tn(nights, '{n} night', '{n} nights') : undefined}>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               {(['start', 'end'] as const).map((k) => {
                 const d = k === 'start' ? start : end;
                 return (
-                  <Pressable key={k} accessibilityRole="button" accessibilityLabel={`${k === 'start' ? 'Depart' : 'Return'} date: ${d ? shortDay(d) : 'not chosen'}. Opens a calendar`} onPress={() => setCalendar(k)} style={({ pressed }) => [{ flex: 1 }, pressed && { opacity: 0.85 }]}>
+                  <Pressable key={k} accessibilityRole="button" accessibilityLabel={t('{kind} date: {day}. Opens a calendar', { kind: k === 'start' ? t('Depart') : t('Return'), day: d ? shortDay(d) : t('not chosen') })} onPress={() => setCalendar(k)} style={({ pressed }) => [{ flex: 1 }, pressed && { opacity: 0.85 }]}>
                     <Tile label={k === 'start' ? 'Depart' : 'Return'} style={{ minHeight: 52, justifyContent: 'center', borderColor: tried && !d ? c.danger : c.line }}>
                       {d ? (
                         <>
@@ -245,7 +243,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
                       ) : (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Ionicons name="calendar-outline" size={16} color={c.muted} />
-                          <Text style={{ color: c.muted, fontSize: 13, fontWeight: '700' }}>Select date</Text>
+                          <Text style={{ color: c.muted, fontSize: 13, fontWeight: '700' }}>{t('Select date')}</Text>
                         </View>
                       )}
                     </Tile>
@@ -253,57 +251,56 @@ function TripForm({ onReset }: { onReset: () => void }) {
                 );
               })}
             </View>
-            <Txt variant="label">How flexible are your dates?</Txt>
-            <Segments label="How flexible are your dates?" options={FLEX_CHOICES} value={f.flex} onChange={(v) => set('flex', v)} />
-            <Txt variant="small">Dates stay tentative until every approved member confirms them.</Txt>
+            <Txt variant="label">{t('How flexible are your dates?')}</Txt>
+            <Segments label={t('How flexible are your dates?')} options={FLEX_CHOICES} value={f.flex} onChange={(v) => set('flex', v)} />
           </Block>
 
           <Block title="BUDGET & GROUP">
-            <Txt variant="label">Budget per person *</Txt>
+            <Txt variant="label">{t('Budget per person *')}</Txt>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {([['Min', 'min'], ['Max', 'max']] as const).map(([label, k], i) => (
                 <Fragment key={k}>
                   {i === 1 ? <Text style={{ color: c.muted, fontSize: 14 }}>–</Text> : null}
                   <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: tried && (!f[k] || (k === 'max' && (max <= min))) ? c.danger : c.line, borderRadius: 12, backgroundColor: c.surface, paddingHorizontal: 10, minHeight: 40 }}>
-                    <Text style={{ color: c.muted, fontSize: 10 }}>{label}</Text>
+                    <Text style={{ color: c.muted, fontSize: 10 }}>{t(label)}</Text>
                     <Text style={{ color: c.text, fontSize: 14, fontWeight: '700' }}>€</Text>
-                    <TextInput accessibilityLabel={`Budget ${label === 'Min' ? 'minimum' : 'maximum'} in euros`} keyboardType="number-pad" placeholder={k === 'min' ? '1200' : '1800'} placeholderTextColor={c.placeholder} value={f[k]} onChangeText={(v) => set(k, v.replace(/\D/g, '').slice(0, 6))} style={{ ...input, flex: 1, minWidth: 0 }} />
+                    <TextInput accessibilityLabel={label === 'Min' ? t('Budget minimum in euros') : t('Budget maximum in euros')} keyboardType="number-pad" placeholder={k === 'min' ? '1200' : '1800'} placeholderTextColor={c.placeholder} value={f[k]} onChangeText={(v) => set(k, v.replace(/\D/g, '').slice(0, 6))} style={{ ...input, flex: 1, minWidth: 0 }} />
                   </View>
                 </Fragment>
               ))}
             </View>
-            {!!f.min && !!f.max && max <= min ? <Txt variant="small" color={c.danger}>The maximum has to be higher than the minimum.</Txt> : null}
+            {!!f.min && !!f.max && max <= min ? <Txt variant="small" color={c.danger}>{t('The maximum has to be higher than the minimum.')}</Txt> : null}
             <View style={{ flexDirection: 'row', gap: 6 }}>
               {([[true, 'Incl. travel'], [false, 'Excl. travel']] as const).map(([v, l]) => {
                 const on = f.transport === v;
                 return (
-                  <Pressable key={l} accessibilityRole="button" accessibilityLabel={`Budget ${l.toLowerCase()}`} accessibilityState={{ selected: on }} onPress={() => set('transport', v)} style={{ height: 30, paddingHorizontal: 11, borderRadius: 999, borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.forest : c.surface, justifyContent: 'center' }}>
-                    <Text style={{ color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 11.5 }}>{l}</Text>
+                  <Pressable key={l} accessibilityRole="button" accessibilityLabel={v ? t('Budget incl. travel') : t('Budget excl. travel')} accessibilityState={{ selected: on }} onPress={() => set('transport', v)} style={{ height: 30, paddingHorizontal: 11, borderRadius: 999, borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.forest : c.surface, justifyContent: 'center' }}>
+                    <Text style={{ color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 11.5 }}>{t(l)}</Text>
                   </Pressable>
                 );
               })}
             </View>
-            <Txt variant="small">{f.transport ? 'Includes the journey there. ' : 'Excludes flights and other travel to the destination. '}Shown to others as an estimate, never as a price.</Txt>
-            <Txt variant="label">Group size, including you *</Txt>
-            <Segments label="Group size, including you" options={GROUP_CHOICES} value={f.size} onChange={(v) => set('size', v)} />
+            <Txt variant="small">{t('Shown as an estimate, never a price.')}</Txt>
+            <Txt variant="label">{t('Group size, including you *')}</Txt>
+            <Segments label={t('Group size, including you')} options={GROUP_CHOICES} value={f.size} onChange={(v) => set('size', v)} />
           </Block>
 
-          <Block title="TRAVEL INTERESTS" right={f.tags.length ? `${f.tags.length} selected` : undefined}>
+          <Block title="TRAVEL INTERESTS" right={f.tags.length ? t('{n} selected', { n: f.tags.length }) : undefined}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              {TRIP_TAGS.map((t) => {
-                const on = f.tags.includes(t);
+              {TRIP_TAGS.map((tag) => {
+                const on = f.tags.includes(tag);
                 return (
                   <Pressable
-                    key={t}
+                    key={tag}
                     accessibilityRole="button"
-                    accessibilityLabel={`${t[0].toUpperCase()}${t.slice(1)}`}
+                    accessibilityLabel={t(tag[0].toUpperCase() + tag.slice(1))}
                     accessibilityState={{ selected: on }}
                     hitSlop={{ top: 4, bottom: 4 }}
-                    onPress={() => set('tags', on ? f.tags.filter((x) => x !== t) : [...f.tags, t])}
+                    onPress={() => set('tags', on ? f.tags.filter((x) => x !== tag) : [...f.tags, tag])}
                     style={{ height: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 5 }}
                   >
                     {on ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
-                    <Text style={{ color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 12 }}>{t[0].toUpperCase() + t.slice(1)}</Text>
+                    <Text style={{ color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 12 }}>{t(tag[0].toUpperCase() + tag.slice(1))}</Text>
                   </Pressable>
                 );
               })}
@@ -312,8 +309,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
 
           <Block title="ABOUT THE TRIP">
             <TextInput
-              accessibilityLabel="About the trip"
-              placeholder="Culture, food, city walks and local experiences."
+              accessibilityLabel={t('About the trip')}
+              placeholder={t('Culture, food, city walks and local experiences.')}
               placeholderTextColor={c.placeholder}
               multiline
               value={f.description}
@@ -331,23 +328,23 @@ function TripForm({ onReset }: { onReset: () => void }) {
           <Block title="ROUTE">
             <Txt variant="h3" style={{ fontSize: 15 }}>{f.originCity || '—'} → {f.destination || '—'}</Txt>
           </Block>
-          <Block title="WHEN" right={nights !== null ? `${nights} ${nights === 1 ? 'night' : 'nights'}` : undefined}>
+          <Block title="WHEN" right={nights !== null ? tn(nights, '{n} night', '{n} nights') : undefined}>
             <Txt variant="h3" style={{ fontSize: 14 }}>{start && end ? `${shortDay(start)} ${start.getFullYear()}  →  ${shortDay(end)} ${end.getFullYear()}` : '—'}</Txt>
-            <Txt variant="muted">Dates: {flexLabel}</Txt>
+            <Txt variant="muted">{t('Dates: {flex}', { flex: flexLabel })}</Txt>
           </Block>
           <Block title="BUDGET & GROUP">
-            <Txt variant="h3" style={{ fontSize: 14 }}>{money(min || 0, 'EUR')}–{money(max || 0, 'EUR')} per person</Txt>
-            <Txt variant="muted">{f.transport ? 'Including travel' : 'Excluding travel'} · {groupLabel}</Txt>
+            <Txt variant="h3" style={{ fontSize: 14 }}>{t('{range} per person', { range: `${money(min || 0, 'EUR')}–${money(max || 0, 'EUR')}` })}</Txt>
+            <Txt variant="muted">{f.transport ? t('Including travel') : t('Excluding travel')} · {groupLabel}</Txt>
           </Block>
           <Block title="TRAVEL INTERESTS">
             {f.tags.length ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {f.tags.map((t) => (
-                  <Chip key={t} label={t} tone="neutral" />
+                {f.tags.map((tag) => (
+                  <Chip key={tag} label={t(tag[0].toUpperCase() + tag.slice(1))} tone="neutral" />
                 ))}
               </View>
             ) : (
-              <Txt variant="muted">None chosen</Txt>
+              <Txt variant="muted">{t('None chosen')}</Txt>
             )}
           </Block>
           {f.description.trim() ? (
@@ -361,10 +358,10 @@ function TripForm({ onReset }: { onReset: () => void }) {
       {step === 2 && (
         <Block title="BEFORE YOU PUBLISH">
           <View style={{ backgroundColor: c.accentSoft, borderRadius: 12, padding: 10 }}>
-            <Txt variant="small" style={{ color: c.text, lineHeight: 17 }}>THERE is not a travel agency. Everyone books flights, stays and activities themselves, directly with suppliers. Never ask for or send deposits.</Txt>
+            <Txt variant="small" style={{ color: c.text, lineHeight: 17 }}>{t('THERE is not a travel agency. Everyone books flights, stays and activities themselves, directly with suppliers. Never ask for or send deposits.')}</Txt>
           </View>
           <CheckRow checked={agree} onChange={setAgree}>
-            <Txt>I confirm this is a non-commercial proposal for adults and I agree to the group guidelines.</Txt>
+            <Txt>{t('I confirm this is a non-commercial proposal for adults and I agree to the group guidelines.')}</Txt>
           </CheckRow>
         </Block>
       )}
@@ -382,19 +379,19 @@ function TripForm({ onReset }: { onReset: () => void }) {
               <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 34, height: 34, borderRadius: 11, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name={icon} size={17} color={c.forest} />
               </View>
-              <Txt variant="muted" style={{ flex: 1, lineHeight: 20, color: c.text }}>{text}</Txt>
+              <Txt variant="muted" style={{ flex: 1, lineHeight: 20, color: c.text }}>{t(text)}</Txt>
             </Row>
           ))}
         </Block>
       )}
 
-      {tried && step === 0 && detailProblems.length ? <Banner tone="bad">{`Still needed: ${detailProblems.join(', ')}.`}</Banner> : null}
-      {tried && step === 2 && !agree ? <Banner tone="bad">Tick the box to continue.</Banner> : null}
-      {tried && step === 3 && publishProblems.length ? <Banner tone="bad">{`Still needed: ${publishProblems.join(', ')}. Go back to fix it.`}</Banner> : null}
+      {tried && step === 0 && detailProblems.length ? <Banner tone="bad">{t('Still needed: {list}.', { list: detailProblems.join(', ') })}</Banner> : null}
+      {tried && step === 2 && !agree ? <Banner tone="bad">{t('Tick the box to continue.')}</Banner> : null}
+      {tried && step === 3 && publishProblems.length ? <Banner tone="bad">{t('Still needed: {list}. Go back to fix it.', { list: publishProblems.join(', ') })}</Banner> : null}
 
       <Row style={{ gap: 10 }}>
-        {step > 0 ? <Btn title="Back" variant="secondary" onPress={back} style={{ flex: 1 }} /> : null}
-        {step < STEPS - 1 ? <Btn title="Continue" onPress={next} style={{ flex: 2 }} /> : <Btn title="Publish trip" onPress={publish} loading={act.busy} style={{ flex: 2 }} />}
+        {step > 0 ? <Btn title={t('Back')} variant="secondary" onPress={back} style={{ flex: 1 }} /> : null}
+        {step < STEPS - 1 ? <Btn title={t('Continue')} onPress={next} style={{ flex: 2 }} /> : <Btn title={t('Publish trip')} onPress={publish} loading={act.busy} style={{ flex: 2 }} />}
       </Row>
       <DraftBar kind="trip" data={f} onLoad={loadDraft} />
     </Screen>

@@ -3,6 +3,7 @@ import { Pressable } from 'react-native';
 import { Text } from './ScaledText';
 import { FloatingButton } from './Hero';
 import { Btn, Sheet } from './ui';
+import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
 export type MenuItem = { label: string; onSelect: () => void; danger?: boolean };
@@ -10,17 +11,18 @@ export type MenuItem = { label: string; onSelect: () => void; danger?: boolean }
 /** The ⋯ button. Opens a sheet of actions. `floating` renders it as the white square used on hero images. */
 export function Menu({ items, floating, round, size }: { items: MenuItem[]; floating?: boolean; round?: boolean; size?: number }) {
   const { c } = useTheme();
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
       {floating ? (
-        <FloatingButton round={round} size={size} icon="ellipsis-horizontal" label="More options" onPress={() => setOpen(true)} />
+        <FloatingButton round={round} size={size} icon="ellipsis-horizontal" label={t('More options')} onPress={() => setOpen(true)} />
       ) : (
-        <Pressable accessibilityRole="button" accessibilityLabel="More options" onPress={() => setOpen(true)} hitSlop={10} style={{ paddingHorizontal: 8 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('More options')} onPress={() => setOpen(true)} hitSlop={10} style={{ paddingHorizontal: 8 }}>
           <Text style={{ fontSize: 26, color: c.text, lineHeight: 28 }}>⋯</Text>
         </Pressable>
       )}
-      <Sheet visible={open} title="Options" onClose={() => setOpen(false)}>
+      <Sheet visible={open} title={t('Options')} onClose={() => setOpen(false)}>
         {items.map((i) => (
           <Btn
             key={i.label}
@@ -33,7 +35,7 @@ export function Menu({ items, floating, round, size }: { items: MenuItem[]; floa
             }}
           />
         ))}
-        <Btn title="Cancel" variant="ghost" onPress={() => setOpen(false)} />
+        <Btn title={t('Cancel')} variant="ghost" onPress={() => setOpen(false)} />
       </Sheet>
     </>
   );

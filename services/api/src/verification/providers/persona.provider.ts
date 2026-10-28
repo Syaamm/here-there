@@ -155,8 +155,24 @@ export class PersonaProvider implements IdentityProvider {
     const inquiry = body?.data?.attributes?.payload?.data;
     if (typeof event !== 'string' || inquiry?.type !== 'inquiry' || typeof inquiry?.id !== 'string' || !inquiry.id.startsWith('inq_'))
       throw new ApiError(400, 'INVALID_PAYLOAD', 'Unknown webhook payload');
+    return this.outcomeOf(event, inquiry, Array.isArray(body.data.attributes.payload.included) ? body.data.attributes.payload.included : []);
+  }
+
+  /**
+   * Asks Persona where an inquiry stands, for when its webhook did not arrive (a tunnel or server that was down):
+   * the same decision a webhook would have produced, or null while nothing is decided yet.
+   */
+  async lookup(providerRef: string): Promise<ProviderOutcome | null> {
+    if (!/^inq_[A-Za-z0-9]+$/.test(providerRef)) return null;
+    const out = await this.call('GET', `/inquiries/${providerRef}?include=verifications`);
+    const inquiry = out?.data;
+    const status = inquiry?.attributes?.status;
+    if (inquiry?.type !== 'inquiry' || typeof status !== 'string') return null;
+    return this.outcomeOf(`inquiry.${status}`, inquiry, Array.isArray(out?.included) ? out.included : []);
+  }
+
+  private outcomeOf(event: string, inquiry: any, included: any[]): ProviderOutcome | null {
     const providerRef: string = inquiry.id;
-    const included: any[] = Array.isArray(body.data.attributes.payload.included) ? body.data.attributes.payload.included : [];
     const checks = included.filter((x) => typeof x?.type === 'string' && x.type.startsWith('verification/'));
 
     // What the person's age is, if the payload says (the date itself goes no further than this function).

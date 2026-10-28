@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 import { put, type ServerDraft } from './api';
 import { confirmAsync } from './confirm';
 import { currentDraftId, setCurrentDraft, takeCurrentDraft } from './drafts';
+import { t } from './i18n';
 import { showToast } from './toast';
 
 type Kind = 'activity' | 'trip';
@@ -13,9 +14,9 @@ async function stash(kind: Kind, form: object) {
   const id = takeCurrentDraft(kind);
   try {
     await put<ServerDraft>('/v1/me/drafts', { id: id ?? undefined, kind, data: form });
-    showToast('Saved to drafts');
+    showToast(t('Saved to drafts'));
   } catch (e) {
-    showToast(e instanceof Error ? e.message : 'Could not save your draft', 'error');
+    showToast(e instanceof Error ? e.message : t('Could not save your draft'), 'error');
   }
 }
 
@@ -71,7 +72,7 @@ export function useFormDraft<T extends object>(kind: Kind, form: T, hasContent: 
       } else if (s === 'active' && saving.current) {
         const pending = saving.current;
         saving.current = null;
-        void pending.then((ok) => ok && showToast('Draft saved', 'ok', 2000));
+        void pending.then((ok) => ok && showToast(t('Draft saved'), 'ok', 2000));
       }
     });
     return () => sub.remove();
@@ -79,7 +80,7 @@ export function useFormDraft<T extends object>(kind: Kind, form: T, hasContent: 
 
   // everything typed goes, and the form stops being linked to a draft it was opened from (that draft stays as it is)
   const clearAll = async () => {
-    if (!(await confirmAsync('Clear everything?', 'This removes what you have entered. Drafts you already saved stay in My drafts.', 'Clear all', true))) return;
+    if (!(await confirmAsync(t('Clear everything?'), t('This removes what you have entered. Drafts you already saved stay in My drafts.'), t('Clear all'), true))) return;
     left.current = true; // emptied on purpose: nothing to save on the way out
     takeCurrentDraft(kind);
     reset.current();

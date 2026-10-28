@@ -9,6 +9,7 @@ import { CatPhoto } from '@/components/CatPhoto';
 import { Avatar, Btn, Card, Empty, ErrorBanner, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, post, type ConversationRef, type Notif } from '@/lib/api';
 import { useMe } from '@/lib/auth';
+import { useT } from '@/lib/i18n';
 import { ago, when } from '@/lib/format';
 import { primeCache, useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { entersFresh } from '@/lib/nav';
@@ -69,6 +70,7 @@ function SectionLabel({ title, count }: { title: string; count?: number }) {
  * conversations). Operational notices only, no marketing.
  */
 export function Inbox() {
+  const { t } = useT();
   const go = useGo();
   const { c } = useTheme();
   const { me } = useMe();
@@ -95,7 +97,7 @@ export function Inbox() {
         hostedIds.map(async (id) => {
           try {
             const r = await get<{ items: PendingReq[] }>(`/v1/activities/${id}/requests`);
-            const title = alerts.find((n) => n.data?.activityId === id)?.body.split(' wants to join ')[1] ?? 'your activity';
+            const title = alerts.find((n) => n.data?.activityId === id)?.body.split(' wants to join ')[1] ?? '';
             return { id, title, pending: r.items.filter((x) => x.state === 'requested') };
           } catch {
             return { id, title: '', pending: [] as PendingReq[] };
@@ -189,7 +191,7 @@ export function Inbox() {
         <View key={n.id}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${n.title}. ${n.body}. ${ago(n.createdAt)}${n.readAt ? '' : ', unread'}`}
+          accessibilityLabel={`${n.title}. ${n.body}. ${ago(n.createdAt)}${n.readAt ? '' : `, ${t('unread')}`}`}
           onPress={() => open(n)}
           style={({ pressed }) => [{ flexDirection: 'row', gap: 12, padding: 12, borderTopWidth: i ? 1 : 0, borderTopColor: c.line, alignItems: 'flex-start' }, pressed && { backgroundColor: c.accentSoft, transform: [{ scale: 0.99 }] }]}
         >
@@ -202,7 +204,7 @@ export function Inbox() {
           </View>
           <View style={{ alignItems: 'flex-end', gap: 6 }}>
             <Txt variant="small">{ago(n.createdAt)}</Txt>
-            {!n.readAt ? <View accessibilityLabel="Unread" style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
+            {!n.readAt ? <View accessibilityLabel={t('Unread')} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
           </View>
         </Pressable>
         </View>
@@ -218,13 +220,13 @@ export function Inbox() {
   return (
     <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader />}>
       <Row style={{ justifyContent: 'space-between' }}>
-        <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>Your inbox</Txt>
+        <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>{t('Your inbox')}</Txt>
         {tab === 'alerts' && alertsUnread > 0 ? (
-          <Pressable accessibilityRole="button" accessibilityLabel="Mark all read" hitSlop={10} onPress={() => {
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Mark all read')} hitSlop={10} onPress={() => {
               bumpUnread(-alertsUnread); // the Message badge drops by the alerts cleared; chats keep theirs
               void act.run(() => post('/v1/notifications/read-all?scope=alerts')).then(refreshUnread);
             }}>
-            <Txt variant="label" color={c.forest} style={{ fontSize: 12 }}>Mark all read</Txt>
+            <Txt variant="label" color={c.forest} style={{ fontSize: 12 }}>{t('Mark all read')}</Txt>
           </Pressable>
         ) : null}
       </Row>
@@ -233,13 +235,13 @@ export function Inbox() {
       <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 14, borderWidth: 1, borderColor: c.line, padding: 3 }}>
         {(
           [
-            ['alerts', 'Alerts', alertsUnread],
-            ['chats', 'Chats', unreadChats.size],
+            ['alerts', t('Alerts'), alertsUnread],
+            ['chats', t('Chats'), unreadChats.size],
           ] as const
         ).map(([k, label, n]) => {
           const on = tab === k;
           return (
-            <Pressable key={k} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}${n ? `, ${n} new` : ''}`} onPress={() => setTab(k)} style={{ flex: 1, minHeight: 40, borderRadius: 11, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.accentSoft : 'transparent' }}>
+            <Pressable key={k} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}${n ? `, ${t('{n} new', { n })}` : ''}`} onPress={() => setTab(k)} style={{ flex: 1, minHeight: 40, borderRadius: 11, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.accentSoft : 'transparent' }}>
               <Txt variant="h3" color={on ? c.forest : c.muted} style={{ fontSize: 13 }}>{label}</Txt>
               {n > 0 ? (
                 <View style={{ minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' }}>
@@ -259,30 +261,29 @@ export function Inbox() {
               <Ionicons name="notifications-outline" size={18} color={c.forest} />
             </View>
             <View style={{ flex: 1, gap: 1 }}>
-              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>Turn on notifications</Txt>
-              <Txt variant="small" style={{ lineHeight: 17 }}>Get a ping for new messages, join requests and when a place opens up, even when the app is closed.</Txt>
+              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('Turn on notifications')}</Txt>
             </View>
           </Row>
-          <Btn title="Turn on" onPress={() => void enablePush().then(setPush)} />
+          <Btn title={t('Turn on')} onPress={() => void enablePush().then(setPush)} />
         </Card>
       ) : push === 'denied' ? (
         <Row style={{ gap: 8, backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, alignItems: 'flex-start' }}>
           <Ionicons name="notifications-off-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
-          <Txt variant="small" style={{ flex: 1, lineHeight: 17, color: c.text }}>Notifications are blocked. You can allow them in your browser or phone settings.</Txt>
+          <Txt variant="small" style={{ flex: 1, lineHeight: 17, color: c.text }}>{t('Notifications are blocked. Allow them in settings.')}</Txt>
         </Row>
       ) : null}
 
       {tab === 'chats' ? (
         <Reveal key={`chats-${visit}`} from={10} style={{ gap: 16 }}>
           {convs.loading && !convs.data && <Spinner />}
-          {convs.data && convs.items.length === 0 && <Empty title="No group chats yet">Chats open once a host approves you.</Empty>}
+          {convs.data && convs.items.length === 0 && <Empty title={t('No group chats yet')} />}
           {chatRows.length > 0 ? (
             <Card style={{ padding: 0, borderRadius: 18, overflow: 'hidden' }}>
               {chatRows.map((cv, i) => (
                 <View key={cv.conversationId}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`${cv.title}, ${cv.startsAt ? when(cv.startsAt) : ''}${unreadChats.has(cv.conversationId) ? ', new messages' : ''}`}
+                    accessibilityLabel={`${cv.title}, ${cv.startsAt ? when(cv.startsAt) : ''}${unreadChats.has(cv.conversationId) ? `, ${t('new messages')}` : ''}`}
                     onPress={() => {
                       if (unreadChats.has(cv.conversationId)) bumpUnread(-1); // opening a chat reads its alert
                       go(`/chat/${cv.conversationId}`);
@@ -293,13 +294,13 @@ export function Inbox() {
                     <View style={{ flex: 1, gap: 1 }}>
                       <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{cv.title}</Txt>
                       <Txt variant="small" numberOfLines={1} style={unreadChats.has(cv.conversationId) ? { color: c.text, fontWeight: '700' } : undefined}>
-                        {cv.lastMessage ? `${cv.lastMessage.from ? `${cv.lastMessage.from}: ` : ''}${cv.lastMessage.body}` : `No messages yet${cv.startsAt ? ` · ${when(cv.startsAt)}` : ''}`}
+                        {cv.lastMessage ? `${cv.lastMessage.from ? `${cv.lastMessage.from === 'You' ? t('You') : cv.lastMessage.from}: ` : ''}${cv.lastMessage.body}` : `${t('No messages yet')}${cv.startsAt ? ` · ${when(cv.startsAt)}` : ''}`}
                       </Txt>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 6 }}>
                       {cv.lastMessage ? <Txt variant="small">{ago(cv.lastMessage.at)}</Txt> : null}
-                      {cv.endsAt && +new Date(cv.endsAt) < Date.now() ? <Txt variant="small" bold style={{ fontSize: 10 }}>Ended</Txt> : null}
-                      {unreadChats.has(cv.conversationId) ? <View accessibilityLabel="New messages" style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
+                      {cv.endsAt && +new Date(cv.endsAt) < Date.now() ? <Txt variant="small" bold style={{ fontSize: 10 }}>{t('Ended')}</Txt> : null}
+                      {unreadChats.has(cv.conversationId) ? <View accessibilityLabel={t('New messages')} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
                     </View>
                   </Pressable>
                 </View>
@@ -314,28 +315,28 @@ export function Inbox() {
 
           {needs > 0 && (
             <>
-              <SectionLabel title="Needs your attention" count={needs} />
+              <SectionLabel title={t('Needs your attention')} count={needs} />
               {(waiting.data ?? []).map((w, wi) => {
                 const r = w.pending[0];
-                const name = r.applicant.displayName ?? 'Someone';
+                const name = r.applicant.displayName ?? t('Someone');
                 return (
                   <Reveal key={w.id} index={wi}>
                     <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
                       <Row style={{ gap: 12, alignItems: 'flex-start' }}>
                         <Avatar name={name} uri={r.applicant.photoUrl} size={42} />
                         <View style={{ flex: 1, gap: 1 }}>
-                          <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>New join request</Txt>
+                          <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('New join request')}</Txt>
                           <Txt variant="small" style={{ lineHeight: 17, color: c.text }}>
-                            <Text style={{ fontWeight: '800' }}>{name}</Text> wants to join <Text style={{ fontWeight: '800' }}>{w.title}</Text>
-                            {w.pending.length > 1 ? ` (+${w.pending.length - 1} more waiting)` : ''}
+                            <Text style={{ fontWeight: '800' }}>{name}</Text> {t('wants to join')} <Text style={{ fontWeight: '800' }}>{w.title || t('your activity')}</Text>
+                            {w.pending.length > 1 ? ` ${t('(+{n} more waiting)', { n: w.pending.length - 1 })}` : ''}
                           </Txt>
                         </View>
                       </Row>
                       <Row style={{ gap: 10 }}>
-                        <Btn title="Decline" variant="secondary" disabled={act.busy} onPress={() => decide(w.id, r, 'decline')} style={{ flex: 1 }} />
-                        <Btn title="Approve" disabled={act.busy} onPress={() => decide(w.id, r, 'approve')} style={{ flex: 1 }} />
+                        <Btn title={t('Decline')} variant="secondary" disabled={act.busy} onPress={() => decide(w.id, r, 'decline')} style={{ flex: 1 }} />
+                        <Btn title={t('Approve')} disabled={act.busy} onPress={() => decide(w.id, r, 'approve')} style={{ flex: 1 }} />
                       </Row>
-                      {w.pending.length > 1 ? <Btn title={`Review all ${w.pending.length} requests ›`} variant="ghost" small onPress={() => go(`/host/${w.id}`)} /> : null}
+                      {w.pending.length > 1 ? <Btn title={t('Review all {n} requests ›', { n: w.pending.length })} variant="ghost" small onPress={() => go(`/host/${w.id}`)} /> : null}
                     </Card>
                   </Reveal>
                 );
@@ -348,13 +349,13 @@ export function Inbox() {
                         <Ionicons name="shield-outline" size={20} color={c.forest} />
                       </View>
                       <View style={{ flex: 1, gap: 1 }}>
-                        <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{me?.eligibility === 'rejected' ? 'Verification not approved' : 'Please verify again'}</Txt>
+                        <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{me?.eligibility === 'rejected' ? t('Verification not approved') : t('Please verify again')}</Txt>
                         <Txt variant="small" style={{ lineHeight: 17, color: c.text }}>
-                          {me?.eligibility === 'rejected' ? 'Your last identity check was not approved. You can try again.' : 'For the safety of our community, complete identity verification again before your current one expires.'}
+                          {me?.eligibility === 'rejected' ? t('Your last identity check was not approved. You can try again.') : t('Please verify again before your current check expires.')}
                         </Txt>
                       </View>
                     </Row>
-                    <Btn title="Verify now" onPress={() => go('/verify')} />
+                    <Btn title={t('Verify now')} onPress={() => go('/verify')} />
                   </View>
                 </Reveal>
               ) : null}
@@ -363,25 +364,21 @@ export function Inbox() {
 
           {today.length > 0 && (
             <>
-              <SectionLabel title="Today" />
+              <SectionLabel title={t('Today')} />
               {notifRows(today)}
             </>
           )}
           {earlier.length > 0 && (
             <>
-              <SectionLabel title="Earlier" />
+              <SectionLabel title={t('Earlier')} />
               {notifRows(earlier)}
             </>
           )}
           <PagedTail paged={alertPage} />
-          {notifs.data && needs === 0 && rest.length === 0 && <Empty title="You're all caught up">Join requests, approvals and changes to your plans show up here.</Empty>}
+          {notifs.data && needs === 0 && rest.length === 0 && <Empty title={t("You're all caught up")} />}
         </Reveal>
       )}
 
-      <Row style={{ gap: 8, backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, alignItems: 'flex-start' }}>
-        <Ionicons name="information-circle-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
-        <Txt variant="small" style={{ flex: 1, lineHeight: 17, color: c.text }}>Alerts only ever cover your plans and your chats. They are never mixed with marketing.</Txt>
-      </Row>
     </Screen>
   );
 }

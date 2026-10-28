@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { strFromU8, unzipSync } from 'fflate';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import * as bcrypt from 'bcryptjs';
@@ -1706,6 +1707,39 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
       process.env.VERIFICATION_MODE = saved.mode;
     }
   });
+
+  it('lets a demo server (DEMO_MODE=true) use the simulated check and show codes, even in production, but not otherwise', async () => {
+    const { EmailService } = await import('../src/common/email.service');
+    const { SmsService } = await import('../src/common/sms.service');
+    const svc = new (verificationSvc.constructor as any)(null, null, null);
+    const keys = ['NODE_ENV', 'VERIFICATION_MODE', 'DEMO_MODE', 'EMAIL_DEV_ECHO'] as const;
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.VERIFICATION_MODE = 'sandbox';
+      process.env.EMAIL_DEV_ECHO = 'false';
+      delete process.env.DEMO_MODE;
+      assert.throws(() => svc.onModuleInit(), /development only/);
+      assert.equal(new EmailService().devEcho, false);
+      assert.equal(new SmsService().devEcho, false);
+      process.env.EMAIL_DEV_ECHO = 'true';
+      assert.throws(() => new EmailService(), /must not be enabled in production/);
+
+      process.env.DEMO_MODE = 'true';
+      assert.doesNotThrow(() => svc.onModuleInit());
+      assert.doesNotThrow(() => new EmailService());
+      assert.equal(new EmailService().devEcho, true);
+      assert.equal(new SmsService().devEcho, true);
+      delete process.env.VERIFICATION_MODE;
+      assert.equal(svc.mode, 'sandbox', 'a demo checks itself on the simulated page unless told otherwise');
+      svc.onModuleDestroy();
+    } finally {
+      for (const k of keys) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
+  });
 });
 
 describe('forgotten and changed passwords', () => {
@@ -1772,6 +1806,18 @@ describe('forgotten and changed passwords', () => {
   });
 });
 
+/** Downloads the data ZIP the way the app does (signed link), and returns the JSON inside it with the README. */
+async function exportOf(u: { token: string }, lang = 'en') {
+  const link = await post('/v1/me/export/zip-link', u.token, { lang });
+  assert.equal(link.status, 201, JSON.stringify(link.body));
+  const res = await fetch(link.body.url.replace(/^https?:\/\/[^/]+/, base));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'application/zip');
+  const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
+  assert.deepEqual(Object.keys(files).sort(), ['README.txt', 'my-data.json']);
+  return { status: 200, body: JSON.parse(strFromU8(files['my-data.json'])), readme: strFromU8(files['README.txt']) };
+}
+
 describe('your data: export, a new email address, and deleting the account', () => {
   const mailTo = (email: string, subject: RegExp) => [...emailSvc.outbox].reverse().find((m: any) => m.to === email && subject.test(m.subject));
 
@@ -1784,8 +1830,7 @@ describe('your data: export, a new email address, and deleting the account', () 
     const conv = await prisma.conversation.findUnique({ where: { activityId: plan.id } });
     assert.equal((await post(`/v1/conversations/${conv.id}/messages`, u.token, { body: 'hello from the exporter' })).status, 201);
 
-    const ex = await get('/v1/me/export', u.token);
-    assert.equal(ex.status, 200, JSON.stringify(ex.body));
+    const ex = await exportOf(u);
     assert.equal(ex.body.format, 'herethere-export-v1');
     assert.equal(ex.body.account.email, u.email);
     assert.equal(ex.body.profile.displayName, 'Exporter');
@@ -1796,10 +1841,8 @@ describe('your data: export, a new email address, and deleting the account', () 
     const text = JSON.stringify(ex.body);
     assert.ok(!text.includes('passwordHash') && !text.includes('$2'), 'no password material');
     assert.ok(!text.includes(other.email), 'nobody else has their email address in it');
-    // three copies a day
-    assert.equal((await get('/v1/me/export', u.token)).status, 200);
-    assert.equal((await get('/v1/me/export', u.token)).status, 200);
-    assert.equal((await get('/v1/me/export', u.token)).status, 429);
+    // one copy a day
+    assert.equal((await post('/v1/me/export/zip-link', u.token, {})).status, 429);
   });
 
   it('changes the email address only after a code sent to the new address, and warns the old one', async () => {
@@ -1911,7 +1954,7 @@ describe('phone numbers at rest, one number per account, and repeat accounts', (
     assert.equal((await call('DELETE', '/v1/me/phone', a.token)).status, 200);
     assert.equal((await confirmPhone(b, '+393450001111')).body.phoneVerified, true);
     // the export shows the real number to its owner
-    assert.equal((await get('/v1/me/export', b.token)).body.account.phoneNumber, '+393450001111');
+    assert.equal((await exportOf(b)).body.account.phoneNumber, '+393450001111');
   });
 
   it('encrypts numbers that older accounts still hold as plain text, once, when the API starts', async () => {
@@ -2452,7 +2495,7 @@ describe('reliability: host notes, disputes, moderators, and who sees the level'
     assert.equal(own.body.level, 'reliable');
     assert.ok(own.body.line.length > 0 && own.body.line.length < 80, 'one short line');
     // the person can still get everything about themselves by downloading their data
-    const download = (await get('/v1/me/export', u.token)).body;
+    const download = (await exportOf(u)).body;
     assert.equal(download.reliability.level, 'Reliable');
     assert.equal(download.reliability.counts.keptPlans, 3);
     assert.ok(download.reliability.events.some((e: { what: string }) => e.what.startsWith('Kept: Simple')));
@@ -3440,7 +3483,7 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     assert.equal(withReport.status, 201);
     assert.equal((await prisma.report.findUnique({ where: { id: again } })).status, 'resolved');
     // included in the person data download
-    const exported = (await get('/v1/me/export', bad.token)).body;
+    const exported = (await exportOf(bad)).body;
     assert.equal(exported.warnings.length, 3);
   });
 

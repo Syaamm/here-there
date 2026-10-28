@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { currentLang, t } from './i18n';
 
 /**
  * API address. Priority: EXPO_PUBLIC_API_URL, then the computer running `expo start`
@@ -103,11 +104,11 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
     res = await fetch(API_URL + path, {
       method,
       signal: ctrl.signal,
-      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), 'x-device-id': deviceHeader, ...(known ? { 'if-none-match': known.tag } : {}) },
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), 'x-device-id': deviceHeader, 'accept-language': currentLang(),...(known ? { 'if-none-match': known.tag } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, 'NETWORK', "Can't reach the server right now. Check your connection and try again.");
+    throw new ApiError(0, 'NETWORK', t("Can't reach the server right now. Check your connection and try again."));
   } finally {
     clearTimeout(timer);
   }
@@ -121,8 +122,8 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   }
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/v1/auth/')) onUnauthorized();
-    const detail = Array.isArray(data?.details) ? ': ' + data.details.map((d: any) => d.message).join(', ') : '';
-    throw new ApiError(res.status, data?.code ?? 'ERROR', (data?.message ?? res.statusText) + detail, data?.details);
+    const detail = Array.isArray(data?.details) ? ': ' + data.details.map((d: any) => t(d.message)).join(', ') : '';
+    throw new ApiError(res.status, data?.code ?? 'ERROR', t(data?.message ?? res.statusText) + detail, data?.details);
   }
   const tag = method === 'GET' ? res.headers.get('etag') : null;
   if (tag) {
@@ -145,11 +146,11 @@ export async function uploadPhoto(uri: string): Promise<{ photoUrl: string }> {
   try {
     res = await fetch(API_URL + '/v1/me/photo', { method: 'PUT', headers: { 'content-type': blob.type || 'image/jpeg', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: blob });
   } catch {
-    throw new ApiError(0, 'NETWORK', "Can't reach the server right now. Check your connection and try again.");
+    throw new ApiError(0, 'NETWORK', t("Can't reach the server right now. Check your connection and try again."));
   }
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new ApiError(res.status, data?.code ?? 'ERROR', data?.message ?? 'Could not upload the picture.');
+  if (!res.ok) throw new ApiError(res.status, data?.code ?? 'ERROR', t(data?.message ?? 'Could not upload the picture.'));
   return data;
 }
 

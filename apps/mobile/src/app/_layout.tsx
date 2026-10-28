@@ -7,6 +7,7 @@ import { InnerHeader, Logo } from '@/components/TabHeader';
 import { Toast } from '@/components/Toast';
 import { AuthProvider, useMe } from '@/lib/auth';
 import { PhoneFrame } from '@/components/PhoneFrame';
+import { LangProvider, useT } from '@/lib/i18n';
 import { ScaleProvider } from '@/lib/scale';
 import { installWebScrolling } from '@/lib/webScroll';
 import { restoreLoadCache } from '@/lib/hooks';
@@ -20,11 +21,13 @@ export default function RootLayout() {
     <PhoneFrame>
     <SafeAreaProvider>
       <ScaleProvider>
-        <ThemeProvider>
-          <AuthProvider>
-            <Gate />
-          </AuthProvider>
-        </ThemeProvider>
+        <LangProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <Gate />
+            </AuthProvider>
+          </ThemeProvider>
+        </LangProvider>
       </ScaleProvider>
     </SafeAreaProvider>
     </PhoneFrame>
@@ -36,6 +39,7 @@ export default function RootLayout() {
 const inner = (title: string) => ({ title, header: ({ options }: { options: any }) => <InnerHeader options={options} /> });
 
 function Gate() {
+  const { t } = useT();
   const { me, ready } = useMe();
   trackPath(usePathname()); // remembers where the person came from (see lib/nav)
   const { c } = useTheme();
@@ -83,7 +87,7 @@ function Gate() {
           headerShadowVisible: false,
           headerStyle: { backgroundColor: c.bg },
           headerTintColor: c.text,
-          headerBackTitle: 'Back',
+          headerBackTitle: t('Back'),
           // pages pushed on top (verify) slide in smoothly
           animation: 'slide_from_right',
           animationDuration: 240,

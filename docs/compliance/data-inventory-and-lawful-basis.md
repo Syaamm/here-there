@@ -45,7 +45,7 @@ Written from the code on 2026-10-26. The "proposed basis" column is a starting p
 ## Recipients and processors (to be chosen) **[CONFIRM]**
 | Purpose | Provider today | For production |
 |---|---|---|
-| Identity checks | Sandbox / manual, and a **Persona adapter** (built; connected to a Persona **sandbox** for testing with fictional data only, no real person has been checked; the inquiry is erased at Persona as soon as we hold the outcome) | Persona is the candidate: needs a signed data-processing agreement, EU data storage confirmed in the account, and the face route's consent wording agreed **[CONFIRM]**. Any other provider needs the same |
+| Identity checks | Sandbox / manual, a **Persona adapter** (built; connected to a Persona **sandbox** for testing with fictional data only, no real person has been checked; the inquiry is erased at Persona as soon as we hold the outcome) and an **iDenfy adapter** (built, same rules, not yet tried with real keys) | Persona and iDenfy are the candidates: needs a signed data-processing agreement, EU data storage confirmed in the account, and the face route's consent wording agreed **[CONFIRM]**. Any other provider needs the same |
 | Email | Console / any SMTP | To be chosen |
 | SMS codes | Console / Twilio (env) | To be chosen |
 | Push | Web Push, Expo push | Expo (US) and Apple/Google push services: transfer analysis needed |

@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Injectable, Post } from '@nestjs/common';
+import { Body, Controller, Get, Injectable, Post, Query, Req, Res } from '@nestjs/common';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { Request, Response } from 'express';
 import { User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { ActivitiesService } from '../activities/activities.service';
 import { ContactVerificationService } from '../auth/contact-verification.service';
 import { AuditService } from '../common/audit.service';
-import { CurrentUser } from '../common/auth';
+import { CurrentUser, Public } from '../common/auth';
 import { EmailService } from '../common/email.service';
 import { E } from '../common/errors';
 import { LiveService } from '../common/live.service';
@@ -15,10 +17,12 @@ import { parse } from '../common/validate';
 import { decryptField } from '../common/vault';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { TripsService } from '../trips/trips.service';
+import { zipSync, strToU8 } from 'fflate';
 import { VerificationService } from '../verification/verification.service';
 
 const DAY = 24 * 3600 * 1000;
 const MESSAGE_CAP = 5000; // the newest this many of your messages go in the export
+const ZIP_LINK_SECONDS = 120; // the download link works for two minutes
 
 export const deleteSchema = z.object({ password: z.string().min(1), confirm: z.literal('DELETE', { error: 'Type DELETE to confirm' }) });
 export const changeEmailSchema = z.object({ newEmail: z.string().trim().toLowerCase().pipe(z.email()), password: z.string().min(1) });
@@ -45,9 +49,43 @@ export class AccountService {
   ) {}
 
   // ---------------------------------------------------------------- export
-  /** Everything held about this person, as one JSON document (GDPR access and portability). */
-  async export(me: User) {
-    this.limiter.hit(`export:${me.id}`, 3, DAY);
+  /**
+   * A copy of everything held about this person (GDPR access and portability), as a ZIP, behind a short-lived signed link (a phone
+   * opens it in the browser, so it cannot send a login header). One copy a day.
+   */
+  zipLink(me: User, langRaw: unknown, baseUrl: string) {
+    this.limiter.hit(`export:${me.id}`, 1, DAY);
+    const lang = langRaw === 'it' ? 'it' : 'en';
+    const exp = Math.floor(Date.now() / 1000) + ZIP_LINK_SECONDS;
+    const body = `${me.id}.${exp}.${lang}`;
+    return { url: `${baseUrl}/v1/export/zip?t=${body}.${this.zipSignature(body)}`, expiresInSeconds: ZIP_LINK_SECONDS };
+  }
+
+  private zipSignature(body: string) {
+    return createHmac('sha256', process.env.JWT_SECRET ?? 'dev-only-secret-change-me').update(`export-zip:${body}`).digest('base64url');
+  }
+
+  /** Checks the link (signature and age), then builds the ZIP in memory: the complete JSON copy and a short note on it. */
+  async zip(token: string) {
+    const parts = String(token ?? '').split('.');
+    if (parts.length !== 4) throw E.badRequest('INVALID_LINK', 'This download link is not valid');
+    const [uid, exp, lang, sig] = parts;
+    const want = this.zipSignature(`${uid}.${exp}.${lang}`);
+    const okSig = sig.length === want.length && timingSafeEqual(Buffer.from(sig), Buffer.from(want));
+    if (!okSig || (lang !== 'en' && lang !== 'it')) throw E.badRequest('INVALID_LINK', 'This download link is not valid');
+    if (Number(exp) < Date.now() / 1000) throw E.badRequest('LINK_EXPIRED', 'This download link has expired. Ask for a new one.');
+    const me = await this.prisma.user.findUnique({ where: { id: uid } });
+    if (!me || me.state !== 'active') throw E.notFound('Account');
+    const data = await this.collect(me);
+    await this.audit.log(me.id, 'account.exported', 'user', me.id);
+    const note =
+      lang === 'it'
+        ? 'HERE & THERE: la tua copia dei dati\r\n\r\nmy-data.json contiene tutto ciò che conserviamo su di te: account, profilo, piani, messaggi, avvisi e cronologia. Non include la tua password né i dati privati di altre persone. Tienilo al sicuro.\r\n'
+        : "HERE & THERE: your copy of your data\r\n\r\nmy-data.json holds everything we keep about you: account, profile, plans, messages, alerts and history. It does not include your password or other people's private details. Keep it safe.\r\n";
+    return Buffer.from(zipSync({ 'my-data.json': strToU8(JSON.stringify(data, null, 2)), 'README.txt': strToU8(note) }, { level: 6 }));
+  }
+
+  private async collect(me: User) {
     const id = me.id;
     const [user, profile, hosted, memberships, requests, tripsHosted, tripMemberships, applications, favorites, following, followers, blocks, messages, notifications, reports, checks, activity] =
       await Promise.all([
@@ -69,7 +107,6 @@ export class AccountService {
         this.prisma.verificationCheck.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' } }),
         this.prisma.auditEvent.findMany({ where: { actorId: id }, orderBy: { createdAt: 'desc' }, take: 1000 }),
       ]);
-    await this.audit.log(id, 'account.exported', 'user', id);
     const who = (u: { id: string; profile: { displayName: string } | null }) => ({ userId: u.id, displayName: u.profile?.displayName ?? null });
     return {
       format: 'herethere-export-v1',
@@ -234,9 +271,21 @@ export class AccountService {
 export class AccountController {
   constructor(private readonly account: AccountService) {}
 
-  @Get('me/export')
-  export(@CurrentUser() me: User) {
-    return this.account.export(me);
+  /** Body: { lang?: 'en' | 'it' }. Returns { url, expiresInSeconds }: a two-minute link that downloads the ZIP copy. One a day. */
+  @Post('me/export/zip-link')
+  zipLink(@CurrentUser() me: User, @Body() body: { lang?: unknown } | undefined, @Req() req: Request) {
+    return this.account.zipLink(me, body?.lang, `${req.protocol}://${req.get('host')}`);
+  }
+
+  /** The ZIP itself. The signed link is the login: it names the person, the language and an expiry. */
+  @Public()
+  @Get('export/zip')
+  async zip(@Query('t') token: string, @Res() res: Response) {
+    const buf = await this.account.zip(token);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="herethere-my-data-${new Date().toISOString().slice(0, 10)}.zip"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buf);
   }
 
   @Post('me/email/change')

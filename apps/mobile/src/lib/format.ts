@@ -1,12 +1,14 @@
+import { localeTag, t, tn } from './i18n';
+
 const day0 = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-const clock = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const clock = (d: Date) => d.toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' });
 
 export function when(iso: string) {
   const d = new Date(iso);
   const diff = Math.round((day0(d) - day0(new Date())) / 864e5);
-  if (diff === 0) return `Today ${clock(d)}`;
-  if (diff === 1) return `Tomorrow ${clock(d)}`;
-  return `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} ${clock(d)}`;
+  if (diff === 0) return `${t('Today')} ${clock(d)}`;
+  if (diff === 1) return `${t('Tomorrow')} ${clock(d)}`;
+  return `${d.toLocaleDateString(localeTag(), { weekday: 'short', day: 'numeric', month: 'short' })} ${clock(d)}`;
 }
 export const timeRange = (a: string, b: string) => `${when(a)}–${clock(new Date(b))}`;
 export const hhmm = (iso: string) => clock(new Date(iso));
@@ -14,24 +16,24 @@ export const hhmm = (iso: string) => clock(new Date(iso));
 export function dayLabel(iso: string) {
   const d = new Date(iso);
   const diff = Math.round((day0(new Date()) - day0(d)) / 864e5);
-  if (diff === 0) return 'Today';
-  if (diff === 1) return 'Yesterday';
-  return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+  if (diff === 0) return t('Today');
+  if (diff === 1) return t('Yesterday');
+  return d.toLocaleDateString(localeTag(), { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 export function ago(iso: string) {
   const m = Math.round((Date.now() - +new Date(iso)) / 60000);
-  if (m < 1) return 'now';
-  if (m < 60) return `${m}m`;
-  if (m < 1440) return `${Math.round(m / 60)}h`;
-  return `${Math.round(m / 1440)}d`;
+  if (m < 1) return t('now');
+  if (m < 60) return `${m}${t('m')}`;
+  if (m < 1440) return `${Math.round(m / 60)}${t('h')}`;
+  return `${Math.round(m / 1440)}${t('d')}`;
 }
 
-export const shortDate = (iso: string) => new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' });
+export const shortDate = (iso: string) => new Date(iso).toLocaleDateString(localeTag(), { day: 'numeric', month: 'short' });
 export const dateSpan = (a: string, b: string) => `${shortDate(a)}–${shortDate(b)} ${new Date(b).getFullYear()}`;
 
 const SYMBOL: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
-export const money = (n: number, cur: string) => `${SYMBOL[cur] ?? cur + ' '}${n.toLocaleString()}`;
+export const money = (n: number, cur: string) => `${SYMBOL[cur] ?? cur + ' '}${n.toLocaleString(localeTag())}`;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 export const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -48,5 +50,5 @@ export function parseDay(s: string): Date | null {
 export const circleLine = (buddies?: number, following?: number) => {
   const b = buddies ?? 0;
   const f = following ?? 0;
-  return b > 0 ? `${b} ${b === 1 ? 'buddy' : 'buddies'} going` : f > 0 ? `${f} you follow ${f === 1 ? 'is' : 'are'} going` : null;
+  return b > 0 ? tn(b, '{n} buddy going', '{n} buddies going') : f > 0 ? tn(f, '{n} you follow is going', '{n} you follow are going') : null;
 };

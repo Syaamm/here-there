@@ -16,6 +16,7 @@ import { catColor, CATS, CITY_CENTERS } from '@/lib/constants';
 import { feedRange } from '@/lib/feed';
 import { when } from '@/lib/format';
 import { useLoad } from '@/lib/hooks';
+import { t as tr, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
 export type Pin = Activity & { lat: number; lng: number };
@@ -47,12 +48,13 @@ export function kmBetween(a: Fix, b: Fix) {
   return 12742 * Math.asin(Math.sqrt(h));
 }
 /** The fix is rounded to ~1 km, so small distances are shown as "under 1 km", never as false precision. */
-export const fmtKm = (km: number) => (km < 1 ? 'under 1 km' : km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`);
+export const fmtKm = (km: number) => (km < 1 ? tr('under 1 km') : km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`);
 
 type Distance = { status: 'idle' | 'locating' | 'denied' | 'error' | 'done'; me?: Fix };
 
 /** Everything both map screens share: the data, "Near me", and which pin is selected. Venues only, never people. */
 export function useMapData() {
+  const { t } = useT();
   const [city, setCity] = useCity();
   const [near, setNear] = useState<{ lat: number; lng: number } | null>(null);
   const [cat, setCat] = useState(''); // '' = every category
@@ -66,7 +68,7 @@ export function useMapData() {
   const [activeId, setActiveId] = useState<string | null>(null);
   // set when the map should fly to a venue (from "Near me" or from picking an activity in the list)
   const [target, setTarget] = useState<{ lat: number; lng: number; zoom: 'city' | 'near' | 'venue' } | null>(null);
-  const { focus, t } = useLocalSearchParams<{ focus?: string; t?: string }>();
+  const { focus, t: stamp } = useLocalSearchParams<{ focus?: string; t?: string }>();
   const router = useRouter();
   const handled = useRef('');
   // "How far?": the person's approximate position, kept in memory for the open card only and dropped when it closes
@@ -111,7 +113,7 @@ export function useMapData() {
   // Arriving from the list with ?focus=<activity id>: select that venue and move the map to it, once per arrival.
   useEffect(() => {
     if (!focus) return;
-    const key = `${focus}:${t ?? ''}`;
+    const key = `${focus}:${stamp ?? ''}`;
     if (handled.current === key) return;
     const pin = pins.find((p) => p.id === focus);
     if (!pin) return; // still loading: this runs again when the pins arrive
@@ -122,7 +124,7 @@ export function useMapData() {
     setTarget({ lat: pin.lat, lng: pin.lng, zoom: 'venue' });
     // the address keeps its parameters, so drop them: tapping the Map tab later must open the plain map, not this venue again
     router.setParams({ focus: undefined, t: undefined });
-  }, [focus, t, pins]);
+  }, [focus, stamp, pins]);
 
   // Leaving the map puts it back to the default view: whole city, every activity, nothing selected.
   const cityRef = useRef(city);
@@ -155,7 +157,7 @@ export function useMapData() {
     const r = await approximateFix();
     setLocating(false);
     if (!r.ok) {
-      setGeoMsg(r.reason === 'denied' ? 'Location permission is off, so we are showing the whole city. You can allow it in your device or browser settings.' : 'We could not get your location. Showing the whole city instead.');
+      setGeoMsg(r.reason === 'denied' ? t('Location is off. Showing the whole city.') : t('No location. Showing the whole city.'));
       return;
     }
     setNear({ lat: r.lat, lng: r.lng });
@@ -223,6 +225,7 @@ function PillButton({ icon, title, onPress, disabled }: { icon: React.ComponentP
  * pull it up (or tap its handle) to see them all, or tap a pin and it rises by itself with the activities at that pin.
  */
 export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
+  const { t, tn } = useT();
   const go = useGo();
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
@@ -283,32 +286,32 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const nextStart = pins.length ? pins.reduce((m, a) => (a.startsAt < m ? a.startsAt : m), pins[0].startsAt) : null;
   const noteText =
     dist.status === 'locating'
-      ? 'Finding your approximate location…'
+      ? t('Finding your approximate location…')
       : dist.status === 'done'
-        ? 'Distances are approximate, from where you are now.'
+        ? t('Distances are approximate.')
         : dist.status === 'denied'
-          ? 'Location is off. Distance needs your approximate location, only when you ask. You can allow it in settings.'
+          ? t('Location is off. Allow it in settings.')
           : dist.status === 'error'
-            ? 'We could not get your location. Try again.'
-            : 'Your location is only used when you tap, and is never saved or shared.';
+            ? t('No location. Try again.')
+            : t('Your location is only used when you tap, and is never saved or shared.');
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       {/* top: a floating card with the place on the left and search on the right, then the category chips */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 12, left: 12, right: 12, gap: 8, alignItems: 'center' }}>
         <View style={[s.floatBar, { backgroundColor: c.surface, borderColor: c.line }]}>
-          <CityPicker city={city} onPick={setCity} subtitle={near ? 'Near you' : 'Around you'} />
+          <CityPicker city={city} onPick={setCity} subtitle={near ? t('Near you') : t('Around you')} />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Search activities" onPress={() => go('/activities?from=map')} hitSlop={8} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Search activities')} onPress={() => go('/activities?from=map')} hitSlop={8} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
               <Ionicons name="search-outline" size={22} color={c.text} />
             </Pressable>
           </View>
         </View>
         <View style={{ width: '100%', maxWidth: 560 }}>
           <PillRow>
-            <Pill label="All" active={cat === ''} onPress={() => setCat('')} />
+            <Pill label={t('All')} active={cat === ''} onPress={() => setCat('')} />
             {Object.entries(CATS).map(([k, v]) => (
-              <Pill key={k} label={v.label} active={cat === k} onPress={() => setCat(k)} />
+              <Pill key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(k)} />
             ))}
           </PillRow>
         </View>
@@ -319,13 +322,13 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
       {/* tools: "Near me" bottom left, zoom bottom right; they ride up with the sheet */}
       <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: toolsBottom, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         {near ? (
-          <PillButton icon="close-circle-outline" title="Whole city" onPress={() => setNear(null)} />
+          <PillButton icon="close-circle-outline" title={t('Whole city')} onPress={() => setNear(null)} />
         ) : (
-          <PillButton icon="locate-outline" title="Near me" onPress={locate} disabled={locating} />
+          <PillButton icon="locate-outline" title={t('Near me')} onPress={locate} disabled={locating} />
         )}
         <View style={{ gap: 8 }}>
-          <RoundTool icon="add" label="Zoom in" onPress={() => zoom(1)} />
-          <RoundTool icon="remove" label="Zoom out" onPress={() => zoom(-1)} />
+          <RoundTool icon="add" label={t('Zoom in')} onPress={() => zoom(1)} />
+          <RoundTool icon="remove" label={t('Zoom out')} onPress={() => zoom(-1)} />
         </View>
       </Animated.View>
 
@@ -334,7 +337,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
          paddingHorizontal: 16, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 } }}>
         <View onLayout={(e) => setBaseH(e.nativeEvent.layout.height + 12)} style={{ width: '100%', alignItems: 'center' }}>
           {/* the grip and the summary are the part you drag */}
-          <View {...pan.panHandlers} accessible accessibilityRole="adjustable" accessibilityLabel="Activities list. Swipe up to open, down to close" style={{ width: '100%', alignItems: 'center', paddingTop: 8 }}>
+          <View {...pan.panHandlers} accessible accessibilityRole="adjustable" accessibilityLabel={t('Activities list. Swipe up to open, down to close')} style={{ width: '100%', alignItems: 'center', paddingTop: 8 }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.line, marginBottom: 10 }} />
           </View>
           <View style={{ width: '100%', maxWidth: 560, gap: 8 }}>
@@ -342,9 +345,9 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
               <>
                 <Row style={{ justifyContent: 'space-between', gap: 8 }}>
                   <Txt variant="h2" accessibilityRole="header" style={{ fontSize: 17, lineHeight: 22, flex: 1 }}>
-                    {selected.items.length === 1 ? '1 activity here' : `${selected.items.length} activities here`}
+                    {tn(selected.items.length, '{n} activity here', '{n} activities here')}
                   </Txt>
-                  <PillButton icon={dist.status === 'done' ? 'refresh' : 'location-outline'} title={dist.status === 'done' ? 'Refresh' : dist.status === 'locating' ? 'Finding…' : dist.status === 'idle' ? 'How far?' : 'Try again'} onPress={measure} disabled={dist.status === 'locating'} />
+                  <PillButton icon={dist.status === 'done' ? 'refresh' : 'location-outline'} title={dist.status === 'done' ? t('Refresh') : dist.status === 'locating' ? t('Finding…') : dist.status === 'idle' ? t('How far?') : t('Try again')} onPress={measure} disabled={dist.status === 'locating'} />
                 </Row>
                 <Row style={{ gap: 6, alignItems: 'flex-start' }}>
                   <Ionicons name="lock-closed-outline" size={13} color={c.muted} style={{ marginTop: 2 }} />
@@ -353,21 +356,20 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
               </>
             ) : feed.data && pins.length === 0 ? (
               <Row style={{ justifyContent: 'space-between', gap: 10 }}>
-                <Txt style={{ flex: 1 }}>No venues on the map for today or tomorrow.</Txt>
-                <Btn title="Create" small onPress={() => go('/create')} />
+                <Txt style={{ flex: 1 }}>{t('No venues on the map for today or tomorrow.')}</Txt>
+                <Btn title={t('Create')} small onPress={() => go('/create')} />
               </Row>
             ) : (
-              <Pressable accessibilityRole="button" accessibilityLabel={openAt.current > 0.5 ? 'Hide the list' : 'Show all activities'} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)}>
+              <Pressable accessibilityRole="button" accessibilityLabel={openAt.current > 0.5 ? t('Hide the list') : t('Show all activities')} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)}>
                 <Row style={{ justifyContent: 'space-between', gap: 10 }}>
                   <View style={{ flex: 1 }}>
                     <Txt variant="h2" accessibilityRole="header" style={{ fontSize: 17, lineHeight: 22 }}>
-                      {feed.data ? `${count} ${count === 1 ? 'activity' : 'activities'}${todayCount > 0 ? ' today' : ' coming up'}` : 'Loading…'}
+                      {feed.data ? (todayCount > 0 ? tn(count, '{n} activity today', '{n} activities today') : tn(count, '{n} activity coming up', '{n} activities coming up')) : t('Loading…')}
                     </Txt>
-                    <Txt variant="small">Tap a pin to preview, or pull up for the list</Txt>
                   </View>
                   {nextStart ? (
                     <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 }}>
-                      <Txt variant="h3" color={c.forest} style={{ fontSize: 11, lineHeight: 15 }}>Next in {untilStart(nextStart)}</Txt>
+                      <Txt variant="h3" color={c.forest} style={{ fontSize: 11, lineHeight: 15 }}>{t('Next in {time}', { time: untilStart(nextStart) })}</Txt>
                     </View>
                   ) : null}
                 </Row>
@@ -383,7 +385,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
               <Reveal key={`${key}:${a.id}`} index={i}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${a.title}, ${when(a.startsAt)}, ${a.spotsLeft} spaces. Open activity`}
+                  accessibilityLabel={t('{title}, {when}, {n} spaces. Open activity', { title: a.title, when: when(a.startsAt), n: a.spotsLeft })}
                   onPress={() => go(`/activity/${a.id}`)}
                   style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 11, padding: 9, borderRadius: 16, borderWidth: 1, borderColor: activeId === a.id ? c.forest : c.line, backgroundColor: c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
                 >
@@ -392,10 +394,10 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
                     <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{a.title}</Txt>
                     <Txt variant="small" numberOfLines={1} style={{ color: c.text }}>{when(a.startsAt)}</Txt>
                     <Txt variant="small" numberOfLines={1}>
-                      {a.going}/{a.capacity} going · {a.spotsLeft} left{dist.me ? ` · ${fmtKm(kmBetween(dist.me, { lat: a.lat, lng: a.lng }))} away` : ''}
+                      {t('{going}/{capacity} going · {left} left', { going: a.going, capacity: a.capacity, left: a.spotsLeft })}{dist.me ? t(' · {km} away', { km: fmtKm(kmBetween(dist.me, { lat: a.lat, lng: a.lng })) }) : ''}
                     </Txt>
                   </View>
-                  <Txt variant="h3" color={c.forest} style={{ fontSize: 12 }}>Open ›</Txt>
+                  <Txt variant="h3" color={c.forest} style={{ fontSize: 12 }}>{t('Open ›')}</Txt>
                 </Pressable>
               </Reveal>
             ))}

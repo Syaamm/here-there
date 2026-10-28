@@ -4,10 +4,12 @@ import { Btn, CheckRow, ErrorBanner, Field, Screen, Txt } from '@/components/ui'
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 /** 18+ confirmation is required here; identity verification comes later, before hosting or joining. */
 export default function Register() {
   const router = useRouter();
+  const { t, tn } = useT();
   const { signIn } = useMe();
   const [f, setF] = useState({ displayName: '', email: '', password: '', homeCity: 'Milan' });
   const [adult, setAdult] = useState(false);
@@ -30,21 +32,21 @@ export default function Register() {
 
   return (
     <Screen maxWidth={520}>
-      <Btn title="‹ Back" variant="ghost" small onPress={() => router.back()} style={{ alignSelf: 'flex-start' }} />
-      <Txt variant="h1">Create your account</Txt>
+      <Btn title={t('‹ Back')} variant="ghost" small onPress={() => router.back()} style={{ alignSelf: 'flex-start' }} />
+      <Txt variant="h1">{t('Create your account')}</Txt>
       <ErrorBanner message={act.error} />
-      <Field label="Display name" value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="nickname" />
-      <Field label="Email" value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" />
-      <Field label="Password" hint="At least 10 characters" value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" />
-      <Field label="Home city" hint="City only, never an address" value={f.homeCity} onChangeText={set('homeCity')} maxLength={60} />
+      <Field label={t('Display name')} value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="nickname" />
+      <Field label={t('Email')} value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" />
+      <Field label={t('Password')} hint={t('At least {n} characters', { n: 10 })} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" />
+      <Field label={t('Home city')} hint={t('City only, never an address')} value={f.homeCity} onChangeText={set('homeCity')} maxLength={60} />
       <CheckRow checked={adult} onChange={setAdult}>
-        <Txt>I confirm that I am 18 or older.</Txt>
+        <Txt>{t('I confirm that I am 18 or older.')}</Txt>
       </CheckRow>
-      <Btn title="Create account" onPress={submit} loading={act.busy} disabled={!valid} />
+      <Btn title={t('Create account')} onPress={submit} loading={act.busy} disabled={!valid} />
       <Txt variant="small">
-        Next we'll email you a code to confirm your address. You can browse straight away. Before you join, host or chat you will verify your identity with a specialist provider. We never show your documents to anyone.
+        {t("We'll email you a code. We never show your documents to anyone.")}
       </Txt>
-      <Btn title="Already have an account? Log in" variant="ghost" onPress={() => router.replace('/login')} />
+      <Btn title={t('Already have an account? Log in')} variant="ghost" onPress={() => router.replace('/login')} />
     </Screen>
   );
 }

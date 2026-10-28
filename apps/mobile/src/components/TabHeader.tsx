@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { headerGap, statusTop, useLayout } from '@/lib/layout';
+import { useT } from '@/lib/i18n';
 import { type Mode, useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { Between } from './ui';
@@ -13,6 +14,7 @@ const MAIN_TABS = ['/', '/discover', '/create', '/inbox', '/profile'];
 /** Switches the whole app between HERE (activities now) and THERE (trips later). */
 export function ModeSwitch() {
   const { mode, switchMode, c } = useTheme();
+  const { t } = useT();
   const router = useRouter();
   const path = usePathname();
   const flip = (m: Mode) => {
@@ -29,7 +31,7 @@ export function ModeSwitch() {
       {opts.map(([m, label]) => {
         const on = mode === m;
         return (
-          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`Switch to ${label}`} hitSlop={6} onPress={() => flip(m)} style={{ paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, backgroundColor: on ? (dark ? 'rgba(255,255,255,0.22)' : c.accentSoft) : 'transparent' }}>
+          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}', { name: label })} hitSlop={6} onPress={() => flip(m)} style={{ paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, backgroundColor: on ? (dark ? 'rgba(255,255,255,0.22)' : c.accentSoft) : 'transparent' }}>
             <Text style={{ color: dark ? (on ? '#fff' : 'rgba(255,255,255,0.62)') : on ? c.forest : c.muted, fontWeight: on ? '800' : '600', fontSize: 10, letterSpacing: 0.6 }}>{label}</Text>
           </Pressable>
         );
@@ -44,6 +46,7 @@ export function ModeSwitch() {
  */
 export function ModeTabs() {
   const { mode, switchMode, c } = useTheme();
+  const { t } = useT();
   const router = useRouter();
   const path = usePathname();
   const flip = (m: Mode) => {
@@ -57,9 +60,9 @@ export function ModeTabs() {
       {opts.map(([m, label, sub]) => {
         const on = mode === m;
         return (
-          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`Switch to ${label}: ${sub}`} onPress={() => flip(m)} style={{ flex: 1, minHeight: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.accentSoft : 'transparent' }}>
+          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}: {sub}', { name: label, sub: t(sub) })} onPress={() => flip(m)} style={{ flex: 1, minHeight: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.accentSoft : 'transparent' }}>
             <Text style={{ color: on ? c.forest : c.muted, fontWeight: on ? '800' : '600', fontSize: 12, letterSpacing: 0.8, lineHeight: 16 }}>{label}</Text>
-            <Text style={{ color: c.muted, fontSize: 10, lineHeight: 13 }}>{sub}</Text>
+            <Text style={{ color: c.muted, fontSize: 10, lineHeight: 13 }}>{t(sub)}</Text>
           </Pressable>
         );
       })}
@@ -82,10 +85,11 @@ export function Wordmark({ size = 20, light }: { size?: number; light?: boolean 
 /** The wordmark with its tagline under it: "Be here. Be together." in HERE, "Go there. Together." in THERE. */
 export function Brand() {
   const { mode, c } = useTheme();
+  const { t } = useT();
   return (
     <View style={{ gap: 1 }}>
       <Wordmark />
-      <Text style={{ color: c.muted, fontSize: 11, lineHeight: 14 }}>{mode === 'here' ? 'Be here. Be together.' : 'Go there. Together.'}</Text>
+      <Text style={{ color: c.muted, fontSize: 11, lineHeight: 14 }}>{mode === 'here' ? t('Be here. Be together.') : t('Go there. Together.')}</Text>
     </View>
   );
 }
@@ -129,8 +133,9 @@ export function HeaderBar({ children }: { children: ReactNode }) {
 export function BackArrow() {
   const router = useRouter();
   const { c } = useTheme();
+  const { t } = useT();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel="Go back" hitSlop={10} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={{ paddingRight: 8, paddingVertical: 2 }}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t('Go back')} hitSlop={10} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={{ paddingRight: 8, paddingVertical: 2 }}>
       <Ionicons name="chevron-back" size={24} color={c.text} />
     </Pressable>
   );
@@ -142,8 +147,9 @@ export function BackArrow() {
  */
 export function InnerHeader({ options }: { options: { title?: string; headerTitle?: any; headerRight?: any } }) {
   const { c } = useTheme();
+  const { t } = useT();
   const { gutter } = useLayout();
-  const title = options.title;
+  const title = options.title ? t(options.title) : options.title; // layouts keep the English title; it is translated here
   const custom = typeof options.headerTitle === 'function' ? options.headerTitle({ children: title ?? '', tintColor: c.text }) : null;
   const right = typeof options.headerRight === 'function' ? options.headerRight({ tintColor: c.text, canGoBack: true }) : null;
   return (

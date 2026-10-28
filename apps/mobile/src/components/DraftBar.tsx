@@ -4,12 +4,14 @@ import { Row, Btn, ErrorBanner, Txt, useGo } from '@/components/ui';
 import { get, put, type ServerDraft } from '@/lib/api';
 import { setCurrentDraft } from '@/lib/drafts';
 import { useAction } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 /**
  * "Save draft" under a create form, plus a way to open the saved ones. A saved draft belongs to the account, so it is there
  * on another phone too. `onLoad` receives the saved form when one is opened from the drafts list.
  */
 export function DraftBar({ kind, data, onLoad }: { kind: 'activity' | 'trip'; data: Record<string, unknown>; onLoad: (data: Record<string, unknown>) => void }) {
+  const { t } = useT();
   const go = useGo();
   const router = useRouter();
   const { draft } = useLocalSearchParams<{ draft?: string }>();
@@ -54,10 +56,9 @@ export function DraftBar({ kind, data, onLoad }: { kind: 'activity' | 'trip'; da
     <>
       <ErrorBanner message={act.error} />
       <Row style={{ gap: 8, alignItems: 'center' }}>
-        <Btn title={saved ? 'Saved to your drafts' : 'Save draft'} variant="secondary" small onPress={save} loading={act.busy} style={{ flex: 1 }} />
-        <Btn title="My drafts ›" variant="ghost" small onPress={() => go('/drafts')} />
+        <Btn title={saved ? t('Saved to your drafts') : t('Save draft')} variant="secondary" small onPress={save} loading={act.busy} style={{ flex: 1 }} />
+        <Btn title={t('My drafts ›')} variant="ghost" small onPress={() => go('/drafts')} />
       </Row>
-      <Txt variant="small">A draft is private to you and stays in your account. It is only checked when you publish.</Txt>
     </>
   );
 }

@@ -10,6 +10,7 @@ import { get, type Trip } from '@/lib/api';
 import { FLEX, GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
 import { parseDay } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 import { Choice, Section } from './CreateActivity';
@@ -19,6 +20,7 @@ import { View } from 'react-native';
 
 /** THERE · Search: date windows are compared for overlap; near-misses are labelled "approximate". */
 export function SearchThere() {
+  const { t, tn } = useT();
   const [destination, setDestination] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -59,7 +61,7 @@ export function SearchThere() {
     setQuery(Object.fromEntries(p));
   };
 
-  const toggleTag = (t: string) => setTags((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
+  const toggleTag = (g: string) => setTags((p) => (p.includes(g) ? p.filter((x) => x !== g) : [...p, g]));
 
   const chips = { flexDirection: 'row', flexWrap: 'wrap', gap: 6 } as const;
   return (
@@ -67,8 +69,7 @@ export function SearchThere() {
     <View style={{ flex: 1 }}>
     <Screen tabBar wide header={<TabHeader />}>
       <View>
-        <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>Search trips</Txt>
-        <Txt variant="muted">Set your dates, budget and style to find your group.</Txt>
+        <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{t('Search trips')}</Txt>
       </View>
 
       {/* wide screens: filters on the left, results on the right. Phones: one column. */}
@@ -76,8 +77,8 @@ export function SearchThere() {
         left={
           <>
             <Section>
-              <Field label="Destination" icon="location-outline" placeholder="Japan" value={destination} onChangeText={setDestination} />
-              <Field label="Departure city" placeholder="Any city" value={origin} onChangeText={setOrigin} hint="Used as a preference, never to exclude trips." />
+              <Field label={t('Destination')} icon="location-outline" placeholder={t('Japan')} value={destination} onChangeText={setDestination} />
+              <Field label={t('Departure city')} placeholder={t('Any city')} value={origin} onChangeText={setOrigin} />
             </Section>
 
             <Section>
@@ -85,9 +86,9 @@ export function SearchThere() {
               <Row style={{ gap: 10, alignItems: 'stretch' }}>
                 {(['start', 'end'] as const).map((k) => {
                   const d = k === 'start' ? fromD : toD;
-                  const label = k === 'start' ? 'Earliest departure' : 'Latest return';
+                  const label = k === 'start' ? t('Earliest departure') : t('Latest return');
                   return (
-                    <Pressable key={k} accessibilityRole="button" accessibilityLabel={`${label}: ${d ? shortDay(d) : 'any date'}. Opens a calendar`} onPress={() => setCalendar(k)} style={({ pressed }) => [{ flex: 1 }, pressed && { opacity: 0.85 }]}>
+                    <Pressable key={k} accessibilityRole="button" accessibilityLabel={t('{label}: {date}. Opens a calendar', { label, date: d ? shortDay(d) : t('any date') })} onPress={() => setCalendar(k)} style={({ pressed }) => [{ flex: 1 }, pressed && { opacity: 0.85 }]}>
                       <Tile label={label} style={{ minHeight: 52, justifyContent: 'center' }}>
                         {d ? (
                           <>
@@ -97,7 +98,7 @@ export function SearchThere() {
                         ) : (
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                             <Ionicons name="calendar-outline" size={16} color={c.muted} />
-                            <Text style={{ color: c.muted, fontSize: 13, fontWeight: '700' }}>Any date</Text>
+                            <Text style={{ color: c.muted, fontSize: 13, fontWeight: '700' }}>{t('Any date')}</Text>
                           </View>
                         )}
                       </Tile>
@@ -105,64 +106,63 @@ export function SearchThere() {
                   );
                 })}
               </Row>
-              {from || to ? <Btn title="Clear dates" variant="ghost" small onPress={() => (setFrom(''), setTo(''))} style={{ alignSelf: 'flex-start' }} /> : null}
-              <Txt variant="label">Date flexibility</Txt>
+              {from || to ? <Btn title={t('Clear dates')} variant="ghost" small onPress={() => (setFrom(''), setTo(''))} style={{ alignSelf: 'flex-start' }} /> : null}
+              <Txt variant="label">{t('Date flexibility')}</Txt>
               <View style={chips}>
                 {FLEX.map(([v, l]) => (
-                  <Choice key={v} label={l} active={flex === v} onPress={() => setFlex(v)} />
+                  <Choice key={v} label={t(l)} active={flex === v} onPress={() => setFlex(v)} />
                 ))}
-              </View>
-              <Txt variant="small">Dates are compared as overlapping windows. Approximate matches are labelled separately.</Txt>
-            </Section>
-
-            <Section>
-              <Field label="Per-person budget ceiling (€)" placeholder="2000" value={budget} onChangeText={setBudget} keyboardType="number-pad" />
-              <Txt variant="label">Budget covers</Txt>
-              <View style={chips}>
-                <Choice label="Any" active={transport === 'any'} onPress={() => setTransport('any')} />
-                <Choice label="Travel included" active={transport === 'true'} onPress={() => setTransport('true')} />
-                <Choice label="Destination only" active={transport === 'false'} onPress={() => setTransport('false')} />
               </View>
             </Section>
 
             <Section>
-              <Txt variant="label">Travel style</Txt>
+              <Field label={t('Per-person budget ceiling (€)')} placeholder="2000" value={budget} onChangeText={setBudget} keyboardType="number-pad" />
+              <Txt variant="label">{t('Budget covers')}</Txt>
               <View style={chips}>
-                {TRIP_TAGS.map((t) => (
-                  <Choice key={t} label={t[0].toUpperCase() + t.slice(1)} active={tags.includes(t)} onPress={() => toggleTag(t)} />
+                <Choice label={t('Any')} active={transport === 'any'} onPress={() => setTransport('any')} />
+                <Choice label={t('Travel included')} active={transport === 'true'} onPress={() => setTransport('true')} />
+                <Choice label={t('Destination only')} active={transport === 'false'} onPress={() => setTransport('false')} />
+              </View>
+            </Section>
+
+            <Section>
+              <Txt variant="label">{t('Travel style')}</Txt>
+              <View style={chips}>
+                {TRIP_TAGS.map((g) => (
+                  <Choice key={g} label={t(g[0].toUpperCase() + g.slice(1))} active={tags.includes(g)} onPress={() => toggleTag(g)} />
                 ))}
               </View>
-              <Txt variant="label">Group size</Txt>
+              <Txt variant="label">{t('Group size')}</Txt>
               <View style={chips}>
-                <Choice label="Any" active={size === ''} onPress={() => setSize('')} />
+                <Choice label={t('Any')} active={size === ''} onPress={() => setSize('')} />
                 {GROUP_SIZES.map(([v, l]) => (
-                  <Choice key={v} label={l} active={size === v} onPress={() => setSize(v)} />
+                  <Choice key={v} label={t(l)} active={size === v} onPress={() => setSize(v)} />
                 ))}
               </View>
               <View style={{ backgroundColor: c.accentSoft, borderRadius: 12, padding: 10 }}>
                 <CheckRow checked={openOnly} onChange={setOpenOnly}>
-                  <Txt>Only groups with open places</Txt>
+                  <Txt>{t('Only groups with open places')}</Txt>
                 </CheckRow>
               </View>
             </Section>
 
             <ErrorBanner message={results.error?.message} />
-            <Btn title="Search" onPress={search} loading={!!query && results.loading && !results.data} />
+            <Btn title={t('Search')} onPress={search} loading={!!query && results.loading && !results.data} />
           </>
         }
         right={
           <>
             {!!query && results.loading && !result && <Spinner />}
-            {!query && <Empty title="Find your group">Set your dates, budget and style, then tap Search to see matching trips.</Empty>}
+            {!query && <Empty title={t('Find your group')} />}
             {result && (
               <>
                 <Between>
-                  <Txt variant="h2" style={{ fontSize: 16, lineHeight: 21 }}>{result.total} matching {result.total === 1 ? 'trip' : 'trips'}</Txt>
+                  <Txt variant="h2" style={{ fontSize: 16, lineHeight: 21 }}>{tn(result.total, '{n} matching trip', '{n} matching trips')}</Txt>
                 </Between>
-                {result.items.length === 0 && <Empty title="No trips match">Try wider dates, a higher budget or fewer filters.</Empty>}
+                {result.items.length === 0 && <Empty title={t('No trips match')}>{t('Try fewer filters.')}</Empty>}
                 <View style={{ gap: 12 }}>
-                  {results.items.map((t) => (
-                    <TripRow key={t.id} t={t} />
+                  {results.items.map((x) => (
+                    <TripRow key={x.id} t={x} />
                   ))}
                 </View>
                 <PagedTail paged={results} />

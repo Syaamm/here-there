@@ -11,6 +11,7 @@ import { PageTransition } from './PageTransition';
 import { SkeletonRows } from './Skeleton';
 import { useDockSpace } from '@/lib/dock';
 import { formatDay, useKeyboardInset, useKeyboardShown, useScrollFieldIntoView } from '@/lib/keyboard';
+import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
 // ---------------------------------------------------------------- layout
@@ -319,6 +320,7 @@ export function ProgressBar({ value, max }: { value: number; max: number }) {
 /** Rounded search field with a magnifier, no visible label (the accessibility label still names it). */
 export function SearchBar({ value, onChangeText, placeholder, onFilter, filterActive }: { value: string; onChangeText: (v: string) => void; placeholder: string; /** shows a round filter button at the right end */ onFilter?: () => void; filterActive?: boolean }) {
   const { c } = useTheme();
+  const { t } = useT();
   return (
     <View style={[s.search, { minHeight: sc(42), backgroundColor: c.surface, borderColor: c.line }]}>
       <Ionicons name="search-outline" size={17} color={c.muted} />
@@ -333,7 +335,7 @@ export function SearchBar({ value, onChangeText, placeholder, onFilter, filterAc
         style={{ flex: 1, fontSize: 14, color: c.text, paddingVertical: 0, minHeight: 24 }}
       />
       {onFilter ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? 'Filters, on' : 'Filters'} onPress={onFilter} hitSlop={6} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: filterActive ? c.forest : c.sand, alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} onPress={onFilter} hitSlop={6} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: filterActive ? c.forest : c.sand, alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="options-outline" size={18} color={filterActive ? '#fff' : c.forest} />
         </Pressable>
       ) : null}
@@ -382,14 +384,15 @@ export function CheckRow({ checked, onChange, children, disabled }: { checked: b
 
 export function Stepper({ value, onChange, min, max, label }: { value: number; onChange: (n: number) => void; min: number; max: number; label: string }) {
   const { c } = useTheme();
+  const { t } = useT();
   const bump = (d: number) => onChange(Math.min(max, Math.max(min, value + d)));
   return (
     <View style={{ gap: 4 }}>
       <Txt variant="label">{label}</Txt>
       <View style={[s.row, { gap: 14 }]}>
-        <Pressable accessibilityLabel={`Decrease ${label}`} onPress={() => bump(-1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>−</Text></Pressable>
+        <Pressable accessibilityLabel={t('Decrease {label}', { label })} onPress={() => bump(-1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>−</Text></Pressable>
         <Txt variant="h2">{value}</Txt>
-        <Pressable accessibilityLabel={`Increase ${label}`} onPress={() => bump(1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>+</Text></Pressable>
+        <Pressable accessibilityLabel={t('Increase {label}', { label })} onPress={() => bump(1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>+</Text></Pressable>
       </View>
     </View>
   );
@@ -467,6 +470,7 @@ export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: n
 /** Bottom sheet. Closes on backdrop tap, the Android back button, a tap on its top edge, or by dragging that edge down. */
 export function Sheet({ visible, title, onClose, children }: { visible: boolean; title: string; onClose: () => void; children: ReactNode }) {
   const { c } = useTheme();
+  const { t: tr } = useT();
   const insets = useSafeAreaInsets();
   const { isTablet } = useLayout();
   const { height } = useWindowDimensions();
@@ -534,7 +538,7 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
       <Animated.View style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end', paddingBottom: keyboard }}>
         <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)', opacity: shade }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={tr('Close')} />
         </Animated.View>
         {/* a bottom sheet on phones; a centred dialog on tablets and desktops */}
         <Animated.View
@@ -548,7 +552,7 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
             <Txt variant="h2">{shown.current.title}</Txt>
           ) : (
             // grab bar plus title: the part to tap or pull down. Padding makes the touch area generous.
-            <View {...handle.panHandlers} accessible accessibilityRole="button" accessibilityLabel="Close" style={{ marginTop: -18, paddingTop: 10, paddingBottom: 4, gap: 10 }}>
+            <View {...handle.panHandlers} accessible accessibilityRole="button" accessibilityLabel={tr('Close')} style={{ marginTop: -18, paddingTop: 10, paddingBottom: 4, gap: 10 }}>
               <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: c.line }} />
               <Txt variant="h2">{shown.current.title}</Txt>
             </View>

@@ -4,6 +4,7 @@ import { Banner, Btn, ErrorBanner, Field, Screen, Txt } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 const MIN = 10;
 
@@ -11,6 +12,7 @@ const MIN = 10;
 export default function ChangePassword() {
   const router = useRouter();
   const { signIn } = useMe();
+  const { t } = useT();
   const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [again, setAgain] = useState('');
@@ -38,18 +40,16 @@ export default function ChangePassword() {
     <Screen hasHeader maxWidth={520}>
       {done ? (
         <>
-          <Banner tone="ok">Your password has been changed. Any other device you were signed in on has been signed out, and we have emailed you a notice.</Banner>
-          <Btn title="Done" onPress={() => (router.canGoBack() ? router.back() : router.replace('/settings'))} />
+          <Banner tone="ok">{t('Password changed. Other devices were signed out.')}</Banner>
+          <Btn title={t('Done')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/settings'))} />
         </>
       ) : (
         <>
-          <Txt variant="muted">Choose a new password. You will stay signed in here; every other device will be signed out.</Txt>
           <ErrorBanner message={act.error} />
-          <Field label="Current password" value={current} onChangeText={setCurrent} secureTextEntry autoComplete="current-password" textContentType="password" />
-          <Field label="New password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" hint={`At least ${MIN} characters`} error={tooShort ? `Use at least ${MIN} characters` : same ? 'Choose a password you are not using now' : null} />
-          <Field label="New password again" value={again} onChangeText={setAgain} secureTextEntry autoComplete="new-password" textContentType="newPassword" error={mismatch ? 'The two passwords are not the same' : null} onSubmitEditing={submit} />
-          <Btn title="Change password" onPress={submit} loading={act.busy} disabled={!ready} />
-          <Txt variant="small">Forgot your current password? Sign out, then tap "Forgot password?" on the login screen.</Txt>
+          <Field label={t('Current password')} value={current} onChangeText={setCurrent} secureTextEntry autoComplete="current-password" textContentType="password" />
+          <Field label={t('New password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" hint={t('At least {min} characters', { min: MIN })} error={tooShort ? t('Use at least {min} characters', { min: MIN }) : same ? t('Choose a password you are not using now') : null} />
+          <Field label={t('New password again')} value={again} onChangeText={setAgain} secureTextEntry autoComplete="new-password" textContentType="newPassword" error={mismatch ? t('The two passwords are not the same') : null} onSubmitEditing={submit} />
+          <Btn title={t('Change password')} onPress={submit} loading={act.busy} disabled={!ready} />
         </>
       )}
     </Screen>

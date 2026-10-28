@@ -3,8 +3,9 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { ApiError, writeCount } from './api';
+import { t } from './i18n';
 
-export const errMsg = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : 'Something went wrong');
+export const errMsg = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : t('Something went wrong'));
 
 // Android needs this switched on before a list can slide its rows into place
 if (Platform.OS === 'android') UIManager.setLayoutAnimationEnabledExperimental?.(true);

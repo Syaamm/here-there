@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
+import { isDemo } from './demo';
 
 /**
  * Transactional email (verification codes now; notifications later).
@@ -18,13 +19,13 @@ export class EmailService {
 
   constructor() {
     if (process.env.NODE_ENV === 'production') {
-      if (process.env.EMAIL_DEV_ECHO === 'true') throw new Error('EMAIL_DEV_ECHO must not be enabled in production');
+      if (process.env.EMAIL_DEV_ECHO === 'true' && !isDemo()) throw new Error('EMAIL_DEV_ECHO must not be enabled in production (set DEMO_MODE=true only for a demo with made-up data)');
       if (!process.env.SMTP_URL) console.warn('SMTP_URL is not set: verification emails cannot be delivered in production');
     }
   }
 
   get devEcho() {
-    return process.env.EMAIL_DEV_ECHO === 'true';
+    return process.env.EMAIL_DEV_ECHO === 'true' || isDemo();
   }
 
   async send(to: string, subject: string, text: string) {

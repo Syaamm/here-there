@@ -25,7 +25,7 @@
 - A shared plan link shows only the title, the day and the city of a public plan that is still on.
 
 ## What is NOT done (honest list)
-- No real identity provider is **in use** yet. A Persona adapter is built (it keeps no ID image, selfie, name or birth date, and has the inquiry erased at Persona once the outcome is held) and is connected to a Persona sandbox for testing with fictional data only; no real person has been checked. The provider contract, data-processing agreement, EU data storage and the face route's consent wording are open.
+- No real identity provider is **in use** yet. Two adapters are built, Persona and iDenfy (each keeps no ID image, selfie, name or birth date, and has the inquiry erased at the provider once the outcome is held); Persona is connected to its sandbox for testing with fictional data only and iDenfy has not been tried with real keys; no real person has been checked. The provider contract, data-processing agreement, EU data storage and the face route's consent wording are open.
 - The meeting-place search sends the words typed and the city to a map service (today the public OpenStreetMap geocoder, which is not meant for production use). A production provider will need a contract; see the recipients table in the data inventory.
 - Terms, privacy notice and consent screens are not yet shown in the app (the drafts here are the text to put in).
 - No separate marketing/analytics consent exists because there is no marketing or analytics in the product yet. **[CONFIRM]** before adding either.

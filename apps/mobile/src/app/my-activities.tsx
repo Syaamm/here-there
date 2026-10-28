@@ -5,6 +5,7 @@ import { Reveal } from '@/components/Reveal';
 import { Btn, Chip, Empty, ErrorBanner, Grid, Pill, PillRow, Row, Screen, Spinner, useGo } from '@/components/ui';
 import { type Activity } from '@/lib/api';
 import { useRefresh } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { myActivityItems } from '@/lib/myActivities';
 
@@ -16,6 +17,7 @@ const TABS = [
 
 /** Every activity you have hosted, joined or asked to join, sorted into My activities, Pending and Rejected. */
 export default function MyActivities() {
+  const { t } = useT();
   const go = useGo();
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('mine');
   // the server sends one tab at a time, a few rows per request, and how many each tab holds
@@ -33,20 +35,20 @@ export default function MyActivities() {
   return (
     <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>
       <PillRow>
-        {TABS.map((t) => (
-          <Pill key={t.id} label={`${t.label} (${count(t.id)})`} active={tab === t.id} onPress={() => setTab(t.id)} />
+        {TABS.map((x) => (
+          <Pill key={x.id} label={`${t(x.label)} (${count(x.id)})`} active={tab === x.id} onPress={() => setTab(x.id)} />
         ))}
       </PillRow>
       <ErrorBanner message={acts.error?.message} />
       {acts.loading && !acts.data && <Spinner />}
-      {acts.data && list.length === 0 && <Empty title={`Nothing in ${TABS.find((t) => t.id === tab)!.label}`}>{TABS.find((t) => t.id === tab)!.empty}</Empty>}
+      {acts.data && list.length === 0 && <Empty title={t('Nothing in {tab}', { tab: t(TABS.find((x) => x.id === tab)!.label) })}>{t(TABS.find((x) => x.id === tab)!.empty)}</Empty>}
       <Grid>
         {shown.map((x, i) => (
           <Reveal key={x.key} index={i} style={{ gap: 6 }}>
             <ActivityCard a={x.activity} plain={x.kind === 'rejected'} />
             <Row>
-              <Chip label={x.label} tone={x.tone} />
-              {x.hostOf && <Btn title="Manage requests ›" variant="ghost" small onPress={() => go(`/host/${x.activity.id}`)} />}
+              <Chip label={t(x.label)} tone={x.tone} />
+              {x.hostOf && <Btn title={t('Manage requests ›')} variant="ghost" small onPress={() => go(`/host/${x.activity.id}`)} />}
             </Row>
           </Reveal>
         ))}

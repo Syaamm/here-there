@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { api } from './api';
+import { t } from './i18n';
 
 type NotificationsModule = typeof import('expo-notifications');
 let notificationsModule: NotificationsModule | null | undefined;
@@ -58,10 +59,10 @@ async function subscribeWeb() {
 async function subscribeNative() {
   const Notifications = loadNotifications();
   if (!Notifications) return;
-  if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('default', { name: 'Messages and requests', importance: Notifications.AndroidImportance.DEFAULT });
+  if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('default', { name: t('Messages and requests'), importance: Notifications.AndroidImportance.DEFAULT });
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  const t = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
-  await api('POST', '/v1/push/subscribe', { kind: 'expo', token: t.data });
+  const pushToken = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+  await api('POST', '/v1/push/subscribe', { kind: 'expo', token: pushToken.data });
 }
 
 /** Ask permission (must follow a tap) and, if given, register this device. Returns where things stand now. */

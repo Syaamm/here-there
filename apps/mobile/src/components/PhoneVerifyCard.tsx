@@ -3,6 +3,7 @@ import { Banner, Between, Btn, Card, ErrorBanner, Field, Txt } from '@/component
 import { del, post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 /**
  * Optional mobile-number confirmation by SMS code (spec 3.1 step 2). Nothing in the app depends on it:
@@ -10,6 +11,7 @@ import { useAction } from '@/lib/hooks';
  */
 export function PhoneVerifyCard({ compact }: { compact?: boolean }) {
   const { me, reload } = useMe();
+  const { t, tn } = useT();
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [sent, setSent] = useState(false);
@@ -29,10 +31,10 @@ export function PhoneVerifyCard({ compact }: { compact?: boolean }) {
     return (
       <Card style={{ gap: 8 }}>
         <Between>
-          <Txt variant="h3">📱 Mobile number</Txt>
-          <Btn title="Remove" variant="ghost" small loading={remove.busy} onPress={() => remove.run(() => del('/v1/me/phone'))} />
+          <Txt variant="h3">{t('📱 Mobile number')}</Txt>
+          <Btn title={t('Remove')} variant="ghost" small loading={remove.busy} onPress={() => remove.run(() => del('/v1/me/phone'))} />
         </Between>
-        <Banner tone="ok">✓ Confirmed ({me.phone})</Banner>
+        <Banner tone="ok">{t('✓ Confirmed ({phone})', { phone: me.phone ?? '' })}</Banner>
       </Card>
     );
 
@@ -55,20 +57,19 @@ export function PhoneVerifyCard({ compact }: { compact?: boolean }) {
 
   return (
     <Card style={{ gap: 12 }}>
-      <Txt variant="h3">📱 Add your mobile number {compact ? '(optional)' : ''}</Txt>
-      <Txt variant="small">Optional. A second way to confirm it's you and to reach you. Nothing in the app needs it. Include the country code.</Txt>
+      <Txt variant="h3">{t('📱 Add your mobile number')} {compact ? t('(optional)') : ''}</Txt>
       <ErrorBanner message={send.error ?? verify.error} />
-      <Field label="Mobile number" placeholder="+39 333 123 4567" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" editable={!sent} />
+      <Field label={t('Mobile number')} placeholder="+39 333 123 4567" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" editable={!sent} />
       {!sent ? (
-        <Btn title="Send code" variant="secondary" onPress={sendCode} loading={send.busy} disabled={phone.replace(/\D/g, '').length < 8} />
+        <Btn title={t('Send code')} variant="secondary" onPress={sendCode} loading={send.busy} disabled={phone.replace(/\D/g, '').length < 8} />
       ) : (
         <>
-          {devCode ? <Banner tone="warn">Dev mode: no SMS service is connected, so your code is {devCode}.</Banner> : null}
-          <Field label="6-digit code" value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" />
-          {devCode ? <Btn title="Fill in the code" variant="secondary" small onPress={() => setCode(devCode)} /> : null}
-          <Btn title="Confirm number" onPress={confirm} loading={verify.busy} disabled={code.length !== 6} />
-          <Btn title={wait > 0 ? `Send a new code (${wait}s)` : 'Send a new code'} variant="ghost" onPress={sendCode} loading={send.busy} disabled={wait > 0} />
-          <Btn title="Use a different number" variant="ghost" small onPress={() => (setSent(false), setCode(''))} />
+          {devCode ? <Banner tone="warn">{t('Dev mode: your code is {code}.', { code: devCode })}</Banner> : null}
+          <Field label={t('6-digit code')} value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" />
+          {devCode ? <Btn title={t('Fill in the code')} variant="secondary" small onPress={() => setCode(devCode)} /> : null}
+          <Btn title={t('Confirm number')} onPress={confirm} loading={verify.busy} disabled={code.length !== 6} />
+          <Btn title={wait > 0 ? t('Send a new code ({s}s)', { s: wait }) : t('Send a new code')} variant="ghost" onPress={sendCode} loading={send.busy} disabled={wait > 0} />
+          <Btn title={t('Use a different number')} variant="ghost" small onPress={() => (setSent(false), setCode(''))} />
         </>
       )}
     </Card>

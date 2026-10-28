@@ -6,6 +6,7 @@ import { Animated, Easing, Image, Pressable, View } from 'react-native';
 import { Text } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CAT_IMAGES } from '@/lib/constants';
+import { useT } from '@/lib/i18n';
 import { statusTop } from '@/lib/layout';
 import { useTheme } from '@/lib/theme';
 
@@ -59,6 +60,7 @@ export function FloatingButton({ icon, label, onPress, round, color = '#102F29',
  * back button, an optional action on the right (the ⋯ menu), and an optional emoji. Full-bleed on phones.
  */
 export function Hero({ color, emoji, category, right, height = 220, rounded, plain, round }: { /** round (circle) floating buttons */ round?: boolean; color: string; /** the page has its own header bar above, so no floating back / menu buttons and no extra top space */ plain?: boolean; emoji?: string; /** show this category's photo instead of the plain block */ category?: string; right?: ReactNode; height?: number; rounded?: boolean }) {
+  const { t } = useT();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
@@ -76,7 +78,7 @@ export function Hero({ color, emoji, category, right, height = 220, rounded, pla
       ) : null}
       {plain ? null : (
         <View style={{ position: 'absolute', left: 16, right: 16, top: rounded ? 16 : statusTop(insets.top) + 12, flexDirection: 'row', justifyContent: 'space-between' }}>
-          <FloatingButton round={round} fx="nudge" icon="chevron-back" label="Go back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
+          <FloatingButton round={round} fx="nudge" icon="chevron-back" label={t('Go back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
           {right}
         </View>
       )}

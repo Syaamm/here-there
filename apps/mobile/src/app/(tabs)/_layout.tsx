@@ -18,6 +18,7 @@ import { scBase, useTextBoost } from '@/lib/scale';
 import { HomeIcon, MessageIcon, SearchIcon } from '@/components/DockIcons';
 import { Avatar } from '@/components/ui';
 import { useTheme } from '@/lib/theme';
+import { useT } from '@/lib/i18n';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 /**
@@ -147,6 +148,7 @@ function DockButton(props: any) {
  */
 function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
   const { c } = useTheme();
+  const { t } = useT();
   const boost = useTextBoost(); // the label under the + is part of the dock: it keeps its own size
   // the open tab, read from the address (the tab bar does not hand this button its selected state reliably)
   const selected = usePathname() === '/create';
@@ -161,7 +163,7 @@ function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
   const scale = Animated.add(grow.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1.06] }), press.interpolate({ inputRange: [0, 1], outputRange: [0, 0.14] }));
   const turn = grow.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] });
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel="Create" accessibilityState={{ selected }} onPress={onPress} onPressIn={() => setDown(true)} onPressOut={() => setDown(false)} style={{ flex: 1, alignItems: 'center' }}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t('Create')} accessibilityState={{ selected }} onPress={onPress} onPressIn={() => setDown(true)} onPressOut={() => setDown(false)} style={{ flex: 1, alignItems: 'center' }}>
       <Animated.View
         renderToHardwareTextureAndroid
         style={{
@@ -186,13 +188,14 @@ function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
           <Ionicons name="add" size={30} color="#fff" />
         </Animated.View>
       </Animated.View>
-      <Text style={{ marginTop: 3, fontSize: 10 / boost, fontWeight: selected ? '800' : '600', color: selected ? c.green : c.muted }}>Create</Text>
+      <Text style={{ marginTop: 3, fontSize: 10 / boost, fontWeight: selected ? '800' : '600', color: selected ? c.green : c.muted }}>{t('Create')}</Text>
     </Pressable>
   );
 }
 
 /** Same five tabs in both products, so switching HERE/THERE never changes where things are. */
 export default function TabsLayout() {
+  const { t } = useT();
   const { mode, c } = useTheme();
   const { onboarding } = useMe();
   const { isWide } = useLayout();
@@ -293,18 +296,18 @@ export default function TabsLayout() {
         tabBarBadgeStyle: { backgroundColor: c.danger, color: '#fff' },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Home', tabBarAccessibilityLabel: 'Home', tabBarIcon: svgIcon(HomeIcon) }} />
-      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? 'Map' : 'Explore', tabBarAccessibilityLabel: mode === 'here' ? 'Map' : 'Explore', tabBarIcon: svgIcon(SearchIcon) }} />
+      <Tabs.Screen name="index" options={{ title: t('Home'), tabBarAccessibilityLabel: t('Home'), tabBarIcon: svgIcon(HomeIcon) }} />
+      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? t('Map') : t('Explore'), tabBarAccessibilityLabel: mode === 'here' ? t('Map') : t('Explore'), tabBarIcon: svgIcon(SearchIcon) }} />
       <Tabs.Screen
         name="create"
         options={{
-          title: 'Create',
-          tabBarAccessibilityLabel: 'Create',
+          title: t('Create'),
+          tabBarAccessibilityLabel: t('Create'),
           tabBarIcon: icon('add-circle', 'add-circle-outline'),
         }}
       />
-      <Tabs.Screen name="inbox" options={{ title: 'Message', tabBarAccessibilityLabel: 'Messages', tabBarIcon: svgIcon(MessageIcon), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarAccessibilityLabel: 'Profile', tabBarIcon: ({ size, focused }) => <ProfileGlyph focused={focused} size={size} /> }} />
+      <Tabs.Screen name="inbox" options={{ title: t('Message'), tabBarAccessibilityLabel: t('Messages'), tabBarIcon: svgIcon(MessageIcon), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
+      <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarAccessibilityLabel: t('Profile'), tabBarIcon: ({ size, focused }) => <ProfileGlyph focused={focused} size={size} /> }} />
     </Tabs>
     </DockSpace.Provider>
   );

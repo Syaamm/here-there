@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import { Public } from '../common/auth';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
+import { allowsSimulated } from '../common/demo';
 import { signSandbox } from './providers/sandbox.provider';
 import { VerificationService } from './verification.service';
 
@@ -34,7 +35,7 @@ export class VerificationController {
 
   // ---------------------------------------------------------------- local sandbox provider (development only)
   private async sandboxCheck(ref: string) {
-    if (process.env.NODE_ENV === 'production' || this.verification.mode !== 'sandbox') throw E.notFound('Page');
+    if (!allowsSimulated() || this.verification.mode !== 'sandbox') throw E.notFound('Page');
     const check = await this.prisma.verificationCheck.findFirst({ where: { providerRef: ref, provider: 'sandbox' } });
     if (!check) throw E.notFound('Verification');
     return check;

@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, type NativeScrollEvent, type NativeSyntheticEvent, Pressable, View } from 'react-native';
+import { localeTag, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { reducedMotion, SOFT } from './Pop';
 import { Text } from './ScaledText';
@@ -13,7 +14,7 @@ const HEIGHT = 70;
 const GLIDE = { damping: 22, stiffness: 95, mass: 1 } as const;
 
 /** A calendar day is kept as "YYYY-MM-DD" and read at noon UTC, so it is the same day in every time zone. */
-const part = (key: string, o: Intl.DateTimeFormatOptions) => new Date(`${key}T12:00:00Z`).toLocaleDateString(undefined, { ...o, timeZone: 'UTC' });
+const part = (key: string, o: Intl.DateTimeFormatOptions) => new Date(`${key}T12:00:00Z`).toLocaleDateString(localeTag(), { ...o, timeZone: 'UTC' });
 
 /**
  * A day picker that works like a dial: a soft green frame stays fixed in the middle and the row of dates slides underneath
@@ -24,6 +25,7 @@ const part = (key: string, o: Intl.DateTimeFormatOptions) => new Date(`${key}T12
  * one (null = not decided). `dayNumber` gives "Day 3" for a day.
  */
 export function DayStrip({ days, value, onChange, dayNumber }: { days: string[]; value: string | null; onChange: (day: string | null) => void; dayNumber: (key: string) => string }) {
+  const { t } = useT();
   const { c } = useTheme();
   const items: (string | null)[] = [null, ...days];
   const indexOf = (v: string | null) => Math.max(0, v ? items.indexOf(v) : 0);
@@ -104,7 +106,7 @@ export function DayStrip({ days, value, onChange, dayNumber }: { days: string[];
                 <Animated.View key={d ?? 'later'} style={{ opacity: ramp([0.25, 0.55, 1, 0.55, 0.25]), transform: [{ perspective: 600 }, { translateY: ramp([12, 5, 0, 5, 12]) }, { rotateY: ramp(['55deg', '30deg', '0deg', '-30deg', '-55deg']) }, { scale: ramp([0.74, 0.88, 1.06, 0.88, 0.74]) }] }}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={d ? `${dayNumber(d)}, ${part(d, { weekday: 'long', day: 'numeric', month: 'long' })}` : 'Not decided yet'}
+                    accessibilityLabel={d ? `${dayNumber(d)}, ${part(d, { weekday: 'long', day: 'numeric', month: 'long' })}` : t('Not decided yet')}
                     accessibilityState={{ selected: on }}
                     onPress={() => {
                       goTo(i, true);
@@ -121,7 +123,7 @@ export function DayStrip({ days, value, onChange, dayNumber }: { days: string[];
                     ) : (
                       <>
                         <Ionicons name="help-circle-outline" size={22} color={c.muted} />
-                        <Text style={{ color: c.text, fontSize: 12, fontWeight: '800' }}>Later</Text>
+                        <Text style={{ color: c.text, fontSize: 12, fontWeight: '800' }}>{t('Later')}</Text>
                       </>
                     )}
                   </Pressable>
@@ -189,6 +191,7 @@ export function Segmented<T extends string>({ options, value, onChange }: { opti
 
 /** One option of the bar: its icon rises and grows a little while it is the chosen one, and settles back when it is not. */
 function Segment({ on, label, hint, icon, onPress, height }: { on: boolean; label: string; hint?: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; height: number }) {
+  const { t } = useT();
   const { c } = useTheme();
   const lift = useRef(new Animated.Value(on ? 1 : 0)).current;
   const first = useRef(true);
@@ -204,7 +207,7 @@ function Segment({ on, label, hint, icon, onPress, height }: { on: boolean; labe
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={hint ? `${label}, ${hint}` : label}
+      accessibilityLabel={hint ? `${t(label)}, ${t(hint)}` : t(label)}
       accessibilityState={{ selected: on }}
       onPress={onPress}
       style={({ pressed }) => [{ flex: 1, minHeight: height, borderRadius: 13, alignItems: 'center', justifyContent: 'center', gap: 3 }, pressed && !on && { opacity: 0.7 }]}
@@ -212,7 +215,7 @@ function Segment({ on, label, hint, icon, onPress, height }: { on: boolean; labe
       <Animated.View style={{ transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -2] }) }, { scale: lift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }] }}>
         <Ionicons name={icon} size={18} color={on ? c.green : c.forest} />
       </Animated.View>
-      <Text style={{ color: c.text, fontSize: 11, fontWeight: on ? '800' : '700' }}>{label}</Text>
+      <Text style={{ color: c.text, fontSize: 11, fontWeight: on ? '800' : '700' }}>{t(label)}</Text>
     </Pressable>
   );
 }

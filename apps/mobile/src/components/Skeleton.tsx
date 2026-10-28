@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Animated, Easing, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
+import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
 // One shared pulse for every grey block on screen: a single native animation, started with the first block and stopped
@@ -30,7 +31,10 @@ export function Skeleton({ w = '100%', h = 14, r = 8, style }: { w?: DimensionVa
   return <Animated.View accessibilityElementsHidden importantForAccessibility="no" style={[{ width: w, height: h, borderRadius: r, backgroundColor: c.accentSoft, opacity }, style]} />;
 }
 
-const Block = ({ children, gap = 12 }: { children: ReactNode; gap?: number }) => <View accessibilityLabel="Loading" accessibilityRole="progressbar" style={{ gap }}>{children}</View>;
+function Block({ children, gap = 12 }: { children: ReactNode; gap?: number }) {
+  const { t } = useT();
+  return <View accessibilityLabel={t('Loading')} accessibilityRole="progressbar" style={{ gap }}>{children}</View>;
+}
 
 /** Rows like the ones in the lists: a picture and two lines. */
 export function SkeletonRows({ count = 4 }: { count?: number }) {

@@ -1,13 +1,15 @@
 import { useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { useEffect, useState } from 'react';
-import { Linking, View } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import { Linking, Platform, View } from 'react-native';
 import { EmailVerifyCard } from '@/components/EmailVerifyCard';
 import { PhoneVerifyCard } from '@/components/PhoneVerifyCard';
 import { Banner, Between, Btn, Card, CheckRow, Chip, ErrorBanner, Pill, PillRow, Row, Screen, Txt } from '@/components/ui';
 import { del, get, post, type Me } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad } from '@/lib/hooks';
+import { localeTag, useT } from '@/lib/i18n';
 
 type Eligibility = Me['eligibility'];
 type Status = {
@@ -23,18 +25,18 @@ type Status = {
 };
 
 const STEPS = [
-  ['1', 'Agree', 'You confirm you understand and consent to the check below.'],
-  ['2', 'Photograph your ID', 'A passport, national ID card or driving licence. The provider reads it and checks it is genuine.'],
-  ['3', 'Take a selfie', 'A short live selfie is matched to the photo on your ID, to confirm you are the same real person.'],
-  ['4', 'Get your badge', 'Once approved you get the Verified adult badge in both HERE and THERE.'],
+  ['1', 'Agree'],
+  ['2', 'Photograph your ID'],
+  ['3', 'Take a selfie'],
+  ['4', 'Get your badge'],
 ];
 
 const REVERIFY_TEXT: Record<string, string> = {
-  expired: 'Your verification has expired. It lasts about a year, so we need a fresh check.',
-  security: "For your account's security we need you to verify your identity again.",
-  fraud_suspected: 'We need to confirm your identity again before you can continue.',
-  provider_required: 'Our identity provider asked us to check your identity again.',
-  other: 'We need you to verify your identity again.',
+  expired: 'Your verification has expired.',
+  security: 'Please verify your identity again.',
+  fraud_suspected: 'Please verify your identity again.',
+  provider_required: 'Please verify your identity again.',
+  other: 'Please verify your identity again.',
 };
 const REJECT_TEXT: Record<string, string> = {
   liveness: "The selfie check didn't pass. Try again in good light, facing the camera.",
@@ -50,7 +52,7 @@ const IDENTITY_CHIP: Record<string, [string, 'ok' | 'warn' | 'bad' | 'neutral']>
   reverification_required: ['Re-check needed', 'warn'],
   unverified: ['Not started', 'neutral'],
 };
-const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'long' });
+const date = (iso: string) => new Date(iso).toLocaleDateString(localeTag(), { dateStyle: 'long' });
 
 /**
  * Identity verification (KYC). Browsing never needs it; creating, joining, applying and chatting do.
@@ -58,6 +60,7 @@ const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { date
  */
 export default function Verify() {
   const { me, reload } = useMe();
+  const { t } = useT();
   const router = useRouter();
   const st = useLoad(() => get<Status>('/v1/me/verification'), [], 8000);
   const [consent, setConsent] = useState(false);
@@ -80,144 +83,144 @@ export default function Verify() {
   const emailOk = me?.emailVerified ?? st.data?.emailVerified ?? false;
   const underage = e === 'rejected' && st.data?.lastRejectionReason === 'underage';
   const needsCheck = ['unverified', 'rejected', 'expired', 'reverification_required'].includes(e);
-  const [chipLabel, chipTone] = IDENTITY_CHIP[e] ?? IDENTITY_CHIP.unverified;
+  const [chipEn, chipTone] = IDENTITY_CHIP[e] ?? IDENTITY_CHIP.unverified;
+  const chipLabel = t(chipEn);
 
   const start = async () => {
     const r = await act.run(() => post<{ eligibility: string; url?: string }>('/v1/me/verification', { consent: true, method }));
     // a provider returns its hosted page (ID photo + selfie with liveness): open it
-    if (r?.url) void Linking.openURL(r.url);
+    // in a browser, a new tab opened after the request finishes is blocked as a pop-up, so go there in this tab
+    if (r?.url && Platform.OS === 'web') goTo(r.url);
+    else if (r?.url) await openCheck(r.url);
+    else if (r && r.eligibility !== 'verified') act.setError(t('The check started but no page link came back ({status}). Tap Check for an update, or Cancel and start over.', { status: r.eligibility }));
+  };
+
+  // in a browser, go to the provider in the whole tab: the web preview shows the app inside a phone-shaped frame, and the provider's page refuses to load inside a frame
+  const goTo = (url: string) => {
+    try {
+      (window.top ?? window).location.href = url;
+    } catch {
+      window.location.href = url;
+    }
+  };
+
+  // on a phone the check opens in an in-app browser sheet (reliable in Expo Go too); when it is closed, look for the decision
+  const openCheck = async (url: string) => {
+    try {
+      await WebBrowser.openBrowserAsync(url);
+      void st.reload();
+      void reload();
+    } catch {
+      Linking.openURL(url).catch(() => act.setError(t("We couldn't open the check page. Please try again.")));
+    }
   };
 
   return (
     <Screen hasHeader>
-      <Txt variant="h1">Get verified</Txt>
-      <Txt variant="muted">Everyone can explore. Verification keeps meetups and trips safer by making sure every person you meet is a real adult. You do it once, and it works in HERE and THERE.</Txt>
+      <Txt variant="h1">{t('Get verified')}</Txt>
 
       <Card style={{ gap: 10 }}>
-        <Txt variant="h3">Your statuses</Txt>
+        <Txt variant="h3">{t('Your statuses')}</Txt>
         <Between>
-          <Txt>✉ Email</Txt>
-          <Chip label={emailOk ? 'Confirmed' : 'Not confirmed'} tone={emailOk ? 'ok' : 'warn'} />
+          <Txt>{t('✉ Email')}</Txt>
+          <Chip label={emailOk ? t('Confirmed') : t('Not confirmed')} tone={emailOk ? 'ok' : 'warn'} />
         </Between>
         <Between>
-          <Txt>🔞 Adult (18+)</Txt>
-          <Chip label={st.data?.adultVerified || me?.adultVerified ? 'Confirmed by check' : 'You declared it'} tone={st.data?.adultVerified || me?.adultVerified ? 'ok' : 'neutral'} />
+          <Txt>{t('🔞 Adult (18+)')}</Txt>
+          <Chip label={st.data?.adultVerified || me?.adultVerified ? t('Confirmed by check') : t('You declared it')} tone={st.data?.adultVerified || me?.adultVerified ? 'ok' : 'neutral'} />
         </Between>
         <Between>
-          <Txt>🪪 Identity</Txt>
+          <Txt>{t('🪪 Identity')}</Txt>
           <Chip label={chipLabel} tone={chipTone} />
         </Between>
         <Between>
-          <Txt>📱 Mobile (optional)</Txt>
-          <Chip label={st.data?.phoneVerified || me?.phoneVerified ? 'Confirmed' : 'Not added'} tone={st.data?.phoneVerified || me?.phoneVerified ? 'ok' : 'neutral'} />
+          <Txt>{t('📱 Mobile (optional)')}</Txt>
+          <Chip label={st.data?.phoneVerified || me?.phoneVerified ? t('Confirmed') : t('Not added')} tone={st.data?.phoneVerified || me?.phoneVerified ? 'ok' : 'neutral'} />
         </Between>
       </Card>
-
-      <Row style={{ alignItems: 'stretch' }}>
-        <Card style={{ flex: 1 }}>
-          <Chip label="Anyone" tone="neutral" />
-          <Txt variant="small">✓ Browse activities and trips</Txt>
-          <Txt variant="small">✓ Use the map and search</Txt>
-          <Txt variant="small">✓ Read details and profiles</Txt>
-          <Txt variant="small">✓ Report and block</Txt>
-        </Card>
-        <Card style={{ flex: 1 }}>
-          <Chip label="Verified ✓" tone="ok" />
-          <Txt variant="small">✓ Join activities and trips</Txt>
-          <Txt variant="small">✓ Host and propose</Txt>
-          <Txt variant="small">✓ Group chat</Txt>
-          <Txt variant="small">✓ Verified adult badge</Txt>
-        </Card>
-      </Row>
 
       <ErrorBanner message={act.error} />
 
       {e === 'verified' && (
         <>
           <Banner tone="ok">
-            You're a verified adult in both HERE and THERE.{st.data?.verifiedUntil ? ` Valid until ${date(st.data.verifiedUntil)}. You won't be asked again before then, however many activities or trips you join.` : ''}
+            {t("You're a verified adult.")}{st.data?.verifiedUntil ? ' ' + t('Valid until {date}.', { date: date(st.data.verifiedUntil) }) : ''}
           </Banner>
-          <Btn title="Back to exploring" onPress={() => router.back()} />
+          <Btn title={t('Back to exploring')} onPress={() => router.back()} />
         </>
       )}
 
       {e === 'pending' && (
         <>
-          <Banner tone="warn">Your identity check is in progress. You can keep exploring, and we'll notify you as soon as there's a decision.</Banner>
-          {st.data?.resumeUrl ? <Btn title="Continue identity check" onPress={() => void Linking.openURL(st.data!.resumeUrl!)} /> : null}
-          <Btn title="Check for an update" variant="secondary" loading={st.loading} onPress={() => void st.reload()} />
+          <Banner tone="warn">{t('Check in progress. We\'ll notify you.')}</Banner>
+          {st.data?.resumeUrl ? <Btn title={t('Continue identity check')} onPress={() => (Platform.OS === 'web' ? goTo(st.data!.resumeUrl!) : void openCheck(st.data!.resumeUrl!))} /> : null}
+          <Btn title={t('Check for an update')} variant="secondary" loading={st.loading} onPress={() => void st.reload()} />
           {/* closed the provider page, or it got stuck: abandon this attempt and begin again */}
-          <Btn title="Cancel and start over" variant="ghost" loading={act.busy} onPress={() => act.run(() => del('/v1/me/verification'))} />
+          <Btn title={t('Cancel and start over')} variant="ghost" loading={act.busy} onPress={() => act.run(() => del('/v1/me/verification'))} />
         </>
       )}
 
       {needsCheck && underage && (
         <Banner tone="bad">
-          This account couldn't be verified: This app is for adults aged 18 and over. If you think this is a mistake, please contact support and a member of our team will review it.
+          {t("This account couldn't be verified: This app is for adults aged 18 and over. If you think this is a mistake, please contact support and a member of our team will review it.")}
         </Banner>
       )}
 
       {needsCheck && !underage && (
         <>
-          {(e === 'expired' || e === 'reverification_required') && <Banner tone="warn">{REVERIFY_TEXT[st.data?.reverifyReason ?? me?.reverifyReason ?? (e === 'expired' ? 'expired' : 'other')] ?? REVERIFY_TEXT.other}</Banner>}
-          {e === 'rejected' && <Banner tone="bad">{REJECT_TEXT[st.data?.lastRejectionReason ?? ''] ?? "We couldn't verify you last time. You can try again."}</Banner>}
-          {e === 'rejected' && <Btn title="I think this was a mistake: ask for a review" variant="secondary" onPress={() => router.push('/appeal?kind=verification' as never)} />}
+          {(e === 'expired' || e === 'reverification_required') && <Banner tone="warn">{t(REVERIFY_TEXT[st.data?.reverifyReason ?? me?.reverifyReason ?? (e === 'expired' ? 'expired' : 'other')] ?? REVERIFY_TEXT.other)}</Banner>}
+          {e === 'rejected' && <Banner tone="bad">{t(REJECT_TEXT[st.data?.lastRejectionReason ?? ''] ?? "We couldn't verify you last time. You can try again.")}</Banner>}
+          {e === 'rejected' && <Btn title={t('I think this was a mistake: ask for a review')} variant="secondary" onPress={() => router.push('/appeal?kind=verification' as never)} />}
 
           {/* spec 3.1: the email address is confirmed before the identity check */}
           {!emailOk && (
             <>
-              <Banner tone="warn">Step 1: confirm your email. Then you can start the identity check.</Banner>
+              <Banner tone="warn">{t('Confirm your email first.')}</Banner>
               <EmailVerifyCard />
             </>
           )}
 
-          <Txt variant="h2">How it works</Txt>
-          {STEPS.map(([n, t, d]) => (
-            <Row key={n} style={{ alignItems: 'flex-start' }}>
+          <Txt variant="h2">{t('How it works')}</Txt>
+          {STEPS.map(([n, title]) => (
+            <Row key={n}>
               <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#102F29', alignItems: 'center', justifyContent: 'center' }}>
                 <Txt color="#fff" bold>{n}</Txt>
               </View>
               <View style={{ flex: 1 }}>
-                <Txt variant="h3">{t}</Txt>
-                <Txt variant="small">{d}</Txt>
+                <Txt variant="h3">{t(title)}</Txt>
               </View>
             </Row>
           ))}
 
           <Card>
-            <Txt variant="h3">🔒 Your data</Txt>
-            <Txt variant="small">• A specialist identity provider does the check, not us and not other users.</Txt>
-            <Txt variant="small">• We keep only the result (verified or not), a reference number and the time you agreed. We never store or show your ID photo, selfie, name or birth date.</Txt>
-            <Txt variant="small">• Once we have the result, the provider is asked to erase what it holds for the check.</Txt>
-            <Txt variant="small">• Other people only ever see the "Verified adult" badge.</Txt>
-            <Txt variant="small">{method === 'face' ? '• Matching your face to your ID is biometric data. It is used only for this check, and only with your consent.' : '• This check uses your ID document only: no selfie and no face matching, so nothing biometric.'}</Txt>
+            <Txt variant="h3">{t('🔒 Your data')}</Txt>
+            <Txt variant="small">{t('• We keep only the result (verified or not), a reference number and the time you agreed. We never store or show your ID photo, selfie, name or birth date.')}</Txt>
+            <Txt variant="small">{method === 'face' ? t('• Matching your face to your ID is biometric data. It is used only for this check, and only with your consent.') : t('• This check uses your ID document only: no selfie and no face matching, so nothing biometric.')}</Txt>
           </Card>
 
           {mode === 'manual' && (
-            <Banner tone="warn">Test version: the document and selfie provider isn't connected yet, so nothing is photographed or uploaded. Submitting this asks a team member to approve you manually.</Banner>
+            <Banner tone="warn">{t('Test version: a team member approves you manually.')}</Banner>
           )}
           {mode === 'sandbox' && (
-            <Banner tone="warn">Sandbox provider: you'll be taken to a simulated provider page where you choose the result. Nothing is photographed or uploaded.</Banner>
+            <Banner tone="warn">{t('Sandbox: you choose a simulated result.')}</Banner>
           )}
-          {mode === 'auto' && <Banner tone="warn">Demo mode: you will be approved instantly. No documents are checked.</Banner>}
+          {mode === 'auto' && <Banner tone="warn">{t('Demo mode: approved instantly.')}</Banner>}
 
-          <Txt variant="h3">How would you like to be checked?</Txt>
+          <Txt variant="h3">{t('How would you like to be checked?')}</Txt>
           <PillRow>
-            <Pill label="ID + selfie" active={method === 'face'} onPress={() => { setMethod('face'); setConsent(false); }} />
-            <Pill label="ID only, no face match" active={method === 'document'} onPress={() => { setMethod('document'); setConsent(false); }} />
+            <Pill label={t('ID + selfie')} active={method === 'face'} onPress={() => { setMethod('face'); setConsent(false); }} />
+            <Pill label={t('ID only, no face match')} active={method === 'document'} onPress={() => { setMethod('document'); setConsent(false); }} />
           </PillRow>
-          <Txt variant="small">{method === 'face' ? 'The quickest and most reliable: a photo of your ID and a live selfie that is matched to it.' : "For people who can't or would rather not use a selfie. It can take longer, and the check is not matched to your face."}</Txt>
 
           <CheckRow checked={consent} onChange={setConsent}>
             <Txt>
               {method === 'face'
-                ? "I am 18 or older. I agree that a specialist provider checks my ID document and compares a live selfie with it, and I understand this involves biometric data used only to confirm I'm a real adult."
-                : 'I am 18 or older. I agree that a specialist provider checks my ID document to confirm I am a real adult. No selfie is taken and nothing biometric is used.'}
+                ? t("I am 18 or older. I agree that a specialist provider checks my ID document and compares a live selfie with it, and I understand this involves biometric data used only to confirm I'm a real adult.")
+                : t('I am 18 or older. I agree that a specialist provider checks my ID document to confirm I am a real adult. No selfie is taken and nothing biometric is used.')}
             </Txt>
           </CheckRow>
-          <Btn title={e === 'unverified' ? 'Start identity check' : 'Verify again'} onPress={start} loading={act.busy} disabled={!consent || !emailOk} />
-          {!emailOk && <Txt variant="small">Confirm your email above to unlock this step.</Txt>}
-          <Txt variant="small">You can withdraw consent and ask for your data to be deleted at any time.</Txt>
+          <Btn title={e === 'unverified' ? t('Start identity check') : t('Verify again')} onPress={start} loading={act.busy} disabled={!consent || !emailOk} />
+          <Txt variant="small">{t('You can withdraw consent and ask for your data to be deleted at any time.')}</Txt>
         </>
       )}
 

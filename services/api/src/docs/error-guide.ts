@@ -19,6 +19,8 @@ export const ERROR_GUIDE: Record<string, [string, string]> = {
   CONSENT_REQUIRED: ['The person has not agreed to the identity document and facial check.', 'Show the consent screen before starting.'],
   INVALID_CODE: ['The 6-digit code is wrong or has expired.', 'Offer to send a new code.'],
   CODE_EXPIRED: ['The confirmation code has expired.', 'Start the step again.'],
+  INVALID_LINK: ['A signed download link is malformed or its signature is wrong.', 'Ask for a new link.'],
+  LINK_EXPIRED: ['A signed download link is older than its two minutes.', 'Ask for a new link.'],
   TOO_MANY_ATTEMPTS: ['Too many wrong codes were entered; the code is locked.', 'Ask for a new code.'],
   SAME_EMAIL: ['The new email address is the one already on the account.', 'Ask for a different address.'],
   SAME_PASSWORD: ['The new password equals the current one.', 'Ask for a different password.'],

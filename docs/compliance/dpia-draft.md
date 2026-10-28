@@ -11,7 +11,7 @@ The product (a) brings strangers together in person, (b) verifies identity with 
 - **What:** account and profile data; identity-check outcomes (not documents, selfies or face data); optional mobile number; plans and trips; requests; group chat; follows and blocks; alerts; safety reports; audit log. Full table: [data-inventory-and-lawful-basis.md](data-inventory-and-lawful-basis.md).
 - **Whose:** adults (18+) who sign up in Italy and elsewhere in the EU **[CONFIRM countries]**.
 - **How much:** pilot scale first (Milan), designed for thousands of users.
-- **Recipients:** an identity provider (Persona, connected in its sandbox for testing only), email, SMS and push services, map tiles, a place-search service (words typed and the city, no account id), hosting. None chosen for production yet.
+- **Recipients:** an identity provider (Persona in its sandbox for testing only; iDenfy built as the alternative), email, SMS and push services, map tiles, a place-search service (words typed and the city, no account id), hosting. None chosen for production yet.
 - **Retention:** [retention-schedule.md](retention-schedule.md).
 
 ## 3. Necessity and proportionality
@@ -22,7 +22,7 @@ The product (a) brings strangers together in person, (b) verifies identity with 
 | Lawful basis | See the inventory. The face match rests on **explicit consent**, so consent must be free: hence the alternative path and no penalty for choosing it. **[CONFIRM]** whether an alternative of equal standing is enough, and whether the safety purpose can support a different basis. |
 | Transparency | Privacy notice and terms drafted but **not yet shown in the app**. Must be live before real users. |
 | Data subject rights | Access/portability, rectification, erasure built. Restriction/objection by support only. Withdrawal of the face-match consent: delete account or use the document path; there is no "withdraw only this" button **[CONFIRM]**. |
-| Processors | No contracts yet. Persona is connected for testing with fictional data only; its data processing agreement must be signed before any real person is checked. |
+| Processors | No contracts yet. Persona is connected for testing with fictional data only (iDenfy is built but untried); the chosen provider's data processing agreement must be signed before any real person is checked. |
 | International transfers | Not assessable until providers are chosen. |
 
 ## 4. Risks and measures

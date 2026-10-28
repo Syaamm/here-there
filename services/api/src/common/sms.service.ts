@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { isDemo } from './demo';
 
 /**
  * Text messages for the optional mobile-number check.
@@ -12,7 +13,7 @@ export class SmsService {
   readonly outbox: { to: string; text: string }[] = [];
 
   get devEcho() {
-    return process.env.EMAIL_DEV_ECHO === 'true'; // the same dev-only switch as email; refused in production by EmailService
+    return process.env.EMAIL_DEV_ECHO === 'true' || isDemo(); // the same switches as email; refused in production by EmailService unless it is a demo
   }
 
   async send(to: string, text: string) {

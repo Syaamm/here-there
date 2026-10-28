@@ -2,11 +2,12 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { EmailVerifyCard } from '@/components/EmailVerifyCard';
 import { PhoneVerifyCard } from '@/components/PhoneVerifyCard';
-import { Banner, Btn, ErrorBanner, Field, Pill, Row, Screen, Txt } from '@/components/ui';
+import { Btn, ErrorBanner, Field, Pill, Row, Screen, Txt } from '@/components/ui';
 import { patch } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { INTERESTS, LANGUAGES } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 type Step = 'email' | 'phone' | 'profile';
 
@@ -16,6 +17,7 @@ type Step = 'email' | 'phone' | 'profile';
  */
 export default function Onboarding() {
   const { me, reload, finishOnboarding } = useMe();
+  const { t, tn } = useT();
   const router = useRouter();
   const [step, setStep] = useState<Step>(me?.emailVerified ? 'phone' : 'email');
   const [languages, setLanguages] = useState<string[]>(me?.profile?.languages ?? []);
@@ -39,52 +41,48 @@ export default function Onboarding() {
 
   return (
     <Screen maxWidth={600}>
-      <Txt variant="small">Step {step === 'email' ? 1 : step === 'phone' ? 2 : 3} of 3</Txt>
+      <Txt variant="small">{t('Step {n} of 3', { n: step === 'email' ? 1 : step === 'phone' ? 2 : 3 })}</Txt>
 
       {step === 'email' && (
         <>
-          <Txt variant="h1">Welcome, {me?.profile?.displayName ?? 'there'} 👋</Txt>
-          <Txt variant="muted">First, let's confirm your email. It keeps your account safe and lets us reach you about your plans.</Txt>
+          <Txt variant="h1">{t('Welcome, {name} 👋', { name: me?.profile?.displayName ?? t('there') })}</Txt>
           <EmailVerifyCard onVerified={() => setStep('phone')} />
-          <Btn title="Skip for now" variant="ghost" onPress={() => setStep('phone')} />
+          <Btn title={t('Skip for now')} variant="ghost" onPress={() => setStep('phone')} />
         </>
       )}
 
       {step === 'phone' && (
         <>
-          <Txt variant="h1">Add your mobile (optional)</Txt>
-          <Txt variant="muted">This is optional and nothing depends on it. It's just a second way to confirm it's you.</Txt>
+          <Txt variant="h1">{t('Add your mobile (optional)')}</Txt>
           <PhoneVerifyCard />
-          <Btn title={me?.phoneVerified ? 'Continue' : 'Skip for now'} variant={me?.phoneVerified ? 'primary' : 'ghost'} onPress={() => setStep('profile')} />
+          <Btn title={me?.phoneVerified ? t('Continue') : t('Skip for now')} variant={me?.phoneVerified ? 'primary' : 'ghost'} onPress={() => setStep('profile')} />
         </>
       )}
 
       {step === 'profile' && (
         <>
-          <Txt variant="h1">Make it yours</Txt>
-          <Txt variant="muted">Optional, but it helps people know who they're meeting. You can change all of this later.</Txt>
+          <Txt variant="h1">{t('Make it yours')}</Txt>
           <ErrorBanner message={act.error} />
 
-          <Txt variant="h3">Languages you speak</Txt>
+          <Txt variant="h3">{t('Languages you speak')}</Txt>
           <Row style={{ flexWrap: 'wrap' }}>
             {LANGUAGES.map((l) => (
               <Pill key={l} label={l} active={languages.includes(l)} onPress={() => toggle(languages, setLanguages, l)} />
             ))}
           </Row>
 
-          <Txt variant="h3">Interests</Txt>
+          <Txt variant="h3">{t('Interests')}</Txt>
           <Row style={{ flexWrap: 'wrap' }}>
             {INTERESTS.map((i) => (
               <Pill key={i} label={i[0].toUpperCase() + i.slice(1)} active={interests.includes(i)} onPress={() => toggle(interests, setInterests, i)} />
             ))}
           </Row>
 
-          <Field label="About you" placeholder="A line or two: what you like doing, what you're looking for." multiline value={bio} onChangeText={setBio} maxLength={300} hint={`${bio.length}/300`} />
+          <Field label={t('About you')} placeholder={t('What you like doing')} multiline value={bio} onChangeText={setBio} maxLength={300} hint={`${bio.length}/300`} />
 
-          <Banner>You can explore everything right away. To join, host or chat you'll verify your identity. It takes a couple of minutes.</Banner>
-          <Btn title="Save and start exploring" onPress={save} loading={act.busy} />
-          <Btn title="Skip, just explore" variant="secondary" onPress={() => done()} />
-          <Btn title="Verify my identity now" variant="ghost" onPress={() => done('/verify')} />
+          <Btn title={t('Save and start exploring')} onPress={save} loading={act.busy} />
+          <Btn title={t('Skip, just explore')} variant="secondary" onPress={() => done()} />
+          <Btn title={t('Verify my identity now')} variant="ghost" onPress={() => done('/verify')} />
         </>
       )}
     </Screen>

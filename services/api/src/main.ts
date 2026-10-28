@@ -4,6 +4,7 @@ import { raw } from 'express';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/exception.filter';
 import { LiveService } from './common/live.service';
+import { isDemo } from './common/demo';
 import { assertVaultReady } from './common/vault';
 
 export async function createApp() {
@@ -49,6 +50,7 @@ async function bootstrap() {
   const app = await createApp();
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port);
+  if (isDemo()) console.warn('\n*** DEMO_MODE is on: codes are shown in the app and the ID check is simulated. Use made-up data only. ***\n');
   console.log(`HERE/THERE API listening on http://localhost:${port}`);
 }
 

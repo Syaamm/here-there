@@ -13,6 +13,7 @@ import { catColor, CATS, MILAN_AREAS } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
+import { localeTag, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
@@ -92,6 +93,7 @@ type Draft = { title: string; category: string; dayIdx: number; hour: number; mi
 /** One way of letting people in, with its switch (see "Access control"). */
 function AccessRow({ icon, title, text, on, onChange }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; text: string; on: boolean; onChange: (on: boolean) => void }) {
   const { c } = useTheme();
+  const { t } = useT();
   return (
     <Between>
       <Row style={{ flex: 1, gap: 10, paddingRight: 10, alignItems: 'flex-start' }}>
@@ -101,7 +103,7 @@ function AccessRow({ icon, title, text, on, onChange }: { icon: React.ComponentP
           <Txt variant="muted">{text}</Txt>
         </View>
       </Row>
-      <Switch value={on} onValueChange={onChange} trackColor={{ true: '#2F7D65', false: '#ccc' }} thumbColor="#fff" accessibilityLabel={`${title}: ${on ? 'on' : 'off'}`} />
+      <Switch value={on} onValueChange={onChange} trackColor={{ true: '#2F7D65', false: '#ccc' }} thumbColor="#fff" accessibilityLabel={on ? t('{title}: on', { title }) : t('{title}: off', { title })} />
     </Between>
   );
 }
@@ -120,6 +122,7 @@ export function CreateActivity() {
 }
 
 function ActivityForm({ onReset }: { onReset: () => void }) {
+  const { t, tn } = useT();
   const { me } = useMe();
   const { c } = useTheme();
   const go = useGo();
@@ -127,8 +130,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   // a clock that ticks, so options that have just become too soon disappear while the form is open
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 20_000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(Date.now()), 20_000);
+    return () => clearInterval(timer);
   }, []);
   const earliest = earliestStart(now);
   const [f, setF] = useState<Draft>({ title: '', category: 'drinks', dayIdx: 0, hour: earliest.getHours(), minute: earliest.getMinutes(), duration: 2, capacity: 6, area: 'Brera', venueName: '', place: null, description: '', joinPolicy: 'host_approval' });
@@ -201,10 +204,10 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const lastStart = new Date(now + 24 * 3600e3);
   lastStart.setHours(23, 55, 0, 0);
   const quick = [
-    { label: `In ${LEAD_MIN} min`, at: earliest },
-    { label: 'In 30 min', at: roundUp5(now + 30 * 60e3) },
-    { label: 'In 1 hour', at: roundUp5(now + 60 * 60e3) },
-    { label: '7:00 PM', at: evening },
+    { label: t('In {n} min', { n: LEAD_MIN }), at: earliest },
+    { label: t('In 30 min'), at: roundUp5(now + 30 * 60e3) },
+    { label: t('In 1 hour'), at: roundUp5(now + 60 * 60e3) },
+    { label: t('7:00 PM'), at: evening },
   ].filter((q) => q.at.getTime() >= earliest.getTime() && q.at.getTime() <= lastStart.getTime());
 
   // the big clock: tap − / + for 5 minutes, press and hold for an hour
@@ -213,7 +216,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const canMove = (d: number) => curMin + d >= 0 && curMin + d <= 24 * 60 - 5 && !(isEarliestDay && curMin + d < earliestMin);
   const move = (d: number) => canMove(d) && setF((p) => ({ ...p, hour: Math.floor((curMin + d) / 60), minute: (curMin + d) % 60 }));
   const endsAt = new Date(+startsAt + f.duration * 3600e3);
-  const clock = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const clock = (d: Date) => d.toLocaleTimeString(localeTag(), { hour: 'numeric', minute: '2-digit' });
 
   const CAT_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
     coffee: 'cafe-outline',
@@ -227,20 +230,19 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
     <Screen tabBar header={<TabHeader />}>
       <Between>
         <View style={{ flex: 1 }}>
-          <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>Create an activity</Txt>
-          <Txt variant="muted">Plan something for today or tomorrow. It takes about a minute.</Txt>
+          <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{t('Create an activity')}</Txt>
         </View>
-        <Btn title="Clear all" variant="ghost" small onPress={() => void clearAll()} disabled={!hasContent(f)} />
+        <Btn title={t('Clear all')} variant="ghost" small onPress={() => void clearAll()} disabled={!hasContent(f)} />
       </Between>
 
-      {!verified && <Banner onPress={() => go('/verify')}>You need a verified identity to publish. You can fill this in now and it is kept as a draft. Verify ›</Banner>}
+      {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
       <ErrorBanner message={act.error} />
 
       <Section>
-        <Field label="Activity name" placeholder="After-work aperitivo" value={f.title} onChangeText={(v) => set('title', v)} maxLength={80} />
+        <Field label={t('Activity name')} placeholder={t('After-work aperitivo')} value={f.title} onChangeText={(v) => set('title', v)} maxLength={80} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {Object.entries(CATS).map(([k, v]) => (
-            <Choice key={k} tile icon={CAT_ICONS[k] ?? 'sparkles-outline'} label={v.label} spoken={`Category ${v.label}`} active={f.category === k} onPress={() => set('category', k)} />
+            <Choice key={k} tile icon={CAT_ICONS[k] ?? 'sparkles-outline'} label={t(v.label)} spoken={t('Category {label}', { label: t(v.label) })} active={f.category === k} onPress={() => set('category', k)} />
           ))}
         </View>
       </Section>
@@ -251,34 +253,34 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
             <Pressable
               key={d.i}
               accessibilityRole="button"
-              accessibilityLabel={`Day ${d.label}`}
+              accessibilityLabel={t('Day {label}', { label: t(d.label) })}
               accessibilityState={{ selected: day.i === d.i }}
               onPress={() => set('dayIdx', d.i)}
               style={{ flex: 1, height: 34, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: day.i === d.i ? c.forest : 'transparent' }}
             >
-              <Txt variant="h3" color={day.i === d.i ? '#fff' : c.text} style={{ fontSize: 12, lineHeight: 16 }}>{d.label}</Txt>
+              <Txt variant="h3" color={day.i === d.i ? '#fff' : c.text} style={{ fontSize: 12, lineHeight: 16 }}>{t(d.label)}</Txt>
             </Pressable>
           ))}
         </View>
-        <Txt variant="small">HERE is for plans today or tomorrow. Planning a trip? Switch to THERE.</Txt>
+        <Txt variant="small">{t('Today or tomorrow only.')}</Txt>
 
         <View style={{ backgroundColor: c.sand, borderRadius: 16, padding: 10, gap: 8, alignItems: 'center' }}>
           <Row style={{ gap: 14 }}>
-            <Round icon="remove" label="Earlier" disabled={!canMove(-5)} onPress={() => move(-5)} onLongPress={() => move(-60)} />
-            <Text accessibilityLabel={`Starts at ${clock(startsAt)}`} style={{ fontSize: 32, lineHeight: 38, fontWeight: '800', color: c.text, minWidth: 100, textAlign: 'center' }}>
+            <Round icon="remove" label={t('Earlier')} disabled={!canMove(-5)} onPress={() => move(-5)} onLongPress={() => move(-60)} />
+            <Text accessibilityLabel={t('Starts at {time}', { time: clock(startsAt) })} style={{ fontSize: 32, lineHeight: 38, fontWeight: '800', color: c.text, minWidth: 100, textAlign: 'center' }}>
               {`${hour % 12 || 12}:${String(minute).padStart(2, '0')}`}
             </Text>
-            <Round icon="add" label="Later" disabled={!canMove(5)} onPress={() => move(5)} onLongPress={() => move(60)} />
+            <Round icon="add" label={t('Later')} disabled={!canMove(5)} onPress={() => move(5)} onLongPress={() => move(60)} />
           </Row>
           <Row style={{ gap: 8 }}>
             {periods.map((p) => (
-              <Choice key={p} label={p} spoken={`Start time ${p}`} active={period === p} onPress={() => pickPeriod(p)} />
+              <Choice key={p} label={p} spoken={t('Start time {p}', { p })} active={period === p} onPress={() => pickPeriod(p)} />
             ))}
           </Row>
         </View>
-        <Txt variant="small">Tap − or + for 5 minutes, press and hold for an hour. Earliest you can pick is {LEAD_MIN} minutes from now.</Txt>
+        <Txt variant="small">{t('Earliest: {n} min from now.', { n: LEAD_MIN })}</Txt>
 
-        <Txt variant="label">Quick pick</Txt>
+        <Txt variant="label">{t('Quick pick')}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {quick.map((q) => (
             <Choice key={q.label} label={q.label} active={startsAt.getTime() === q.at.getTime()} onPress={() => setStart(q.at)} />
@@ -286,8 +288,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         </View>
 
         <Between>
-          <Txt variant="label">Duration</Txt>
-          <Txt variant="small">Ends {clock(endsAt)}</Txt>
+          <Txt variant="label">{t('Duration')}</Txt>
+          <Txt variant="small">{t('Ends {time}', { time: clock(endsAt) })}</Txt>
         </Between>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {DURATIONS.map((h) => (
@@ -299,27 +301,27 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       <Section>
         <Between>
           <View style={{ flex: 1 }}>
-            <Txt variant="h3">Maximum people</Txt>
-            <Txt variant="small">Including you</Txt>
+            <Txt variant="h3">{t('Maximum people')}</Txt>
+            <Txt variant="small">{t('Including you')}</Txt>
           </View>
           <Row style={{ gap: 10 }}>
-            <Round icon="remove" label="Fewer people" disabled={f.capacity <= 2} onPress={() => set('capacity', Math.max(2, f.capacity - 1))} />
+            <Round icon="remove" label={t('Fewer people')} disabled={f.capacity <= 2} onPress={() => set('capacity', Math.max(2, f.capacity - 1))} />
             <Txt variant="h2" style={{ fontSize: 18, lineHeight: 24, minWidth: 24, textAlign: 'center' }}>{f.capacity}</Txt>
-            <Round icon="add" label="More people" disabled={f.capacity >= 20} onPress={() => set('capacity', Math.min(20, f.capacity + 1))} />
+            <Round icon="add" label={t('More people')} disabled={f.capacity >= 20} onPress={() => set('capacity', Math.min(20, f.capacity + 1))} />
           </Row>
         </Between>
         <Row style={{ gap: 5, flexWrap: 'wrap' }}>
           {Array.from({ length: f.capacity }).map((_, i) => (
             <View key={i} accessibilityElementsHidden importantForAccessibility="no" style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: i === 0 ? c.forest : 'transparent', borderWidth: 1.5, borderColor: i === 0 ? c.forest : c.muted }} />
           ))}
-          <Txt variant="small" style={{ marginLeft: 6 }}>You + {f.capacity - 1} {f.capacity - 1 === 1 ? 'spot' : 'spots'}</Txt>
+          <Txt variant="small" style={{ marginLeft: 6 }}>{tn(f.capacity - 1, 'You + {n} spot', 'You + {n} spots')}</Txt>
         </Row>
       </Section>
 
       <Section>
-        <Field label="City" value={city} onChangeText={setCity} />
+        <Field label={t('City')} value={city} onChangeText={setCity} />
         <PlaceSearch
-          label="Public meeting location"
+          label={t('Public meeting location')}
           text={f.venueName}
           onText={(v) => set('venueName', v)}
           place={f.place}
@@ -328,7 +330,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         />
         {f.place ? null : isMilan ? (
           <>
-            <Txt variant="label">Neighborhood</Txt>
+            <Txt variant="label">{t('Neighborhood')}</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {Object.keys(MILAN_AREAS).map((a) => (
                 <Choice key={a} label={a} active={f.area === a} onPress={() => set('area', a)} />
@@ -336,42 +338,42 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
             </View>
           </>
         ) : (
-          <Txt variant="small">Pick a place from the search above to show it on the map. Without one, your activity still appears in the list.</Txt>
+          <Txt variant="small">{t('Pick a place to show it on the map.')}</Txt>
         )}
         <View style={{ backgroundColor: c.accentSoft, borderRadius: 12, padding: 10 }}>
           <CheckRow checked={publicPlace} onChange={setPublicPlace}>
-            <Txt>This is a public place. First meetings never happen at a private home.</Txt>
+            <Txt>{t('This is a public place. First meetings never happen at a private home.')}</Txt>
           </CheckRow>
         </View>
       </Section>
 
       <Section>
-        <Field label="Description" placeholder="Casual drinks and conversation with new people." multiline value={f.description} onChangeText={(v) => set('description', v)} maxLength={1000} />
+        <Field label={t('Description')} placeholder={t('Casual drinks and conversation with new people.')} multiline value={f.description} onChangeText={(v) => set('description', v)} maxLength={1000} />
       </Section>
 
       <Section>
-        <Txt variant="h3">Access control</Txt>
+        <Txt variant="h3">{t('Access control')}</Txt>
         {/* exactly one is always on: turning the one that is on off turns the other on */}
         <AccessRow
           icon="flash-outline"
-          title="Instant join"
-          text="Verified people can join immediately, until every place is taken."
+          title={t('Instant join')}
+          text={t('Verified people join at once.')}
           on={f.joinPolicy === 'instant'}
           onChange={(on) => set('joinPolicy', on ? 'instant' : 'host_approval')}
         />
         <View style={{ height: 1, backgroundColor: c.line }} />
         <AccessRow
           icon="hand-left-outline"
-          title="Request to join"
-          text="You approve each person before they can join the group or its chat."
+          title={t('Request to join')}
+          text={t('You approve each person.')}
           on={f.joinPolicy === 'host_approval'}
           onChange={(on) => set('joinPolicy', on ? 'host_approval' : 'instant')}
         />
       </Section>
 
-      <Btn title="Publish activity" onPress={submit} loading={act.busy} disabled={!valid} />
+      <Btn title={t('Publish activity')} onPress={submit} loading={act.busy} disabled={!valid} />
       <DraftBar kind="activity" data={f} onLoad={loadDraft} />
-      <Txt variant="small">Your activity is public in the feed. Only the venue is shown, never anyone's live location.</Txt>
+      <Txt variant="small">{t("Your activity is public in the feed. Only the venue is shown, never anyone's live location.")}</Txt>
     </Screen>
   );
 }

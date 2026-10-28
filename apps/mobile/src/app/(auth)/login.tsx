@@ -4,9 +4,11 @@ import { Banner, Btn, ErrorBanner, Field, Screen, Txt } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 export default function Login() {
   const router = useRouter();
+  const { t, tn } = useT();
   const { reset } = useLocalSearchParams<{ reset?: string }>(); // arriving after a password reset
   const { signIn, notice } = useMe();
   const [email, setEmail] = useState('');
@@ -31,27 +33,27 @@ export default function Login() {
 
   return (
     <Screen maxWidth={520}>
-      <Btn title="‹ Back" variant="ghost" small onPress={() => router.back()} style={{ alignSelf: 'flex-start' }} />
-      <Txt variant="h1">Welcome back</Txt>
-      {reset ? <Banner tone="ok">Your password has been changed. Log in with the new one.</Banner> : null}
+      <Btn title={t('‹ Back')} variant="ghost" small onPress={() => router.back()} style={{ alignSelf: 'flex-start' }} />
+      <Txt variant="h1">{t('Welcome back')}</Txt>
+      {reset ? <Banner tone="ok">{t('Password changed. Log in.')}</Banner> : null}
       <ErrorBanner message={act.error ?? notice} />
       {pass ? (
         <>
-          <Txt variant="muted">Open your authenticator app and type the 6-digit code for HERE &amp; THERE. Lost your phone? Use a recovery code instead.</Txt>
-          <Field label="Code" value={code} onChangeText={setCode} autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" onSubmitEditing={submit} />
-          <Btn title="Continue" onPress={submit} loading={act.busy} disabled={code.trim().length < 6} />
-          <Btn title="Back" variant="ghost" onPress={() => { setPass(null); setCode(''); act.setError(null); }} />
+          <Txt variant="muted">{t('Enter your 6-digit code or a recovery code.')}</Txt>
+          <Field label={t('Code')} value={code} onChangeText={setCode} autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" onSubmitEditing={submit} />
+          <Btn title={t('Continue')} onPress={submit} loading={act.busy} disabled={code.trim().length < 6} />
+          <Btn title={t('Back')} variant="ghost" onPress={() => { setPass(null); setCode(''); act.setError(null); }} />
         </>
       ) : (
         <>
-          <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" />
-          <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={submit} />
-          <Btn title="Log in" onPress={submit} loading={act.busy} disabled={!email || !password} />
+          <Field label={t('Email')} value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" />
+          <Field label={t('Password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={submit} />
+          <Btn title={t('Log in')} onPress={submit} loading={act.busy} disabled={!email || !password} />
         </>
       )}
-      {act.error && /suspended/i.test(act.error) ? <Btn title="Appeal this suspension" variant="secondary" onPress={() => router.push('/appeal-suspension')} /> : null}
-      <Btn title="Forgot password?" variant="ghost" onPress={() => router.push('/forgot-password')} />
-      <Btn title="New here? Create an account" variant="ghost" onPress={() => router.replace('/register')} />
+      {act.error && /suspended/i.test(act.error) ? <Btn title={t('Appeal this suspension')} variant="secondary" onPress={() => router.push('/appeal-suspension')} /> : null}
+      <Btn title={t('Forgot password?')} variant="ghost" onPress={() => router.push('/forgot-password')} />
+      <Btn title={t('New here? Create an account')} variant="ghost" onPress={() => router.replace('/register')} />
     </Screen>
   );
 }

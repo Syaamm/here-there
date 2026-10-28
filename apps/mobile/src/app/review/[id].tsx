@@ -8,6 +8,7 @@ import { confirmAsync } from '@/lib/confirm';
 import { ago, dateSpan } from '@/lib/format';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useAction, useLoad } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 type App = {
   id: string;
@@ -20,6 +21,7 @@ type App = {
 
 /** THERE · Organizer reviews applications. Private chat opens only after an approval the server records. */
 export default function ReviewTrip() {
+  const { t, tn } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const trip = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
   // a page at a time, the ones waiting for an answer first (the server orders them); `pending` counts them all
@@ -29,33 +31,33 @@ export default function ReviewTrip() {
     void apps.reload();
   };
   const mutate = useAction(refresh);
-  const t = trip.data;
+  const tp = trip.data;
 
-  if (trip.loading && !t) return <Screen hasHeader><SkeletonDetail /></Screen>;
+  if (trip.loading && !tp) return <Screen hasHeader><SkeletonDetail /></Screen>;
   if (apps.error && !apps.data)
     return (
       <Screen hasHeader>
-        <Empty title="Only the organizer can review applications">{apps.error.message}</Empty>
+        <Empty title={t('Only the organizer can review applications')}>{apps.error.message}</Empty>
       </Screen>
     );
 
   const items = apps.items;
   const pending = apps.data?.pending ?? 0;
-  const full = !!t && t.members >= t.maxCapacity;
+  const full = !!tp && tp.members >= tp.maxCapacity;
   const decide = (a: App, decision: 'approve' | 'decline') => mutate.run(() => post(`/v1/trips/${id}/applications/${a.id}/decision`, { decision }));
 
   return (
     <Screen hasHeader onRefresh={refresh} refreshing={false}>
-      {t && (
+      {tp && (
         <Card>
-          <Txt variant="h3">{t.destination}</Txt>
-          <Txt variant="small">{dateSpan(t.dateStart, t.dateEnd)} · {t.members} approved · {t.spotsLeft} spots available</Txt>
-          {full && <Banner tone="warn">The group is full. Reverse an approval to free a place.</Banner>}
+          <Txt variant="h3">{tp.destination}</Txt>
+          <Txt variant="small">{dateSpan(tp.dateStart, tp.dateEnd)} · {t('{n} approved', { n: tp.members })} · {tn(tp.spotsLeft, '{n} spot available', '{n} spots available')}</Txt>
+          {full && <Banner tone="warn">{t('Full. Reverse an approval to free a place.')}</Banner>}
         </Card>
       )}
       <ErrorBanner message={mutate.error} />
-      <Txt variant="h2">Pending applications · {pending}</Txt>
-      {apps.data && items.length === 0 && <Empty title="No applications yet">Travelers who want to join will appear here.</Empty>}
+      <Txt variant="h2">{t('Pending applications')} · {pending}</Txt>
+      {apps.data && items.length === 0 && <Empty title={t('No applications yet')} />}
 
       {items.map((a) => (
         <Card key={a.id}>
@@ -63,10 +65,10 @@ export default function ReviewTrip() {
             <Row>
               <Avatar name={a.applicant.displayName} uri={a.applicant.photoUrl} />
               <View>
-                <Txt variant="h3">{a.applicant.displayName ?? 'Traveler'} {a.applicant.verifiedAdult ? '✓' : ''}</Txt>
+                <Txt variant="h3">{a.applicant.displayName ?? t('Traveler')} {a.applicant.verifiedAdult ? '✓' : ''}</Txt>
                 <Txt variant="small">
-                  {a.applicant.verifiedAdult ? 'Verified adult' : 'Not verified'}
-                  {a.experience ? ` · ${a.experience}` : ''}
+                  {a.applicant.verifiedAdult ? t('Verified adult') : t('Not verified')}
+                  {a.experience ? ` · ${t(a.experience)}` : ''}
                   {a.applicant.languages.length ? ` · ${a.applicant.languages.join(', ')}` : ''}
                 </Txt>
                 {a.applicant.reliability ? <View style={{ marginTop: 4, alignSelf: 'flex-start' }}><ReliabilityChip r={a.applicant.reliability} /></View> : null}
@@ -85,33 +87,33 @@ export default function ReviewTrip() {
 
           {['pending', 'waitlisted'].includes(a.state) && (
             <Row>
-              <Btn title="Decline" variant="secondary" disabled={mutate.busy} onPress={() => decide(a, 'decline')} style={{ flex: 1 }} />
-              <Btn title="Approve" disabled={mutate.busy || full} onPress={() => decide(a, 'approve')} style={{ flex: 1 }} />
+              <Btn title={t('Decline')} variant="secondary" disabled={mutate.busy} onPress={() => decide(a, 'decline')} style={{ flex: 1 }} />
+              <Btn title={t('Approve')} disabled={mutate.busy || full} onPress={() => decide(a, 'approve')} style={{ flex: 1 }} />
             </Row>
           )}
           {a.state === 'approved' && (
             <Between>
-              <Chip label="Approved · in the group" tone="ok" />
+              <Chip label={t('Approved · in the group')} tone="ok" />
               <Btn
-                title="Reverse"
+                title={t('Reverse')}
                 variant="danger"
                 small
                 disabled={mutate.busy}
-                onPress={async () => (await confirmAsync(`Reverse approval for ${a.applicant.displayName}?`, 'They lose access to the group chat immediately.', 'Reverse', true)) && void decide(a, 'decline')}
+                onPress={async () => (await confirmAsync(t('Reverse approval for {name}?', { name: a.applicant.displayName ?? t('Traveler') }), t('They lose access to the group chat immediately.'), t('Reverse'), true)) && void decide(a, 'decline')}
               />
             </Between>
           )}
           {a.state === 'declined' && (
             <Between>
-              <Chip label="Declined" tone="bad" />
-              <Btn title="Approve instead" variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(a, 'approve')} />
+              <Chip label={t('Declined')} tone="bad" />
+              <Btn title={t('Approve instead')} variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(a, 'approve')} />
             </Between>
           )}
-          {['withdrawn', 'expired'].includes(a.state) && <Chip label={a.state === 'withdrawn' ? 'Withdrawn by the applicant' : 'Expired'} tone="neutral" />}
+          {['withdrawn', 'expired'].includes(a.state) && <Chip label={a.state === 'withdrawn' ? t('Withdrawn by the applicant') : t('Expired')} tone="neutral" />}
         </Card>
       ))}
       <PagedTail paged={apps} />
-      <Banner>Only accepted members receive private planning and chat access. Never ask applicants for identity documents or money.</Banner>
+      <Banner>{t('Only accepted members receive private planning and chat access. Never ask applicants for identity documents or money.')}</Banner>
     </Screen>
   );
 }

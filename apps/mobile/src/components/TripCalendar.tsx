@@ -4,6 +4,7 @@ import { Animated, Pressable, View } from 'react-native';
 import { useTheme } from '@/lib/theme';
 import { reducedMotion, SOFT } from './Pop';
 import { Text } from './ScaledText';
+import { useT } from '@/lib/i18n';
 
 const WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -51,6 +52,7 @@ function DayButton({ on, base, number, dots, onPress, label, disabled, look, rin
  */
 export function TripCalendar({ tripDays, planned, selected, today, onSelect, dayNumber }: { tripDays: string[]; planned: Map<string, number>; selected: string; today: string; onSelect: (key: string) => void; /** "Day 3" for a day of the trip */ dayNumber: (key: string) => string }) {
   const { c } = useTheme();
+  const { t, tn } = useT();
   const inTrip = new Set(tripDays);
   const known = [...new Set([...tripDays, ...planned.keys()])].sort();
   const first = monthIndex(known[0] ?? selected);
@@ -136,19 +138,19 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
   return (
     <View style={{ gap: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        {first === last ? <View style={{ width: 32 }} /> : arrow(-1, 'Previous month', shown > first)}
+        {first === last ? <View style={{ width: 32 }} /> : arrow(-1, t('Previous month'), shown > first)}
         <View style={{ alignItems: 'center' }}>
-          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 14 }}>{MONTHS[m]} {y}</Text>
-          <Text style={{ color: c.muted, fontSize: 11 }}>{plannedDays} of {tripDays.length} {tripDays.length === 1 ? 'day' : 'days'} planned</Text>
+          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 14 }}>{t(MONTHS[m])} {y}</Text>
+          <Text style={{ color: c.muted, fontSize: 11 }}>{tn(tripDays.length, '{planned} of {n} day planned', '{planned} of {n} days planned').split('{planned}').join(String(plannedDays))}</Text>
         </View>
-        {first === last ? <View style={{ width: 32 }} /> : arrow(1, 'Next month', shown < last)}
+        {first === last ? <View style={{ width: 32 }} /> : arrow(1, t('Next month'), shown < last)}
       </View>
 
       <Animated.View style={{ opacity: slide.interpolate({ inputRange: [0, 0.6], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [dir.current * 36, 0] }) }, { scale: slide.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) }] }}>
         <View style={{ flexDirection: 'row' }}>
           {WEEK.map((w) => (
             <View key={w} style={{ flex: 1, alignItems: 'center', paddingVertical: 2 }}>
-              <Text style={{ color: c.muted, fontSize: 10, fontWeight: '700' }}>{w}</Text>
+              <Text style={{ color: c.muted, fontSize: 10, fontWeight: '700' }}>{t(w)}</Text>
             </View>
           ))}
         </View>
@@ -162,7 +164,7 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
               const trip = inTrip.has(k);
               const open = trip || stops > 0; // days outside the trip are only tappable when they already have plans
               const on = k === selected;
-              const label = `${WEEKDAYS[new Date(y, m, d).getDay()]} ${d} ${MONTHS[m]}${trip ? `, ${dayNumber(k)}` : ', outside the trip dates'}, ${stops ? `${stops} ${stops === 1 ? 'stop' : 'stops'} planned` : 'nothing planned'}${k === today ? ', today' : ''}`;
+              const label = `${t(WEEKDAYS[new Date(y, m, d).getDay()])} ${d} ${t(MONTHS[m])}${trip ? `, ${dayNumber(k)}` : `, ${t('outside the trip dates')}`}, ${stops ? tn(stops, '{n} stop planned', '{n} stops planned') : t('nothing planned')}${k === today ? `, ${t('today')}` : ''}`;
               return (
                 <View key={i} style={{ flex: 1, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                   <DayButton

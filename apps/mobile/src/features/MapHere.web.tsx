@@ -5,6 +5,7 @@ import { View } from 'react-native';
 import { HeaderBar, TabHeader } from '@/components/TabHeader';
 import { Btn, Empty } from '@/components/ui';
 import { CATS } from '@/lib/constants';
+import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { MapOverlay, PIN_PATH, pinWidth, useMapData, type Group } from './mapShared';
 
@@ -43,6 +44,7 @@ const icon = (g: Group, active: boolean, green: string, forest: string) => {
  * tiles, since react-native-maps only exists on iOS and Android.
  */
 export function MapHere() {
+  const { t, tn } = useT();
   const { c } = useTheme();
   const data = useMapData();
   const { center, groups, selected, setSelected, target, zoomCmd } = data;
@@ -94,7 +96,7 @@ export function MapHere() {
     if (!g) return;
     g.clearLayers();
     for (const gr of groups) {
-      L.marker([gr.lat, gr.lng], { icon: icon(gr, selected?.key === gr.key, c.green, c.forest), title: gr.items.length > 1 ? `${gr.items.length} activities` : gr.items[0].title, keyboard: true })
+      L.marker([gr.lat, gr.lng], { icon: icon(gr, selected?.key === gr.key, c.green, c.forest), title: gr.items.length > 1 ? tn(gr.items.length, '{n} activity', '{n} activities') : gr.items[0].title, keyboard: true })
         .on('click', (e) => {
           L.DomEvent.stopPropagation(e);
           pick.current(gr);
@@ -124,15 +126,15 @@ export function MapHere() {
   if (broken)
     return (
       <View style={{ flex: 1, backgroundColor: c.bg, padding: 24, justifyContent: 'center', gap: 12 }}>
-        <Empty title="Map unavailable">We could not load the map. Check your connection, then try again. The list still works.</Empty>
-        <Btn title="Try again" onPress={() => setBroken(false)} />
+        <Empty title={t('Map unavailable')}>{t('Check your connection.')}</Empty>
+        <Btn title={t('Try again')} onPress={() => setBroken(false)} />
       </View>
     );
 
   if (!center)
     return (
       <View style={{ flex: 1, backgroundColor: c.bg, padding: 24, justifyContent: 'center' }}>
-        <Empty title="No map for this city yet">We only have map data for Milan in this pilot. You can still browse the list.</Empty>
+        <Empty title={t('No map for this city yet')}>{t('Only Milan is on the map for now.')}</Empty>
       </View>
     );
 
@@ -142,7 +144,7 @@ export function MapHere() {
         <TabHeader compact />
       </HeaderBar>
       <View style={{ flex: 1 }}>
-      <div ref={box} role="application" aria-label="Map of activity venues" style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
+      <div ref={box} role="application" aria-label={t('Map of activity venues')} style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
       <MapOverlay data={data} />
       </View>
     </View>
