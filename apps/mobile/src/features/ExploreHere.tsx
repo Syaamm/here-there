@@ -42,7 +42,7 @@ export function ExploreHere() {
     [city, cat],
     60_000, // changes arrive by the live connection (below); this is only the slow fallback
     'feed:here',
-    { keep: true },
+    { keep: true, live: true },
   );
   // Next up is about YOU: the soonest upcoming activity you host, are going to, or have asked to join
   // an activity was created, filled or cancelled somewhere: ask again at once (the app holds one nudge per few seconds)

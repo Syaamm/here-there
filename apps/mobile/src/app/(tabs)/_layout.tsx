@@ -10,6 +10,7 @@ import { useMe } from '@/lib/auth';
 import { useLoad } from '@/lib/hooks';
 import { DockSpace } from '@/lib/dock';
 import { startLive, stopLive, useLiveEvents } from '@/lib/live';
+import { useCity } from '@/lib/city';
 import { resyncPush, usePushTaps } from '@/lib/push';
 import { bumpUnread, onUnreadRefresh, refreshUnread, setUnread, useUnread } from '@/lib/unread';
 import { useLayout } from '@/lib/layout';
@@ -208,7 +209,7 @@ export default function TabsLayout() {
   // the dock floats over the pages (phones), so they leave this much room at the bottom
   const dockSpace = isWide ? 0 : dockH + dockBottom;
   // the Message badge: asked of the server every minute (the live connection moves it at once when something arrives), and changed at once by the screens that read things (lib/unread)
-  const polled = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true'), [], 60_000);
+  const polled = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true'), [], 60_000, undefined, { live: true });
   useEffect(() => {
     if (polled.data) setUnread(polled.data.unreadCount);
   }, [polled.data]);
@@ -217,6 +218,7 @@ export default function TabsLayout() {
 
   // live connection while signed in: new alerts move the badge at once; push is re-registered quietly
   const { me: signedIn } = useMe();
+  useCity(); // keeps the live connection told which city the feeds show
   useEffect(() => {
     if (!signedIn) return;
     startLive();

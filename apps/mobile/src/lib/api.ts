@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { PixelRatio, Platform } from 'react-native';
 import { currentLang, t } from './i18n';
 
 /**
@@ -137,7 +137,14 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
 export const get = <T = any>(p: string) => api<T>('GET', p);
 export const post = <T = any>(p: string, b: unknown = {}) => api<T>('POST', p, b);
 /** A profile picture's address as the API returns it ("/v1/users/…/photo?v=…") turned into a full URL. */
-export const photoSrc = (p?: string | null) => (p ? (/^https?:/.test(p) ? p : API_URL + p) : undefined);
+export const photoSrc = (p?: string | null, px?: number) => {
+  if (!p) return undefined;
+  const url = /^https?:/.test(p) ? p : API_URL + p;
+  // a list shows a small face: ask for a small copy of our own pictures (96 or 192 pixels) instead of the full one
+  if (px === undefined || !/\/v1\/users\/[^/]+\/photo/.test(url)) return url;
+  const need = px * PixelRatio.get();
+  return need <= 96 ? `${url}${url.includes('?') ? '&' : '?'}s=96` : need <= 192 ? `${url}${url.includes('?') ? '&' : '?'}s=192` : url;
+};
 
 /** Sends a picked image to the API, which crops it square, shrinks it and stores it as webp. */
 export async function uploadPhoto(uri: string): Promise<{ photoUrl: string }> {
@@ -299,7 +306,7 @@ export type Notif = {
   type: string;
   title: string;
   body: string;
-  data: { activityId?: string; tripId?: string; conversationId?: string; warningId?: string; messageId?: string } | null;
+  data: { activityId?: string; tripId?: string; conversationId?: string; warningId?: string; messageId?: string; /** which product it is about; missing means both */ product?: 'here' | 'there' } | null;
   readAt: string | null;
   createdAt: string;
 };

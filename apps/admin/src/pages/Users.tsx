@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { can, get, post, STAFF, type Role, type Session } from '../api';
-import { askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Page, RowMenu, Search, Segmented, useAction, useLoad, usePages } from '../ui';
+import { askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Page, RowMenu, Search, Segmented, useAction, useLoad, useMore, usePages } from '../ui';
 
 type U = { id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; homeCity?: string; createdAt: string };
 type Detail = {
@@ -28,12 +28,11 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
   const [identity, setIdentity] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   // opened from a report: look up just that one person by id and show their details straight away
-  const users = useLoad(
-    () => get<{ items: U[] }>(`/v1/admin/users?${new URLSearchParams(focusId ? { q: focusId } : { ...(term && { q: term }), ...(state && { state }) })}`),
-    [term, state, focusId],
-  );
-  const act = useAction(users.reload);
-  const rows = (users.data?.items ?? []).filter((u) => (focusId ? u.id === focusId : !identity || u.eligibility === identity));
+  const query = new URLSearchParams(focusId ? { q: focusId } : { ...(term && { q: term }), ...(state && { state }) });
+  const users = useLoad(() => get<{ items: U[]; nextCursor: string | null }>(`/v1/admin/users?${query}`), [term, state, focusId]);
+  const more = useMore(users.data, (c) => get(`/v1/admin/users?${query}&cursor=${c}`), `${term}|${state}|${focusId}`);
+  const act = useAction(() => (more.reset(), users.reload()));
+  const rows = more.items.filter((u) => (focusId ? u.id === focusId : !identity || u.eligibility === identity));
   const pages = usePages(rows, `${term}|${state}|${identity}`);
 
   const suspend = async (u: U) => {
@@ -75,7 +74,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
   };
 
   return (
-    <Page title="Users" sub={focusId ? undefined : users.data ? `${users.data.items.length} registered accounts` : undefined}>
+    <Page title="Users" sub={focusId ? undefined : users.data ? `${more.items.length}${more.hasMore ? '+' : ''} registered accounts` : undefined}>
       {focusId && (
         <p className="note">
           <Icon name="users" />
@@ -145,6 +144,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
           {pages.foot}
         </div>
       )}
+      {more.more}
     </Page>
   );
 }

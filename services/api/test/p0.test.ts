@@ -3712,6 +3712,56 @@ describe('favourites: trips can be saved, and savers hear when a place opens', (
     assert.equal((await alerts(m2, 'spot_opened')).length, 0, 'someone already in the group is not told');
     assert.equal((await alerts(org, 'spot_opened')).length, 0);
   });
+
+  it('tells people who saved a plan when it changes or is cancelled, but not members, the host or blocked people', async () => {
+    const host = await verified('SavedHost');
+    const member = await verified('SavedMember');
+    const fan = await verified('SavedFan');
+    const blocked = await verified('SavedBlocked');
+    const hours = (n: number) => new Date(Date.now() + n * 3600 * 1000).toISOString();
+    const id = (await post('/v1/activities', host.token, activityBody({ title: 'Saved plan' }))).body.id as string;
+    const req = await post(`/v1/activities/${id}/requests`, member.token, {});
+    await post(`/v1/activities/${id}/requests/${req.body.id}/decision`, host.token, { decision: 'approve' });
+    for (const u of [member, fan, blocked]) await post(`/v1/activities/${id}/favorite`, u.token);
+    await post('/v1/blocks', host.token, { userId: blocked.id });
+
+    // a small edit (title) says nothing; a new time or place does
+    await call('PATCH', `/v1/activities/${id}`, host.token, { description: 'Just a nicer description for everyone.' });
+    assert.equal((await alerts(fan, 'activity_changed')).length, 0);
+    assert.equal((await call('PATCH', `/v1/activities/${id}`, host.token, { venueName: 'Caffe Navigli', startsAt: hours(30), endsAt: hours(32) })).status, 200);
+    const told = await alerts(fan, 'activity_changed');
+    assert.equal(told.length, 1);
+    assert.equal(told[0].data.activityId, id);
+    assert.equal((await alerts(member, 'activity_changed')).length, 1, 'the member gets their own alert, not two');
+    assert.equal((await alerts(host, 'activity_changed')).length, 0);
+    assert.equal((await alerts(blocked, 'activity_changed')).length, 0);
+
+    assert.equal((await post(`/v1/activities/${id}/cancel`, host.token)).status, 201);
+    assert.equal((await alerts(fan, 'activity_cancelled')).length, 1);
+    assert.equal((await alerts(member, 'activity_cancelled')).length, 1);
+    assert.equal((await alerts(blocked, 'activity_cancelled')).length, 0);
+  });
+
+  it('tells people who saved a trip when its dates change or it is cancelled', async () => {
+    const org = await verified('SavedTripOrg');
+    const member = await verified('SavedTripMember');
+    const fan = await verified('SavedTripFan');
+    const t = (await post('/v1/trips', org.token, tripBody({ title: 'Saved trip' }))).body.id as string;
+    const ap = await post(`/v1/trips/${t}/applications`, member.token, { intro: 'I love food and walking.', confirmBudget: true, confirmDates: true, confirmGuidelines: true });
+    await post(`/v1/trips/${t}/applications/${ap.body.id}/decision`, org.token, { decision: 'approve' });
+    await post(`/v1/trips/${t}/favorite`, fan.token);
+    await post(`/v1/trips/${t}/favorite`, member.token);
+
+    const later = (d: number) => new Date(Date.now() + d * 24 * 3600 * 1000).toISOString();
+    assert.equal((await call('PATCH', `/v1/trips/${t}`, org.token, { dateStart: later(50), dateEnd: later(55) })).status, 200);
+    assert.equal((await alerts(fan, 'trip_changed')).length, 1);
+    assert.equal((await alerts(member, 'trip_changed')).length, 1);
+    assert.equal((await alerts(org, 'trip_changed')).length, 0);
+
+    assert.equal((await post(`/v1/trips/${t}/cancel`, org.token)).status, 201);
+    assert.equal((await alerts(fan, 'trip_cancelled')).length, 1);
+    assert.equal((await alerts(member, 'trip_cancelled')).length, 1);
+  });
 });
 
 describe('THERE feed: a trip that has started is no longer offered', () => {

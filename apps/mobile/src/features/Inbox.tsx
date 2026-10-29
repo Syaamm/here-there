@@ -16,6 +16,7 @@ import { entersFresh } from '@/lib/nav';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 import { useLiveEvents } from '@/lib/live';
+import { alertRoute } from '@/lib/alerts';
 import { enablePush, pushState, type PushState } from '@/lib/push';
 import { bumpUnread, refreshUnread, setUnread } from '@/lib/unread';
 
@@ -73,18 +74,21 @@ function SectionLabel({ title, count }: { title: string; count?: number }) {
 export function Inbox() {
   const { t } = useT();
   const go = useGo();
-  const { c } = useTheme();
+  const { c, mode, switchMode } = useTheme();
   const { me } = useMe();
   const [tab, setTab] = useState<Tab>('alerts');
-  const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number }>('/v1/notifications'), [], 60_000, 'inbox:notifs', { animate: true }); // new alerts arrive by the live connection; this is only the slow fallback
+  // each product has its own alerts and chats: HERE shows activity ones, THERE shows trip ones (follows, warnings and the like show in both)
+  const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number; unreadByProduct?: { here: number; there: number } }>(`/v1/notifications?product=${mode}`), [mode], 60_000, 'inbox:notifs', { animate: true, live: true }); // new alerts arrive by the live connection; this is only the slow fallback
   // the alert rows themselves: the server sends them a few at a time, newest first (chat messages are on the Chats tab)
-  const alertList = useCursorList<Notif, { unreadCount: number }>('/v1/notifications', { scope: 'alerts' }, 'inbox:alerts', { pollMs: 60_000, animate: true, rowHeight: 76 });
-  const convs = useCursorList<ConversationRef>('/v1/me/conversations', {}, 'inbox:convs', { animate: true, rowHeight: 73 });
+  const alertList = useCursorList<Notif, { unreadCount: number }>('/v1/notifications', { scope: 'alerts', product: mode }, 'inbox:alerts', { pollMs: 60_000, live: true, animate: true, rowHeight: 76 });
+  const convs = useCursorList<ConversationRef>('/v1/me/conversations', { product: mode }, 'inbox:convs', { animate: true, rowHeight: 73 });
 
   useEffect(() => {
     if (notifs.data) setUnread(notifs.data.unreadCount);
   }, [notifs.data]);
 
+  const other = mode === 'here' ? 'there' : 'here';
+  const otherNew = notifs.data?.unreadByProduct?.[other] ?? 0;
   const all = notifs.data?.items ?? [];
   const alerts = all.filter((n) => n.type !== 'chat_message');
   const alertsUnread = alerts.filter((n) => !n.readAt).length; // chat alerts are counted on the Chats tab, not here
@@ -169,18 +173,8 @@ export function Inbox() {
       await act.run(() => post(`/v1/notifications/${n.id}/read`));
       refreshUnread();
     }
-    const d = n.data;
-    if (n.type.startsWith('attendance_')) go('/reliability');
-    else if (n.type === 'warning' && d?.warningId) go(`/appeal?kind=warning&targetId=${d.warningId}`);
-    else if (n.type === 'message_removed' && d?.messageId) go(`/appeal?kind=message&targetId=${d.messageId}`);
-    else if (n.type === 'appeal_decided') go('/appeal');
-    else if (d?.conversationId) go(`/chat/${d.conversationId}`);
-    else if (n.type === 'join_request' && d?.activityId) go(`/host/${d.activityId}`);
-    else if (n.type === 'trip_application' && d?.tripId) go(`/review/${d.tripId}`);
-    else if (d?.activityId) go(`/activity/${d.activityId}`);
-    else if (d?.tripId) go(`/trip/${d.tripId}`);
-    else if (n.type === 'follow' && (d as { userId?: string } | null)?.userId) go(`/user/${(d as { userId: string }).userId}`);
-    else if (n.type === 'verification_result') go('/safety');
+    const to = alertRoute(n);
+    if (to) go(to); // the page it opens flips to its own product if needed
   };
   const decide = (activityId: string, r: PendingReq, decision: 'approve' | 'decline') => act.run(() => post(`/v1/activities/${activityId}/requests/${r.id}/decision`, { decision }));
 
@@ -225,7 +219,7 @@ export function Inbox() {
         {tab === 'alerts' && alertsUnread > 0 ? (
           <Pressable accessibilityRole="button" accessibilityLabel={t('Mark all read')} hitSlop={10} onPress={() => {
               bumpUnread(-alertsUnread); // the Message badge drops by the alerts cleared; chats keep theirs
-              void act.run(() => post('/v1/notifications/read-all?scope=alerts')).then(refreshUnread);
+              void act.run(() => post(`/v1/notifications/read-all?scope=alerts&product=${mode}`)).then(refreshUnread);
             }}>
             <Txt variant="label" color={c.forest} style={{ fontSize: 12 }}>{t('Mark all read')}</Txt>
           </Pressable>
@@ -254,6 +248,20 @@ export function Inbox() {
         })}
       </View>
       <ErrorBanner message={act.error ?? notifs.error?.message} />
+
+      {/* something new for the other product: one tap goes there (the alert itself stays in that product's inbox) */}
+      {otherNew > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('{n} new in {name}', { n: otherNew, name: other.toUpperCase() })}
+          onPress={() => switchMode(other)}
+          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.accentSoft, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }, pressed && { opacity: 0.8 }]}
+        >
+          <Ionicons name="swap-horizontal-outline" size={16} color={c.forest} />
+          <Txt variant="small" style={{ flex: 1, color: c.text }}>{t('{n} new in {name}', { n: otherNew, name: other.toUpperCase() })}</Txt>
+          <Ionicons name="chevron-forward" size={16} color={c.muted} />
+        </Pressable>
+      ) : null}
 
       {push === 'default' ? (
         <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>

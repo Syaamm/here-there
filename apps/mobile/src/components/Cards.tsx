@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { memo } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text } from './ScaledText';
 import type { Activity, Trip } from '@/lib/api';
@@ -35,7 +36,7 @@ function Pill({ text }: { text: string }) {
 }
 
 /** Big card for the "Happening soon" strip. */
-export function FeatureCard({ a, width }: { a: Activity; width?: number }) {
+function FeatureCardBase({ a, width }: { a: Activity; width?: number }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
@@ -151,7 +152,7 @@ export function NextUpCard({ a, status }: { a: Activity; /** your part in it: "Y
 }
 
 /** One activity as a list row: category tile, title, time and place, who is going, and an arrow. */
-export function ActivityRow({ a }: { a: Activity }) {
+function ActivityRowBase({ a }: { a: Activity }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
@@ -191,7 +192,7 @@ export function ShowMoreCard({ width = 56, onPress, label = 'Show more' }: { wid
 }
 
 /** Compact row card for "More around you" and lists: coloured thumbnail, title, time and place, who's going. */
-export function ActivityCard({ a, onPress, plain }: { a: Activity; onPress?: () => void; /** no "Completed"/"Cancelled" mark (the row already says "Rejected") */ plain?: boolean }) {
+function ActivityCardBase({ a, onPress, plain }: { a: Activity; onPress?: () => void; /** no "Completed"/"Cancelled" mark (the row already says "Rejected") */ plain?: boolean }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
@@ -228,7 +229,7 @@ export function ActivityCard({ a, onPress, plain }: { a: Activity; onPress?: () 
 const tripColor = (t: Trip) => catColor(t.tags.includes('culture') ? 'culture' : t.tags.includes('food') ? 'food' : t.tags.some((x) => ['adventure', 'hiking', 'nature'].includes(x)) ? 'sports' : 'drinks');
 
 /** Big card for THERE's "Featured trips" strip, in the same style as the HERE feature card. */
-export function TripFeatureCard({ t, width }: { t: Trip; width?: number }) {
+function TripFeatureCardBase({ t, width }: { t: Trip; width?: number }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
@@ -257,7 +258,7 @@ export function TripFeatureCard({ t, width }: { t: Trip; width?: number }) {
   );
 }
 
-export function TripCard({ t }: { t: Trip }) {
+function TripCardBase({ t }: { t: Trip }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
@@ -314,7 +315,7 @@ function TripThumb({ style, size }: { style: object; size: number }) {
 }
 
 /** THERE's version of ActivityRow: a compact row for one trip proposal. */
-export function TripRow({ t }: { t: Trip }) {
+function TripRowBase({ t }: { t: Trip }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
@@ -399,3 +400,27 @@ export function TripNextUpCard({ t, status }: { t: Trip; status?: { label: strin
     </Card>
   );
 }
+
+/**
+ * The cards in lists are redrawn only when what they show changed. A refresh brings back new objects even when nothing is
+ * different, so the comparison is by content (functions count only as "there is one"). Cards that show a countdown
+ * (Next up) are not in this group: they must redraw as time passes.
+ */
+function sameCard(prev: Record<string, unknown>, next: Record<string, unknown>) {
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  for (const k of keys) {
+    const a = prev[k];
+    const b = next[k];
+    if (a === b) continue;
+    if (typeof a === 'function' && typeof b === 'function') continue;
+    if (typeof a === 'object' && typeof b === 'object' && a && b && JSON.stringify(a) === JSON.stringify(b)) continue;
+    return false;
+  }
+  return true;
+}
+export const FeatureCard = memo(FeatureCardBase, sameCard);
+export const ActivityRow = memo(ActivityRowBase, sameCard);
+export const ActivityCard = memo(ActivityCardBase, sameCard);
+export const TripFeatureCard = memo(TripFeatureCardBase, sameCard);
+export const TripCard = memo(TripCardBase, sameCard);
+export const TripRow = memo(TripRowBase, sameCard);

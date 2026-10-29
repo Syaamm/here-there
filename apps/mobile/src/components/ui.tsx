@@ -455,7 +455,7 @@ export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: n
   const size = base * useScale();
   const [failed, setFailed] = useState(false);
   const tint = AVATAR_TINTS[[...(name ?? '?')].reduce((n, ch) => n + ch.charCodeAt(0), 0) % AVATAR_TINTS.length];
-  const src = photoSrc(uri);
+  const src = photoSrc(uri, size);
   return (
     <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: tint, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
       {src && !failed ? (

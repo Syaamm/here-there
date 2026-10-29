@@ -15,9 +15,12 @@ export async function prefetchApp(me: { id: string; profile?: { homeCity?: strin
   const feed = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
 
   const jobs: [string, unknown[], string][] = [
-    ['inbox:notifs', [], '/v1/notifications'],
-    ['inbox:alerts', cursorDeps('/v1/notifications', { scope: 'alerts' }), `/v1/notifications?scope=alerts&limit=${screenBatch(76)}`],
-    ['inbox:convs', cursorDeps('/v1/me/conversations', {}), `/v1/me/conversations?limit=${screenBatch(73)}`],
+    // the inbox is split by product: both are loaded, so switching HERE / THERE never starts blank
+    ...(['here', 'there'] as const).flatMap((p): [string, unknown[], string][] => [
+      ['inbox:notifs', [p], `/v1/notifications?product=${p}`],
+      ['inbox:alerts', cursorDeps('/v1/notifications', { scope: 'alerts', product: p }), `/v1/notifications?scope=alerts&product=${p}&limit=${screenBatch(76)}`],
+      ['inbox:convs', cursorDeps('/v1/me/conversations', { product: p }), `/v1/me/conversations?product=${p}&limit=${screenBatch(73)}`],
+    ]),
     ['me:soon', [], '/v1/me/activities/soon?hours=4'],
     ['me:acts:recent', [], '/v1/me/activities/page?tab=all&limit=3'],
     ['me:trips', [], '/v1/me/trips/page?limit=2'],

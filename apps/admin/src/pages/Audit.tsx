@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import { get } from '../api';
-import { Chip, Empty, ErrorBanner, Icon, Page, shortId, useLoad, type IconName } from '../ui';
+import { Chip, Empty, ErrorBanner, Icon, Page, shortId, useLoad, useMore, type IconName } from '../ui';
 
 type E = { id: string; actorId: string | null; actorName?: string | null; actorRole?: string | null; objectName?: string | null; action: string; objectType: string; objectId: string; metadata: unknown; createdAt: string };
 
@@ -33,14 +33,15 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
   const [objectType, setObjectType] = useState('');
   const [objectId, setObjectId] = useState('');
   const [applied, setApplied] = useState({ objectType: '', objectId: '' });
-  const [shown, setShown] = useState(STEP);
   const [open, setOpen] = useState<string | null>(null);
-  const { data, error, loading, reload } = useLoad(
-    () => get<{ items: E[] }>(`/v1/admin/audit?${new URLSearchParams({ ...(applied.objectType && { objectType: applied.objectType }), ...(applied.objectId && { objectId: applied.objectId }) })}`),
-    [applied],
-  );
+  const query = new URLSearchParams({ limit: String(STEP), ...(applied.objectType && { objectType: applied.objectType }), ...(applied.objectId && { objectId: applied.objectId }) });
+  const first = useLoad(() => get<{ items: E[]; nextCursor: string | null }>(`/v1/admin/audit?${query}`), [applied]);
+  const more = useMore(first.data, (c) => get(`/v1/admin/audit?${query}&cursor=${c}`), `${applied.objectType}|${applied.objectId}`);
+  const { error, loading } = first;
+  const data = first.data && { items: more.items };
+  const reload = () => (more.reset(), first.reload());
 
-  const items = (data?.items ?? []).slice(0, shown);
+  const items = more.items;
   const days: { key: string; title: string; rows: E[] }[] = [];
   for (const e of items) {
     const key = new Date(e.createdAt).toDateString();
@@ -50,12 +51,11 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
   }
 
   return (
-    <Page title="Audit log" sub="Read-only history of admin, moderation and membership decisions. Newest 200 events.">
+    <Page title="Audit log" sub="Read-only history of admin, moderation and membership decisions. Newest first, 50 at a time.">
       <form
         className="toolbar"
         onSubmit={(e) => {
           e.preventDefault();
-          setShown(STEP);
           setApplied({ objectType, objectId: objectId.trim() });
         }}
       >
@@ -147,13 +147,7 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
           })}
         </div>
       ))}
-      {(data?.items.length ?? 0) > shown && (
-        <div className="row end">
-          <button className="btn" onClick={() => setShown(shown + STEP)}>
-            Load older events
-          </button>
-        </div>
-      )}
+      {more.more}
     </Page>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Chip, Empty, ErrorBanner, fmt, Page, Segmented, useAction, useLoad } from '../ui';
+import { askText, Chip, Empty, ErrorBanner, fmt, Page, Segmented, useAction, useLoad, useMore } from '../ui';
 
 type Appeal = {
   id: string;
@@ -20,9 +20,13 @@ const TONE: Record<string, 'ok' | 'warn' | 'bad' | 'info' | 'plain'> = { open: '
 /** Appeals: a person asking us to look at a decision again. Accepting undoes the decision; either way they are told, with your note. */
 export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: string) => void }) {
   const [view, setView] = useState<View>('open');
-  const { data, error, loading, reload } = useLoad(() => get<{ items: Appeal[] }>(`/v1/admin/appeals?state=${view}`), [view], 6000);
+  const first = useLoad(() => get<{ items: Appeal[]; nextCursor: string | null }>(`/v1/admin/appeals?state=${view}`), [view], 6000);
+  const more = useMore(first.data, (c) => get(`/v1/admin/appeals?state=${view}&cursor=${c}`), view);
+  const { error, loading } = first;
+  const data = first.data && { items: more.items };
+  const reload = () => (more.reset(), first.reload());
   const act = useAction(reload);
-  const items = data?.items ?? [];
+  const items = more.items;
 
   const decide = async (a: Appeal, decision: 'uphold' | 'reject') => {
     const note = await askText(decision === 'uphold' ? 'Accept this appeal?' : 'Reject this appeal?', {
@@ -84,6 +88,7 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
           </li>
         ))}
       </ul>
+      {more.more}
     </Page>
   );
 }

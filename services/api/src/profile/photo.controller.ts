@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Param, Put, Req, Res } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Put, Query, Req, Res } from '@nestjs/common';
 import { User } from '@prisma/client';
 import type { Request, Response } from 'express';
 import sharp from 'sharp';
@@ -6,10 +6,15 @@ import { CurrentUser, Public } from '../common/auth';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
+import { TtlCache } from '../common/ttl-cache';
 
 export const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
 const SIZE = 384; // square, plenty for the biggest avatar on a tablet
 const ALLOWED = new Set(['jpeg', 'png', 'webp']);
+
+/** Small copies for lists (`?s=96` or `?s=192`), made from the stored picture the first time and kept for an hour. */
+const SMALL_SIZES = new Set([96, 192]);
+const small = new TtlCache<Buffer>(3600_000, 3000);
 
 const urlFor = (userId: string) => `/v1/users/${userId}/photo?v=${Date.now()}`;
 
@@ -61,10 +66,17 @@ export class PhotoController {
    */
   @Public()
   @Get('users/:id/photo')
-  async photo(@Param('id') id: string, @Res() res: Response) {
+  async photo(@Param('id') id: string, @Query('s') s: string | undefined, @Res() res: Response) {
     const p = await this.prisma.profilePhoto.findUnique({ where: { userId: id } });
     if (!p) throw E.notFound('Photo');
-    res.set({ 'Content-Type': p.mime, 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin', 'X-Content-Type-Options': 'nosniff' });
+    // the address carries ?v=<upload time>, so a given address never changes: the phone may keep it for a long time
+    res.set({ 'Content-Type': p.mime, 'Cache-Control': 'public, max-age=604800, immutable', 'Cross-Origin-Resource-Policy': 'cross-origin', 'X-Content-Type-Options': 'nosniff' });
+    const px = Number(s);
+    if (SMALL_SIZES.has(px)) {
+      const key = `${id}:${px}:${+p.updatedAt}`;
+      res.send(await small.get(key, () => sharp(Buffer.from(p.data)).resize(px, px, { fit: 'cover' }).webp({ quality: 75 }).toBuffer()));
+      return;
+    }
     res.send(Buffer.from(p.data));
   }
 }

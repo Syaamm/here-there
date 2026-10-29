@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Avatar, Chip, Empty, ErrorBanner, fmt, Page, RowMenu, Search, useAction, useLoad } from '../ui';
+import { askText, Avatar, Chip, Empty, ErrorBanner, fmt, Page, RowMenu, Search, useAction, useLoad, useMore } from '../ui';
 
 type A = { id: string; title: string; status: string; city: string; venueName: string; startsAt: string; capacity: number; going: number; host: { id: string; displayName?: string } };
 type T = { id: string; title: string; status: string; destination: string; dateStart: string; members: number; host: { id: string; displayName?: string } };
@@ -13,8 +13,10 @@ export function ContentPage({ me }: { me: Session }) {
   const [q, setQ] = useState('');
   const [newest, setNewest] = useState(true);
   const [shown, setShown] = useState(STEP);
-  const list = useLoad(() => get<{ items: (A | T)[] }>(`/v1/admin/${tab}${status ? `?status=${status}` : ''}`), [tab, status]);
-  const act = useAction(list.reload);
+  const base = `/v1/admin/${tab}${status ? `?status=${status}` : ''}`;
+  const list = useLoad(() => get<{ items: (A | T)[]; nextCursor: string | null }>(base), [tab, status]);
+  const more = useMore(list.data, (c) => get(`${base}${status ? '&' : '?'}cursor=${c}`), `${tab}|${status}`);
+  const act = useAction(() => (more.reset(), list.reload()));
   const mod = can.moderate(me.role);
 
   const remove = async (id: string, title: string) => {
@@ -24,7 +26,7 @@ export function ContentPage({ me }: { me: Session }) {
 
   const when = (x: A | T) => +new Date(tab === 'activities' ? (x as A).startsAt : (x as T).dateStart);
   const needle = q.trim().toLowerCase();
-  const all = (list.data?.items ?? [])
+  const all = more.items
     .filter((x) => !needle || [x.title, (x as A).venueName, (x as T).destination, x.host.displayName].some((f) => f?.toLowerCase().includes(needle)))
     .sort((a, b) => (newest ? when(b) - when(a) : when(a) - when(b)));
   const items = all.slice(0, shown);
@@ -130,6 +132,7 @@ export function ContentPage({ me }: { me: Session }) {
           </div>
         </div>
       )}
+      {more.more}
     </Page>
   );
 }

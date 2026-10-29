@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ModeTransition } from '@/components/ModeTransition';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export type Mode = 'here' | 'there';
 
@@ -95,19 +95,36 @@ const modes = {
 };
 export type Colors = typeof modes.here;
 
-type ThemeState = { mode: Mode; setMode: (m: Mode) => void; /** like setMode, with the full-screen colour-wave transition */ switchMode: (m: Mode) => void; c: Colors };
-const Ctx = createContext<ThemeState>({ mode: 'here', setMode: () => {}, switchMode: () => {}, c: modes.here });
+type ThemeState = { mode: Mode; setMode: (m: Mode) => void; /** like setMode, with the full-screen colour-wave transition */ switchMode: (m: Mode) => void; /** the saved mode has been read, so `mode` is the real one */ ready: boolean; c: Colors };
+const Ctx = createContext<ThemeState>({ mode: 'here', setMode: () => {}, switchMode: () => {}, ready: true, c: modes.here });
 export const useTheme = () => useContext(Ctx);
+
+/**
+ * A page that belongs to one product (an activity is HERE, a trip is THERE): when it opens in the other one, flip to its
+ * own, with the colour-wave. Once per visit, so a person who then switches by hand is not pulled back. This is what makes
+ * a tapped alert, a push or a shared link land in the right product, whichever one the app was in.
+ */
+export function useEnterMode(want: Mode | undefined) {
+  const { mode, switchMode, ready } = useTheme();
+  const done = useRef(false);
+  useEffect(() => {
+    if (!want || !ready || done.current) return;
+    done.current = true;
+    if (mode !== want) switchMode(want);
+  }, [want, ready, mode, switchMode]);
+}
 
 const KEY = 'ht_mode';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<Mode>('here');
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)
       .then((v) => (v === 'here' || v === 'there') && setModeState(v))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setReady(true));
   }, []);
 
   const setMode = useCallback((m: Mode) => {
@@ -118,7 +135,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [moving, setMoving] = useState<Mode | null>(null);
   const switchMode = useCallback((m: Mode) => setMoving((cur) => (cur || m === mode ? cur : m)), [mode]);
 
-  const value = useMemo(() => ({ mode, setMode, switchMode, c: modes[mode] }), [mode, setMode, switchMode]);
+  const value = useMemo(() => ({ mode, setMode, switchMode, ready, c: modes[mode] }), [mode, setMode, switchMode, ready]);
   return (
     <Ctx.Provider value={value}>
       {children}

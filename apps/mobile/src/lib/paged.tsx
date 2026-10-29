@@ -74,9 +74,9 @@ export function useCursorList<T, X extends object = object>(
   path: string,
   params: Record<string, string>,
   cacheKey: string,
-  opts: { pollMs?: number; animate?: boolean; keep?: boolean; first?: number; step?: number; /** about how tall one row is, to size the first page to the window */ rowHeight?: number; idOf?: (x: T) => string; /** load nothing yet (a search that has not been asked) */ skip?: boolean } = {},
+  opts: { pollMs?: number; live?: boolean; animate?: boolean; keep?: boolean; first?: number; step?: number; /** about how tall one row is, to size the first page to the window */ rowHeight?: number; idOf?: (x: T) => string; /** load nothing yet (a search that has not been asked) */ skip?: boolean } = {},
 ) {
-  const { pollMs, animate, keep, first = screenBatch(opts.rowHeight), step = PAGE_STEP, skip, idOf = rowId } = opts;
+  const { pollMs, live, animate, keep, first = screenBatch(opts.rowHeight), step = PAGE_STEP, skip, idOf = rowId } = opts;
   const key = cursorDeps(path, params)[0] + (skip ? '#skipped' : '');
   const latest = useRef<(CursorPage<T> & X) | null>(null);
   const list = useLoad(
@@ -84,7 +84,7 @@ export function useCursorList<T, X extends object = object>(
     [key],
     pollMs,
     cacheKey,
-    { animate, keep },
+    { animate, keep, live },
   );
   latest.current = list.data;
   const keyNow = useRef(key);

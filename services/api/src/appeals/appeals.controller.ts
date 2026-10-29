@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Injectable, Ip, Param, Post, Query } from '@nestjs/common';
 import { User } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import { checkPassword } from '../common/password';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
-import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { afterKeyset, beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { CurrentUser, Public, Staff } from '../common/auth';
 import { EmailService } from '../common/email.service';
 import { E } from '../common/errors';
@@ -105,7 +105,7 @@ export class AppealsService {
     const dto = parse(suspensionSchema, body);
     this.limiter.hit(`appeal-suspension:${ip}:${dto.email}`, 10, 15 * 60 * 1000);
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) throw E.unauthorized('INVALID_CREDENTIALS', 'Email or password is incorrect');
+    if (!user || !(await checkPassword(dto.password, user.passwordHash))) throw E.unauthorized('INVALID_CREDENTIALS', 'Email or password is incorrect');
     if (user.state !== 'suspended') throw E.conflict('NOTHING_TO_APPEAL', 'This account is not suspended');
     this.clean(dto.message);
     if (await this.prisma.appeal.findFirst({ where: { userId: user.id, kind: 'suspension', state: 'open' } })) throw E.conflict('APPEAL_OPEN', 'You already have an appeal waiting for a decision');
@@ -130,14 +130,17 @@ export class AppealsService {
   }
 
   // ---------------------------------------------------------------- staff
-  async queue(state: string) {
-    const rows = await this.prisma.appeal.findMany({
-      where: { state },
-      orderBy: { createdAt: 'asc' },
-      take: 100,
+  async queue(state: string, limitRaw?: string, cursorRaw?: string) {
+    const size = pageLimit(limitRaw, 100, 200);
+    const all = await this.prisma.appeal.findMany({
+      where: { AND: [{ state }, afterKeyset(decodeKeyset(cursorRaw))] },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: size + 1,
       include: { user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } },
     });
+    const { items: rows, nextCursor } = sliceKeyset(all, size, (a) => a.createdAt);
     return {
+      nextCursor,
       items: await Promise.all(
         rows.map(async (a) => ({
           ...this.dto(a),
@@ -259,8 +262,8 @@ export class AppealsController {
 
   @Staff(...STAFF)
   @Get('admin/appeals')
-  queue(@Query('state') state = 'open') {
-    return this.appeals.queue(['open', 'upheld', 'rejected'].includes(state) ? state : 'open');
+  queue(@Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.appeals.queue(['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor);
   }
 
   @Staff(...STAFF)

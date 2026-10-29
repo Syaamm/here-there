@@ -210,6 +210,15 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.activityMembership.count({ where: { activityId, state: 'approved' } });
   }
 
+  /** Map rows to cards with the going-count of each one's activity, counted for the whole page in one query. */
+  private async withGoing<T, R>(rows: T[], activityId: (row: T) => string, build: (row: T, going: number) => R): Promise<R[]> {
+    const ids = [...new Set(rows.map(activityId))];
+    const counts = new Map<string, number>();
+    if (ids.length > 0)
+      for (const g of await this.prisma.activityMembership.groupBy({ by: ['activityId'], where: { activityId: { in: ids }, state: 'approved' }, _count: { _all: true } })) counts.set(g.activityId, g._count._all);
+    return rows.map((row) => build(row, counts.get(activityId(row)) ?? 0));
+  }
+
   // ---------------------------------------------------------------- discovery
   async list(me: User, query: unknown) {
     const q = parse(listSchema, query);
@@ -247,41 +256,55 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
 
     if (q.sort === 'relevance') return this.rankedList(me, q, and, now);
 
-    let cursorWhere: Prisma.ActivityWhereInput | undefined;
+    let after: { at: Date; id: string } | null = null;
     if (q.cursor) {
       const [iso, id] = Buffer.from(q.cursor, 'base64url').toString().split('|');
       const d = new Date(iso);
       if (!id || isNaN(+d)) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
-      cursorWhere = { OR: [{ startsAt: { gt: d } }, { startsAt: d, id: { gt: id } }] };
+      after = { at: d, id };
     }
 
-    const rows = await this.prisma.activity.findMany({
-      where: { AND: [...and, ...(cursorWhere ? [cursorWhere] : [])] },
-      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
-      take: q.limit + 1,
-      include: { ...this.hostInclude, _count: { select: { memberships: { where: { state: 'approved' } } } } },
-    });
+    // The exact radius and "has spots" cannot be asked of the database, so rows are read in chunks and filtered until the
+    // page is full (or the rows run out). Without those two filters one chunk is the whole page.
+    const filtered = geo || q.hasSpots === 'true';
+    const chunk = filtered ? Math.max(q.limit * 3, 60) : q.limit;
+    type Row = Prisma.ActivityGetPayload<{ include: { host: { select: { id: true; eligibility: true; profile: { select: { displayName: true; photoUrl: true } } } }; _count: { select: { memberships: { where: { state: 'approved' } } } } } }>;
+    const kept: Array<{ row: Row; dist: number | undefined }> = [];
+    let tail: Row | undefined; // the last row read
+    let more = false; // there are rows after `tail`
+    for (let pass = 0; pass < 8 && kept.length < q.limit; pass++) {
+      const rows: Row[] = await this.prisma.activity.findMany({
+        where: { AND: [...and, ...(after ? [{ OR: [{ startsAt: { gt: after.at } }, { startsAt: after.at, id: { gt: after.id } }] }] : [])] },
+        orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+        take: chunk + 1,
+        include: { ...this.hostInclude, _count: { select: { memberships: { where: { state: 'approved' } } } } },
+      });
+      more = rows.length > chunk;
+      for (const row of rows.slice(0, chunk)) {
+        tail = row;
+        const dist = geo && row.lat != null && row.lng != null ? distanceKm(q.lat!, q.lng!, row.lat, row.lng) : undefined;
+        if (geo && (dist === undefined || dist > q.radiusKm!)) continue;
+        if (q.hasSpots === 'true' && row.capacity - row._count.memberships <= 0) continue;
+        kept.push({ row, dist });
+      }
+      if (!more || !tail) break;
+      after = { at: tail.startsAt, id: tail.id };
+    }
 
-    const page = rows.slice(0, q.limit);
+    const page = kept.slice(0, q.limit);
     const favs = new Set(
-      (await this.prisma.favorite.findMany({ where: { userId: me.id, activityId: { in: page.map((a) => a.id) } } })).map(
+      (await this.prisma.favorite.findMany({ where: { userId: me.id, activityId: { in: page.map((x) => x.row.id) } } })).map(
         (f) => f.activityId,
       ),
     );
-
-    let items = page.map((a) => {
-      const going = a._count.memberships;
-      const dist = geo && a.lat != null && a.lng != null ? distanceKm(q.lat!, q.lng!, a.lat, a.lng) : undefined;
-      return { dist, item: this.dto(a, going, { distanceKm: dist !== undefined ? Math.round(dist * 10) / 10 : undefined, favorited: favs.has(a.id) }) };
-    });
-    if (geo) items = items.filter((x) => x.dist !== undefined && x.dist <= q.radiusKm!);
-    if (q.hasSpots === 'true') items = items.filter((x) => x.item.spotsLeft > 0);
-
-    const last = page[page.length - 1];
+    const items = page.map(({ row, dist }) =>
+      this.dto(row, row._count.memberships, { distanceKm: dist !== undefined ? Math.round(dist * 10) / 10 : undefined, favorited: favs.has(row.id) }),
+    );
+    // more to read after the last row handed back: the next page starts right there (no row is skipped or repeated)
+    const edge = kept.length > q.limit ? page[page.length - 1]?.row : more ? tail : undefined;
     return {
-      items: items.map((x) => x.item),
-      nextCursor:
-        rows.length > q.limit && last ? Buffer.from(`${last.startsAt.toISOString()}|${last.id}`).toString('base64url') : null,
+      items,
+      nextCursor: edge ? Buffer.from(`${edge.startsAt.toISOString()}|${edge.id}`).toString('base64url') : null,
     };
   }
 
@@ -477,7 +500,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       return a;
     });
     await this.audit.log(me.id, 'activity.create', 'activity', created.id);
-    this.live.feedChanged();
+    this.live.feedChanged([created.city]);
     return this.detail(me, created.id);
   }
 
@@ -493,6 +516,20 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       where: { activityId, state: 'approved', ...(exceptUserId && { userId: { not: exceptUserId } }) },
     });
     return m.map((x) => x.userId);
+  }
+
+  /**
+   * People who saved the plan with the heart but are not in it (members hear through their own alert). The host and anyone
+   * the host has blocked are left out, and so are accounts that are no longer active.
+   */
+  private async savedOnlyIds(activityId: string, hostId: string) {
+    const [saved, members] = await Promise.all([
+      this.prisma.favorite.findMany({ where: { activityId, userId: { not: hostId }, user: { state: 'active' } }, select: { userId: true } }),
+      this.prisma.activityMembership.findMany({ where: { activityId, state: 'approved' }, select: { userId: true } }),
+    ]);
+    const inside = new Set(members.map((m) => m.userId));
+    const blocked = new Set(await this.safety.blockedWith(hostId)); // one query for every block either way
+    return saved.map((f) => f.userId).filter((id) => !inside.has(id) && !blocked.has(id));
   }
 
   async update(me: User, id: string, body: unknown) {
@@ -547,13 +584,21 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         `Time: ${a.startsAt.toISOString()} → ${startsAt.toISOString()}. Venue: ${a.venueName} → ${updated.venueName}. Please confirm you can still come, or leave the activity.`,
         { activityId: id, previous: { startsAt: a.startsAt, venueName: a.venueName }, next: { startsAt, venueName: updated.venueName } },
       );
+      // people who saved it with the heart hear about the change too, so they can look again before asking to join
+      await this.notifications.notifyMany(
+        await this.savedOnlyIds(id, a.hostId),
+        'activity_changed',
+        `A plan you saved changed: ${updated.title}`,
+        `${timeChanged ? 'The time changed. ' : ''}${venueChanged ? `The place is now ${updated.venueName}. ` : ''}Have another look before you join.`,
+        { activityId: id },
+      );
       await this.audit.log(me.id, 'activity.material_change', 'activity', id, { venueChanged, timeChanged });
     }
     if (dto.capacity !== undefined) {
       await this.fillFromWaitlist(id); // a higher limit lets people in off the waiting list
       if (a.status === 'full') await this.announceOpenSpot(id);
     }
-    this.live.feedChanged();
+    this.live.feedChanged([updated.city]);
     return this.detail(me, id);
   }
 
@@ -575,8 +620,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.notifications.notifyMany(recipients, 'activity_cancelled', `Cancelled: ${a.title}`, 'This activity was cancelled.', {
       activityId: id,
     });
+    await this.notifications.notifyMany(await this.savedOnlyIds(id, a.hostId), 'activity_cancelled', `A plan you saved was cancelled: ${a.title}`, 'The host cancelled it, so it is no longer open.', { activityId: id });
     await this.audit.log(me.id, byStaff ? 'activity.removed_by_staff' : 'activity.cancel', 'activity', id);
-    this.live.feedChanged();
+    this.live.feedChanged([a.city]);
     return { ok: true };
   }
 
@@ -655,7 +701,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const p = await this.prisma.profile.findUnique({ where: { userId: me.id }, select: { displayName: true } });
     await this.notifications.notify(a.hostId, 'member_joined', 'Someone joined', `${p?.displayName ?? 'Someone'} joined ${a.title}`, { activityId: a.id });
     await this.audit.log(me.id, 'activity.join_instant', 'activity', a.id);
-    this.live.feedChanged(); // places left changed
+    this.live.feedChanged([a.city]); // places left changed
     return { id: r.id, state: 'approved' };
   }
 
@@ -720,8 +766,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       this.prisma.activityRequest.findMany({ where: { activityId, applicantId: { in: saved }, state: { in: ['requested', 'waitlisted', 'approved'] } }, select: { applicantId: true } }),
     ]);
     const busy = new Set([...members.map((m) => m.userId), ...requests.map((r) => r.applicantId)]);
+    const blocked = new Set(await this.safety.blockedWith(a.hostId));
     for (const userId of saved) {
-      if (busy.has(userId) || (await this.safety.isBlocked(a.hostId, userId))) continue;
+      if (busy.has(userId) || blocked.has(userId)) continue;
       await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${a.title} has room again. Ask to join before it fills up.`, { activityId });
     }
   }
@@ -894,7 +941,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     }
     await this.notifications.settleRequest(a.hostId, 'join_request', { activityId }, r.applicantId); // the host's "wants to join" alert is answered
     await this.audit.log(me.id, `activity.request.${decision}`, 'activity_request', r.id, { activityId, applicantId: r.applicantId });
-    this.live.feedChanged(); // places left changed
+    this.live.feedChanged([a.city]); // places left changed
     return { id: r.id, state: decision === 'approve' ? 'approved' : 'declined' };
   }
 
@@ -932,7 +979,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.refreshStatus(a.id);
     await this.fillFromWaitlist(a.id); // the first person waiting takes the place
     if (wasFull) await this.announceOpenSpot(a.id); // and if nobody was waiting, the people who saved it hear of the free place
-    this.live.feedChanged();
+    this.live.feedChanged([a.city]);
   }
 
   // ---------------------------------------------------------------- changed plans, hand-over, attendance
@@ -1046,7 +1093,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     ]);
     const page = sliceKeyset(favs.map((f) => ({ ...f, id: f.activityId })), limit, (f) => f.createdAt);
     return {
-      items: await Promise.all(page.items.map(async (f) => this.dto(f.activity, await this.goingCount(f.activityId), { favorited: true }))),
+      items: await this.withGoing(page.items, (f) => f.activityId, (f, going) => this.dto(f.activity, going, { favorited: true })),
       nextCursor: page.nextCursor,
       total,
     };
@@ -1076,12 +1123,12 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       this.prisma.activityRequest.count({ where: requestWhere(['declined']) }),
     ]);
     const counts = { mine, pending, rejected };
-    const joinedDto = async (m: Awaited<ReturnType<typeof memberRows>>[number]) => this.dto(m.activity, await this.goingCount(m.activityId), { role: m.role });
-    const requestDto = async (r: Awaited<ReturnType<typeof requestRows>>[number]) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, await this.goingCount(r.activityId)) });
+    const joinedDto = (m: Awaited<ReturnType<typeof memberRows>>[number], going: number) => this.dto(m.activity, going, { role: m.role });
+    const requestDto = (r: Awaited<ReturnType<typeof requestRows>>[number], going: number) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going) });
 
     if (tab === 'mine') {
       const page = sliceKeyset(await memberRows(limit + 1), limit, (m) => m.activity.startsAt);
-      return { items: await Promise.all(page.items.map(joinedDto)), nextCursor: page.nextCursor, counts };
+      return { items: await this.withGoing(page.items, (m) => m.activityId, joinedDto), nextCursor: page.nextCursor, counts };
     }
     if (tab === 'all') {
       // both kinds side by side, newest start first: each is read one page deep, merged, and cut to one page
@@ -1092,13 +1139,15 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       ].sort((x, y) => +y.at - +x.at || (x.id < y.id ? 1 : -1));
       const page = sliceKeyset(merged, limit, (x) => x.at);
       return {
-        items: await Promise.all(page.items.map(async (x) => (x.joined ? { row: 'joined' as const, ...(await joinedDto(x.joined)) } : { row: 'request' as const, ...(await requestDto(x.request!)) }))),
+        items: await this.withGoing(page.items, (x) => (x.joined ? x.joined.activityId : x.request!.activityId), (x, going) =>
+          x.joined ? { row: 'joined' as const, ...joinedDto(x.joined, going) } : { row: 'request' as const, ...requestDto(x.request!, going) },
+        ),
         nextCursor: page.nextCursor,
         counts,
       };
     }
     const page = sliceKeyset(await requestRows(tab === 'pending' ? ['requested', 'waitlisted'] : ['declined'], limit + 1), limit, (r) => r.activity.startsAt);
-    return { items: await Promise.all(page.items.map(requestDto)), nextCursor: page.nextCursor, counts };
+    return { items: await this.withGoing(page.items, (r) => r.activityId, requestDto), nextCursor: page.nextCursor, counts };
   }
 
   /**
@@ -1129,8 +1178,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       this.prisma.activityRequest.findMany({ where: { applicantId: me.id, state: { in: ['requested', 'waitlisted'] }, activity: open }, include: { activity: { include: this.hostInclude } }, orderBy: { activity: { startsAt: 'asc' } }, take: 50 }),
     ]);
     return {
-      joined: await Promise.all(memberships.map(async (m) => this.dto(m.activity, await this.goingCount(m.activityId), { role: m.role }))),
-      requests: await Promise.all(requests.map(async (r) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, await this.goingCount(r.activityId)) }))),
+      joined: await this.withGoing(memberships, (m) => m.activityId, (m, going) => this.dto(m.activity, going, { role: m.role })),
+      requests: await this.withGoing(requests, (r) => r.activityId, (r, going) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going) })),
     };
   }
 
@@ -1149,16 +1198,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       }),
     ]);
     return {
-      joined: await Promise.all(
-        memberships.map(async (m) => this.dto(m.activity, await this.goingCount(m.activityId), { role: m.role })),
-      ),
-      requests: await Promise.all(
-        requests.map(async (r) => ({
-          requestId: r.id,
-          state: r.state,
-          activity: this.dto(r.activity, await this.goingCount(r.activityId)),
-        })),
-      ),
+      joined: await this.withGoing(memberships, (m) => m.activityId, (m, going) => this.dto(m.activity, going, { role: m.role })),
+      requests: await this.withGoing(requests, (r) => r.activityId, (r, going) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going) })),
     };
   }
 }

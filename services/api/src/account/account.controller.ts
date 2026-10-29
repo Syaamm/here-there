@@ -2,7 +2,7 @@ import { Body, Controller, Get, Injectable, Post, Query, Req, Res } from '@nestj
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { User } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import { checkPassword } from '../common/password';
 import { z } from 'zod';
 import { ActivitiesService } from '../activities/activities.service';
 import { ContactVerificationService } from '../auth/contact-verification.service';
@@ -166,7 +166,7 @@ export class AccountService {
   async startEmailChange(me: User, body: unknown) {
     const dto = parse(changeEmailSchema, body);
     this.limiter.hit(`email-change:${me.id}`, 5, 15 * 60 * 1000);
-    if (!(await bcrypt.compare(dto.password, me.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your password is not correct');
+    if (!(await checkPassword(dto.password, me.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your password is not correct');
     if (dto.newEmail === me.email) throw E.badRequest('SAME_EMAIL', 'That is already your email address');
     if (await this.prisma.user.findUnique({ where: { email: dto.newEmail } })) throw E.conflict('EMAIL_TAKEN', 'An account with this email already exists');
     return { ok: true, ...(await this.contact.sendEmailChangeCode(me, dto.newEmail)) };
@@ -196,7 +196,7 @@ export class AccountService {
   async delete(me: User, body: unknown) {
     const dto = parse(deleteSchema, body);
     this.limiter.hit(`delete-account:${me.id}`, 5, 15 * 60 * 1000);
-    if (!(await bcrypt.compare(dto.password, me.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your password is not correct');
+    if (!(await checkPassword(dto.password, me.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your password is not correct');
     if (me.role !== 'user') throw E.forbidden('STAFF_ACCOUNT', 'Staff accounts are closed by an administrator.');
     if (me.state === 'suspended') throw E.forbidden('ACCOUNT_SUSPENDED', 'This account is suspended, so it cannot be deleted from here. Contact support.');
     const id = me.id;

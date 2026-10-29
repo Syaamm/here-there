@@ -3,6 +3,17 @@ import { LiveService } from '../common/live.service';
 import { PrismaService } from '../common/prisma.service';
 import { PushService } from '../common/push.service';
 
+export type Product = 'here' | 'there';
+
+/** Which product an alert is about: an activity is HERE, a trip or travel match is THERE; null (follows, warnings, verification) is for both. */
+export function productOf(type: string, data?: Record<string, unknown> | null): Product | null {
+  const given = data?.product;
+  if (given === 'here' || given === 'there') return given;
+  if (data?.tripId || type === 'travel_match' || type.startsWith('trip_')) return 'there';
+  if (data?.activityId || type.startsWith('activity_') || type.startsWith('host_handover')) return 'here';
+  return null;
+}
+
 @Injectable()
 export class NotificationsService {
   constructor(
@@ -16,8 +27,11 @@ export class NotificationsService {
    * push. Chat messages are handled by the conversations service, which pushes every message, not just the first alert.
    */
   async notify(userId: string, type: string, title: string, body: string, data?: Record<string, unknown>) {
+    // which product it belongs to travels with the alert, so an open app can tell a HERE alert from a THERE one
+    const product = productOf(type, data);
+    if (product && data) data.product = product;
     const n = await this.prisma.notification.create({
-      data: { userId, type, title, body, data: data ? JSON.stringify(data) : null },
+      data: { userId, type, title, body, data: data ? JSON.stringify(data) : null, product },
     });
     this.live.send(userId, { type: 'notification', notification: { id: n.id, type, title, body, data: data ?? null, createdAt: n.createdAt } });
     if (type !== 'chat_message') {

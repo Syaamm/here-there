@@ -35,6 +35,7 @@ function open() {
         retry = 0;
         signedIn = true;
         sendPresence();
+        sendScope();
       }
       listeners.forEach((l) => l(e));
     } catch {
@@ -52,6 +53,9 @@ function open() {
   };
   ws.onerror = () => ws.close();
 }
+
+/** Is the live connection working right now? Screens it keeps up to date can then look again far less often. */
+export const liveIsUp = () => !!socket && signedIn && socket.readyState === WebSocket.OPEN;
 
 /** Keep a live connection while someone is signed in. */
 export function startLive() {
@@ -75,6 +79,17 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', sendPresence);
   window.addEventListener('focus', sendPresence);
   window.addEventListener('blur', sendPresence);
+}
+
+/** Tell the server which city the feeds show, so a change in another city does not wake this phone. */
+let liveCity = '';
+function sendScope() {
+  if (socket && signedIn && socket.readyState === WebSocket.OPEN && liveCity) socket.send(JSON.stringify({ type: 'scope', city: liveCity }));
+}
+export function setLiveCity(city: string) {
+  if (city === liveCity) return;
+  liveCity = city;
+  sendScope();
 }
 
 // coming back to the app after it slept: reconnect right away instead of waiting out the back-off

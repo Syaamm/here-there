@@ -11,7 +11,7 @@ import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
-import { LiveService } from '../common/live.service';
+import { LiveService, tripCities } from '../common/live.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 
@@ -181,6 +181,15 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.tripMembership.count({ where: { tripId, state: 'approved' } });
   }
 
+  /** Map rows to cards with each trip's member count, counted for the whole page in one query. */
+  private async withMembers<T, R>(rows: T[], tripId: (row: T) => string, build: (row: T, members: number) => R): Promise<R[]> {
+    const ids = [...new Set(rows.map(tripId))];
+    const counts = new Map<string, number>();
+    if (ids.length > 0)
+      for (const g of await this.prisma.tripMembership.groupBy({ by: ['tripId'], where: { tripId: { in: ids }, state: 'approved' }, _count: { _all: true } })) counts.set(g.tripId, g._count._all);
+    return rows.map((row) => build(row, counts.get(tripId(row)) ?? 0));
+  }
+
   // ---------------------------------------------------------------- discovery
   async search(me: User, query: unknown) {
     const q = parse(searchSchema, query);
@@ -259,16 +268,13 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         const tiers = tierCounts(peopleByTrip.get(t.id) ?? [], circle);
         score += 30 * crowd(tiers.buddies) + 10 * crowd(tiers.following);
 
-        return {
-          id: t.id,
-          score,
-          item: this.dto(t, members, {
-            match: { dates: dateMatch, budgetScopeMismatch, score: Math.round(score) },
-            groupOpen: t.status !== 'full' && t.maxCapacity - members > 0,
-            buddiesGoing: tiers.buddies,
-            followingGoing: tiers.following,
-          }),
-        };
+        // only the score is worked out for every trip; the card itself is built later, for the page that is sent
+        return { id: t.id, score, build: () => this.dto(t, members, {
+          match: { dates: dateMatch, budgetScopeMismatch, score: Math.round(score) },
+          groupOpen: t.status !== 'full' && t.maxCapacity - members > 0,
+          buddiesGoing: tiers.buddies,
+          followingGoing: tiers.following,
+        }) };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
 
@@ -280,7 +286,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     const last = page[page.length - 1];
     return {
       total: matches.length,
-      items: page.map((x) => x.item),
+      items: page.map((x) => x.build()),
       nextCursor: best.length > q.limit && last ? encodeCursor(now, last.score, last.id) : null,
     };
   }
@@ -380,7 +386,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       return t;
     });
     await this.audit.log(me.id, 'trip.create', 'trip', trip.id);
-    this.live.feedChanged();
+    this.live.feedChanged(tripCities(trip));
     return this.detail(me, trip.id);
   }
 
@@ -396,6 +402,17 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       where: { tripId, state: 'approved', ...(except && { userId: { not: except } }) },
     });
     return m.map((x) => x.userId);
+  }
+
+  /** People who saved the trip with the heart but are not in it; the organizer, blocked people and inactive accounts are left out. */
+  private async savedOnlyIds(tripId: string, hostId: string) {
+    const [saved, members] = await Promise.all([
+      this.prisma.tripFavorite.findMany({ where: { tripId, userId: { not: hostId }, user: { state: 'active' } }, select: { userId: true } }),
+      this.prisma.tripMembership.findMany({ where: { tripId, state: 'approved' }, select: { userId: true } }),
+    ]);
+    const inside = new Set(members.map((m) => m.userId));
+    const blocked = new Set(await this.safety.blockedWith(hostId)); // one query for every block either way
+    return saved.map((f) => f.userId).filter((id) => !inside.has(id) && !blocked.has(id));
   }
 
   async update(me: User, id: string, body: unknown) {
@@ -430,8 +447,15 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         'The organizer changed the dates or destination. Please review and re-confirm.',
         { tripId: id },
       );
+      await this.notifications.notifyMany(
+        await this.savedOnlyIds(id, t.hostId),
+        'trip_changed',
+        `A trip you saved changed: ${t.title}`,
+        'The organizer changed the dates or destination. Have another look before you apply.',
+        { tripId: id },
+      );
       await this.audit.log(me.id, 'trip.material_change', 'trip', id);
-      this.live.feedChanged();
+      this.live.feedChanged([...tripCities(t), ...(dto.destination ? tripCities({ originCity: t.originCity, destination: dto.destination }) : [])]);
       // dates the group had already been asked to confirm have changed under them: ask everyone again
       if (t.datesState === 'proposed' && (+dateStart !== +t.dateStart || +dateEnd !== +t.dateEnd)) {
         await this.prisma.tripMembership.updateMany({ where: { tripId: id, state: 'approved', userId: { not: me.id } }, data: { datesConfirmed: false } });
@@ -449,8 +473,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, state: 'pending' }, data: { state: 'declined', decidedAt: new Date() } });
     for (const x of pendingApps) await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId: id }, x.applicantId);
     await this.notifications.notifyMany(await this.memberIds(id, byStaff ? undefined : me.id), 'trip_cancelled', `Cancelled: ${t.title}`, 'This trip proposal was cancelled.', { tripId: id });
+    await this.notifications.notifyMany(await this.savedOnlyIds(id, t.hostId), 'trip_cancelled', `A trip you saved was cancelled: ${t.title}`, 'The organizer cancelled it, so it is no longer open.', { tripId: id });
     await this.audit.log(me.id, byStaff ? 'trip.removed_by_staff' : 'trip.cancel', 'trip', id);
-    this.live.feedChanged();
+    this.live.feedChanged(tripCities(t));
     return { ok: true };
   }
 
@@ -604,7 +629,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     }
     await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId }, a.applicantId); // the organizer's "applied" alert is answered
     await this.audit.log(me.id, `trip.application.${decision}`, 'trip_application', a.id, { tripId, applicantId: a.applicantId });
-    this.live.feedChanged();
+    this.live.feedChanged(tripCities(t));
     return { id: a.id, state: decision === 'approve' ? 'approved' : 'declined' };
   }
 
@@ -656,8 +681,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       this.prisma.tripApplication.findMany({ where: { tripId, applicantId: { in: saved }, state: { in: ['pending', 'waitlisted', 'approved'] } }, select: { applicantId: true } }),
     ]);
     const busy = new Set([...members.map((m) => m.userId), ...apps.map((a) => a.applicantId)]);
+    const blocked = new Set(await this.safety.blockedWith(t.hostId));
     for (const userId of saved) {
-      if (busy.has(userId) || (await this.safety.isBlocked(t.hostId, userId))) continue;
+      if (busy.has(userId) || blocked.has(userId)) continue;
       await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${t.title} has room again. Apply before it fills up.`, { tripId });
     }
   }
@@ -676,7 +702,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.dropConfirmedIfSmall(id);
     if (t.status === 'full') await this.announceOpenSpot(id);
     await this.audit.log(me.id, 'trip.member_left', 'trip', id);
-    this.live.feedChanged();
+    this.live.feedChanged(tripCities(t));
     return { ok: true };
   }
 
@@ -691,7 +717,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.dropConfirmedIfSmall(id);
     if (t.status === 'full') await this.announceOpenSpot(id);
     await this.audit.log(me.id, 'trip.member_removed', 'trip', id, { userId, byStaff });
-    this.live.feedChanged();
+    this.live.feedChanged(tripCities(t));
     await this.notifications.notify(userId, 'removed', 'Removed from trip', `You were removed from ${t.title}.`, { tripId: id });
     return { ok: true };
   }
@@ -710,10 +736,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       }),
     ]);
     return {
-      joined: await Promise.all(memberships.map(async (m) => this.dto(m.trip, await this.memberCount(m.tripId), { role: m.role }))),
-      applications: await Promise.all(
-        apps.map(async (a) => ({ applicationId: a.id, state: a.state, trip: this.dto(a.trip, await this.memberCount(a.tripId)) })),
-      ),
+      joined: await this.withMembers(memberships, (m) => m.tripId, (m, n) => this.dto(m.trip, n, { role: m.role })),
+      applications: await this.withMembers(apps, (a) => a.tripId, (a, n) => ({ applicationId: a.id, state: a.state, trip: this.dto(a.trip, n) })),
     };
   }
 
@@ -745,12 +769,10 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     ].sort((x, y) => +x.at - +y.at || (x.id < y.id ? -1 : 1));
     const page = sliceKeyset(merged, limit, (x) => x.at);
     return {
-      items: await Promise.all(
-        page.items.map(async (x) =>
-          x.member
-            ? { ...this.dto(x.member.trip, await this.memberCount(x.member.tripId), { role: x.member.role }), row: 'joined' as const }
-            : { row: 'application' as const, applicationId: x.app!.id, state: x.app!.state, trip: this.dto(x.app!.trip, await this.memberCount(x.app!.tripId)) },
-        ),
+      items: await this.withMembers(page.items, (x) => (x.member ? x.member.tripId : x.app!.tripId), (x, n) =>
+        x.member
+          ? { ...this.dto(x.member.trip, n, { role: x.member.role }), row: 'joined' as const }
+          : { row: 'application' as const, applicationId: x.app!.id, state: x.app!.state, trip: this.dto(x.app!.trip, n) },
       ),
       nextCursor: page.nextCursor,
       counts: { joined, applications },

@@ -28,6 +28,46 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
   return { data, error, loading, reload };
 }
 
+/**
+ * A list that goes on past its first page. `first` is the page the screen already loads (and keeps fresh); "Load more"
+ * fetches the pages after it with the cursor the server sent and adds them below. `reset` drops the extra pages (after an
+ * action, so rows that just changed are read again); a new `resetKey` (a different filter) does the same.
+ */
+export function useMore<I extends { id: string }>(first: { items: I[]; nextCursor?: string | null } | null, fetchPage: (cursor: string) => Promise<{ items: I[]; nextCursor?: string | null }>, resetKey: string) {
+  const [extra, setExtra] = useState<I[]>([]);
+  const [tail, setTail] = useState<string | null | undefined>(undefined); // undefined: nothing extra loaded yet
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reset = useCallback(() => (setExtra([]), setTail(undefined), setError(null)), []);
+  useEffect(reset, [resetKey, reset]);
+  const cursor = tail === undefined ? (first?.nextCursor ?? null) : tail;
+  const seen = new Set((first?.items ?? []).map((i) => i.id));
+  const items = [...(first?.items ?? []), ...extra.filter((i) => !seen.has(i.id))];
+  const loadMore = async () => {
+    if (!cursor || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetchPage(cursor);
+      setExtra((x) => [...x, ...r.items]);
+      setTail(r.nextCursor ?? null);
+      setError(null);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const more = cursor ? (
+    <div className="row end" style={{ marginTop: 12 }}>
+      {error && <span className="small muted">{error}</span>}
+      <button className="btn" disabled={busy} onClick={loadMore}>
+        {busy ? 'Loading…' : 'Load more'}
+      </button>
+    </div>
+  ) : null;
+  return { items, hasMore: !!cursor, more, reset };
+}
+
 export const errMsg = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : 'Something went wrong');
 
 /** Runs a mutation, surfaces errors, then refreshes. */

@@ -42,7 +42,7 @@ export function ExploreThere() {
   const [when, setWhen] = useState<When>('any');
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?${new URLSearchParams({ limit: '50', ...(tag && { tags: tag }) })}`), [tag], 60_000, 'feed:there', { keep: true });
+  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?${new URLSearchParams({ limit: '50', ...(tag && { tags: tag }) })}`), [tag], 60_000, 'feed:there', { keep: true, live: true });
   // a trip was proposed, filled or cancelled somewhere: ask again at once
   useLiveEvents((e) => {
     if (e.type === 'feed-changed') void feed.reload();

@@ -377,15 +377,16 @@ export class ConversationsService {
     // live: the message reaches every open app of every member at once (the sender's other devices too)
     const event = { type: 'message' as const, conversationId: conv.id, message: { id: m.id, body, createdAt: m.createdAt, sender: { id: sender.id, displayName: name, photoUrl: profile?.photoUrl ?? null } } };
     for (const userId of userIds) if (userId === sender.id || !blocked.has(userId)) this.live.send(userId, event);
-    for (const userId of userIds) {
-      if (userId === sender.id || blocked.has(userId)) continue;
+    const recipients = userIds.filter((u) => u !== sender.id && !blocked.has(u));
+    // who already has an unread alert for this chat: one query for the whole group, not one per member
+    const unread = new Set(
+      (await this.prisma.notification.findMany({ where: { userId: { in: recipients }, type: 'chat_message', readAt: null, data: { contains: marker } }, select: { userId: true } })).map((n) => n.userId),
+    );
+    for (const userId of recipients) {
       // push: every message, to people who are not in the app right now
       void this.push.send(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}` });
-      const alreadyUnread = await this.prisma.notification.findFirst({
-        where: { userId, type: 'chat_message', readAt: null, data: { contains: marker } },
-      });
-      if (alreadyUnread) continue;
-      await this.notifications.notify(userId, 'chat_message', `New message in ${title}`, `${name}: ${body.slice(0, 80)}`, { conversationId: conv.id });
+      if (unread.has(userId)) continue;
+      await this.notifications.notify(userId, 'chat_message', `New message in ${title}`, `${name}: ${body.slice(0, 80)}`, { conversationId: conv.id, product: conv.scopeType === 'activity' ? 'here' : 'there' });
     }
   }
 
@@ -394,19 +395,20 @@ export class ConversationsService {
    * has written in yet follow, soonest event first. Every chat is ordered by a cheap key (one grouped query for the newest
    * message time), but only the chats on the page get their preview text and sender looked up.
    */
-  async mine(me: User, limitRaw?: string, cursorRaw?: string) {
+  async mine(me: User, limitRaw?: string, cursorRaw?: string, product?: 'here' | 'there') {
     const limit = pageLimit(limitRaw, 100);
+    // `product` keeps one product's chats: activity groups are HERE, trip groups and travel matches are THERE
     const [acts, trips] = await Promise.all([
-      this.prisma.activityMembership.findMany({
+      product === 'there' ? [] : this.prisma.activityMembership.findMany({
         where: { userId: me.id, state: 'approved', activity: { status: { not: 'cancelled' }, conversation: { isNot: null } } },
         select: { activityId: true, activity: { select: { title: true, category: true, startsAt: true, endsAt: true, conversation: { select: { id: true } } } } },
       }),
-      this.prisma.tripMembership.findMany({
+      product === 'here' ? [] : this.prisma.tripMembership.findMany({
         where: { userId: me.id, state: 'approved', trip: { status: { not: 'cancelled' }, conversation: { isNot: null } } },
         select: { tripId: true, trip: { select: { title: true, dateStart: true, dateEnd: true, conversation: { select: { id: true } } } } },
       }),
     ]);
-    const matchRows = await this.prisma.conversation.findMany({ where: { scopeType: 'match', endedAt: null, OR: [{ userAId: me.id }, { userBId: me.id }] }, select: { id: true, userAId: true, userBId: true, createdAt: true, topic: true } });
+    const matchRows = product === 'here' ? [] : await this.prisma.conversation.findMany({ where: { scopeType: 'match', endedAt: null, OR: [{ userAId: me.id }, { userBId: me.id }] }, select: { id: true, userAId: true, userBId: true, createdAt: true, topic: true } });
     const matchBlocked = new Set(await this.safety.blockedWith(me.id));
     const matchOthers = matchRows.map((c) => ({ c, otherId: c.userAId === me.id ? c.userBId! : c.userAId! })).filter((x) => !matchBlocked.has(x.otherId));
     const matchNames = new Map((await this.prisma.profile.findMany({ where: { userId: { in: matchOthers.map((x) => x.otherId) } }, select: { userId: true, displayName: true } })).map((p) => [p.userId, p.displayName]));
@@ -491,8 +493,8 @@ export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}
 
   @Get('me/conversations')
-  mine(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
-    return this.conversations.mine(me, limit, cursor);
+  mine(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('product') product?: string) {
+    return this.conversations.mine(me, limit, cursor, product === 'here' || product === 'there' ? product : undefined);
   }
 
   @Get('conversations/:id/messages')

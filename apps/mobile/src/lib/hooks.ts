@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { liveIsUp } from './live';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, LayoutAnimation, Platform, UIManager } from 'react-native';
@@ -28,11 +29,15 @@ function saveSoon() {
     AsyncStorage.setItem(DISK, JSON.stringify({ owner, entries })).catch(() => {});
   }, 2000);
 }
+// Reading the remembered answers starts the moment the app starts, while the sign-in is still being checked with the server,
+// so by the time we know who it is the memory is usually already in hand (used once; later restores read it again).
+let early: Promise<string | null> | null = AsyncStorage.getItem(DISK).catch(() => null);
 /** Load what was remembered last time for this person (nothing if it was someone else's). Done before the first screen. */
 export async function restoreLoadCache(userId: string) {
   owner = userId;
   try {
-    const raw = await AsyncStorage.getItem(DISK);
+    const raw = await (early ?? AsyncStorage.getItem(DISK));
+    early = null;
     const saved = raw ? (JSON.parse(raw) as { owner?: string; entries?: Record<string, unknown> }) : null;
     if (saved?.owner === userId && saved.entries) for (const [k, v] of Object.entries(saved.entries)) if (!cache.has(k)) cache.set(k, v);
   } catch {
@@ -69,6 +74,9 @@ export function patchCache<T>(cacheKey: string, deps: unknown[], update: (old: T
   primeCache(cacheKey, deps, update(cache.get(key) as T));
 }
 
+/** While the live connection is up, a screen it covers polls this many times less often (it still catches anything missed). */
+const LIVE_POLL_STRETCH = 5;
+
 /**
  * Loads data whenever the screen is focused (so lists refresh after you come back from a detail screen) and, if
  * `pollMs` is set, keeps refreshing while the screen is visible and the app is open.
@@ -83,6 +91,8 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
   keep?: boolean;
   /** when a refresh brings a different answer, let the rows slide into their new places (a chat moving up) */
   animate?: boolean;
+  /** the live connection tells this screen about changes: while it is working, the poll is only a rare safety net */
+  live?: boolean;
 }) {
   const depsKey = JSON.stringify(deps);
   const full = cacheKey ? `${cacheKey}|${depsKey}` : null;
@@ -158,9 +168,15 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
       const fresh = have.current && Date.now() - fetched.current.at < 15_000 && fetched.current.writes === writeCount();
       if (!fresh) void reload();
       if (!pollMs) return;
-      const t = setInterval(() => AppState.currentState === 'active' && void reload(), pollMs);
+      // with the live connection up, a screen it covers asks only every few ticks instead of every one
+      let tick = 0;
+      const t = setInterval(() => {
+        if (AppState.currentState !== 'active') return;
+        if (opts?.live && liveIsUp() && ++tick % LIVE_POLL_STRETCH !== 0) return;
+        void reload();
+      }, pollMs);
       return () => clearInterval(t);
-    }, [reload, pollMs]),
+    }, [reload, pollMs, opts?.live]),
   );
 
   return { data, error, loading, reload };

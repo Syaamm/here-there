@@ -18,7 +18,7 @@ import { confirmAsync } from '@/lib/confirm';
 import { hhmm, when as whenLabel } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { statusTop, useLayout } from '@/lib/layout';
-import { useTheme } from '@/lib/theme';
+import { useEnterMode, useTheme } from '@/lib/theme';
 import { t, tn, useT } from '@/lib/i18n';
 
 /** "Starts in 40 min", "Starts in 3 hrs", "Tomorrow", ... and how it ended once it is over. */
@@ -52,6 +52,7 @@ export default function ActivityDetail() {
   const { data: a, error, loading, reload } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'activity' | 'user'; id: string } | null>(null);
+  useEnterMode('here'); // opened from a THERE alert, push or link: flip to HERE first
   useEffect(() => {
     if (favNow !== null && !!a?.favorited === favNow) setFavNow(null); // the server has caught up
   }, [a?.favorited, favNow]);

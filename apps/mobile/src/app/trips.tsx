@@ -20,7 +20,7 @@ export default function AllTrips() {
   const { section } = useLocalSearchParams<{ section?: string }>();
   const group = GROUPS[section ?? 'soon'] ?? GROUPS.soon;
   // the same request (and the same remembered answer) as the Home feed
-  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?${new URLSearchParams({ limit: '50' })}`), [''], 60_000, 'feed:there');
+  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?${new URLSearchParams({ limit: '50' })}`), [''], 60_000, 'feed:there', { live: true });
   const { refreshing, onRefresh } = useRefresh(feed.reload);
   const now = Date.now();
   const list = [...(feed.data?.items ?? [])]

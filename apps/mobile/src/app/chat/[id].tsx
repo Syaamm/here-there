@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useIsFocused, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Animated, Keyboard, Linking, Pressable, ScrollView, View, type ScrollViewInstance, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,7 +21,7 @@ import { statusTop } from '@/lib/layout';
 import { useLiveEvents } from '@/lib/live';
 import { refreshUnread } from '@/lib/unread';
 import { t, useT } from '@/lib/i18n';
-import { useTheme } from '@/lib/theme';
+import { useEnterMode, useTheme } from '@/lib/theme';
 
 type PollInfo = { id: string; title: string; dateStart: string | null; dateEnd: string | null; state: 'open' | 'adopted' | 'closed'; accept: number; reject: number; myVote: 'accept' | 'reject' | null };
 type Msg = { id: string; body: string; kind?: 'text' | 'poll' | 'system'; poll?: PollInfo | null; createdAt: string; sender: { id: string; displayName: string; photoUrl?: string | null } };
@@ -118,10 +118,49 @@ export default function ChatRoute() {
   return <Chat key={id} id={id} />;
 }
 
+/**
+ * One message bubble. Typing in the box redraws the whole chat screen on every key, so the bubbles are drawn again only when
+ * their own message (or how it is shown) changed.
+ */
+const Bubble = memo(
+  function Bubble({ m, mine, showName, newDay, onPick }: { m: Msg; mine: boolean; showName: boolean; newDay: boolean; onPick: (m: Msg) => void }) {
+    const { t } = useT();
+    const { c } = useTheme();
+    const go = useGo();
+    return (
+      <Pressable
+        accessibilityLabel={`${mine ? t('You') : m.sender.displayName}: ${m.body}, ${hhmm(m.createdAt)}`}
+        accessibilityHint={mine ? undefined : t('Press and hold for report and block options')}
+        accessibilityActions={mine ? undefined : [{ name: 'more', label: t('Report or block') }]}
+        onAccessibilityAction={() => onPick(m)}
+        onLongPress={mine ? undefined : () => onPick(m)}
+        delayLongPress={350}
+        style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '78%', backgroundColor: mine ? c.forest : c.surface, borderWidth: mine ? 0 : 1, borderColor: c.line, borderRadius: 14, borderBottomRightRadius: mine ? 4 : 14, borderBottomLeftRadius: mine ? 14 : 4, paddingHorizontal: 10, paddingVertical: 5, marginTop: showName || newDay ? 5 : 0 }}
+      >
+        {showName && (
+          <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6}>
+            <Text style={{ color: c.green, fontWeight: '800', fontSize: 11.5, marginBottom: 1 }}>{m.sender.displayName}</Text>
+          </Pressable>
+        )}
+        {/* the time sits small at the end of the last line, like a message in any chat app */}
+        <Text style={{ color: mine ? '#fff' : c.text, fontSize: 14, lineHeight: 19 }}>
+          <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
+          <Text style={{ color: mine ? '#B9CFC8' : c.muted, fontSize: 10 }}>{'\u00A0\u00A0'}{hhmm(m.createdAt)}</Text>
+        </Text>
+        {/* a message with a web address carries its own caution, before anyone taps it */}
+        {/(?:https?:\/\/|www\.)/i.test(m.body) ? (
+          <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>{t('Opens outside the app. We do not check it. Never send money or ID documents.')}</Text>
+        ) : null}
+      </Pressable>
+    );
+  },
+  (a, b) => a.m.id === b.m.id && a.m.body === b.m.body && a.mine === b.mine && a.showName === b.showName && a.newDay === b.newDay,
+);
+
 function Chat({ id }: { id: string }) {
   const { t, tn } = useT();
   const { me } = useMe();
-  const { c } = useTheme();
+  const { c, mode } = useTheme();
   const router = useRouter();
   const go = useGo();
   const insets = useSafeAreaInsets();
@@ -131,7 +170,7 @@ function Chat({ id }: { id: string }) {
   const focused = useIsFocused();
   const inFront = useRef(focused);
   inFront.current = focused;
-  const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[]; nextCursor?: string | null }>(`/v1/conversations/${id}/messages${inFront.current ? '?read=1' : ''}`), [id], 30_000, 'chat:msgs', { animate: true });
+  const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[]; nextCursor?: string | null }>(`/v1/conversations/${id}/messages${inFront.current ? '?read=1' : ''}`), [id], 30_000, 'chat:msgs', { animate: true, live: true });
   // a new message for this chat (or a reconnect) loads at once; the 30-second poll above is only the safety net
   useLiveEvents((e) => {
     if (!inFront.current) return; // not on screen: it loads when you open it
@@ -210,6 +249,7 @@ function Chat({ id }: { id: string }) {
   const navigation = useNavigation();
   useEffect(() => navigation.addListener('transitionStart' as never, ((e: { data?: { closing?: boolean } }) => e?.data?.closing && Keyboard.dismiss()) as never), [navigation]); // the chat ends at the bottom edge, so the keyboard simply pushes it up by its own height
   const info = useLoad(() => get<GroupInfo>(`/v1/conversations/${id}/info`), [id], 30_000, 'chat:info', { animate: true });
+  useEnterMode(info.data ? (info.data.scope === 'activity' ? 'here' : 'there') : undefined); // an activity group is HERE; trip groups and travel matches are THERE
   const [reportMsg, setReportMsg] = useState<{ id: string; category?: string } | null>(null);
   // press and hold a message: report it (or flag spam), see who wrote it, or block them
   const [picked, setPicked] = useState<Msg | null>(null);
@@ -285,12 +325,13 @@ function Chat({ id }: { id: string }) {
   const newest = msgs.data?.items[msgs.data.items.length - 1];
   useEffect(() => {
     if (!newest) return;
-    patchCache<{ items: ConversationRef[] }>('inbox:convs', cursorDeps('/v1/me/conversations', {}), (old) => ({
+    const product = info.data ? (info.data.scope === 'activity' ? 'here' : 'there') : mode; // the inbox list this chat is on
+    patchCache<{ items: ConversationRef[] }>('inbox:convs', cursorDeps('/v1/me/conversations', { product }), (old) => ({
       ...old,
       items: old.items.map((cv) => (cv.conversationId === id ? { ...cv, lastMessage: { body: newest.body.slice(0, 140), at: newest.createdAt, from: newest.sender.id === me?.id ? 'You' : newest.sender.displayName } } : cv)),
     }));
     if (inFront.current)
-      patchCache<{ items: Notif[]; unreadCount: number }>('inbox:notifs', [], (old) => {
+      patchCache<{ items: Notif[]; unreadCount: number }>('inbox:notifs', [product], (old) => {
         const mine = (n: Notif) => n.type === 'chat_message' && n.data?.conversationId === id && !n.readAt;
         const unread = old.items.filter(mine).length;
         if (!unread) return old;
@@ -476,30 +517,7 @@ function Chat({ id }: { id: string }) {
           return (
             <Appear key={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
               {day}
-              <Pressable
-                accessibilityLabel={`${mine ? t('You') : m.sender.displayName}: ${m.body}, ${hhmm(m.createdAt)}`}
-                accessibilityHint={mine ? undefined : t('Press and hold for report and block options')}
-                accessibilityActions={mine ? undefined : [{ name: 'more', label: t('Report or block') }]}
-                onAccessibilityAction={() => setPicked(m)}
-                onLongPress={mine ? undefined : () => setPicked(m)}
-                delayLongPress={350}
-                style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '78%', backgroundColor: mine ? c.forest : c.surface, borderWidth: mine ? 0 : 1, borderColor: c.line, borderRadius: 14, borderBottomRightRadius: mine ? 4 : 14, borderBottomLeftRadius: mine ? 14 : 4, paddingHorizontal: 10, paddingVertical: 5, marginTop: showName || newDay ? 5 : 0 }}
-              >
-                {showName && (
-                  <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6}>
-                    <Text style={{ color: c.green, fontWeight: '800', fontSize: 11.5, marginBottom: 1 }}>{m.sender.displayName}</Text>
-                  </Pressable>
-                )}
-                {/* the time sits small at the end of the last line, like a message in any chat app */}
-                <Text style={{ color: mine ? '#fff' : c.text, fontSize: 14, lineHeight: 19 }}>
-                  <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
-                  <Text style={{ color: mine ? '#B9CFC8' : c.muted, fontSize: 10 }}>{'\u00A0\u00A0'}{hhmm(m.createdAt)}</Text>
-                </Text>
-                {/* a message with a web address carries its own caution, before anyone taps it */}
-                {/(?:https?:\/\/|www\.)/i.test(m.body) ? (
-                  <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>{t('Opens outside the app. We do not check it. Never send money or ID documents.')}</Text>
-                ) : null}
-              </Pressable>
+              <Bubble m={m} mine={mine} showName={showName} newDay={newDay} onPick={setPicked} />
             </Appear>
           );
         })}

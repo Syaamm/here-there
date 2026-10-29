@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Page, Segmented, useAction, useLoad } from '../ui';
+import { Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Page, Segmented, useAction, useLoad, useMore } from '../ui';
 
 type V = { id: string; method?: string; providerRef: string; eligibility: string; createdAt: string; user: { id: string; email: string; displayName?: string; homeCity?: string } };
 type Status = 'pending' | 'verified' | 'rejected';
@@ -12,7 +12,11 @@ const waitingFor = (iso: string) => {
 
 export function VerificationsPage({ me }: { me: Session }) {
   const [status, setStatus] = useState<Status>('pending');
-  const { data, error, loading, reload } = useLoad(() => get<{ items: V[] }>(`/v1/admin/verifications?status=${status}`), [status], 6000);
+  const first = useLoad(() => get<{ items: V[]; nextCursor: string | null }>(`/v1/admin/verifications?status=${status}`), [status], 6000);
+  const more = useMore(first.data, (c) => get(`/v1/admin/verifications?status=${status}&cursor=${c}`), status);
+  const { error, loading } = first;
+  const data = first.data && { items: more.items };
+  const reload = () => (more.reset(), first.reload());
   const pending = useLoad(() => get<{ items: V[] }>('/v1/admin/verifications?status=pending'), [status], 6000);
   const act = useAction(() => (reload(), pending.reload()));
   const decide = (id: string, decision: 'verified' | 'rejected') => act.run(() => post(`/v1/admin/verifications/${id}/decision`, { decision }));
@@ -109,6 +113,7 @@ export function VerificationsPage({ me }: { me: Session }) {
           </div>
         </div>
       )}
+      {more.more}
     </Page>
   );
 }

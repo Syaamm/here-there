@@ -33,7 +33,7 @@ export default function EditProfile() {
   if (!p) return null;
 
   const pick = async () => {
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.85 });
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7 });
     if (r.canceled || !r.assets[0]) return;
     await photo.run(() => uploadPhoto(r.assets[0].uri));
   };

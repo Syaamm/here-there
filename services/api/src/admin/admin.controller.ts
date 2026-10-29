@@ -7,6 +7,7 @@ import { AuditService } from '../common/audit.service';
 import { CurrentUser, Staff } from '../common/auth';
 import { STAFF_ROLES } from '../common/constants';
 import { E } from '../common/errors';
+import { afterKeyset, beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { banIdentities, liftBans } from '../common/identity';
 import { ModerationService } from '../moderation/moderation.controller';
 import { MfaService } from '../auth/mfa.controller';
@@ -116,23 +117,26 @@ export class AdminController {
   // ------------------------------------------------------------ users
   @Staff(...ALL)
   @Get('users')
-  async users(@Query('q') q?: string, @Query('state') state?: string) {
+  async users(@Query('q') q?: string, @Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
     // timed suspensions that have run out end now, so the list never shows someone as suspended who is not
     await this.prisma.user.updateMany({ where: { state: 'suspended', suspendedUntil: { lte: new Date() } }, data: { state: 'active', suspendedUntil: null } });
     const where: Prisma.UserWhereInput = {
       ...(state && { state }),
       ...(q && { OR: [{ email: { contains: q } }, { profile: { displayName: { contains: q } } }, { id: q }] }),
     };
-    const rows = await this.prisma.user.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+    const size = pageLimit(limit, 100, 200);
+    const all = await this.prisma.user.findMany({
+      where: { AND: [where, beforeKeyset(decodeKeyset(cursor))] },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: size + 1,
       include: {
         profile: { select: { displayName: true, homeCity: true } },
         verifications: { orderBy: { createdAt: 'desc' }, take: 1, select: { rejectionReason: true } },
       },
     });
+    const { items: rows, nextCursor } = sliceKeyset(all, size, (u) => u.createdAt);
     return {
+      nextCursor,
       items: rows.map((u) => ({
         id: u.id,
         email: u.email,
@@ -249,14 +253,17 @@ export class AdminController {
   // ------------------------------------------------------------ verification
   @Staff(...ALL)
   @Get('verifications')
-  async verifications(@Query('status') status = 'pending') {
-    const rows = await this.prisma.verificationCheck.findMany({
-      where: { eligibility: status },
-      orderBy: { createdAt: 'asc' },
-      take: 100,
+  async verifications(@Query('status') status = 'pending', @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    const size = pageLimit(limit, 100, 200);
+    const all = await this.prisma.verificationCheck.findMany({
+      where: { AND: [{ eligibility: status }, afterKeyset(decodeKeyset(cursor))] },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: size + 1,
       include: { user: { select: { id: true, email: true, profile: { select: { displayName: true, homeCity: true } } } } },
     });
+    const { items: rows, nextCursor } = sliceKeyset(all, size, (c) => c.createdAt);
     return {
+      nextCursor,
       items: rows.map((c) => ({
         id: c.id,
         provider: c.provider,
@@ -357,14 +364,17 @@ export class AdminController {
   // ------------------------------------------------------------ moderation: content
   @Staff(...ALL)
   @Get('activities')
-  async activitiesList(@Query('status') status?: string) {
-    const rows = await this.prisma.activity.findMany({
-      where: status ? { status } : {},
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+  async activitiesList(@Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    const size = pageLimit(limit, 100, 200);
+    const all = await this.prisma.activity.findMany({
+      where: { AND: [status ? { status } : {}, beforeKeyset(decodeKeyset(cursor))] },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: size + 1,
       include: { host: { select: { id: true, profile: { select: { displayName: true } } } }, _count: { select: { memberships: { where: { state: 'approved' } } } } },
     });
+    const { items: rows, nextCursor } = sliceKeyset(all, size, (a) => a.createdAt);
     return {
+      nextCursor,
       items: rows.map((a) => ({
         id: a.id,
         title: a.title,
@@ -390,14 +400,17 @@ export class AdminController {
 
   @Staff(...ALL)
   @Get('trips')
-  async tripsList(@Query('status') status?: string) {
-    const rows = await this.prisma.trip.findMany({
-      where: status ? { status } : {},
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+  async tripsList(@Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    const size = pageLimit(limit, 100, 200);
+    const all = await this.prisma.trip.findMany({
+      where: { AND: [status ? { status } : {}, beforeKeyset(decodeKeyset(cursor))] },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: size + 1,
       include: { host: { select: { id: true, profile: { select: { displayName: true } } } }, _count: { select: { memberships: { where: { state: 'approved' } } } } },
     });
+    const { items: rows, nextCursor } = sliceKeyset(all, size, (t) => t.createdAt);
     return {
+      nextCursor,
       items: rows.map((t) => ({
         id: t.id,
         title: t.title,
@@ -428,18 +441,24 @@ export class AdminController {
   // ------------------------------------------------------------ audit
   @Staff(...TRUST)
   @Get('audit')
-  async auditLog(@Query('objectType') objectType?: string, @Query('objectId') objectId?: string) {
-    const items = await this.prisma.auditEvent.findMany({
-      where: { ...(objectType && { objectType }), ...(objectId && { objectId }) },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-    });
+  async auditLog(@Query('objectType') objectType?: string, @Query('objectId') objectId?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    const size = pageLimit(limit, 200, 200);
+    const { items, nextCursor } = sliceKeyset(
+      await this.prisma.auditEvent.findMany({
+        where: { AND: [{ ...(objectType && { objectType }), ...(objectId && { objectId }) }, beforeKeyset(decodeKeyset(cursor))] },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: size + 1,
+      }),
+      size,
+      (e) => e.createdAt,
+    );
     // the log stores ids; add the names of the people involved so it can be read at a glance
     const ids = [...new Set(items.flatMap((e) => [e.actorId, e.objectType === 'user' ? e.objectId : null]).filter((x): x is string => !!x))];
     const profiles = await this.prisma.profile.findMany({ where: { userId: { in: ids } }, select: { userId: true, displayName: true } });
     const name = new Map(profiles.map((p) => [p.userId, p.displayName]));
     const roles = new Map((await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true } })).map((u) => [u.id, u.role]));
     return {
+      nextCursor,
       items: items.map((e) => ({
         ...e,
         metadata: e.metadata ? JSON.parse(e.metadata) : null,

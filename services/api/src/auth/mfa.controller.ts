@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Injectable, Post } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import { checkPassword } from '../common/password';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
@@ -108,7 +108,7 @@ export class MfaService {
     const dto = parse(disableSchema, body);
     if (!u.mfaEnabledAt) return { enabled: false };
     if (staffMfaRequired()) throw E.forbidden('MFA_REQUIRED', 'Staff accounts must keep two-step sign-in on.');
-    if (!(await bcrypt.compare(dto.password, u.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your password is not correct');
+    if (!(await checkPassword(dto.password, u.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your password is not correct');
     await this.check(u, dto.code);
     await this.clear(u.id);
     await this.audit.log(u.id, 'mfa.disabled', 'user', u.id);

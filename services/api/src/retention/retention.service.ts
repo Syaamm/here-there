@@ -1,3 +1,4 @@
+import { TtlCache } from '../common/ttl-cache';
 import { Controller, Get, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { AuditService } from '../common/audit.service';
 import { Public } from '../common/auth';
@@ -115,12 +116,14 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
+const schedule = new TtlCache<{ items: ReturnType<typeof retentionSchedule> }>(60_000, 1); // public text, read by every app start
+
 @Controller('v1')
 export class RetentionController {
   /** What is kept and for how long, in plain words. Public: it is part of the privacy information. */
   @Public()
   @Get('retention')
   schedule() {
-    return { items: retentionSchedule() };
+    return schedule.get('all', () => ({ items: retentionSchedule() }));
   }
 }

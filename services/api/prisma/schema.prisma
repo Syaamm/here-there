@@ -215,6 +215,8 @@ model Activity {
   favorites     Favorite[]
 
   @@index([cityKey, startsAt])
+  @@index([hostId, startsAt])
+  @@index([status, startsAt])
 }
 
 model ActivityRequest {
@@ -231,6 +233,8 @@ model ActivityRequest {
   decidedAt    DateTime?
 
   @@unique([activityId, applicantId])
+  @@index([applicantId, state])
+  @@index([activityId, state, createdAt])
 }
 
 model ActivityMembership {
@@ -247,6 +251,7 @@ model ActivityMembership {
   createdAt       DateTime @default(now())
 
   @@unique([activityId, userId])
+  @@index([userId, state])
 }
 
 model Trip {
@@ -285,6 +290,8 @@ model Trip {
   favorites             TripFavorite[]
 
   @@index([destinationKey, dateStart])
+  @@index([hostId])
+  @@index([status, dateStart])
 }
 
 model TripApplication {
@@ -302,6 +309,8 @@ model TripApplication {
   decidedAt    DateTime?
 
   @@unique([tripId, applicantId])
+  @@index([applicantId, state])
+  @@index([tripId, state, createdAt])
 }
 
 model TripMembership {
@@ -317,6 +326,7 @@ model TripMembership {
   createdAt DateTime @default(now())
 
   @@unique([tripId, userId])
+  @@index([userId, state])
 }
 
 // One conversation per activity/trip; read/write is derived from LIVE membership.
@@ -335,6 +345,8 @@ model Conversation {
   endedAt    DateTime?
   createdAt  DateTime @default(now())
   messages   Message[]
+  @@index([userAId])
+  @@index([userBId])
 }
 
 model Message {
@@ -364,10 +376,14 @@ model Notification {
   title     String
   body      String
   data      String?  // JSON
+  /// "here" or "there": which product the alert belongs to. Empty means both (follows, warnings, verification).
+  product   String?
   readAt    DateTime?
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@index([userId, type, readAt])
 }
 
 /// One device that can be sent a push notification: a browser (Web Push subscription as JSON) or a phone (Expo push token).
@@ -391,6 +407,8 @@ model Favorite {
   createdAt  DateTime @default(now())
 
   @@id([userId, activityId])
+  @@index([userId, createdAt])
+  @@index([activityId])
 }
 
 // A trip saved with the heart (like Favorite, for activities).
@@ -402,6 +420,8 @@ model TripFavorite {
   createdAt DateTime @default(now())
 
   @@id([userId, tripId])
+  @@index([userId, createdAt])
+  @@index([tripId])
 }
 
 // One person following another. Two people who follow each other are "buddies". Never visible to anyone but the two of them.
@@ -426,6 +446,7 @@ model Block {
   createdAt DateTime @default(now())
 
   @@unique([blockerId, blockedId])
+  @@index([blockedId])
 }
 
 model Report {

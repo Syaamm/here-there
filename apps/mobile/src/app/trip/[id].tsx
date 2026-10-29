@@ -17,7 +17,7 @@ import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, money } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { statusTop, useLayout } from '@/lib/layout';
-import { useTheme } from '@/lib/theme';
+import { useEnterMode, useTheme } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
 
 /** THERE · Trip detail. A proposal with an estimated budget. Never a booking, never a guaranteed departure. Laid out like an activity. */
@@ -26,6 +26,7 @@ export default function TripDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { me, isGuest, logout } = useMe();
   const { c } = useTheme();
+  useEnterMode('there'); // opened from a HERE alert, push or link: flip to THERE first
   const router = useRouter();
   const go = useGo();
   const insets = useSafeAreaInsets();

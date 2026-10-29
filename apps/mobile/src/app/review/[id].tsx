@@ -8,7 +8,9 @@ import { confirmAsync } from '@/lib/confirm';
 import { ago, dateSpan } from '@/lib/format';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useAction, useLoad } from '@/lib/hooks';
+import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
+import { useEnterMode } from '@/lib/theme';
 
 type App = {
   id: string;
@@ -23,13 +25,18 @@ type App = {
 export default function ReviewTrip() {
   const { t, tn } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
+  useEnterMode('there');
   const trip = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
   // a page at a time, the ones waiting for an answer first (the server orders them); `pending` counts them all
-  const apps = useCursorList<App, { pending: number }>(`/v1/trips/${id}/applications`, {}, 'review:applications', { pollMs: 10_000 });
+  const apps = useCursorList<App, { pending: number }>(`/v1/trips/${id}/applications`, {}, 'review:applications', { pollMs: 10_000, live: true });
   const refresh = () => {
     void trip.reload();
     void apps.reload();
   };
+  // an application or a change arrives as an alert: look again at once (the 10-second poll is only a rare safety net now)
+  useLiveEvents((e) => {
+    if (e.type === 'notification' || e.type === 'alerts-changed' || e.type === 'ready') refresh();
+  });
   const mutate = useAction(refresh);
   const tp = trip.data;
 

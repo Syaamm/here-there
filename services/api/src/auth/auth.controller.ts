@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Req } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import { checkPassword, hashPassword } from '../common/password';
+import { TtlCache } from '../common/ttl-cache';
 import { randomBytes } from 'node:crypto';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -91,6 +92,8 @@ function me(u: UserWithProfile) {
   };
 }
 
+const profileStats = new TtlCache<[number, number]>(Number(process.env.PROFILE_STATS_CACHE_SECONDS ?? 30) * 1000);
+
 @Controller('v1')
 export class AuthController {
   constructor(
@@ -126,7 +129,7 @@ export class AuthController {
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
-        passwordHash: await bcrypt.hash(dto.password, Number(process.env.BCRYPT_ROUNDS ?? 12)),
+        passwordHash: await hashPassword(dto.password),
         adultConfirmed: true,
         registeredDevice: device,
         profile: { create: { displayName: dto.displayName, homeCity: dto.homeCity } },
@@ -163,7 +166,7 @@ export class AuthController {
     this.limiter.check(`login-fail-account:${dto.email}`, 20, window);
     this.limiter.check(`login-fail-address:${ip}`, 100, window);
     const user = await this.prisma.user.findUnique({ where: { email: dto.email }, include: { profile: true } });
-    const ok = user && (await bcrypt.compare(dto.password, user.passwordHash));
+    const ok = user && (await checkPassword(dto.password, user.passwordHash));
     if (!user || !ok) {
       this.limiter.record(`login-fail-account:${dto.email}`, window);
       this.limiter.record(`login-fail-address:${ip}`, window);
@@ -291,7 +294,7 @@ export class AuthController {
   async changePassword(@CurrentUser() u: User, @Body() body: unknown) {
     const dto = parse(changeSchema, body);
     this.limiter.hit(`pwchange:${u.id}`, 5, 15 * 60 * 1000);
-    if (!(await bcrypt.compare(dto.currentPassword, u.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your current password is not correct');
+    if (!(await checkPassword(dto.currentPassword, u.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your current password is not correct');
     if (dto.currentPassword === dto.newPassword) throw E.badRequest('SAME_PASSWORD', 'Choose a password you have not used just now');
     const changedAt = await this.setPassword(u.id, dto.newPassword);
     await this.audit.log(u.id, 'password.changed', 'user', u.id);
@@ -303,7 +306,7 @@ export class AuthController {
     const changedAt = new Date();
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: await bcrypt.hash(password, Number(process.env.BCRYPT_ROUNDS ?? 12)), passwordChangedAt: changedAt },
+      data: { passwordHash: await hashPassword(password), passwordChangedAt: changedAt },
     });
     return changedAt;
   }
@@ -395,10 +398,13 @@ export class AuthController {
   async publicProfile(@CurrentUser() me: User, @Param('id') id: string) {
     const u = await this.prisma.user.findUnique({ where: { id }, include: { profile: true } });
     if (!u || u.state !== 'active' || !u.profile) throw E.notFound('User');
-    const [hosted, joined] = await Promise.all([
-      this.prisma.activity.count({ where: { hostId: id, status: { notIn: ['cancelled', 'draft'] }, endsAt: { lt: new Date() } } }),
-      this.prisma.activityMembership.count({ where: { userId: id, role: 'attendee', state: 'approved', activity: { endsAt: { lt: new Date() } } } }),
-    ]);
+    // the two counts are the costly part of a profile and may be half a minute old; everything else is read fresh
+    const [hosted, joined] = await profileStats.get(id, () =>
+      Promise.all([
+        this.prisma.activity.count({ where: { hostId: id, status: { notIn: ['cancelled', 'draft'] }, endsAt: { lt: new Date() } } }),
+        this.prisma.activityMembership.count({ where: { userId: id, role: 'attendee', state: 'approved', activity: { endsAt: { lt: new Date() } } } }),
+      ]),
+    );
     const [iFollow, followsMe] = await Promise.all([
       this.prisma.follow.findUnique({ where: { followerId_followingId: { followerId: me.id, followingId: id } } }),
       this.prisma.follow.findUnique({ where: { followerId_followingId: { followerId: id, followingId: me.id } } }),

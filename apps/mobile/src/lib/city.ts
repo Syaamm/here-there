@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { useMe } from './auth';
+import { setLiveCity } from './live';
 
 const KEY = 'ht_city';
 
@@ -19,5 +20,7 @@ export function useCity() {
     setCity(c);
     AsyncStorage.setItem(KEY, c).catch(() => {});
   };
-  return [city || me?.profile?.homeCity || 'Milan', update] as const;
+  const shown = city || me?.profile?.homeCity || 'Milan';
+  useEffect(() => setLiveCity(shown), [shown]);
+  return [shown, update] as const;
 }
