@@ -7,6 +7,7 @@ export function alertRoute(n: Pick<Notif, 'type' | 'data'>): string | null {
   if (n.type === 'warning' && d?.warningId) return `/appeal?kind=warning&targetId=${d.warningId}`;
   if (n.type === 'message_removed' && d?.messageId) return `/appeal?kind=message&targetId=${d.messageId}`;
   if (n.type === 'appeal_decided') return '/appeal';
+  if (n.type === 'report_update') return '/my-reports';
   if (d?.conversationId) return `/chat/${d.conversationId}`;
   if (n.type === 'join_request' && d?.activityId) return `/host/${d.activityId}`;
   if (n.type === 'trip_application' && d?.tripId) return `/review/${d.tripId}`;

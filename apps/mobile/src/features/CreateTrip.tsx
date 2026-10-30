@@ -6,11 +6,11 @@ import { DraftBar } from '@/components/DraftBar';
 import { TabHeader } from '@/components/TabHeader';
 import { Text, TextInput } from '@/components/ScaledText';
 import { Banner, Between, Btn, CheckRow, Chip, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
-import { post, type Trip } from '@/lib/api';
+import { get, post, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { FLEX, GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
 import { money, parseDay } from '@/lib/format';
-import { useAction } from '@/lib/hooks';
+import { useAction, useLoad } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
 import { useT } from '@/lib/i18n';
@@ -118,8 +118,10 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const min = Number(f.min);
   const max = Number(f.max);
   const nights = start && end ? Math.round((+end - +start) / 864e5) : null;
-  // plans reach at most to the end of the month six months from now
-  const lastDay = lastPlanningDay(6);
+  // how far ahead trips from this city may be planned: set by the admin of its place (six months unless they set it otherwise)
+  const limits = useLoad(() => get<{ there: { months: number; latest: string } }>(`/v1/regions/limits?city=${encodeURIComponent(f.originCity.trim())}`), [f.originCity.trim()]);
+  const lastDay = limits.data ? new Date(limits.data.there.latest) : lastPlanningDay(6);
+  const monthsAhead = limits.data?.there.months ?? 6;
 
   // what is still missing, so a button can say so instead of sitting there greyed out
   const detailProblems = [
@@ -129,7 +131,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
     !!start && !end && t('a return date'),
     !!start && start < tomorrow && t('a departure from tomorrow on'),
     (nights ?? 0) > 90 && t('a trip of at most 90 nights'),
-    ((!!start && start > lastDay) || (!!end && end > lastDay)) && t('dates within the next 6 months'),
+    ((!!start && start > lastDay) || (!!end && end > lastDay)) && tn(monthsAhead, 'dates within the next month', 'dates within the next {n} months'),
     (!f.min || !f.max || Number.isNaN(min) || Number.isNaN(max)) && t('a budget range'),
     !Number.isNaN(min) && !Number.isNaN(max) && !!f.min && !!f.max && max <= min && t('a maximum budget higher than the minimum'),
   ].filter(Boolean) as string[];

@@ -11,3 +11,5 @@ WORKFLOW.md
 docs/PROJECT-HANDOVER.md
 docs/FOR_DEPLOYMENT.md
 docs/client-progress-report-*
+*.db-wal
+*.db-shm

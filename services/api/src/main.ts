@@ -1,16 +1,28 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { raw } from 'express';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/exception.filter';
 import { LiveService } from './common/live.service';
 import { isDemo } from './common/demo';
 import { assertVaultReady } from './common/vault';
+import { initErrorTracking } from './common/error-tracking';
+import { JsonLogger, requestLogging } from './common/observability';
 
 export async function createApp() {
   assertVaultReady(); // in production, refuses to start without the encryption keys
   // rawBody: provider webhooks are authenticated by a signature over the exact bytes they sent
-  const app = await NestFactory.create(AppModule, { rawBody: true, logger: process.env.NODE_ENV === 'test' ? false : ['log', 'error', 'warn'] });
+  initErrorTracking(); // off until SENTRY_DSN is set
+  const json = (process.env.LOG_FORMAT ?? (process.env.NODE_ENV === 'production' ? 'json' : 'text')) === 'json';
+  const app = await NestFactory.create(AppModule, { rawBody: true, logger: process.env.NODE_ENV === 'test' ? false : json ? new JsonLogger() : ['log', 'error', 'warn'] });
+  // first in line: every request gets an id (X-Request-Id), and one log line when it finishes
+  app.use(requestLogging);
+  // Standard security headers (no sniffing, no framing, HTTPS-only hint, no referrer leaks). The API answers JSON, so the strict
+  // default content policy fits; the share and docs pages are HTML with their own needs and set their own policy.
+  const strict = helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } });
+  const pages = helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } });
+  app.use((req: { path: string }, res: unknown, next: () => void) => (/^\/(a|t|v1\/docs|\.well-known)(\/|$)/.test(req.path) ? pages : strict)(req as never, res as never, next));
   // the profile picture arrives as raw image bytes
   app.use('/v1/me/photo', raw({ type: 'image/*', limit: '6mb' }));
   // one error shape everywhere: { statusCode, code, message, details? }

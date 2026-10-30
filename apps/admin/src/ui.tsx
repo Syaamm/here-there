@@ -102,7 +102,7 @@ export function askText(title: string, opts: { label?: string; confirm?: string;
 }
 
 /** Like askText, but the person must also pick one of `choices`. Resolves null when cancelled. */
-export async function askChoiceText(title: string, choices: [string, string][], opts: { label?: string; confirm?: string; choiceLabel?: string } = {}) {
+export async function askChoiceText(title: string, choices: [string, string][], opts: { label?: string; confirm?: string; choiceLabel?: string; required?: boolean } = {}) {
   const r = await askText(title, { ...opts, choices });
   if (r === null) return null;
   const i = r.indexOf('|');

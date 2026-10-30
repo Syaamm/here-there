@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
-import { API_URL, getToken } from './api';
+import { API_URL, freshToken } from './api';
 
 /** What the server sends. 'ready' also fires after every (re)connect, so screens can catch up on what they missed. */
 export type LiveEvent =
@@ -8,7 +8,9 @@ export type LiveEvent =
   | { type: 'message'; conversationId: string; message: { id: string; body: string; createdAt: string; sender: { id: string; displayName: string; photoUrl: string | null } } }
   | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: string } }
   | { type: 'alerts-changed' }
-  | { type: 'feed-changed' };
+  | { type: 'feed-changed' }
+  // the members, dates, place, plan or a poll of one group changed (carries only which group)
+  | { type: 'group-changed'; kind: 'activity' | 'trip'; id: string };
 
 type Listener = (e: LiveEvent) => void;
 const listeners = new Set<Listener>();
@@ -20,10 +22,22 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 
 const url = () => API_URL.replace(/^http/, 'ws') + '/v1/live';
 
+let opening = false;
 function open() {
-  if (!wanted || socket) return;
-  const token = getToken();
-  if (!token) return;
+  if (!wanted || socket || opening) return;
+  opening = true;
+  // the short-lived token may have ended while the app was asleep: get a fresh one before connecting
+  void freshToken()
+    .then((token) => {
+      if (!wanted || socket || !token) return;
+      connect(token);
+    })
+    .finally(() => {
+      opening = false;
+    });
+}
+
+function connect(token: string) {
   const ws = new WebSocket(url());
   socket = ws;
   // the token goes in the first message, never in the address

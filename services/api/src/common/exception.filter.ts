@@ -1,4 +1,6 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
+import { captureError } from './error-tracking';
+import { currentRequestId, log } from './observability';
 
 /** Codes for failures that do not come from our own `E.*` helpers (unknown route, oversized body, bad JSON, crash). */
 const FRAMEWORK_CODES: Record<number, string> = {
@@ -19,14 +21,13 @@ const FRAMEWORK_CODES: Record<number, string> = {
  */
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
-  private readonly log = new Logger('Api');
-
   catch(exception: unknown, host: ArgumentsHost) {
     const res = host.switchToHttp().getResponse();
     if (res.headersSent) return;
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
+      if (status >= 500) captureError(exception, { status });
       const body = exception.getResponse();
       if (typeof body === 'object' && body !== null && 'code' in body) return void res.status(status).json(body);
       const message = typeof body === 'string' ? body : ((body as { message?: unknown }).message ?? exception.message);
@@ -40,7 +41,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
       return void res.status(status).json({ statusCode: status, code: FRAMEWORK_CODES[status] ?? 'REQUEST_FAILED', message });
     }
 
-    this.log.error(exception instanceof Error ? (exception.stack ?? exception.message) : String(exception));
-    res.status(500).json({ statusCode: 500, code: 'INTERNAL_ERROR', message: 'Something went wrong on our side. Please try again.' });
+    // a crash: the full detail goes to the log and to error tracking, tied together by the request id; the person gets only the id
+    const requestId = currentRequestId();
+    log('error', 'unhandled error', { error: exception instanceof Error ? (exception.stack ?? exception.message) : String(exception) });
+    captureError(exception, { status: 500 });
+    res.status(500).json({ statusCode: 500, code: 'INTERNAL_ERROR', message: 'Something went wrong on our side. Please try again.', ...(requestId ? { requestId } : {}) });
   }
 }

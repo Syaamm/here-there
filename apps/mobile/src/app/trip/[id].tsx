@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AskAgain } from '@/components/AskAgain';
 import { FloatingButton, Hero } from '@/components/Hero';
 import { Menu } from '@/components/Menu';
+import { HostNoShowSheet, hostNoShowOpen } from '@/components/HostNoShowSheet';
 import { ReportSheet } from '@/components/ReportSheet';
 import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
 import { del, get, post, type Trip } from '@/lib/api';
@@ -36,6 +37,7 @@ export default function TripDetail() {
   const { data: trip, error, loading, reload } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'trip' | 'user'; id: string } | null>(null);
+  const [noShow, setNoShow] = useState<'closed' | 'open' | 'confirm' | 'sent'>('closed'); // "the host did not show up": sheet closed, open, showing its thank-you, or sent and closed
   // the heart answers at once; the server confirms a moment later (a failed save puts it back)
   const [favNow, setFavNow] = useState<boolean | null>(null);
   useEffect(() => {
@@ -272,6 +274,7 @@ export default function TripDetail() {
           <View style={{ gap: 10 }}>
             <Banner tone="ok">{t("You're in the group.")}</Banner>
             <Btn title={t('Trip Plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
+            {trip.isMember && !trip.isHost && trip.status !== 'cancelled' && hostNoShowOpen(trip.dateStart, trip.dateEnd) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
             <Btn title={t('Leave trip')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this trip?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/trips/${id}/leave`))} />
           </View>
         ) : app && app.state === 'pending' ? (
@@ -286,6 +289,7 @@ export default function TripDetail() {
         {/* room under the content for the fixed bar */}
         {primary ? <View style={{ height: 64 + insets.bottom }} /> : null}
         <ReportSheet target={report} onClose={() => setReport(null)} />
+        <HostNoShowSheet kind="trip" id={id} visible={noShow === 'open' || noShow === 'confirm'} onClose={() => setNoShow((v) => (v === 'confirm' || v === 'sent' ? 'sent' : 'closed'))} onSent={() => setNoShow('confirm')} />
       </Screen>
 
       {primary ? (

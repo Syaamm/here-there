@@ -1,3 +1,4 @@
+import { inScope, type Scope } from '../regions/regions';
 import { Body, Controller, Get, Injectable, OnModuleDestroy, OnModuleInit, Param, Post, Query } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { z } from 'zod';
@@ -6,9 +7,12 @@ import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/pa
 import { CurrentUser, Public, Staff } from '../common/auth';
 import { URGENT_CATEGORIES } from '../common/constants';
 import { E } from '../common/errors';
+import { JobsService } from '../common/jobs.service';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ReliabilityService } from '../reliability/reliability.controller';
+import { OnCallService, SECOND_ESCALATION_HOURS } from './oncall';
 
 const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
@@ -40,6 +44,23 @@ export function reportPolicy(now = new Date()) {
   };
 }
 
+/**
+ * The order staff work the queue in. Waiting reports first: urgent ones (the more levels they have been escalated, the
+ * higher), then reports past their answer time (the one that has waited longest first), then age-related concerns, then the
+ * rest by how soon they are due. Reports that are finished come last, newest first. The same input always gives the same order.
+ */
+export function orderQueue<T extends { id: string; open: boolean; priority: string; escalationLevel: number; escalated: boolean; overdue: boolean; category: string; createdAt: Date; answerBy: Date }>(items: T[]): T[] {
+  const rank = (x: T) => (!x.open ? 4 : x.priority === 'urgent' ? 0 : x.escalated || x.overdue ? 1 : x.category === 'underage' ? 2 : 3);
+  return [...items].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    if (ra === 4) return +b.createdAt - +a.createdAt || (a.id < b.id ? -1 : 1);
+    if (ra === 0 && a.escalationLevel !== b.escalationLevel) return b.escalationLevel - a.escalationLevel;
+    return +a.answerBy - +b.answerBy || +a.createdAt - +b.createdAt || (a.id < b.id ? -1 : 1);
+  });
+}
+
 export const warnSchema = z.object({
   reason: z.string().trim().min(5, 'Say what the warning is about').max(500),
   reportId: z.string().optional(),
@@ -52,30 +73,33 @@ type Flag = { flag: boolean; reasons: string[]; warnings: number; reporters: num
 /** Reports, messages and warnings: what staff see and can do, and the clock that keeps reports from waiting too long. */
 @Injectable()
 export class ModerationService implements OnModuleInit, OnModuleDestroy {
-  private timer?: NodeJS.Timeout;
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly jobs: JobsService,
+    private readonly oncall: OnCallService,
+    private readonly reliability: ReliabilityService,
   ) {}
 
   onModuleInit() {
-    if (process.env.NODE_ENV === 'test') return;
-    this.timer = setInterval(() => void this.escalateOverdue().catch(() => undefined), 15 * 60_000);
-    this.timer.unref();
+    // every 5 minutes: an urgent report has one hour, so a 15-minute wait would let it slip by a quarter of its time
+    this.jobs.every('moderation.escalate-overdue', 5 * 60_000, () => this.escalateOverdue());
   }
 
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
-  }
+  onModuleDestroy() {}
 
   // ---------------------------------------------------------------- when a report comes in
   isUrgent(category: string) {
     return URGENT_CATEGORIES.includes(category);
   }
 
-  /** An immediate-danger report tells every moderator at once, in or out of coverage hours. */
+  /**
+   * An immediate-danger report tells every moderator at once, in or out of coverage hours. Either kind of urgent report also
+   * pages the people on call (push, email and text); a physical-safety report only when nobody is on duty.
+   */
   async onReport(report: { id: string; category: string }) {
+    await this.oncall.pageArrival(report, !inCoverage()).catch(() => undefined); // paging must never fail the report itself
     if (report.category !== 'immediate_danger') return;
     const staff = await this.prisma.user.findMany({ where: { role: { in: MOD }, state: 'active' }, select: { id: true } });
     await this.notifications.notifyMany(staff.map((s) => s.id), 'report_urgent', 'Urgent report: someone may be in danger', 'Open the reports queue now. This one is marked urgent.', { reportId: report.id });
@@ -149,13 +173,53 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     return out;
   }
 
-  async queue(status?: string, category?: string, now = new Date()) {
-    const rows = await this.prisma.report.findMany({
-      where: { ...(status && { status }), ...(category && { category }) },
-      orderBy: [{ createdAt: 'asc' }],
-      take: 200,
-      include: { reporter: { select: { id: true, profile: { select: { displayName: true } } } } },
-    });
+  /** The city each report belongs to (its person's home city, the activity's city, the trip's start city), for staff who look after one area. */
+  async cityOfReports(reports: { id: string; targetType: string; targetId: string }[]): Promise<Map<string, string | null>> {
+    const ids = (type: string) => reports.filter((r) => r.targetType === type).map((r) => r.targetId);
+    const [users, acts, trips, msgs] = await Promise.all([
+      this.prisma.profile.findMany({ where: { userId: { in: ids('user') } }, select: { userId: true, homeCityKey: true } }),
+      this.prisma.activity.findMany({ where: { id: { in: ids('activity') } }, select: { id: true, cityKey: true } }),
+      this.prisma.trip.findMany({ where: { id: { in: ids('trip') } }, select: { id: true, originKey: true } }),
+      this.prisma.message.findMany({ where: { id: { in: ids('message') } }, select: { id: true, senderId: true } }),
+    ]);
+    const senders = await this.prisma.profile.findMany({ where: { userId: { in: msgs.map((m) => m.senderId) } }, select: { userId: true, homeCityKey: true } });
+    const home = new Map([...users, ...senders].map((p) => [p.userId, p.homeCityKey]));
+    const by = new Map<string, string | null>([
+      ...users.map((u) => [`user:${u.userId}`, u.homeCityKey] as const),
+      ...acts.map((a) => [`activity:${a.id}`, a.cityKey] as const),
+      ...trips.map((t) => [`trip:${t.id}`, t.originKey] as const),
+      ...msgs.map((m) => [`message:${m.id}`, home.get(m.senderId) ?? null] as const),
+    ]);
+    return new Map(reports.map((r) => [r.id, by.get(`${r.targetType}:${r.targetId}`) ?? null]));
+  }
+
+  /** Throws unless the report is about something in the staff member's area. */
+  async assertReportInScope(scope: Scope | null, report: { id: string; targetType: string; targetId: string }) {
+    if (!scope) return;
+    if (!inScope(scope, (await this.cityOfReports([report])).get(report.id))) throw E.forbidden('OUT_OF_SCOPE', 'That is outside the area you look after');
+  }
+
+  async queue(status?: string, category?: string, now = new Date(), scope: Scope | null = null) {
+    // Waiting reports (a status of open or in review): the oldest 500, PLUS every urgent or escalated one however new, so a long queue can never hide the
+    // newest urgent report. Finished ones: the latest 200.
+    const waiting = status === 'open' || status === 'in_review';
+    const where = { ...(status && { status }), ...(category && { category }) };
+    const include = { reporter: { select: { id: true, profile: { select: { displayName: true } } } } };
+    const found = waiting
+      ? await Promise.all([
+          this.prisma.report.findMany({ where, orderBy: [{ createdAt: 'asc' }], take: 500, include }),
+          this.prisma.report.findMany({
+            where: { ...where, OR: [{ priority: 'urgent' }, { category: { in: URGENT_CATEGORIES } }, { escalationLevel: { gt: 0 } }] },
+            orderBy: [{ createdAt: 'asc' }],
+            take: 500,
+            include,
+          }),
+        ]).then(([oldest, urgent]) => [...new Map([...oldest, ...urgent].map((r) => [r.id, r])).values()])
+      : await this.prisma.report.findMany({ where, orderBy: [{ createdAt: 'desc' }], take: 200, include });
+    // staff who look after one area see only the reports about it (a report about something no place covers is for the whole-service staff)
+    const cities = scope ? await this.cityOfReports(found) : null;
+    const rows = scope ? found.filter((r) => inScope(scope, cities!.get(r.id))) : found;
+    const evidence = await this.reliability.hostAbsenceEvidence(rows.filter((r) => r.category === 'host_no_show'));
     const who = await this.targetUsers(rows);
     const subjects = [...new Set([...who.values()].filter((x): x is string => !!x))];
     const [flags, people, assignees, msgs] = await Promise.all([
@@ -172,9 +236,13 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
       const urgent = r.priority === 'urgent' || this.isUrgent(r.category);
       const ageHours = (+now - +r.createdAt) / HOUR;
       const subject = who.get(r.id) ?? null;
+      const answerBy = new Date(+r.createdAt + (urgent ? ANSWER_WITHIN_HOURS.urgent : ANSWER_WITHIN_HOURS.normal) * HOUR);
       return {
         ...r,
         priority: urgent ? 'urgent' : 'normal',
+        open,
+        answerBy,
+        evidence: evidence.get(r.id) ?? null,
         ageHours: Math.round(ageHours * 10) / 10,
         overdue: open && ageHours > (urgent ? ANSWER_WITHIN_HOURS.urgent : ANSWER_WITHIN_HOURS.normal),
         escalated: !!r.escalatedAt,
@@ -184,10 +252,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
         repeatOffender: subject ? (flags.get(subject) ?? null) : null,
       };
     });
-    // urgent first, then escalated or overdue, then the oldest
-    const rank = (x: (typeof items)[number]) => (x.priority === 'urgent' ? 0 : x.escalated || x.overdue ? 1 : x.category === 'underage' ? 2 : 3);
-    items.sort((a, b) => rank(a) - rank(b) || +a.createdAt - +b.createdAt);
-    return { items };
+    return { items: orderQueue(items) };
   }
 
   /** Who is carrying what: each moderator's open reports, how long the oldest has waited, and what the queue looks like. */
@@ -219,18 +284,42 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** Reports that have waited past their answer time are passed up: the trust leads and administrators are told, once. */
+  /**
+   * What happens when nobody answers (the rules are written out in docs/compliance/oncall-process.md):
+   *  - level 1, past its answer time (1 hour urgent, 24 hours otherwise): the trust leads and administrators are told, once.
+   *    For an urgent report the people on call are paged too and the person who reported is told we have not answered yet.
+   *  - level 2, urgent and still nobody has taken it after 2 hours: every administrator and the owner contact are paged.
+   * Each level happens once per report. Returns how many reports moved up a level in this round.
+   */
   async escalateOverdue(now = new Date()) {
-    const open = await this.prisma.report.findMany({ where: { status: { in: ['open', 'in_review'] }, escalatedAt: null } });
-    const late = open.filter((r) => (+now - +r.createdAt) / HOUR > (r.priority === 'urgent' || this.isUrgent(r.category) ? ANSWER_WITHIN_HOURS.urgent : ANSWER_WITHIN_HOURS.normal));
-    if (late.length === 0) return 0;
-    await this.prisma.report.updateMany({ where: { id: { in: late.map((r) => r.id) } }, data: { escalatedAt: now } });
-    const seniors = await this.prisma.user.findMany({ where: { role: { in: ['trust_lead', 'admin'] }, state: 'active' }, select: { id: true } });
-    for (const r of late) {
-      await this.notifications.notifyMany(seniors.map((s) => s.id), 'report_escalated', 'A report is overdue', `A ${r.category.replace(/_/g, ' ')} report has waited longer than its answer time and has not been resolved.`, { reportId: r.id });
-      await this.audit.log(null, 'report.escalated', 'report', r.id, { category: r.category });
+    const open = await this.prisma.report.findMany({ where: { status: { in: ['open', 'in_review'] } } });
+    let moved = 0;
+    for (const r of open) {
+      const urgent = r.priority === 'urgent' || this.isUrgent(r.category);
+      const hours = (+now - +r.createdAt) / HOUR;
+      const level = r.escalationLevel || (r.escalatedAt ? 1 : 0); // reports escalated before levels existed count as level 1
+      const ageMinutes = Math.round(hours * 60);
+      if (level < 1 && hours > (urgent ? ANSWER_WITHIN_HOURS.urgent : ANSWER_WITHIN_HOURS.normal)) {
+        await this.prisma.report.update({ where: { id: r.id }, data: { escalatedAt: now, escalationLevel: 1 } });
+        const seniors = await this.prisma.user.findMany({ where: { role: { in: ['trust_lead', 'admin'] }, state: 'active' }, select: { id: true } });
+        if (urgent) await this.oncall.pageEscalation({ id: r.id, category: r.category, ageMinutes }, 1).catch(() => undefined);
+        else await this.notifications.notifyMany(seniors.map((s) => s.id), 'report_escalated', 'A report is overdue', `A ${r.category.replace(/_/g, ' ')} report has waited longer than its answer time and has not been resolved.`, { reportId: r.id });
+        if (urgent) {
+          // the person who reported hears that we are late, and is reminded of the emergency number
+          await this.notifications.notify(r.reporterId, 'report_update', 'We have not answered your report yet', `Your urgent report is still waiting and a senior member of staff has been told. If anyone is in danger right now, call ${EMERGENCY_NUMBER}.`, { reportId: r.id });
+        }
+        await this.audit.log(null, 'report.escalated', 'report', r.id, { category: r.category, level: 1, urgent });
+        moved++;
+      }
+      // nobody has taken an urgent report in two hours: the last step
+      if (urgent && level < 2 && !r.firstReviewedAt && hours > SECOND_ESCALATION_HOURS) {
+        await this.prisma.report.update({ where: { id: r.id }, data: { escalationLevel: 2, ...(r.escalatedAt ? {} : { escalatedAt: now }) } });
+        await this.oncall.pageEscalation({ id: r.id, category: r.category, ageMinutes }, 2).catch(() => undefined);
+        await this.audit.log(null, 'report.escalated', 'report', r.id, { category: r.category, level: 2, urgent });
+        if (level >= 1) moved++;
+      }
     }
-    return late.length;
+    return moved;
   }
 
   // ---------------------------------------------------------------- acting on a message or a person

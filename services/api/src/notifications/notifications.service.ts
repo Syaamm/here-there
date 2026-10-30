@@ -5,6 +5,11 @@ import { PushService } from '../common/push.service';
 
 export type Product = 'here' | 'there';
 
+/** How long a second alert about the same thing still joins the first (instead of being a new one). */
+export const GROUP_WINDOW_MS = 60 * 60 * 1000;
+/** `marker` is a piece of the alert's data that identifies the thing (e.g. `"activityId":"abc"`); `title` words the grouped alert. */
+export type NotifyOptions = { group?: { marker: string; windowMs?: number; title?: (count: number) => string } };
+
 /** Which product an alert is about: an activity is HERE, a trip or travel match is THERE; null (follows, warnings, verification) is for both. */
 export function productOf(type: string, data?: Record<string, unknown> | null): Product | null {
   const given = data?.product;
@@ -26,19 +31,37 @@ export class NotificationsService {
    * The in-app record, then: an app that is open hears about it straight away (live connection); everyone else gets a
    * push. Chat messages are handled by the conversations service, which pushes every message, not just the first alert.
    */
-  async notify(userId: string, type: string, title: string, body: string, data?: Record<string, unknown>) {
+  async notify(userId: string, type: string, title: string, body: string, data?: Record<string, unknown>, opts: NotifyOptions = {}) {
     // which product it belongs to travels with the alert, so an open app can tell a HERE alert from a THERE one
     const product = productOf(type, data);
     if (product && data) data.product = product;
+    const url = (() => {
+      const d = data as { activityId?: string; tripId?: string } | undefined;
+      return d?.activityId ? `/activity/${d.activityId}` : d?.tripId ? `/trip/${d.tripId}` : '/inbox';
+    })();
+    // Repeats are grouped: if this person already has an unread alert of this kind about the same thing, it is updated with
+    // a count instead of a second one being added (many messages in one chat, a plan edited several times in a row).
+    if (opts.group) {
+      const existing = await this.prisma.notification.findFirst({
+        where: { userId, type, readAt: null, createdAt: { gte: new Date(Date.now() - (opts.group.windowMs ?? GROUP_WINDOW_MS)) }, data: { contains: opts.group.marker } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing) {
+        const count = ((existing.data ? (JSON.parse(existing.data) as { count?: number }).count : 1) ?? 1) + 1;
+        const merged = { ...data, count };
+        const newTitle = opts.group.title ? opts.group.title(count) : title;
+        // it moves back to the top of the list, so a chat that is still busy is not buried under older alerts
+        await this.prisma.notification.update({ where: { id: existing.id }, data: { title: newTitle, body, data: JSON.stringify(merged), createdAt: new Date() } });
+        this.live.send(userId, { type: 'alerts-changed' });
+        if (type !== 'chat_message') this.push.queue(userId, { title: newTitle, body, url, alert: { type, data }, group: opts.group.marker });
+        return;
+      }
+    }
     const n = await this.prisma.notification.create({
       data: { userId, type, title, body, data: data ? JSON.stringify(data) : null, product },
     });
     this.live.send(userId, { type: 'notification', notification: { id: n.id, type, title, body, data: data ?? null, createdAt: n.createdAt } });
-    if (type !== 'chat_message') {
-      const d = data as { activityId?: string; tripId?: string } | undefined;
-      const url = d?.activityId ? `/activity/${d.activityId}` : d?.tripId ? `/trip/${d.tripId}` : '/inbox';
-      void this.push.send(userId, { title, body, url });
-    }
+    if (type !== 'chat_message') this.push.queue(userId, { title, body, url, alert: { type, data }, ...(opts.group ? { group: opts.group.marker } : {}) });
   }
 
   /**
@@ -57,7 +80,8 @@ export class NotificationsService {
     this.live.send(hostId, { type: 'alerts-changed' });
   }
 
-  async notifyMany(userIds: string[], type: string, title: string, body: string, data?: Record<string, unknown>) {
-    for (const id of new Set(userIds)) await this.notify(id, type, title, body, data);
+  async notifyMany(userIds: string[], type: string, title: string, body: string, data?: Record<string, unknown>, opts: NotifyOptions = {}) {
+    // each person gets their own copy of the data: notify() adds to it, and grouped alerts keep a count of their own
+    for (const id of new Set(userIds)) await this.notify(id, type, title, body, data ? { ...data } : undefined, opts);
   }
 }

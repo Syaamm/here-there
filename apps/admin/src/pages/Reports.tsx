@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
+import { OnCall } from './OnCall';
 import { askText, Chip, Empty, ErrorBanner, fmt, Icon, Page, Segmented, shortId, useAction, useLoad } from '../ui';
 
 type R = {
@@ -21,6 +22,21 @@ type R = {
   subject: { userId: string; displayName: string | null; state: string | null } | null;
   message: { id: string; body: string; moderationState: string } | null;
   repeatOffender: { flag: boolean; reasons: string[] } | null;
+  open?: boolean;
+  answerBy?: string | null;
+  escalationLevel?: 0 | 1 | 2;
+  evidence?: Evidence | null;
+};
+type Count = number | unknown[];
+/** What the server found out about a "host did not show up" report. */
+type Evidence = {
+  plan: { title: string; startsAt: string; endsAt: string; hostId: string };
+  attendees: Count;
+  reporters: Count;
+  membersSaidTheyAttended: number | null;
+  hostMessagesDuringPlan: number;
+  hostMarkedThisReporter: boolean;
+  earlierConfirmedAbsences: number;
 };
 type Workload = {
   policy: { coverage: { text: string; onDutyNow: boolean }; answerWithin: { urgent: string; normal: string } };
@@ -29,7 +45,19 @@ type Workload = {
 };
 type Status = 'open' | 'in_review' | 'resolved' | 'dismissed';
 
-const CATEGORIES = ['immediate_danger', 'harassment', 'fraud', 'inappropriate_content', 'underage', 'physical_safety', 'spam', 'financial_solicitation'];
+const NO_SHOW = 'host_no_show';
+const CATEGORIES = [NO_SHOW, 'immediate_danger', 'harassment', 'fraud', 'inappropriate_content', 'underage', 'physical_safety', 'spam', 'financial_solicitation'];
+const LABELS: Record<string, string> = { [NO_SHOW]: 'Host did not show up' };
+const label = (c: string) => LABELS[c] ?? c.replace(/_/g, ' ');
+const count = (v: Count) => (Array.isArray(v) ? v.length : v);
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** "due in 3 h" / "overdue by 40 min", from the time the server says an answer is due. */
+function due(iso: string, now = Date.now()) {
+  const ms = new Date(iso).getTime() - now;
+  const h = Math.abs(ms) / 3600000;
+  const t = h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`;
+  return ms >= 0 ? { late: false, text: `due in ${t}` } : { late: true, text: `overdue by ${t}` };
+}
 const hours = (h: number) => (h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
 
 export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Session; openUser?: (id: string) => void; focusId?: string | null; onClearFocus?: () => void }) {
@@ -43,7 +71,9 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   );
   const items = focusId ? (data?.items ?? []).filter((r) => r.id === focusId) : (data?.items ?? []);
   const open = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=open'), [status], 6000);
-  const work = useLoad(() => get<Workload>('/v1/admin/reports/workload'), [status], 15000);
+  // the workload view and the on-call rota are for staff of the whole service
+  const regional = !!me.scope;
+  const work = useLoad(() => (regional ? Promise.resolve<Workload | null>(null) : get<Workload>('/v1/admin/reports/workload')), [status, regional], 15000);
   const act = useAction(() => (reload(), open.reload(), work.reload()));
   const mod = can.moderate(me.role);
 
@@ -67,6 +97,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   const w = work.data;
   return (
     <Page title="Reports queue" sub="Urgent reports come first, then the ones that have waited too long.">
+      {!focusId && !regional && <OnCall me={me} />}
       {w && !focusId && (
         <div className="card" style={{ display: 'grid', gap: 10 }}>
           <div className="row between wrap">
@@ -119,7 +150,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
             <option value="">All categories</option>
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
-                {c.replace(/_/g, ' ')}
+                {label(c)}
               </option>
             ))}
           </select>
@@ -144,14 +175,20 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
             <li key={r.id} className="card report" style={r.priority === 'urgent' && active ? { borderColor: 'var(--orange)' } : undefined}>
               <div className="row between wrap">
                 <div className="row wrap">
-                  <Chip value={r.category} icon={r.priority === 'urgent' ? 'alert' : undefined} />
+                  {r.category === NO_SHOW ? <Chip value={label(r.category)} tone="info" icon={r.priority === 'urgent' ? 'alert' : undefined} /> : <Chip value={r.category} icon={r.priority === 'urgent' ? 'alert' : undefined} />}
                   <Chip value={r.status} />
                   {r.priority === 'urgent' && <span className="small" style={{ color: 'var(--orange)', fontWeight: 700 }}>Urgent</span>}
-                  {active && r.escalated && <Chip value="escalated" tone="bad" />}
-                  {active && r.overdue && !r.escalated && <Chip value="overdue" tone="warn" />}
+                  {active && r.escalationLevel === 2 && <Chip value="Critical: nobody has answered" tone="bad" icon="alert" />}
+                  {active && r.escalationLevel === 1 && <Chip value="Escalated" tone="warn" icon="alert" />}
+                  {active && !r.escalationLevel && r.escalated && <Chip value="escalated" tone="bad" />}
+                  {active && !r.escalationLevel && r.overdue && !r.escalated && <Chip value="overdue" tone="warn" />}
                   {r.repeatOffender?.flag && <Chip value="repeat offender" tone="bad" icon="alert" />}
                 </div>
-                <span className="muted small">{fmt(r.createdAt)}{active ? ` · waiting ${hours(r.ageHours)}` : ''}</span>
+                <span className="muted small">
+                  {fmt(r.createdAt)}
+                  {active ? ` · waiting ${hours(r.ageHours)}` : ''}
+                  {active && r.answerBy && <span className={`due${due(r.answerBy).late ? ' late' : ''}`}> · {due(r.answerBy).text}</span>}
+                </span>
               </div>
               <h3>“{r.details || 'No details given'}”</h3>
               {r.message && (
@@ -159,6 +196,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
                   <strong>The message{r.message.moderationState === 'removed' ? ' (hidden)' : ''}:</strong> {r.message.body}
                 </p>
               )}
+              {r.evidence && <EvidenceBlock e={r.evidence} />}
               {r.repeatOffender?.flag && <p className="small" style={{ margin: 0, color: 'var(--orange)' }}>Earlier: {r.repeatOffender.reasons.join('; ')}.</p>}
               <dl className="meta">
                 <div>
@@ -188,12 +226,12 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
                         Assign to me
                       </button>
                     )}
-                    {r.message && r.message.moderationState !== 'removed' && (
+                    {!regional && r.message && r.message.moderationState !== 'removed' && (
                       <button className="btn danger" onClick={() => removeMessage(r)} disabled={act.busy}>
                         Hide message
                       </button>
                     )}
-                    {r.subject && (
+                    {!regional && r.subject && (
                       <button className="btn" onClick={() => warn(r)} disabled={act.busy}>
                         Warn {r.subject.displayName ?? 'user'}
                       </button>
@@ -202,11 +240,16 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
                       Dismiss
                     </button>
                     <button className="btn primary" onClick={() => resolve(r, 'resolved')} disabled={act.busy}>
-                      <Icon name="check" /> Resolve
+                      <Icon name="check" /> {r.category === NO_SHOW ? 'Confirm' : 'Resolve'}
                     </button>
+                    {r.category === NO_SHOW && (
+                      <span className="muted small" style={{ flexBasis: '100%' }}>
+                        Confirming cancels the host's no-show notes for this plan and counts against the host.
+                      </span>
+                    )}
                   </div>
                 )}
-                {mod && !active && r.message?.moderationState === 'removed' && (
+                {mod && !regional && !active && r.message?.moderationState === 'removed' && (
                   <div className="cell-actions">
                     <button className="btn" onClick={() => restoreMessage(r)} disabled={act.busy}>
                       Put the message back
@@ -220,5 +263,23 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
         })}
       </ul>
     </Page>
+  );
+}
+
+function EvidenceBlock({ e }: { e: Evidence }) {
+  const total = count(e.attendees);
+  const said = count(e.reporters);
+  return (
+    <div className="evidence" role="group" aria-label="What we found about this plan">
+      <h4>What we found</h4>
+      <p>
+        <strong>{e.plan.title}</strong>, {fmt(e.plan.startsAt)}.
+      </p>
+      <p>
+        {said} of {total} {total === 1 ? 'member says' : 'members say'} the host did not come. The host wrote {plural(e.hostMessagesDuringPlan, 'message', 'messages')} in the chat during the plan.
+        {e.membersSaidTheyAttended != null && ` ${plural(e.membersSaidTheyAttended, 'member', 'members')} marked themselves as attended.`}
+        {e.hostMarkedThisReporter && ' The host also marked this reporter as a no-show.'} Earlier confirmed absences: {e.earlierConfirmedAbsences}.
+      </p>
+    </div>
   );
 }

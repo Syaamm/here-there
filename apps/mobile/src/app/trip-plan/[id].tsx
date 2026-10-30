@@ -11,6 +11,7 @@ import { ApiError, del, get, patch, post, type Trip } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, isoDay, money } from '@/lib/format';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
 import { localeTag, t, tn, useT } from '@/lib/i18n';
 
@@ -40,8 +41,15 @@ export default function TripPlan() {
   const { t, tn } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { c } = useTheme();
-  const plan = useLoad(() => get<Plan>(`/v1/trips/${id}/plan`), [id], 30_000, 'trip:plan:v2');
+  // someone in the group changed the plan (or the trip's dates): it loads at once; the poll is only a rare safety net while the live connection is up
+  const plan = useLoad(() => get<Plan>(`/v1/trips/${id}/plan`), [id], 30_000, 'trip:plan:v2', { live: true });
   const trip = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip:plan:trip');
+  useLiveEvents((e) => {
+    if (e.type === 'ready' || (e.type === 'group-changed' && e.kind === 'trip' && e.id === id)) {
+      void plan.reload();
+      if (e.type === 'group-changed') void trip.reload();
+    }
+  });
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([plan.reload(), trip.reload()]));
 
   // the day chosen on the calendar (until one is chosen, the day that makes most sense: see `active` below)

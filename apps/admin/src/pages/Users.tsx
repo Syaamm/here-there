@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { can, get, post, STAFF, type Role, type Session } from '../api';
 import { askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Page, RowMenu, Search, Segmented, useAction, useLoad, useMore, usePages } from '../ui';
 
-type U = { id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; homeCity?: string; createdAt: string };
+type U = { adminRegionKey?: string | null; id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; homeCity?: string; createdAt: string };
 type Detail = {
   id: string;
   email: string;
@@ -68,8 +68,20 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
     const reason = await askText(`Reset two-step sign-in for ${u.displayName ?? u.email}?`, { label: 'Why? (kept in the audit log) They will sign in with just a password until they set it up again.', confirm: 'Reset' });
     if (reason) act.run(() => post(`/v1/admin/users/${u.id}/mfa/reset`, { reason }));
   };
-  const setRole = (u: U, role: string) => {
-    if (role !== u.role && confirm(`Change role of ${u.email} to "${role}"?`)) act.run(() => post(`/v1/admin/users/${u.id}/role`, { role }));
+  const setRole = async (u: U, role: string) => {
+    if (role === u.role) return users.reload();
+    // staff can look after the whole service, or one country, region or city: ask which
+    if (role !== 'user') {
+      const places = await get<{ items: { key: string; name: string; kind: string }[] }>('/v1/admin/regions').catch(() => ({ items: [] }));
+      const pick = await askChoiceText(`Make ${u.email} ${role.replace('_', ' ')}`, [['', 'The whole service'], ...places.items.filter((p) => p.kind !== 'global').map((p) => [p.key, `${p.name} (${p.kind})`] as [string, string])], {
+        label: 'Anything to note? (optional)',
+        choiceLabel: 'Which part of the service do they look after?',
+        confirm: 'Make staff',
+        required: false,
+      });
+      if (!pick) return users.reload();
+      act.run(() => post(`/v1/admin/users/${u.id}/role`, { role, regionKey: pick.choice || null }));
+    } else if (confirm(`Make ${u.email} an ordinary member again? They lose staff access.`)) act.run(() => post(`/v1/admin/users/${u.id}/role`, { role }));
     else users.reload();
   };
 
@@ -190,6 +202,7 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
           ) : (
             u.role.replace('_', ' ')
           )}
+          {u.role !== 'user' && <div className="muted small">{u.adminRegionKey ? `area: ${u.adminRegionKey}` : 'whole service'}</div>}
         </td>
         <td>
           <Chip value={u.state} />
@@ -235,7 +248,8 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
 function UserDetail({ id, me, openReport }: { id: string; me: Session; openReport?: (id: string) => void }) {
   const { data, error, loading, reload } = useLoad(() => get<Detail>(`/v1/admin/users/${id}`), [id], 6000);
   const act = useAction(reload);
-  const rel = useLoad(() => get<Reliab>(`/v1/admin/users/${id}/reliability`), [id], 30000);
+  // the reliability detail is for staff of the whole service
+  const rel = useLoad(() => (me.scope ? Promise.resolve<Reliab | null>(null) : get<Reliab>(`/v1/admin/users/${id}/reliability`)), [id, !!me.scope], 30000);
   const mod = can.moderate(me.role);
   const decide = async (reportId: string, status: 'resolved' | 'dismissed') => {
     const resolution = await askText(status === 'resolved' ? 'Resolve report' : 'Dismiss report', {

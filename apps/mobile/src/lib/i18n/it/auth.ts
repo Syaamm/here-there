@@ -149,4 +149,11 @@ export const auth: Record<string, string> = {
   'Your identity check is in review.': 'Il controllo della tua identità è in revisione.',
   'Your last check was not approved.': 'Il tuo ultimo controllo non è stato approvato.',
   'Verify your identity to join, host and chat.': 'Verifica la tua identità per partecipare, organizzare e scrivere.',
+
+  // sign-up, step 2 (the code from the email)
+  'Check your email': 'Controlla la tua email',
+  'We sent a 6-digit code to {email}. Enter it to finish creating your account.': 'Abbiamo inviato un codice di 6 cifre a {email}. Inseriscilo per completare la creazione dell\'account.',
+  'We sent a new code.': 'Abbiamo inviato un nuovo codice.',
+  'Send the code again': 'Invia di nuovo il codice',
+  'Already have an account with this email? Check your inbox: we sent you a note, and you can log in or reset your password.': 'Hai già un account con questa email? Controlla la posta: ti abbiamo scritto, e puoi accedere o reimpostare la password.',
 };

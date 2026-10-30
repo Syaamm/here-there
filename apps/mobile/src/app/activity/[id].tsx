@@ -8,6 +8,7 @@ import { Pressable, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FloatingButton, Hero } from '@/components/Hero';
 import { Menu } from '@/components/Menu';
+import { HostNoShowSheet, hostNoShowOpen } from '@/components/HostNoShowSheet';
 import { ReportSheet } from '@/components/ReportSheet';
 import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Sheet, Txt, useGo } from '@/components/ui';
 import { del, get, post, type Activity } from '@/lib/api';
@@ -52,6 +53,7 @@ export default function ActivityDetail() {
   const { data: a, error, loading, reload } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'activity' | 'user'; id: string } | null>(null);
+  const [noShow, setNoShow] = useState<'closed' | 'open' | 'confirm' | 'sent'>('closed'); // "the host did not show up": sheet closed, open, showing its thank-you, or sent and closed
   useEnterMode('here'); // opened from a THERE alert, push or link: flip to HERE first
   useEffect(() => {
     if (favNow !== null && !!a?.favorited === favNow) setFavNow(null); // the server has caught up
@@ -252,6 +254,7 @@ export default function ActivityDetail() {
               </View>
             ) : null}
             {a.isHost && a.status !== 'cancelled' ? <Btn title={t('Who came?')} variant="secondary" onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
+            {a.isMember && !a.isHost && a.status !== 'cancelled' && hostNoShowOpen(a.startsAt, a.endsAt) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
             <Txt variant="h2" accessibilityRole="header">{t('Members who took part ({n})', { n: going.length })}</Txt>
             {going.map((p) => (
               <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={p.role === 'host' ? t('{name}, host. Open profile', { name: p.displayName }) : t('{name}. Open profile', { name: p.displayName })} onPress={() => go(`/user/${p.id}`)}>
@@ -336,6 +339,7 @@ export default function ActivityDetail() {
             ) : a.isMember ? (
               <View style={{ gap: 10 }}>
                 <Banner tone="ok">{t("You're going. See you there!")}</Banner>
+                {a.isMember && !a.isHost && a.status !== 'cancelled' && hostNoShowOpen(a.startsAt, a.endsAt) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
                 <Btn title={t('Leave activity')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this activity?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/activities/${id}/leave`))} />
               </View>
             ) : req === 'requested' ? (
@@ -354,6 +358,7 @@ export default function ActivityDetail() {
         {/* room under the content for the fixed bar */}
         {primary ? <View style={{ height: 64 + insets.bottom }} /> : null}
         <ReportSheet target={report} onClose={() => setReport(null)} />
+        <HostNoShowSheet kind="activity" id={id} visible={noShow === 'open' || noShow === 'confirm'} onClose={() => setNoShow((v) => (v === 'confirm' || v === 'sent' ? 'sent' : 'closed'))} onSent={() => setNoShow('confirm')} />
         <Sheet visible={handing} title={t('Hand over hosting')} onClose={() => setHanding(false)}>
           {(a.participants ?? [])
             .filter((p) => p.role !== 'host' && p.verifiedAdult)

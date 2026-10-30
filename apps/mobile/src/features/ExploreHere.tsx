@@ -30,7 +30,7 @@ export function ExploreHere() {
   const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   // the filter button: which part of the day to show
-  const [when, setWhen] = useState<'any' | 'soon' | 'tonight' | 'tomorrow'>('any');
+  const [when, setWhen] = useState<'any' | 'soon' | 'tonight' | 'tomorrow' | 'later'>('any');
   const [filterOpen, setFilterOpen] = useState(false);
 
   const feed = useLoad(
@@ -138,6 +138,7 @@ export function ExploreHere() {
       <ListSection index={1} title={t('Happening soon')} list={when === 'any' || when === 'soon' ? soon : []} max={MAX} onMore={() => go('/activities?section=soon')} />
       <ListSection index={2} title={t('Tonight')} list={when === 'any' || when === 'tonight' ? sections[1].items : []} max={MAX} onMore={() => go('/activities?section=tonight')} />
       <ListSection index={3} title={t('Tomorrow')} list={when === 'any' || when === 'tomorrow' ? sections[2].items : []} max={MAX} onMore={() => go('/activities?section=tomorrow')} />
+      <ListSection index={3} title={t('Later')} list={when === 'any' || when === 'later' ? sections[3].items : []} max={MAX} onMore={() => go('/activities?section=later')} />
 
       <Reveal index={4}>
         <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.sand, borderWidth: 0, borderRadius: 20, padding: 16 }}>
@@ -181,6 +182,7 @@ export function ExploreHere() {
               ['soon', 'Next 2 hours'],
               ['tonight', 'Tonight'],
               ['tomorrow', 'Tomorrow'],
+              ['later', 'Later'],
             ] as const
           ).map(([k, label]) => (
             <Pill key={k} label={t(label)} active={when === k} onPress={() => setWhen(k)} />

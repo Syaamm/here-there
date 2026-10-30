@@ -3,7 +3,7 @@ import { User } from '@prisma/client';
 import { checkPassword } from '../common/password';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
-import { afterKeyset, beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { afterKeyset, beforeKeyset, decodeKeyset, pageLimit, sliceKeyset, pageOf } from '../common/paging';
 import { CurrentUser, Public, Staff } from '../common/auth';
 import { EmailService } from '../common/email.service';
 import { E } from '../common/errors';
@@ -118,9 +118,7 @@ export class AppealsService {
   }
 
   async mine(me: User, limitRaw?: string, cursorRaw?: string) {
-    const limit = pageLimit(limitRaw, 20);
-    const found = await this.prisma.appeal.findMany({ where: { userId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw)) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
-    const page = sliceKeyset(found, limit, (a) => a.createdAt);
+    const page = await pageOf((a) => this.prisma.appeal.findMany(a), { limit: pageLimit(limitRaw, 20), cursor: cursorRaw, where: { userId: me.id } });
     return { items: page.items.map((a) => this.dto(a)), nextCursor: page.nextCursor };
   }
 
@@ -132,13 +130,10 @@ export class AppealsService {
   // ---------------------------------------------------------------- staff
   async queue(state: string, limitRaw?: string, cursorRaw?: string) {
     const size = pageLimit(limitRaw, 100, 200);
-    const all = await this.prisma.appeal.findMany({
-      where: { AND: [{ state }, afterKeyset(decodeKeyset(cursorRaw))] },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      take: size + 1,
-      include: { user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } },
-    });
-    const { items: rows, nextCursor } = sliceKeyset(all, size, (a) => a.createdAt);
+    const { items: rows, nextCursor } = await pageOf(
+      (a) => this.prisma.appeal.findMany({ ...a, include: { user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } } }),
+      { limit: size, cursor: cursorRaw, where: { state }, order: 'asc' },
+    );
     return {
       nextCursor,
       items: await Promise.all(

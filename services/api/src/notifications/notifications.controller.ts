@@ -2,7 +2,7 @@ import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { CurrentUser } from '../common/auth';
 import { E } from '../common/errors';
-import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { decodeKeyset, pageLimit, sliceKeyset, pageOf } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 
 /** One product's alerts plus the ones for both; no filter when the product is not given. */
@@ -20,21 +20,17 @@ export class NotificationsController {
    */
   @Get()
   async list(@CurrentUser() me: User, @Query('unread') unread?: string, @Query('scope') scope?: string, @Query('limit') limitRaw?: string, @Query('cursor') cursorRaw?: string, @Query('product') productRaw?: string) {
-    const limit = pageLimit(limitRaw, 100);
-    const cur = decodeKeyset(cursorRaw);
     const product = productFilter(productRaw);
-    const rows = await this.prisma.notification.findMany({
+    const page = await pageOf((a) => this.prisma.notification.findMany(a), {
+      limit: pageLimit(limitRaw, 100),
+      cursor: cursorRaw,
       where: {
         userId: me.id,
         ...(unread === 'true' ? { readAt: null } : {}),
         ...(scope === 'alerts' ? { type: { not: 'chat_message' } } : {}),
         ...product,
-        ...(cur ? { AND: [{ OR: [{ createdAt: { lt: cur.at } }, { createdAt: cur.at, id: { lt: cur.id } }] }] } : {}),
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1,
     });
-    const page = sliceKeyset(rows, limit, (n) => n.createdAt);
     // unread that belongs to exactly one product, so the app can say "2 new in HERE" while you are in THERE
     const unreadWhere = { userId: me.id, readAt: null };
     const [unreadCount, here, there] = await Promise.all([

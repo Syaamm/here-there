@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/
 import { User } from '@prisma/client';
 import { z } from 'zod';
 import { ActivitiesService } from '../activities/activities.service';
-import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset, pageOf } from '../common/paging';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser } from '../common/auth';
 import { E } from '../common/errors';
@@ -44,9 +44,7 @@ export class DraftsController {
 
   @Get()
   async list(@CurrentUser() me: User, @Query('limit') limitRaw?: string, @Query('cursor') cursorRaw?: string) {
-    const limit = pageLimit(limitRaw, 20);
-    const found = await this.prisma.draft.findMany({ where: { userId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw), 'updatedAt') }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
-    const page = sliceKeyset(found, limit, (d) => d.updatedAt);
+    const page = await pageOf((a) => this.prisma.draft.findMany(a), { limit: pageLimit(limitRaw, 20), cursor: cursorRaw, where: { userId: me.id }, sortBy: 'updatedAt' });
     return { items: page.items.map(dto), nextCursor: page.nextCursor };
   }
 

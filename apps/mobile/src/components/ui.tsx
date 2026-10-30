@@ -1,7 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useIsFocused, useRouter } from 'expo-router';
 import { Children, createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Image, Modal, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Modal, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
 import { Text, TextInput } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { photoSrc } from '@/lib/api';
@@ -459,7 +460,8 @@ export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: n
   return (
     <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: tint, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
       {src && !failed ? (
-        <Image source={{ uri: src }} resizeMode="cover" onError={() => setFailed(true)} style={{ width: size, height: size }} />
+        // the address carries the upload time, so a kept copy never goes stale; expo-image keeps it on disk and in memory
+        <Image source={{ uri: src }} contentFit="cover" cachePolicy="memory-disk" recyclingKey={src} transition={120} onError={() => setFailed(true)} style={{ width: size, height: size }} />
       ) : (
         <Text style={{ color: c.forest, fontWeight: '800', fontSize: size * 0.42 }}>{name?.[0]?.toUpperCase() ?? '?'}</Text>
       )}

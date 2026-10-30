@@ -1,3 +1,4 @@
+import { setRequestUser } from './observability';
 import {
   CanActivate,
   ExecutionContext,
@@ -14,6 +15,7 @@ import { PrismaService } from './prisma.service';
 
 const IS_PUBLIC = 'isPublic';
 const STAFF = 'staffRoles';
+const REGIONAL_OK = 'regionalOk';
 
 /** What the person sees when they are locked out: for how long, if it is timed. */
 export const suspendedMessage = (until: Date | null) => (until ? `This account is suspended until ${until.toUTCString().slice(5, 16)}` : 'This account is suspended');
@@ -24,6 +26,16 @@ export const suspendedMessage = (until: Date | null) => (until ? `This account i
  */
 export const sessionRevoked = (pv: number | undefined, changedAt: Date | null) => (pv ?? 0) !== (changedAt ? +changedAt : 0);
 export const passwordVersion = (changedAt: Date | null) => (changedAt ? +changedAt : 0);
+/**
+ * What a sign-in is tied to: `pv` (the password version) and `rv` (the "log out everywhere" version). If either has moved
+ * on since the token was made, the token is dead on the very next request.
+ */
+type Versions = { passwordChangedAt: Date | null; sessionsRevokedAt?: Date | null };
+export const tokenVersions = (u: Versions) => ({ pv: passwordVersion(u.passwordChangedAt), rv: u.sessionsRevokedAt ? +u.sessionsRevokedAt : 0 });
+export const tokenRevoked = (t: { pv?: number; rv?: number }, u: Versions) => {
+  const now = tokenVersions(u);
+  return (t.pv ?? 0) !== now.pv || (t.rv ?? 0) !== now.rv;
+};
 
 /** Staff must use two-step sign-in in production; in development it is optional so the demo accounts keep working. */
 export const staffMfaRequired = () => process.env.STAFF_MFA_REQUIRED === 'true' || (process.env.NODE_ENV === 'production' && process.env.STAFF_MFA_REQUIRED !== 'false');
@@ -31,6 +43,12 @@ export const staffMfaRequired = () => process.env.STAFF_MFA_REQUIRED === 'true' 
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 /** Restrict a route to staff roles (admin console). */
 export const Staff = (...roles: string[]) => SetMetadata(STAFF, roles);
+/**
+ * Staff whose account is limited to a region (a city, a region or a country) may use ONLY the routes marked with this; every
+ * other staff route is for staff of the whole service. Marked routes must check that what they touch is inside the region
+ * (see regions/regions.service.ts). Forgetting the mark is safe: the route stays closed to regional staff.
+ */
+export const RegionalOk = () => SetMetadata(REGIONAL_OK, true);
 export const CurrentUser = createParamDecorator((_: unknown, ctx: ExecutionContext): User => {
   return ctx.switchToHttp().getRequest().user;
 });
@@ -63,19 +81,20 @@ export class AuthGuard implements CanActivate {
     }
 
     let sub: string;
-    let pv: number | undefined;
+    let versions: { pv?: number; rv?: number };
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string; pv?: number; purpose?: string }>(token);
+      const payload = await this.jwt.verifyAsync<{ sub: string; sid?: string; pv?: number; rv?: number; purpose?: string }>(token);
       if (payload.purpose) throw new Error('not a sign-in'); // the pass from the first half of a two-step sign-in is not a sign-in
       sub = payload.sub;
-      pv = payload.pv;
+      versions = payload;
+      req.sessionId = payload.sid; // which sign-in this request belongs to (for "log out of this device")
     } catch {
       if (isPublic) return true;
       throw E.unauthorized('INVALID_TOKEN', 'Invalid or expired token');
     }
 
     const row = await this.prisma.user.findUnique({ where: { id: sub } });
-    if (!row || row.state === 'deleted' || sessionRevoked(pv, row.passwordChangedAt)) {
+    if (!row || row.state === 'deleted' || tokenRevoked(versions, row)) {
       if (isPublic) return true;
       throw E.unauthorized('INVALID_TOKEN', 'Invalid or expired token');
     }
@@ -94,9 +113,12 @@ export class AuthGuard implements CanActivate {
     const user = await this.verification.expireIfDue(row);
 
     if (staff && !staff.includes(user.role)) throw E.forbidden('FORBIDDEN', 'Insufficient role');
+    if (staff && user.adminRegionKey && !this.reflector.getAllAndOverride<boolean>(REGIONAL_OK, targets))
+      throw E.forbidden('GLOBAL_STAFF_ONLY', 'This is only for staff who look after the whole service');
     // staff reach the admin console only with two-step sign-in on (they can still open the page that sets it up)
     if (staff && staffMfaRequired() && !user.mfaEnabledAt) throw E.forbidden('MFA_REQUIRED', 'Set up two-step sign-in to use the admin console.');
     req.user = user;
+    setRequestUser(user.id); // later log lines for this request carry the id
     return true;
   }
 }

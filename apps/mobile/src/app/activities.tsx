@@ -14,9 +14,10 @@ const EMPTY: Record<string, string> = {
   soon: 'Nothing starts in the next 2 hours.',
   tonight: 'Nothing else planned for tonight.',
   tomorrow: 'Nothing planned for tomorrow yet.',
+  later: 'Nothing planned further ahead yet.',
 };
 
-/** HERE · every activity from now until the end of tomorrow, as a list in three sections. */
+/** HERE · every activity from now on, as a list in four sections: the next 2 hours, tonight, tomorrow and later. */
 export default function AllActivities() {
   const { t } = useT();
   // Opened from the map's "List" button: picking an activity goes back to the map and selects it there.

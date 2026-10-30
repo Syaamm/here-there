@@ -10,7 +10,7 @@ import { RateLimiter } from '../common/rate-limiter';
 import { parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
-  DAY, DISPUTE_DAYS, HORIZON_DAYS, HOUR, LATE_ACTIVITY_H, LATE_HOST_TRIP_DAYS, LATE_TRIP_DAYS, LEVEL_LABEL, MARK_WINDOW_H, PENALTY,
+  DAY, DISPUTE_DAYS, HORIZON_DAYS, HOST_ABSENT_GRACE_MIN, HOST_ABSENT_WINDOW_H, HOST_MARK_REVIEW, HOUR, LATE_ACTIVITY_H, LATE_HOST_TRIP_DAYS, LATE_TRIP_DAYS, LEVEL_LABEL, MARK_WINDOW_H, PENALTY,
   capPerDay, describe, reliabilityInfo, summarise, weightOf, type Fact, type Level, type Summary,
 } from './reliability';
 
@@ -23,7 +23,7 @@ const ALL = ['support', 'moderator', 'trust_lead', 'admin'];
 
 const confirmed = (m: { state: string; markedAt: Date }, now: Date) => m.state === 'upheld' || (m.state === 'marked' && +now > +m.markedAt + DISPUTE_DAYS * DAY);
 const CATEGORY_WORDS: Record<string, string> = {
-  harassment: 'harassment', fraud: 'fraud', inappropriate_content: 'inappropriate content', underage: 'age concern', physical_safety: 'physical safety', spam: 'spam', financial_solicitation: 'asking for money',
+  host_no_show: 'the host did not show up', harassment: 'harassment', fraud: 'fraud', inappropriate_content: 'inappropriate content', underage: 'age concern', physical_safety: 'physical safety', spam: 'spam', financial_solicitation: 'asking for money',
 };
 
 const LEVEL_LINE: Record<Level, string> = {
@@ -263,6 +263,7 @@ export class ReliabilityService {
     const m = await this.prisma.attendanceMark.create({ data: { kind, targetId: id, userId, markedById: me.id, title: p.title, planEndsAt: p.endsAt } });
     await this.audit.log(me.id, 'attendance.marked', kind, id, { userId, markId: m.id });
     await this.notifications.notify(userId, 'attendance_marked', 'The host says you did not come', `${p.title}: you can dispute this.`, { markId: m.id, ...(kind === 'activity' ? { activityId: id } : { tripId: id }) });
+    await this.reviewHost(me.id).catch(() => undefined); // never lets the check get in the way of the note
     return { id: m.id, state: m.state };
   }
 
@@ -323,7 +324,10 @@ export class ReliabilityService {
     });
     const people = await this.prisma.user.findMany({ where: { id: { in: [...new Set(rows.flatMap((r) => [r.userId, r.markedById]))] } }, select: { id: true, email: true, profile: { select: { displayName: true } } } });
     const name = new Map(people.map((p) => [p.id, { id: p.id, email: p.email, displayName: p.profile?.displayName ?? p.email }]));
-    return { items: rows.map((r) => ({ id: r.id, kind: r.kind, targetId: r.targetId, title: r.title, state: r.state, markedAt: r.markedAt, disputedAt: r.disputedAt, disputeNote: r.disputeNote, decisionNote: r.decisionNote, member: name.get(r.userId), host: name.get(r.markedById) })) };
+    // hosts whose notes look unusual are marked, so a moderator reads those notes with that in mind
+    const hosts = [...new Set(rows.map((r) => r.markedById))].slice(0, 30);
+    const flagged = new Map((await Promise.all(hosts.map(async (h) => [h, await this.hostPattern(h)] as const))).map(([h, p]) => [h, p.flag ? p.reasons : null]));
+    return { items: rows.map((r) => ({ id: r.id, kind: r.kind, targetId: r.targetId, title: r.title, state: r.state, markedAt: r.markedAt, disputedAt: r.disputedAt, disputeNote: r.disputeNote, decisionNote: r.decisionNote, member: name.get(r.userId), host: name.get(r.markedById), hostUnusual: flagged.get(r.markedById) ?? null })) };
   }
 
   /** A moderator settles a note: uphold it (it counts) or overturn it (it never counts). Works on any note, to fix mistakes. */
@@ -337,7 +341,124 @@ export class ReliabilityService {
     const text = decision === 'uphold' ? 'A moderator confirmed it.' : 'A moderator overturned it.';
     await this.notifications.notify(m.userId, 'attendance_decided', decision === 'uphold' ? 'Note confirmed' : 'Note overturned', `${m.title}: ${text}`, { markId: m.id });
     await this.notifications.notify(m.markedById, 'attendance_decided', decision === 'uphold' ? 'Your note was confirmed' : 'Your note was overturned', `${m.title}: a moderator ${decision === 'uphold' ? 'confirmed' : 'overturned'} your note.`, { markId: m.id });
+    await this.reviewHost(m.markedById).catch(() => undefined); // a string of overturned notes is a reason to look at the host
     return { id: m.id, state };
+  }
+
+  // ---------------------------------------------------------------- members: the host did not show up
+  /**
+   * A member of a plan says the host never came. It is an ordinary report (category host_no_show) that moderators decide; if
+   * one confirms it, it counts against the host like any upheld report, and the notes the host made about members for that
+   * plan are cancelled (see onHostAbsenceUpheld). Only approved members can say it, only once the plan has been on for a
+   * while, and only for a few days after it ended.
+   */
+  async reportHostAbsent(me: User, kind: Kind, id: string, note?: string) {
+    const p = await this.plan(kind, id);
+    const member = !p
+      ? null
+      : kind === 'activity'
+        ? await this.prisma.activityMembership.findFirst({ where: { activityId: id, userId: me.id, role: 'attendee', state: 'approved' }, select: { id: true } })
+        : await this.prisma.tripMembership.findFirst({ where: { tripId: id, userId: me.id, role: 'member', state: 'approved' }, select: { id: true } });
+    if (!p || !member) throw this.notFound(kind); // not a member: the plan does not exist as far as they can tell
+    if (p.cancelled) throw E.conflict('PLAN_CANCELLED', 'This plan was cancelled');
+    const now = new Date();
+    if (+now < +p.startsAt + HOST_ABSENT_GRACE_MIN * 60_000) throw E.conflict('HOST_ABSENT_TOO_EARLY', `You can say the host did not show up ${HOST_ABSENT_GRACE_MIN} minutes after the plan has started`);
+    if (+now > +p.endsAt + HOST_ABSENT_WINDOW_H * HOUR) throw E.conflict('HOST_ABSENT_WINDOW_CLOSED', `The ${HOST_ABSENT_WINDOW_H} hours to say the host did not show up have passed`);
+    const existing = await this.prisma.report.findFirst({ where: { reporterId: me.id, targetType: kind, targetId: id, category: 'host_no_show' } });
+    if (existing) return { id: existing.id, status: existing.status, priority: existing.priority };
+    this.limiter.hit(`host-absent:${me.id}`, 10, DAY);
+    const r = await this.prisma.report.create({ data: { reporterId: me.id, targetType: kind, targetId: id, category: 'host_no_show', details: note || undefined, priority: 'normal' } });
+    await this.audit.log(me.id, 'attendance.host_absent_reported', kind, id, { reportId: r.id });
+    // the host is told, in neutral words: it is a report, not a decision
+    await this.notifications.notify(p.hostId, 'host_absence_reported', 'A member says you did not show up', `${p.title}: a moderator will look at it. If you were there, you do not need to do anything unless we contact you.`, { reportId: r.id, ...(kind === 'activity' ? { activityId: id } : { tripId: id }) });
+    return { id: r.id, status: r.status, priority: r.priority };
+  }
+
+  /** What a moderator needs to decide a "host did not show up" report: who says what, and what the plan's own records show. */
+  async hostAbsenceEvidence(reports: { id: string; targetType: string; targetId: string; reporterId: string }[]) {
+    const out = new Map<string, Record<string, unknown>>();
+    for (const r of reports) {
+      const kind: Kind = r.targetType === 'trip' ? 'trip' : 'activity';
+      const p = await this.plan(kind, r.targetId);
+      if (!p) continue;
+      const conv = await this.prisma.conversation.findUnique({ where: kind === 'activity' ? { activityId: r.targetId } : { tripId: r.targetId }, select: { id: true } });
+      const [reporters, attendees, attended, hostMessages, hostMarkedReporter, hostActs, hostTrips] = await Promise.all([
+        this.prisma.report.findMany({ where: { targetType: kind, targetId: r.targetId, category: 'host_no_show' }, select: { reporterId: true } }),
+        this.attendees(kind, r.targetId),
+        kind === 'activity' ? this.prisma.activityMembership.count({ where: { activityId: r.targetId, role: 'attendee', state: 'approved', attendance: 'attended' } }) : Promise.resolve(null),
+        conv ? this.prisma.message.count({ where: { conversationId: conv.id, senderId: p.hostId, kind: { not: 'system' }, createdAt: { gte: new Date(+p.startsAt - HOUR), lte: new Date(+p.endsAt + HOUR) } } }) : Promise.resolve(0),
+        this.prisma.attendanceMark.findFirst({ where: { kind, targetId: r.targetId, userId: r.reporterId }, select: { id: true } }),
+        this.prisma.activity.findMany({ where: { hostId: p.hostId, id: { not: r.targetId } }, select: { id: true } }),
+        this.prisma.trip.findMany({ where: { hostId: p.hostId, id: { not: r.targetId } }, select: { id: true } }),
+      ]);
+      const earlier = await this.prisma.report.count({ where: { category: 'host_no_show', status: 'resolved', targetId: { in: [...hostActs, ...hostTrips].map((x) => x.id) } } });
+      out.set(r.id, {
+        plan: { title: p.title, startsAt: p.startsAt, endsAt: p.endsAt, hostId: p.hostId },
+        attendees: attendees.length,
+        reporters: new Set(reporters.map((x) => x.reporterId)).size,
+        membersSaidTheyAttended: attended,
+        hostMessagesDuringPlan: hostMessages,
+        hostMarkedThisReporter: !!hostMarkedReporter,
+        earlierConfirmedAbsences: earlier,
+      });
+    }
+    return out;
+  }
+
+  /** A moderator confirmed the host did not show up: the host's notes about members for that plan are cancelled, and the host is told. */
+  async onHostAbsenceUpheld(actor: User, report: { id: string; targetType: string; targetId: string }) {
+    const kind: Kind = report.targetType === 'trip' ? 'trip' : 'activity';
+    const p = await this.plan(kind, report.targetId);
+    if (!p) return;
+    const notes = await this.prisma.attendanceMark.findMany({ where: { kind, targetId: report.targetId, state: { in: ['marked', 'disputed'] } } });
+    for (const m of notes) {
+      await this.prisma.attendanceMark.update({ where: { id: m.id }, data: { state: 'overturned', decidedById: actor.id, decidedAt: new Date(), decisionNote: 'Cancelled: a moderator confirmed the host did not show up to this plan.' } });
+      await this.audit.log(actor.id, 'attendance.overturned', kind, report.targetId, { markId: m.id, userId: m.userId, because: 'host_absent', reportId: report.id });
+      await this.notifications.notify(m.userId, 'attendance_decided', 'Note cancelled', `${m.title}: the host's note about you was cancelled.`, { markId: m.id });
+    }
+    await this.notifications.notify(p.hostId, 'host_absence_decided', 'A moderator confirmed a report about you', `${p.title}: a moderator confirmed you did not show up. You can ask for a review under Settings, Reviews of decisions.`, { reportId: report.id });
+  }
+
+  // ---------------------------------------------------------------- hosts who say many people did not come
+  /** How often a host marks people as not coming, and whether that looks unusual (see HOST_MARK_REVIEW). Never acts by itself. */
+  async hostPattern(hostId: string, now = new Date()) {
+    const since = new Date(+now - HOST_MARK_REVIEW.windowDays * DAY);
+    const [marks, actSlots, tripSlots] = await Promise.all([
+      this.prisma.attendanceMark.findMany({ where: { markedById: hostId, markedAt: { gte: since } }, select: { state: true } }),
+      this.prisma.activityMembership.count({ where: { role: 'attendee', state: 'approved', activity: { hostId, startsAt: { gte: since, lt: now }, status: { notIn: ['cancelled', 'draft'] } } } }),
+      this.prisma.tripMembership.count({ where: { role: 'member', state: 'approved', trip: { hostId, dateStart: { gte: since, lt: now }, status: { notIn: ['cancelled', 'draft'] } } } }),
+    ]);
+    const made = marks.length;
+    const attendees = actSlots + tripSlots;
+    const overturned = marks.filter((m) => m.state === 'overturned').length;
+    const decided = overturned + marks.filter((m) => m.state === 'upheld').length;
+    const share = attendees ? made / attendees : made > 0 ? 1 : 0;
+    const reasons: string[] = [];
+    if (made >= HOST_MARK_REVIEW.minMarks && share >= HOST_MARK_REVIEW.shareOfAttendees) reasons.push(`said ${made} of ${attendees || made} people did not come in ${HOST_MARK_REVIEW.windowDays} days (${Math.round(share * 100)}%)`);
+    if (made >= HOST_MARK_REVIEW.minMarks && decided >= HOST_MARK_REVIEW.minDecided && overturned / decided >= HOST_MARK_REVIEW.overturnedShare) reasons.push(`${overturned} of ${decided} decided notes were overturned`);
+    return { flag: reasons.length > 0, reasons, marks: made, attendees, decided, overturned };
+  }
+
+  /** After a host's note or its decision: if the pattern looks unusual, the moderators are told once a month per host. */
+  private async reviewHost(hostId: string) {
+    const pat = await this.hostPattern(hostId);
+    if (!pat.flag) return pat;
+    const recent = await this.prisma.auditEvent.findFirst({ where: { action: 'attendance.host_flagged', objectType: 'user', objectId: hostId, createdAt: { gte: new Date(Date.now() - 30 * DAY) } }, select: { id: true } });
+    if (recent) return pat;
+    await this.audit.log(null, 'attendance.host_flagged', 'user', hostId, { reasons: pat.reasons });
+    const staff = await this.prisma.user.findMany({ where: { role: { in: MOD }, state: 'active' }, select: { id: true } });
+    await this.notifications.notifyMany(staff.map((s) => s.id), 'host_marks_review', 'A host marks many people as not coming', `${pat.reasons.join('; ')}. Please look at their notes before they count.`, { userId: hostId });
+    return pat;
+  }
+
+  /** Hosts who made notes lately, most first; only the unusual ones unless `all`. */
+  async adminHosts(all = false) {
+    const since = new Date(Date.now() - HOST_MARK_REVIEW.windowDays * DAY);
+    const grouped = await this.prisma.attendanceMark.groupBy({ by: ['markedById'], where: { markedAt: { gte: since } }, _count: { _all: true }, orderBy: { _count: { markedById: 'desc' } }, take: 50 });
+    const patterns = await Promise.all(grouped.map(async (g) => ({ hostId: g.markedById, ...(await this.hostPattern(g.markedById)) })));
+    const people = await this.prisma.user.findMany({ where: { id: { in: patterns.map((p) => p.hostId) } }, select: { id: true, email: true, profile: { select: { displayName: true } } } });
+    const name = new Map(people.map((p) => [p.id, p.profile?.displayName ?? p.email]));
+    return { rule: HOST_MARK_REVIEW, items: patterns.filter((p) => all || p.flag).map((p) => ({ ...p, name: name.get(p.hostId) ?? 'Host' })) };
   }
 }
 
@@ -406,6 +527,13 @@ export class ReliabilityController {
   @Get('admin/no-shows')
   adminList(@Query('state') state?: string) {
     return this.reliability.adminList(state);
+  }
+
+  /** Hosts who say many people did not come (or whose notes keep being overturned): the check from the reliability hardening list. */
+  @Staff(...ALL)
+  @Get('admin/no-shows/hosts')
+  adminHosts(@Query('all') all?: string) {
+    return this.reliability.adminHosts(all === 'true');
   }
 
   @Staff(...MOD)

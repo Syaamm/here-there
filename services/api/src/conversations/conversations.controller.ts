@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Injectable, Param, Post, Query } from '@nestjs/common';
 import { Conversation, User } from '@prisma/client';
+import { metrics } from '../common/observability';
 import { z } from 'zod';
 import { effectiveStatus } from '../activities/activities.service';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser, requireVerified } from '../common/auth';
 import { E } from '../common/errors';
+import { EventBus } from '../common/events';
 import { LiveService } from '../common/live.service';
 import { beforeKeyset, decodeKeyset, encodeKeyset, pageLimit } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
@@ -36,6 +38,7 @@ export class ConversationsService {
     private readonly limiter: RateLimiter,
     private readonly notifications: NotificationsService,
     private readonly live: LiveService,
+    private readonly events: EventBus,
     private readonly push: PushService,
     private readonly audit: AuditService,
   ) {}
@@ -236,6 +239,7 @@ export class ConversationsService {
     this.limiter.hit(`msg:${me.id}`, isNew ? 10 : 30, 60 * 1000);
 
     const m = await this.prisma.message.create({ data: { conversationId: id, senderId: me.id, body: dto.body } });
+    metrics.count('messages');
     await this.notifyOthers(me, conv, dto.body, m);
     return { id: m.id, body: m.body, createdAt: m.createdAt };
   }
@@ -295,6 +299,7 @@ export class ConversationsService {
       create: { pollId, userId: me.id, vote },
       update: { vote },
     });
+    this.events.emit({ type: 'trip.poll_changed', id: poll.tripId });
     const votes = await this.prisma.tripPollVote.findMany({ where: { pollId } });
     return { accept: votes.filter((v) => v.vote === 'accept').length, reject: votes.filter((v) => v.vote === 'reject').length, myVote: vote };
   }
@@ -330,6 +335,7 @@ export class ConversationsService {
       await this.prisma.tripPoll.update({ where: { id: pollId }, data: { state: 'closed' } });
       await this.postMessage(conv, me, `Poll closed: ${poll.title}`, { kind: 'system' });
     }
+    this.events.emit({ type: 'trip.poll_changed', id: trip.id });
     return { ok: true };
   }
 
@@ -349,6 +355,7 @@ export class ConversationsService {
       await this.postMessage(conv, me, `Everyone has confirmed the dates: ${fmtRange(trip.dateStart, trip.dateEnd)}. Remember to book your own travel directly with suppliers.`, { kind: 'system' });
       await this.notifications.notify(trip.hostId, 'trip_dates_confirmed', `Dates confirmed: ${trip.title}`, 'Every member has confirmed the final dates.', { tripId });
     }
+    this.events.emit({ type: 'trip.poll_changed', id: tripId });
     return { confirmed, total: members.length };
   }
 
@@ -379,13 +386,24 @@ export class ConversationsService {
     for (const userId of userIds) if (userId === sender.id || !blocked.has(userId)) this.live.send(userId, event);
     const recipients = userIds.filter((u) => u !== sender.id && !blocked.has(u));
     // who already has an unread alert for this chat: one query for the whole group, not one per member
-    const unread = new Set(
-      (await this.prisma.notification.findMany({ where: { userId: { in: recipients }, type: 'chat_message', readAt: null, data: { contains: marker } }, select: { userId: true } })).map((n) => n.userId),
+    const unread = new Map(
+      (await this.prisma.notification.findMany({ where: { userId: { in: recipients }, type: 'chat_message', readAt: null, data: { contains: marker } }, select: { id: true, userId: true, data: true } })).map((n) => [n.userId, n] as const),
     );
     for (const userId of recipients) {
-      // push: every message, to people who are not in the app right now
-      void this.push.send(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}` });
-      if (unread.has(userId)) continue;
+      // push: to people who are not in the app right now, if their settings and quiet hours allow it, and at most about one a
+      // minute per chat (the rest are counted in the one alert in their list)
+      this.push.queue(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}`, alert: { type: 'chat_message' }, group: `chat:${conv.id}` });
+      const prev = unread.get(userId);
+      if (prev) {
+        // grouped: still one alert for this chat, now with a count and the newest message, moved back to the top of the list
+        const was = (prev.data ? (JSON.parse(prev.data) as { count?: number }) : {}) ?? {};
+        const count = (was.count ?? 1) + 1;
+        await this.prisma.notification.update({
+          where: { id: prev.id },
+          data: { title: `${count} new messages in ${title}`, body: `${name}: ${body.slice(0, 80)}`, data: JSON.stringify({ ...was, conversationId: conv.id, product: conv.scopeType === 'activity' ? 'here' : 'there', count }), createdAt: new Date() },
+        });
+        continue;
+      }
       await this.notifications.notify(userId, 'chat_message', `New message in ${title}`, `${name}: ${body.slice(0, 80)}`, { conversationId: conv.id, product: conv.scopeType === 'activity' ? 'here' : 'there' });
     }
   }

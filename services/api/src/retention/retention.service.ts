@@ -2,6 +2,7 @@ import { TtlCache } from '../common/ttl-cache';
 import { Controller, Get, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { AuditService } from '../common/audit.service';
 import { Public } from '../common/auth';
+import { JobsService } from '../common/jobs.service';
 import { PrismaService } from '../common/prisma.service';
 
 const DAY = 24 * 3600 * 1000;
@@ -53,23 +54,18 @@ export function retentionSchedule() {
 /** Deletes data that has outlived its period. Runs once a day, and can be run on demand (tests, support). */
 @Injectable()
 export class RetentionService implements OnModuleInit, OnModuleDestroy {
-  private timer?: NodeJS.Timeout;
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly jobs: JobsService,
   ) {}
 
   onModuleInit() {
-    if (process.env.NODE_ENV === 'test' || process.env.RETENTION_ENABLED === 'false') return;
-    const run = () => void this.runOnce().catch((e) => console.error('Retention clean-up failed:', e?.message ?? e));
-    setTimeout(run, 60_000).unref(); // a minute after start, then daily
-    this.timer = setInterval(run, DAY);
-    this.timer.unref();
+    if (process.env.RETENTION_ENABLED === 'false') return;
+    this.jobs.every('retention.clean-up', DAY, () => this.runOnce()); // daily, on one server
   }
 
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
-  }
+  onModuleDestroy() {}
 
   async runOnce(now = new Date()) {
     const r = retention();

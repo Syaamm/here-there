@@ -326,3 +326,34 @@ td.end { text-align: right; }
   .kpi { padding: 0 10px; }
   .kpi-value { font-size: 1.25rem; }
 }
+
+/* service health panel (Overview, under the 30-day dashboard) */
+.health { margin-top: 16px; padding: 20px 22px; }
+.health-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.health-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 0; }
+.health-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px 20px; margin: 16px 0 0; padding-top: 16px; border-top: 1px solid var(--line); }
+.health-stats dt { font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
+.health-stats dd { margin: 0; font-weight: 700; font-size: 1.1rem; }
+.health-slow { margin-top: 14px; }
+.health-slow summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; min-height: 32px; display: flex; align-items: center; }
+.health-slow .clip { max-width: 560px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-note { margin: 12px 0 0; }
+@media (max-width: 900px) {
+  .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .health-grid .kpi:nth-child(odd) { padding-left: 0; border-left: 0; }
+}
+
+/* reports: due line, evidence, on-call */
+.due { font-size: 0.8rem; color: var(--muted); }
+.due.late { color: var(--orange); font-weight: 700; }
+.evidence { margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); display: grid; gap: 4px; font-size: 0.88rem; }
+.evidence h4 { margin: 0 0 2px; font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.evidence p { margin: 0; }
+.oncall { margin-bottom: 18px; display: grid; gap: 12px; }
+.oncall h2 { margin: 0; font-size: 1.05rem; }
+.oncall h3 { margin: 0 0 6px; font-size: 0.85rem; }
+.oncall ol, .oncall ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 0.88rem; }
+.oncall ul.plain { list-style: none; padding-left: 0; }
+.oncall-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.oncall-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; align-items: end; }
+.warn-note { padding: 10px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-fg); font-size: 0.88rem; margin: 0; }

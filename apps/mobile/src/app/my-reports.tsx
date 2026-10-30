@@ -22,7 +22,7 @@ export default function MyReports() {
       {items.map((x) => (
         <Card key={x.id} style={{ padding: 14, borderRadius: 18, gap: 6 }}>
           <Row style={{ gap: 8, alignItems: 'center' }}>
-            <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20, flex: 1 }}>{x.category.replace(/_/g, ' ')} · {x.targetType}</Txt>
+            <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20, flex: 1 }}>{x.category === 'host_no_show' ? t('Host did not show up') : x.category.replace(/_/g, ' ')} · {x.targetType}</Txt>
             <Chip label={x.outcome} tone={tone(x.status)} />
           </Row>
           <Txt variant="small">{t('Sent {date}', { date: new Date(x.createdAt).toLocaleDateString(localeTag()) })}</Txt>

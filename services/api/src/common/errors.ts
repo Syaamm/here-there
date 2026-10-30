@@ -18,5 +18,6 @@ export const E = {
   forbidden: (code: string, msg: string, d?: unknown) => new ApiError(403, code, msg, d),
   notFound: (what = 'Resource') => new ApiError(404, 'NOT_FOUND', `${what} not found`),
   conflict: (code: string, msg: string, d?: unknown) => new ApiError(409, code, msg, d),
+  unprocessable: (code: string, msg: string, d?: unknown) => new ApiError(422, code, msg, d),
   tooMany: (msg = 'Too many requests, slow down') => new ApiError(429, 'RATE_LIMITED', msg),
 };

@@ -1,3 +1,6 @@
+import { RegionsService } from '../regions/regions.service';
+import { cityKeyOf } from '../regions/regions';
+import { metrics } from '../common/observability';
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma, Trip, User } from '@prisma/client';
 import { z } from 'zod';
@@ -8,10 +11,14 @@ import { decodeCursor, encodeCursor, topK } from '../activities/feed-ranking';
 import { circleOf, crowd, tierCounts } from '../common/social';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { E } from '../common/errors';
+import { lockTrip } from '../common/locks';
+import { isZone } from '../common/timezone';
+import { JobsService } from '../common/jobs.service';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
-import { LiveService, tripCities } from '../common/live.service';
+import { EventBus } from '../common/events';
+import { tripCities } from '../common/live.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 
@@ -31,6 +38,8 @@ export const createSchema = z
     title: z.string().trim().min(2).max(80).optional(),
     destination: z.string().trim().min(2).max(100),
     destinationPlaceId: z.string().max(200).optional(),
+    // the destination's time zone (an IANA name such as Asia/Tokyo), if the app knows it; decides which day of the trip it is
+    timeZone: z.string().max(60).refine(isZone, 'Unknown time zone').optional(),
     originCity: z.string().trim().min(2).max(60),
     dateStart: z.coerce.date(),
     dateEnd: z.coerce.date(),
@@ -78,11 +87,6 @@ export const applySchema = z.object({
 });
 export const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
 
-/** Trips are planned at most six months ahead: up to the last day of the month that far from now. */
-export function planningHorizon(now = new Date()) {
-  return new Date(now.getFullYear(), now.getMonth() + 7, 0, 23, 59, 59);
-}
-
 function flexDays(f: Flex) {
   return f === 'plus_minus_1' ? 1 : f === 'plus_minus_3' ? 3 : f === 'plus_minus_7' ? 7 : 0;
 }
@@ -106,18 +110,12 @@ export function effectiveTripStatus(t: { status: string; dateEnd: Date }, now = 
 
 @Injectable()
 export class TripsService implements OnModuleInit, OnModuleDestroy {
-  private finisher?: NodeJS.Timeout;
-
   /** Once an hour, trips that have ended are recorded as completed (the app already shows them as such). */
   onModuleInit() {
-    if (process.env.NODE_ENV === 'test') return;
-    this.finisher = setInterval(() => void this.completeFinished().catch(() => undefined), 3600_000);
-    this.finisher.unref();
+    this.jobs.every('trips.complete-finished', 3600_000, () => this.completeFinished());
   }
 
-  onModuleDestroy() {
-    if (this.finisher) clearInterval(this.finisher);
-  }
+  onModuleDestroy() {}
 
   /** The last day counts in full: a trip ending on the 10th is completed from the start of the 11th. Returns how many changed. */
   async completeFinished(now = new Date()) {
@@ -125,7 +123,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       where: { status: { in: ['published', 'full', 'planning', 'confirmed'] }, dateEnd: { lt: new Date(+now - 24 * 3600 * 1000 + 1) } },
       data: { status: 'completed' },
     });
-    if (r.count > 0) this.live.feedChanged();
+    if (r.count > 0) this.events.emit({ type: 'feed.refresh' });
     return r.count;
   }
 
@@ -135,8 +133,10 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly limiter: RateLimiter,
-    private readonly live: LiveService,
-      private readonly reliability: ReliabilityService,
+    private readonly reliability: ReliabilityService,
+    private readonly jobs: JobsService,
+    private readonly events: EventBus,
+    private readonly regions: RegionsService,
   ) {}
 
   private readonly hostInclude = {
@@ -148,6 +148,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       id: t.id,
       title: t.title,
       destination: t.destination,
+      timeZone: t.timeZone,
       originCity: t.originCity,
       dateStart: t.dateStart,
       dateEnd: t.dateEnd,
@@ -349,7 +350,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     if (dto.dateStart <= now) throw E.badRequest('INVALID_DATES', 'Trip must start in the future');
     if (dto.dateEnd < dto.dateStart) throw E.badRequest('INVALID_DATES', 'End date must not be before start date');
     if ((+dto.dateEnd - +dto.dateStart) / DAY > 90) throw E.badRequest('INVALID_DATES', 'Trips can span at most 90 days');
-    if (dto.dateStart > planningHorizon() || dto.dateEnd > planningHorizon()) throw E.badRequest('INVALID_DATES', 'Trips can only be planned up to six months ahead');
+    await this.regions.assertWithinLimit('there', dto.originCity, dto.dateEnd > dto.dateStart ? dto.dateEnd : dto.dateStart, 'INVALID_DATES'); // the whole trip must fall inside the limit of the city it starts from
     for (const t of [dto.title, dto.description, dto.destination]) {
       const bad = contentProblem(t);
       if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
@@ -365,7 +366,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
           destination: dto.destination,
           destinationKey: dto.destination.toLowerCase(),
           destinationPlaceId: dto.destinationPlaceId,
+          timeZone: dto.timeZone,
           originCity: dto.originCity,
+          originKey: cityKeyOf(dto.originCity),
           dateStart: dto.dateStart,
           dateEnd: dto.dateEnd,
           dateFlexibility: dto.dateFlexibility,
@@ -386,7 +389,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       return t;
     });
     await this.audit.log(me.id, 'trip.create', 'trip', trip.id);
-    this.live.feedChanged(tripCities(trip));
+    this.events.emit({ type: 'trip.created', id: trip.id, cities: tripCities(trip) });
     return this.detail(me, trip.id);
   }
 
@@ -424,7 +427,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     const dateStart = dto.dateStart ?? t.dateStart;
     const dateEnd = dto.dateEnd ?? t.dateEnd;
     if (dateStart <= new Date() || dateEnd < dateStart) throw E.badRequest('INVALID_DATES', 'Invalid dates');
-    if ((dto.dateStart || dto.dateEnd) && (dateStart > planningHorizon() || dateEnd > planningHorizon())) throw E.badRequest('INVALID_DATES', 'Trips can only be planned up to six months ahead');
+    if (dto.dateStart || dto.dateEnd) await this.regions.assertWithinLimit('there', t.originCity, dateEnd > dateStart ? dateEnd : dateStart, 'INVALID_DATES');
 
     await this.prisma.trip.update({
       where: { id },
@@ -452,10 +455,10 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         'trip_changed',
         `A trip you saved changed: ${t.title}`,
         'The organizer changed the dates or destination. Have another look before you apply.',
-        { tripId: id },
+        { tripId: id, saved: true },
       );
       await this.audit.log(me.id, 'trip.material_change', 'trip', id);
-      this.live.feedChanged([...tripCities(t), ...(dto.destination ? tripCities({ originCity: t.originCity, destination: dto.destination }) : [])]);
+      this.events.emit({ type: 'trip.changed', id, cities: [...tripCities(t), ...(dto.destination ? tripCities({ originCity: t.originCity, destination: dto.destination }) : [])] });
       // dates the group had already been asked to confirm have changed under them: ask everyone again
       if (t.datesState === 'proposed' && (+dateStart !== +t.dateStart || +dateEnd !== +t.dateEnd)) {
         await this.prisma.tripMembership.updateMany({ where: { tripId: id, state: 'approved', userId: { not: me.id } }, data: { datesConfirmed: false } });
@@ -473,9 +476,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, state: 'pending' }, data: { state: 'declined', decidedAt: new Date() } });
     for (const x of pendingApps) await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId: id }, x.applicantId);
     await this.notifications.notifyMany(await this.memberIds(id, byStaff ? undefined : me.id), 'trip_cancelled', `Cancelled: ${t.title}`, 'This trip proposal was cancelled.', { tripId: id });
-    await this.notifications.notifyMany(await this.savedOnlyIds(id, t.hostId), 'trip_cancelled', `A trip you saved was cancelled: ${t.title}`, 'The organizer cancelled it, so it is no longer open.', { tripId: id });
+    await this.notifications.notifyMany(await this.savedOnlyIds(id, t.hostId), 'trip_cancelled', `A trip you saved was cancelled: ${t.title}`, 'The organizer cancelled it, so it is no longer open.', { tripId: id, saved: true });
     await this.audit.log(me.id, byStaff ? 'trip.removed_by_staff' : 'trip.cancel', 'trip', id);
-    this.live.feedChanged(tripCities(t));
+    this.events.emit({ type: 'trip.cancelled', id, cities: tripCities(t) });
     return { ok: true };
   }
 
@@ -507,9 +510,13 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         data: { state: 'pending', intro: dto.intro, experience: dto.experience, decidedAt: null, reviewedBy: null },
       });
     } else {
-      app = await this.prisma.tripApplication.create({
-        data: { tripId: id, applicantId: me.id, intro: dto.intro, experience: dto.experience },
-      });
+      // two taps at once: the second hits the unique (trip, person) pair and gets the same answer as a repeat application
+      app = await this.prisma.tripApplication
+        .create({ data: { tripId: id, applicantId: me.id, intro: dto.intro, experience: dto.experience } })
+        .catch((e) => {
+          if (e?.code === 'P2002') throw E.conflict('ALREADY_APPLIED', 'You already have an application for this trip');
+          throw e;
+        });
     }
     const p = await this.prisma.profile.findUnique({ where: { userId: me.id } });
     await this.notifications.notify(t.hostId, 'trip_application', 'New trip application', `${p?.displayName ?? 'Someone'} applied to ${t.title}`, { tripId: id, applicantId: me.id });
@@ -599,10 +606,11 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     if (decision === 'approve') {
       if (['cancelled', 'completed'].includes(t.status)) throw E.conflict('TRIP_CLOSED', 'This trip is closed');
       await this.prisma.$transaction(async (tx) => {
+        const { maxCapacity } = await lockTrip(tx, tripId);
         const already = await tx.tripMembership.findUnique({ where: { tripId_userId: { tripId, userId: a.applicantId } } });
         const count = await tx.tripMembership.count({ where: { tripId, state: 'approved' } });
         const isNew = !already || already.state !== 'approved';
-        if (isNew && count >= t.maxCapacity) throw E.conflict('TRIP_FULL', 'This group is full');
+        if (isNew && count >= maxCapacity) throw E.conflict('TRIP_FULL', 'This group is full');
         await tx.tripMembership.upsert({
           where: { tripId_userId: { tripId, userId: a.applicantId } },
           create: { tripId, userId: a.applicantId, role: 'member', state: 'approved' },
@@ -610,9 +618,10 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         });
         await tx.tripApplication.update({ where: { id: a.id }, data: { state: 'approved', reviewedBy: me.id, decidedAt: new Date() } });
         const total = isNew ? count + 1 : count;
-        if (total >= t.maxCapacity && t.status !== 'confirmed') await tx.trip.update({ where: { id: tripId }, data: { status: 'full' } });
+        if (total >= maxCapacity && t.status !== 'confirmed') await tx.trip.update({ where: { id: tripId }, data: { status: 'full' } });
         else if (total >= t.minCapacity && t.status === 'published') await tx.trip.update({ where: { id: tripId }, data: { status: 'planning' } });
       });
+      metrics.count('joins');
       await this.notifications.notify(a.applicantId, 'application_approved', 'You are in!', `You can now plan ${t.title} with the group`, { tripId });
     } else {
       await this.prisma.$transaction(async (tx) => {
@@ -629,7 +638,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     }
     await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId }, a.applicantId); // the organizer's "applied" alert is answered
     await this.audit.log(me.id, `trip.application.${decision}`, 'trip_application', a.id, { tripId, applicantId: a.applicantId });
-    this.live.feedChanged(tripCities(t));
+    this.events.emit({ type: 'trip.members_changed', id: t.id, cities: tripCities(t) });
     return { id: a.id, state: decision === 'approve' ? 'approved' : 'declined' };
   }
 
@@ -702,7 +711,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.dropConfirmedIfSmall(id);
     if (t.status === 'full') await this.announceOpenSpot(id);
     await this.audit.log(me.id, 'trip.member_left', 'trip', id);
-    this.live.feedChanged(tripCities(t));
+    this.events.emit({ type: 'trip.members_changed', id: t.id, cities: tripCities(t) });
     return { ok: true };
   }
 
@@ -717,7 +726,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.dropConfirmedIfSmall(id);
     if (t.status === 'full') await this.announceOpenSpot(id);
     await this.audit.log(me.id, 'trip.member_removed', 'trip', id, { userId, byStaff });
-    this.live.feedChanged(tripCities(t));
+    this.events.emit({ type: 'trip.members_changed', id: t.id, cities: tripCities(t) });
     await this.notifications.notify(userId, 'removed', 'Removed from trip', `You were removed from ${t.title}.`, { tripId: id });
     return { ok: true };
   }

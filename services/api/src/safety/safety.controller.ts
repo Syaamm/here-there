@@ -7,6 +7,7 @@ import { REPORT_CATEGORIES, REPORT_TARGETS } from '../common/constants';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { ModerationService, reportPolicy } from '../moderation/moderation.controller';
+import { ReliabilityService } from '../reliability/reliability.controller';
 import { RateLimiter } from '../common/rate-limiter';
 import { parse } from '../common/validate';
 
@@ -17,6 +18,7 @@ export const reportSchema = z.object({
   details: z.string().trim().max(1000).optional(),
 });
 export const blockSchema = z.object({ userId: z.string().min(1) });
+export const hostAbsentSchema = z.object({ note: z.string().trim().max(1000).optional() });
 
 @Controller('v1')
 export class SafetyController {
@@ -24,11 +26,17 @@ export class SafetyController {
     private readonly prisma: PrismaService,
     private readonly limiter: RateLimiter,
     private readonly moderation: ModerationService,
+    private readonly reliability: ReliabilityService,
   ) {}
 
   @Post('reports')
   async report(@CurrentUser() me: User, @Body() body: unknown) {
     const dto = parse(reportSchema, body);
+    // "the host did not show up" can only come from a member of that plan, so it goes through its own checks
+    if (dto.category === 'host_no_show') {
+      if (dto.targetType !== 'activity' && dto.targetType !== 'trip') throw E.badRequest('INVALID_TARGET', 'Say which plan or trip the host did not show up to');
+      return this.hostAbsent(me, dto.targetType, dto.targetId, dto.details);
+    }
     this.limiter.hit(`report:${me.id}`, 20, 24 * 3600 * 1000); // abusive repeat reporters
     const urgent = this.moderation.isUrgent(dto.category);
     const r = await this.prisma.report.create({ data: { reporterId: me.id, ...dto, priority: urgent ? 'urgent' : 'normal' } });
@@ -36,6 +44,25 @@ export class SafetyController {
     // what happens next, in plain words, and the emergency number: shown to the person right after they report
     const policy = reportPolicy();
     return { id: r.id, status: r.status, priority: r.priority, expectedWithin: urgent ? policy.answerWithin.urgent : policy.answerWithin.normal, coverage: policy.coverage.text, emergency: policy.emergency };
+  }
+
+  /** What a person is told after saying the host did not show up. */
+  private async hostAbsent(me: User, kind: 'activity' | 'trip', id: string, note?: string) {
+    const r = await this.reliability.reportHostAbsent(me, kind, id, note);
+    const policy = reportPolicy();
+    return { id: r.id, status: r.status, priority: r.priority, expectedWithin: policy.answerWithin.normal, coverage: policy.coverage.text, emergency: policy.emergency };
+  }
+
+  /** A member of a HERE activity says the host did not show up (30 minutes after the start, and for 72 hours after the end). */
+  @Post('activities/:id/host-no-show')
+  hostNoShowActivity(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.hostAbsent(me, 'activity', id, parse(hostAbsentSchema, body).note);
+  }
+
+  /** The same for a THERE trip. */
+  @Post('trips/:id/host-no-show')
+  hostNoShowTrip(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.hostAbsent(me, 'trip', id, parse(hostAbsentSchema, body).note);
   }
 
   @Post('blocks')

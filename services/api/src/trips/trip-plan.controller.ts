@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser, requireVerified } from '../common/auth';
 import { E } from '../common/errors';
+import { EventBus } from '../common/events';
+import { todayFor } from '../common/timezone';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
@@ -53,6 +55,7 @@ export class TripPlanService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly limiter: RateLimiter,
+    private readonly events: EventBus,
   ) {}
 
   private async member(me: User, tripId: string) {
@@ -70,12 +73,13 @@ export class TripPlanService {
 
   /**
    * Once a trip has started, the itinerary can only be changed for today and the days to come: a day that has passed is
-   * the record of what happened. A plan line's day is a calendar day kept as noon UTC; "today" is taken as the earliest
-   * calendar day anywhere on earth (12 hours behind UTC), so nobody's own today is ever locked by the clock difference.
+   * the record of what happened. A plan line's day is a calendar day kept as noon UTC. "Today" is today in the trip's own
+   * time zone when it has one; otherwise it is the earliest calendar day anywhere on earth (12 hours behind UTC), so
+   * nobody's own today is ever locked by the clock difference.
    */
-  private passed(trip: { dateStart: Date }, day?: Date | null) {
+  private passed(trip: { dateStart: Date; timeZone?: string | null }, day?: Date | null) {
     if (!day || Date.now() < +trip.dateStart) return false;
-    return day.toISOString().slice(0, 10) < new Date(Date.now() - 12 * 3600 * 1000).toISOString().slice(0, 10);
+    return day.toISOString().slice(0, 10) < todayFor(trip.timeZone);
   }
 
   private checkText(...texts: (string | null | undefined)[]) {
@@ -181,6 +185,7 @@ export class TripPlanService {
       data: { tripId, kind: dto.kind, title: dto.title, note: dto.note || null, day: dto.day ?? null, startTime: dto.time ?? null, amount: dto.amount ?? null, createdById: me.id },
     });
     await this.audit.log(me.id, 'trip.plan_added', 'trip', tripId, { itemId: item.id, kind: dto.kind });
+    this.events.emit({ type: 'trip.plan_changed', id: tripId });
     return { id: item.id };
   }
 
@@ -207,6 +212,7 @@ export class TripPlanService {
       where: { id: itemId },
       data: { ...(dto.title !== undefined && { title: dto.title }), ...(dto.note !== undefined && { note: dto.note || null }), ...(dto.day !== undefined && { day: dto.day }), ...(dto.time !== undefined && { startTime: dto.time }), ...(dto.amount !== undefined && { amount: dto.amount }) },
     });
+    this.events.emit({ type: 'trip.plan_changed', id: tripId });
     return { ok: true };
   }
 
@@ -214,6 +220,7 @@ export class TripPlanService {
     const { trip, item } = await this.editable(me, tripId, itemId);
     if (item.kind === 'itinerary' && this.passed(trip, item.day)) throw E.conflict('DAY_PASSED', DAY_PASSED);
     await this.prisma.tripItem.delete({ where: { id: itemId } });
+    this.events.emit({ type: 'trip.plan_changed', id: tripId });
     return { ok: true };
   }
 }

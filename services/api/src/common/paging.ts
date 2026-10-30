@@ -66,3 +66,31 @@ export function sliceKeyset<T extends { id: string }>(rows: T[], limit: number, 
   const last = items[items.length - 1];
   return { items, nextCursor: rows.length > limit && last ? encodeKeyset(sortAt(last), last.id) : null };
 }
+
+/**
+ * One page of a list read straight from the database, newest first (or oldest first). This is the one way to page a list:
+ * it reads the `?limit=` and `?cursor=`, narrows the query to the rows after the cursor, asks for one row more than the page
+ * to learn whether another page exists, and hands back `{ items, nextCursor }`.
+ *
+ *   const page = await pageOf((a) => this.prisma.report.findMany({ ...a, include: { ... } }), { limit, cursor, where: { reporterId: me.id } });
+ *   return { items: page.items.map(toDto), nextCursor: page.nextCursor };
+ *
+ * `sortBy` is the time column the list is ordered by (default createdAt); `idField` is the unique column that breaks ties
+ * (default id); `order: 'asc'` is for lists shown oldest first. The caller's own `where` is kept apart from the cursor
+ * condition, so a `where` with its own OR or AND is safe.
+ */
+export async function pageOf<T extends object>(
+  read: (args: { where: any; orderBy: any; take: number }) => Promise<T[]>,
+  o: { limit: number; cursor?: string; where?: object; sortBy?: string; idField?: string; order?: 'asc' | 'desc' },
+): Promise<{ items: T[]; nextCursor: string | null }> {
+  const sortBy = o.sortBy ?? 'createdAt';
+  const idField = o.idField ?? 'id';
+  const order = o.order ?? 'desc';
+  const cur = decodeKeyset(o.cursor);
+  const op = order === 'desc' ? 'lt' : 'gt';
+  const after = cur ? { OR: [{ [sortBy]: { [op]: cur.at } }, { [sortBy]: cur.at, [idField]: { [op]: cur.id } }] } : {};
+  const rows = await read({ where: { AND: [o.where ?? {}, after] }, orderBy: [{ [sortBy]: order }, { [idField]: order }], take: o.limit + 1 });
+  const items = rows.slice(0, o.limit);
+  const last = items[items.length - 1] as Record<string, any> | undefined;
+  return { items, nextCursor: rows.length > o.limit && last ? encodeKeyset(last[sortBy] as Date, String(last[idField])) : null };
+}

@@ -123,6 +123,7 @@ function Gate() {
           <Stack.Screen name="my-activities" options={inner('My activities')} />
           <Stack.Screen name="my-trips" options={inner('My trips')} />
           <Stack.Screen name="drafts" options={inner('My drafts')} />
+          <Stack.Screen name="notification-settings" options={inner('Notifications')} />
           <Stack.Screen name="my-reports" options={inner('My reports')} />
           <Stack.Screen name="travel-match" options={inner('Travel buddies')} />
           <Stack.Screen name="trip-plan/[id]" options={inner('Trip plan')} />

@@ -4,7 +4,9 @@
   "workspaces": ["services/*", "apps/*", "packages/*"],
   "scripts": {
     "api": "npm start -w @here-there/api",
-    "admin": "npm run dev -w @here-there/admin",
+    "admin": "npm run mobile",
+    "admin:standalone": "npm run dev -w @here-there/admin",
+    "admin:build": "npm run build -w @here-there/admin",
     "mobile": "npm start -w @here-there/mobile"
   },
   "overrides": {

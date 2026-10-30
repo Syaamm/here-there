@@ -37,6 +37,7 @@ export function DateRangeSheet({
   min,
   max,
   maxNights = 90,
+  single = false,
   onClose,
   onDone,
 }: {
@@ -49,6 +50,8 @@ export function DateRangeSheet({
   /** the last day that can be picked */
   max: Date;
   maxNights?: number;
+  /** pick one day (an activity) instead of a leaving and a return day: no tabs, and "Done" gives just that day */
+  single?: boolean;
   onClose: () => void;
   onDone: (start: string, end: string) => void;
 }) {
@@ -110,6 +113,7 @@ export function DateRangeSheet({
       setTo(d); // only the return day changes
     } else {
       setFrom(d);
+      if (single) return; // one day: nothing comes after it
       if (to && to < d) setTo(null); // a return day before the new leaving day no longer fits
       setTarget('end'); // next: when do you come back
     }
@@ -124,7 +128,7 @@ export function DateRangeSheet({
   const canNext = new Date(month.getFullYear(), month.getMonth() + 1, 1) <= last;
   const step = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
 
-  const summary = !from ? t('Pick your departure day') : target === 'end' ? (to ? tn(nights(from, to), '{n} night', '{n} nights') : t('Pick your return day')) : t('Pick your departure day');
+  const summary = single ? (from ? shortDay(from) : t('Pick the day')) : !from ? t('Pick your departure day') : target === 'end' ? (to ? tn(nights(from, to), '{n} night', '{n} nights') : t('Pick your return day')) : t('Pick your departure day');
   if (!mounted) return null;
 
   const arrow = (dir: -1 | 1, label: string, ok: boolean) => (
@@ -208,6 +212,7 @@ export function DateRangeSheet({
           ))}
         </View>
 
+        {!single && (
         <View accessibilityRole="tablist" style={{ flexDirection: 'row', gap: 8 }}>
           {([['start', t('Depart'), from], ['end', t('Return'), to]] as const).map(([k, label, d]) => {
             const on = target === k;
@@ -228,6 +233,7 @@ export function DateRangeSheet({
             );
           })}
         </View>
+        )}
         <Txt variant="small" style={{ textAlign: 'center', color: c.text }}>{summary}</Txt>
         <Btn
           title={t('Done')}

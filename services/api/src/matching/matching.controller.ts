@@ -1,3 +1,4 @@
+import { todayFor } from '../common/timezone';
 import { Body, Controller, Delete, Get, Injectable, Param, Post, Put } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { z } from 'zod';
@@ -11,7 +12,7 @@ import { contentProblem, parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { SafetyService } from '../safety/safety.service';
-import { planningHorizon } from '../trips/trips.service';
+import { RegionsService } from '../regions/regions.service';
 
 const DAY = 24 * 3600 * 1000;
 /** Most people shown at once. */
@@ -45,6 +46,7 @@ export class MatchingService {
     private readonly limiter: RateLimiter,
     private readonly audit: AuditService,
     private readonly reliability: ReliabilityService,
+    private readonly regions: RegionsService,
   ) {}
 
   async overview(me: User) {
@@ -62,12 +64,12 @@ export class MatchingService {
     const dto = parse(prefSchema, body);
     const bad = contentProblem(dto.destination);
     if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = new Date(`${todayFor(null)}T00:00:00Z`); // the earliest day anywhere, not the server's own midnight
     if (dto.dateStart < today) throw E.badRequest('INVALID_DATES', 'The trip must start today or later');
     if (dto.dateEnd < dto.dateStart) throw E.badRequest('INVALID_DATES', 'End date must not be before start date');
     if ((+dto.dateEnd - +dto.dateStart) / DAY > 90) throw E.badRequest('INVALID_DATES', 'Trips can span at most 90 days');
-    if (dto.dateEnd > planningHorizon()) throw E.badRequest('INVALID_DATES', 'Trips can only be planned up to six months ahead');
+    const home = (await this.prisma.profile.findUnique({ where: { userId: me.id }, select: { homeCity: true } }))?.homeCity;
+    await this.regions.assertWithinLimit('there', home, dto.dateEnd, 'INVALID_DATES');
     this.limiter.hit(`match-pref:${me.id}`, 20, DAY);
     const data = { destination: dto.destination, destinationKey: keyOf(dto.destination), dateStart: dto.dateStart, dateEnd: dto.dateEnd };
     await this.prisma.travelMatchPref.upsert({ where: { userId: me.id }, create: { userId: me.id, ...data }, update: data });

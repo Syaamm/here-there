@@ -1,3 +1,5 @@
+import { RegionsService } from '../regions/regions.service';
+import { metrics } from '../common/observability';
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Activity, Prisma, User } from '@prisma/client';
 import { z } from 'zod';
@@ -5,13 +7,16 @@ import { AuditService } from '../common/audit.service';
 import { requireVerified } from '../common/auth';
 import { CATEGORIES } from '../common/constants';
 import { E } from '../common/errors';
+import { lockActivity } from '../common/locks';
+import { defaultZone, zoneFor } from '../common/timezone';
+import { JobsService } from '../common/jobs.service';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
-import { LiveService } from '../common/live.service';
+import { EventBus } from '../common/events';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
-import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset } from '../common/paging';
+import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset, pageOf } from '../common/paging';
 import { circleOf, tierCounts } from '../common/social';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { decodeCursor, encodeCursor, scoreActivity, topK } from './feed-ranking';
@@ -88,22 +93,14 @@ export const REMINDER_LEAD_MIN = 60;
 
 @Injectable()
 export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
-  private sweeper?: NodeJS.Timeout;
-  private reminder?: NodeJS.Timeout;
-
   /** Pending requests are closed the moment an activity starts; this sweep makes that happen on time even if nobody opens the app. */
   onModuleInit() {
-    if (process.env.NODE_ENV === 'test') return;
-    this.sweeper = setInterval(() => void this.expirePendingRequests().catch(() => undefined), 15_000);
-    this.sweeper.unref();
-    this.reminder = setInterval(() => void this.sendStartingSoon().catch(() => undefined), 60_000);
-    this.reminder.unref();
+    // run by the job worker (one server at a time), not by a timer in every process
+    this.jobs.every('activities.expire-requests', 15_000, () => this.expirePendingRequests());
+    this.jobs.every('activities.starting-soon', 60_000, () => this.sendStartingSoon());
   }
 
-  onModuleDestroy() {
-    if (this.sweeper) clearInterval(this.sweeper);
-    if (this.reminder) clearInterval(this.reminder);
-  }
+  onModuleDestroy() {}
 
   /**
    * One "starting soon" reminder per activity, about an hour before it begins, to everyone going. Someone who joined in the
@@ -155,8 +152,10 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly limiter: RateLimiter,
-    private readonly live: LiveService,
     private readonly reliability: ReliabilityService,
+    private readonly jobs: JobsService,
+    private readonly events: EventBus,
+    private readonly regions: RegionsService,
   ) {}
 
   private dto(a: ActivityFull, going: number, extra: Record<string, unknown> = {}) {
@@ -171,6 +170,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       venueName: a.venueName,
       lat: a.lat,
       lng: a.lng,
+      timeZone: a.timeZone ?? defaultZone(),
       startsAt: a.startsAt,
       endsAt: a.endsAt,
       capacity: a.capacity,
@@ -437,12 +437,11 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const dto = parse(createSchema, body);
     const now = new Date();
 
-    // HERE is for plans within a day: starting at least 10 minutes from now (1 minute of grace for a slow submit),
-    // and no later than the end of tomorrow. 48 hours is the widest that can be, whatever the person's time zone.
+    // Starting at least 10 minutes from now (1 minute of grace for a slow submit), and no further ahead than the admin of this
+    // city's place has allowed (1 month unless they set it otherwise): see regions/regions.service.ts.
     if (dto.startsAt.getTime() < now.getTime() + MIN_LEAD)
       throw E.badRequest('INVALID_SCHEDULE', 'Start time must be at least 10 minutes from now');
-    if (dto.startsAt.getTime() - now.getTime() > 48 * HOUR)
-      throw E.badRequest('INVALID_SCHEDULE', 'HERE activities are for today or tomorrow');
+    await this.regions.assertWithinLimit('here', dto.city, dto.startsAt, 'INVALID_SCHEDULE');
     if (dto.endsAt <= dto.startsAt) throw E.badRequest('INVALID_SCHEDULE', 'End time must be after start time');
     if (dto.endsAt.getTime() - dto.startsAt.getTime() > 12 * HOUR)
       throw E.badRequest('INVALID_SCHEDULE', 'Activities can last at most 12 hours');
@@ -485,6 +484,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
           venuePlaceId: dto.venuePlaceId,
           lat: dto.lat,
           lng: dto.lng,
+          timeZone: zoneFor(dto.lat, dto.lng), // the venue's own zone, for "which day is it" questions
           startsAt: dto.startsAt,
           endsAt: dto.endsAt,
           capacity: dto.capacity,
@@ -500,7 +500,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       return a;
     });
     await this.audit.log(me.id, 'activity.create', 'activity', created.id);
-    this.live.feedChanged([created.city]);
+    this.events.emit({ type: 'activity.created', id: created.id, city: created.city });
     return this.detail(me, created.id);
   }
 
@@ -544,6 +544,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const startsAt = dto.startsAt ?? a.startsAt;
     const endsAt = dto.endsAt ?? a.endsAt;
     if (startsAt <= new Date()) throw E.badRequest('INVALID_SCHEDULE', 'Start time must be in the future');
+    if (dto.startsAt) await this.regions.assertWithinLimit('here', a.city, startsAt, 'INVALID_SCHEDULE'); // moving it later is bound by the same limit
     if (endsAt <= startsAt || endsAt.getTime() - startsAt.getTime() > 12 * HOUR)
       throw E.badRequest('INVALID_SCHEDULE', 'Invalid duration');
     const going = await this.goingCount(id);
@@ -563,6 +564,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         ...(dto.venuePlaceId !== undefined && { venuePlaceId: dto.venuePlaceId }),
         ...(dto.lat !== undefined && { lat: dto.lat }),
         ...(dto.lng !== undefined && { lng: dto.lng }),
+        ...((dto.lat !== undefined || dto.lng !== undefined) && { timeZone: zoneFor(dto.lat ?? a.lat, dto.lng ?? a.lng) }),
         startsAt,
         endsAt,
         ...(dto.capacity !== undefined && {
@@ -583,6 +585,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         `Plan changed: ${updated.title}`,
         `Time: ${a.startsAt.toISOString()} → ${startsAt.toISOString()}. Venue: ${a.venueName} → ${updated.venueName}. Please confirm you can still come, or leave the activity.`,
         { activityId: id, previous: { startsAt: a.startsAt, venueName: a.venueName }, next: { startsAt, venueName: updated.venueName } },
+        { group: { marker: `"activityId":"${id}"`, title: (n) => `Plan changed (${n} changes): ${updated.title}` } },
       );
       // people who saved it with the heart hear about the change too, so they can look again before asking to join
       await this.notifications.notifyMany(
@@ -590,7 +593,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         'activity_changed',
         `A plan you saved changed: ${updated.title}`,
         `${timeChanged ? 'The time changed. ' : ''}${venueChanged ? `The place is now ${updated.venueName}. ` : ''}Have another look before you join.`,
-        { activityId: id },
+        { activityId: id, saved: true },
+        { group: { marker: `"activityId":"${id}"`, title: (n) => `A plan you saved changed (${n} changes): ${updated.title}` } },
       );
       await this.audit.log(me.id, 'activity.material_change', 'activity', id, { venueChanged, timeChanged });
     }
@@ -598,7 +602,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       await this.fillFromWaitlist(id); // a higher limit lets people in off the waiting list
       if (a.status === 'full') await this.announceOpenSpot(id);
     }
-    this.live.feedChanged([updated.city]);
+    this.events.emit({ type: 'activity.changed', id, city: updated.city });
     return this.detail(me, id);
   }
 
@@ -620,9 +624,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.notifications.notifyMany(recipients, 'activity_cancelled', `Cancelled: ${a.title}`, 'This activity was cancelled.', {
       activityId: id,
     });
-    await this.notifications.notifyMany(await this.savedOnlyIds(id, a.hostId), 'activity_cancelled', `A plan you saved was cancelled: ${a.title}`, 'The host cancelled it, so it is no longer open.', { activityId: id });
+    await this.notifications.notifyMany(await this.savedOnlyIds(id, a.hostId), 'activity_cancelled', `A plan you saved was cancelled: ${a.title}`, 'The host cancelled it, so it is no longer open.', { activityId: id, saved: true });
     await this.audit.log(me.id, byStaff ? 'activity.removed_by_staff' : 'activity.cancel', 'activity', id);
-    this.live.feedChanged([a.city]);
+    this.events.emit({ type: 'activity.cancelled', id, city: a.city });
     return { ok: true };
   }
 
@@ -667,9 +671,13 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    const r = await this.prisma.activityRequest.create({
-      data: { activityId: id, applicantId: me.id, intro: dto.intro, state: target },
-    });
+    // two taps at once: the second hits the unique (activity, person) pair and gets the same answer as a repeat request
+    const r = await this.prisma.activityRequest
+      .create({ data: { activityId: id, applicantId: me.id, intro: dto.intro, state: target } })
+      .catch((e) => {
+        if (e?.code === 'P2002') throw E.conflict('ALREADY_REQUESTED', 'You already have a request for this activity');
+        throw e;
+      });
     if (instant) return this.joinNow(a, me, r);
     if (!full) await this.notifyHost(a, me);
     return { id: r.id, state: r.state, position: full ? await this.waitlistPosition(id, r.createdAt, r.id) : undefined };
@@ -682,8 +690,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
    */
   private async joinNow(a: Activity, me: User, r: { id: string; createdAt: Date }) {
     const placed = await this.prisma.$transaction(async (tx) => {
+      const { capacity } = await lockActivity(tx, a.id);
       const count = await tx.activityMembership.count({ where: { activityId: a.id, state: 'approved' } });
-      if (count >= a.capacity) {
+      if (count >= capacity) {
         await tx.activityRequest.update({ where: { id: r.id }, data: { state: 'waitlisted' } });
         return false;
       }
@@ -693,7 +702,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         create: { activityId: a.id, userId: me.id, role: 'attendee', state: 'approved' },
         update: { state: 'approved' },
       });
-      if (count + 1 >= a.capacity) await tx.activity.update({ where: { id: a.id }, data: { status: 'full' } });
+      if (count + 1 >= capacity) await tx.activity.update({ where: { id: a.id }, data: { status: 'full' } });
       return true;
     });
     if (!placed) return { id: r.id, state: 'waitlisted', position: await this.waitlistPosition(a.id, r.createdAt, r.id) };
@@ -701,7 +710,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const p = await this.prisma.profile.findUnique({ where: { userId: me.id }, select: { displayName: true } });
     await this.notifications.notify(a.hostId, 'member_joined', 'Someone joined', `${p?.displayName ?? 'Someone'} joined ${a.title}`, { activityId: a.id });
     await this.audit.log(me.id, 'activity.join_instant', 'activity', a.id);
-    this.live.feedChanged([a.city]); // places left changed
+    metrics.count('joins');
+    this.events.emit({ type: 'activity.members_changed', id: a.id, city: a.city });
     return { id: r.id, state: 'approved' };
   }
 
@@ -812,7 +822,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       const who = next;
       const placed = await this.prisma.$transaction(async (tx) => {
         // another request may have taken the last place since we looked
-        if ((await tx.activityMembership.count({ where: { activityId, state: 'approved' } })) >= a.capacity) return false;
+        const { capacity } = await lockActivity(tx, activityId);
+        if ((await tx.activityMembership.count({ where: { activityId, state: 'approved' } })) >= capacity) return false;
         const still = await tx.activityRequest.updateMany({ where: { id: who.id, state: 'waitlisted' }, data: { state: 'approved', decidedAt: new Date() } });
         if (still.count === 0) return false; // withdrew or was decided in the meantime
         await tx.activityMembership.upsert({
@@ -821,13 +832,14 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
           update: { state: 'approved' },
         });
         const total = await tx.activityMembership.count({ where: { activityId, state: 'approved' } });
-        if (total >= a.capacity) await tx.activity.update({ where: { id: activityId }, data: { status: 'full' } });
+        if (total >= capacity) await tx.activity.update({ where: { id: activityId }, data: { status: 'full' } });
         return true;
       });
       if (!placed) continue;
       await this.refreshStatus(activityId);
       await this.notifications.notify(who.applicantId, 'waitlist_promoted', "A place opened up. You're in!", `You moved off the waiting list and into ${a.title}. You can chat with the group now.`, { activityId });
       await this.audit.log(a.hostId, 'activity.waitlist_promoted', 'activity_request', who.id, { activityId, applicantId: who.applicantId });
+      metrics.count('joins');
     }
   }
 
@@ -897,11 +909,12 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         throw E.conflict('ACTIVITY_CLOSED', 'This activity has already started, so nobody new can be approved');
       // capacity check + membership creation are atomic so two approvals cannot overfill
       await this.prisma.$transaction(async (tx) => {
+        const { capacity } = await lockActivity(tx, activityId);
         const already = await tx.activityMembership.findUnique({
           where: { activityId_userId: { activityId, userId: r.applicantId } },
         });
         const count = await tx.activityMembership.count({ where: { activityId, state: 'approved' } });
-        if ((!already || already.state !== 'approved') && count >= a.capacity)
+        if ((!already || already.state !== 'approved') && count >= capacity)
           throw E.conflict('ACTIVITY_FULL', 'This activity is full');
         await tx.activityMembership.upsert({
           where: { activityId_userId: { activityId, userId: r.applicantId } },
@@ -913,9 +926,10 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
           data: { state: 'approved', reviewedBy: me.id, decidedAt: new Date() },
         });
         const total = (!already || already.state !== 'approved') ? count + 1 : count;
-        if (total >= a.capacity) await tx.activity.update({ where: { id: activityId }, data: { status: 'full' } });
+        if (total >= capacity) await tx.activity.update({ where: { id: activityId }, data: { status: 'full' } });
       });
       await this.refreshStatus(activityId);
+      metrics.count('joins');
       await this.notifications.notify(r.applicantId, 'request_approved', 'You are approved!', `You can now chat with the group for ${a.title}`, {
         activityId,
       });
@@ -941,7 +955,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     }
     await this.notifications.settleRequest(a.hostId, 'join_request', { activityId }, r.applicantId); // the host's "wants to join" alert is answered
     await this.audit.log(me.id, `activity.request.${decision}`, 'activity_request', r.id, { activityId, applicantId: r.applicantId });
-    this.live.feedChanged([a.city]); // places left changed
+    this.events.emit({ type: 'activity.members_changed', id: a.id, city: a.city });
     return { id: r.id, state: decision === 'approve' ? 'approved' : 'declined' };
   }
 
@@ -979,7 +993,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.refreshStatus(a.id);
     await this.fillFromWaitlist(a.id); // the first person waiting takes the place
     if (wasFull) await this.announceOpenSpot(a.id); // and if nobody was waiting, the people who saved it hear of the free place
-    this.live.feedChanged([a.city]);
+    this.events.emit({ type: 'activity.members_changed', id: a.id, city: a.city });
   }
 
   // ---------------------------------------------------------------- changed plans, hand-over, attendance
@@ -1079,19 +1093,11 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
 
   /** Newest saved first, a page at a time (`limit`, default 100; `cursor` from the last answer). `total` is the whole count. */
   async myFavorites(me: User, limitRaw?: string, cursorRaw?: string) {
-    const limit = pageLimit(limitRaw, 100);
-    const cur = decodeKeyset(cursorRaw);
     const live = { userId: me.id, activity: { status: { not: 'cancelled' } } };
-    const [favs, total] = await Promise.all([
-      this.prisma.favorite.findMany({
-        where: { ...live, ...(cur ? { OR: [{ createdAt: { lt: cur.at } }, { createdAt: cur.at, activityId: { lt: cur.id } }] } : {}) },
-        include: { activity: { include: this.hostInclude } },
-        orderBy: [{ createdAt: 'desc' }, { activityId: 'desc' }],
-        take: limit + 1,
-      }),
+    const [page, total] = await Promise.all([
+      pageOf((a) => this.prisma.favorite.findMany({ ...a, include: { activity: { include: this.hostInclude } } }), { limit: pageLimit(limitRaw, 100), cursor: cursorRaw, where: live, idField: 'activityId' }),
       this.prisma.favorite.count({ where: live }),
     ]);
-    const page = sliceKeyset(favs.map((f) => ({ ...f, id: f.activityId })), limit, (f) => f.createdAt);
     return {
       items: await this.withGoing(page.items, (f) => f.activityId, (f, going) => this.dto(f.activity, going, { favorited: true })),
       nextCursor: page.nextCursor,

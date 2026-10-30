@@ -9,6 +9,7 @@ export const REPORT_CATEGORIES = [
   'spam',
   'financial_solicitation',
   'immediate_danger',
+  'host_no_show', // a member says the host never came: only members of that plan can send it (see reliability.controller.ts)
 ] as const;
 /** Reports that are looked at first and, for immediate danger, tell the on-duty staff at once. */
 export const URGENT_CATEGORIES: string[] = ['immediate_danger', 'physical_safety'];

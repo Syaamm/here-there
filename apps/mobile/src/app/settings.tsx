@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { Btn, Card, ErrorBanner, ListRow, Screen, Txt, useGo } from '@/components/ui';
+import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { useAction } from '@/lib/hooks';
@@ -35,6 +36,12 @@ export default function Settings() {
   const v = me?.eligibility;
   const verification = v === 'verified' ? t('Verified adult') : v === 'pending' ? t('Check in review') : v === 'rejected' ? t('Not approved, you can try again') : v === 'expired' || v === 'reverification_required' ? t('Verify again to keep joining and chatting') : t('Not verified yet');
 
+  const signOutEverywhere = async () => {
+    if (!(await confirmAsync(t('Sign out of every device?'), t('Every phone and browser signed in to your account is signed out now, this one too. Use it if a phone is lost or you think someone else got in.'), t('Sign out everywhere'), true))) return;
+    const done = await act.run(() => post('/v1/me/sessions/logout-all'));
+    if (done) void logout('You were signed out of every device. Log in again.');
+  };
+
   const signOut = async () => {
     if (await confirmAsync(t('Sign out?'), t('You can sign back in any time. Your plans and chats stay as they are.'), t('Sign out'), true)) void logout();
   };
@@ -57,6 +64,7 @@ export default function Settings() {
 
       <Label>{t('Notifications')}</Label>
       <Card style={{ padding: 12, borderRadius: 18, gap: 8 }}>
+        <ListRow icon="options-outline" title={t('What reaches you')} subtitle={t('Choose alerts and quiet hours')} onPress={() => go('/notification-settings')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} />
         <ListRow
           icon="notifications-outline"
           title={t('Alerts on this device')}
@@ -106,6 +114,7 @@ export default function Settings() {
       </Card>
 
       <Btn title={t('Sign out')} variant="secondary" onPress={() => void signOut()} />
+      {me?.role !== 'guest' ? <Btn title={t('Sign out of every device')} variant="ghost" onPress={() => void signOutEverywhere()} /> : null}
     </Screen>
   );
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Injectable, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Injectable, Post } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import { checkPassword } from '../common/password';
@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser, Public, passwordVersion, staffMfaRequired } from '../common/auth';
+import { SessionService } from './session.service';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -144,7 +145,7 @@ export class MfaService {
 export class MfaController {
   constructor(
     private readonly mfa: MfaService,
-    private readonly jwt: JwtService,
+    private readonly sessions: SessionService,
   ) {}
 
   @Get('me/mfa')
@@ -170,9 +171,9 @@ export class MfaController {
   /** Completes a sign-in that asked for a code. Public: the pass from the password step is what authorises it. */
   @Public()
   @Post('auth/mfa/verify')
-  async verify(@Body() body: unknown) {
+  async verify(@Body() body: unknown, @Headers('user-agent') ua?: string) {
     const { user, how } = await this.mfa.complete(body);
-    const token = await this.jwt.signAsync({ sub: user.id, pv: passwordVersion(user.passwordChangedAt) });
-    return { token, usedRecoveryCode: how === 'recovery', user: { id: user.id, email: user.email, role: user.role, profile: user.profile && { displayName: user.profile.displayName } } };
+    const tokens = await this.sessions.issue(user, ua);
+    return { ...tokens, usedRecoveryCode: how === 'recovery', user: { id: user.id, email: user.email, role: user.role, profile: user.profile && { displayName: user.profile.displayName } } };
   }
 }

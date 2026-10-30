@@ -1,25 +1,28 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, can, loadSession, saveSession, setToken, setUnauthorizedHandler, STAFF, type Role, type Session } from './api';
+import { api, can, getRefreshToken, loadSession, saveSession, setRefreshToken, setToken, setUnauthorizedHandler, STAFF, type Role, type Scope, type Session } from './api';
 import { AuditPage } from './pages/Audit';
 import { ContentPage } from './pages/Content';
 import { AppealsPage } from './pages/Appeals';
 import { NoShowsPage } from './pages/NoShows';
 import { OverviewPage } from './pages/Overview';
+import { RegionsPage } from './pages/Regions';
 import { ReportsPage } from './pages/Reports';
 import { SecurityPage } from './pages/Security';
 import { UsersPage } from './pages/Users';
 import { VerificationsPage } from './pages/Verifications';
 import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, useLoad, type IconName } from './ui';
 
-type PageId = 'overview' | 'verifications' | 'reports' | 'noshows' | 'appeals' | 'content' | 'users' | 'audit' | 'security';
-const NAV: { id: PageId; label: string; icon: IconName; show: (r: Role) => boolean }[] = [
+type PageId = 'overview' | 'verifications' | 'reports' | 'noshows' | 'appeals' | 'content' | 'users' | 'audit' | 'security' | 'regions';
+/** `regional`: staff who look after one city, region or country may open it. Everything else is for staff of the whole service. */
+const NAV: { id: PageId; label: string; icon: IconName; show: (r: Role) => boolean; regional?: boolean }[] = [
   { id: 'overview', label: 'Overview', icon: 'overview', show: () => true },
   { id: 'verifications', label: 'Verification', icon: 'shield', show: () => true },
-  { id: 'reports', label: 'Reports', icon: 'flag', show: () => true },
+  { id: 'reports', label: 'Reports', icon: 'flag', show: () => true, regional: true },
   { id: 'noshows', label: 'No-shows', icon: 'alert', show: () => true },
   { id: 'appeals', label: 'Appeals', icon: 'alert', show: () => true },
-  { id: 'content', label: 'Content', icon: 'layers', show: () => true },
-  { id: 'users', label: 'Users', icon: 'users', show: () => true },
+  { id: 'content', label: 'Content', icon: 'layers', show: () => true, regional: true },
+  { id: 'users', label: 'Users', icon: 'users', show: () => true, regional: true },
+  { id: 'regions', label: 'Places & limits', icon: 'plane', show: () => true, regional: true },
   { id: 'audit', label: 'Audit log', icon: 'clock', show: can.trust },
   { id: 'security', label: 'Security', icon: 'key', show: () => true },
 ];
@@ -31,7 +34,10 @@ export default function App() {
   const [userId, setUserId] = useState<string | null>(null); // one person opened from a report
 
   const logout = () => {
+    // also ends this sign-in on the server (best effort)
+    if (getRefreshToken()) void api('POST', '/v1/auth/logout', { refreshToken: getRefreshToken() }).catch(() => undefined);
     setToken(null);
+    setRefreshToken(null);
     saveSession(null);
     setSession(null);
   };
@@ -60,11 +66,9 @@ export default function App() {
   useEffect(() => {
     if (!session) return;
     let live = true;
-    const load = () =>
-      Promise.all([api<{ items: { id: string }[] }>('GET', '/v1/admin/reports?status=open'), api<{ items: { id: string }[] }>('GET', '/v1/admin/verifications?status=pending')]).then(
-        ([r, v]) => live && setOpen({ reports: r.items.map((x) => x.id), verifications: v.items.map((x) => x.id) }),
-        () => {},
-      );
+    // each list on its own: staff who look after one area may not read the verification list, and that must not hide the reports
+    const ids = (path: string) => api<{ items: { id: string }[] }>('GET', path).then((r) => r.items.map((x) => x.id), () => [] as string[]);
+    const load = () => Promise.all([ids('/v1/admin/reports?status=open'), ids('/v1/admin/verifications?status=pending')]).then(([reports, verifications]) => live && setOpen({ reports, verifications }));
     load();
     const t = setInterval(() => !document.hidden && load(), 6000); // a new entry shows up within seconds
     const back = () => !document.hidden && load(); // and straight away when the admin comes back to this tab
@@ -113,7 +117,15 @@ type ConsoleProps = {
   logout: () => void;
 };
 
-function Console({ session, page, setPage, reportId, setReportId, userId, setUserId, fresh, open, logout }: ConsoleProps) {
+function Console({ session: signedIn, page, setPage, reportId, setReportId, userId, setUserId, fresh, open, logout }: ConsoleProps) {
+  // which part of the service this account looks after (asked once; staff of the whole service have none)
+  const scopeLoad = useLoad(() => api<{ scope: Scope }>('GET', '/v1/admin/scope'), [signedIn.token]);
+  const session: Session = { ...signedIn, scope: scopeLoad.data?.scope ?? null };
+  const regional = !!session.scope;
+  useEffect(() => {
+    // a staff account with an area has no overview: it starts at the reports
+    if (regional && !NAV.find((n) => n.id === page)?.regional) setPage('reports');
+  }, [regional, page]);
   // two-step sign-in: where it is required and not yet set up, nothing else opens until it is
   const mfa = useLoad(() => api<{ enabled: boolean; required: boolean; recoveryCodesLeft: number }>('GET', '/v1/me/mfa'), [session.token]);
   if (mfa.data && mfa.data.required && !mfa.data.enabled)
@@ -129,7 +141,8 @@ function Console({ session, page, setPage, reportId, setReportId, userId, setUse
       </div>
     );
 
-  const nav = NAV.filter((n) => n.show(session.role));
+  if (!scopeLoad.data && !scopeLoad.error) return <div className="login-wrap"><p className="muted">Loading…</p></div>;
+  const nav = NAV.filter((n) => n.show(session.role) && (!regional || n.regional));
   return (
     <div className="shell">
       <aside className="side">
@@ -160,6 +173,9 @@ function Console({ session, page, setPage, reportId, setReportId, userId, setUse
             <div className="mail" title={`${session.email} · ${session.role.replace('_', ' ')}`}>
               {session.email}
             </div>
+            <div className="mail" title="The part of the service this account looks after">
+              {session.scope ? `${session.scope.name} · ${session.scope.kind}` : 'Whole service'}
+            </div>
           </div>
           <button className="icon-btn" onClick={logout} aria-label="Sign out" title="Sign out">
             <Icon name="logout" />
@@ -175,6 +191,7 @@ function Console({ session, page, setPage, reportId, setReportId, userId, setUse
         {page === 'content' && <ContentPage me={session} />}
         {page === 'users' && <UsersPage me={session} focusId={userId} onClearFocus={() => setUserId(null)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
         {page === 'audit' && can.trust(session.role) && <AuditPage openReport={(id) => (setReportId(id), setPage('reports'))} />}
+        {page === 'regions' && <RegionsPage me={session} />}
         {page === 'security' && mfa.data && <SecurityPage status={mfa.data} onChanged={mfa.reload} />}
       </main>
       <DialogHost />
@@ -182,7 +199,7 @@ function Console({ session, page, setPage, reportId, setReportId, userId, setUse
   );
 }
 
-type LoginReply = { token?: string; mfaRequired?: boolean; mfaToken?: string; user?: { email: string; role: Role; profile?: { displayName: string } } };
+type LoginReply = { token?: string; refreshToken?: string; mfaRequired?: boolean; mfaToken?: string; user?: { email: string; role: Role; profile?: { displayName: string } } };
 
 function Login({ onDone }: { onDone: (s: Session) => void }) {
   const [email, setEmail] = useState('');
@@ -195,8 +212,9 @@ function Login({ onDone }: { onDone: (s: Session) => void }) {
   const finish = (r: LoginReply) => {
     if (!r.token || !r.user) throw new Error('Sign-in failed.');
     if (!STAFF.includes(r.user.role)) throw new Error('This account does not have staff access.');
-    const s: Session = { token: r.token, email: r.user.email, role: r.user.role, name: r.user.profile?.displayName ?? r.user.email };
+    const s: Session = { token: r.token, refreshToken: r.refreshToken, email: r.user.email, role: r.user.role, name: r.user.profile?.displayName ?? r.user.email };
     setToken(s.token);
+    setRefreshToken(s.refreshToken ?? null);
     saveSession(s);
     onDone(s);
   };

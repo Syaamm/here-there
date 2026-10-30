@@ -1,14 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useIsFocused, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { memo, useEffect, useRef, useState } from 'react';
-import { Animated, Keyboard, Linking, Pressable, ScrollView, View, type ScrollViewInstance, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { Animated, FlatList, Keyboard, Linking, Pressable, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Menu } from '@/components/Menu';
 import { ReportSheet } from '@/components/ReportSheet';
 import { CatPhoto } from '@/components/CatPhoto';
 import { SkeletonChat } from '@/components/Skeleton';
-import { Appear, setViewport } from '@/components/Pop';
+import { Appear, setInView } from '@/components/Pop';
 import { Avatar, Banner, Btn, DateField, Empty, ErrorBanner, Field, Screen, Sheet, Txt, useGo } from '@/components/ui';
 import { ApiError, get, post, type ConversationRef, type GroupInfo, type Notif, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -157,6 +157,9 @@ const Bubble = memo(
   (a, b) => a.m.id === b.m.id && a.m.body === b.m.body && a.mine === b.mine && a.showName === b.showName && a.newDay === b.newDay,
 );
 
+/** The small gap between two messages. */
+const RowGap = () => <View style={{ height: 3 }} />;
+
 function Chat({ id }: { id: string }) {
   const { t, tn } = useT();
   const { me } = useMe();
@@ -175,6 +178,7 @@ function Chat({ id }: { id: string }) {
   useLiveEvents((e) => {
     if (!inFront.current) return; // not on screen: it loads when you open it
     if (e.type === 'ready' || (e.type === 'message' && e.conversationId === id)) void msgs.reload();
+    if (e.type === 'group-changed' && e.kind === 'trip' && e.id === groupScope.current?.id) void msgs.reload(); // a poll was answered or closed
   });
   // fetching the messages reads this chat's alert on the server: ask for the new badge number each time something arrives
   const arrived = msgs.data?.items.length ?? -1;
@@ -187,11 +191,6 @@ function Chat({ id }: { id: string }) {
   const [olderCursor, setOlderCursor] = useState<string | null | undefined>(undefined); // undefined: not known yet; null: no more
   const [loadingOlder, setLoadingOlder] = useState(false);
   const busyOlder = useRef(false);
-  // The reader's place, written down just before earlier messages are added above it. When the list grows, it is moved down by
-  // exactly the height that was added, so the same message stays under the reader's eyes (nothing jumps).
-  const place = useRef<{ height: number; y: number } | null>(null);
-  const contentHeight = useRef(0);
-  const scrollY = useRef(0);
   const newestPage = useRef<Msg[]>([]);
   const before = (a: Msg, b: Msg) => a.createdAt < b.createdAt || (a.createdAt === b.createdAt && a.id < b.id);
   const inOrder = (rows: Msg[]) => [...new Map(rows.map((m) => [m.id, m])).values()].sort((a, b) => (before(a, b) ? -1 : 1));
@@ -226,10 +225,6 @@ function Chat({ id }: { id: string }) {
     setLoadingOlder(true);
     try {
       const r = await get<{ items: Msg[]; nextCursor: string | null }>(`/v1/conversations/${id}/messages?limit=30&cursor=${encodeURIComponent(olderCursor)}`);
-      if (r.items.length) {
-        place.current = { height: contentHeight.current, y: scrollY.current };
-        setTimeout(() => (place.current = null), 1500); // if nothing was added after all, forget it
-      }
       setOlder((prev) => inOrder([...r.items, ...prev]));
       setOlderCursor(r.nextCursor);
     } catch {
@@ -248,7 +243,13 @@ function Chat({ id }: { id: string }) {
   // leaving by the swipe-back (or the arrow): the keyboard goes down while the screen goes sideways
   const navigation = useNavigation();
   useEffect(() => navigation.addListener('transitionStart' as never, ((e: { data?: { closing?: boolean } }) => e?.data?.closing && Keyboard.dismiss()) as never), [navigation]); // the chat ends at the bottom edge, so the keyboard simply pushes it up by its own height
-  const info = useLoad(() => get<GroupInfo>(`/v1/conversations/${id}/info`), [id], 30_000, 'chat:info', { animate: true });
+  // members, dates or place of this group changed: the details load at once; the poll is only a rare safety net while the live connection is up
+  const info = useLoad(() => get<GroupInfo>(`/v1/conversations/${id}/info`), [id], 30_000, 'chat:info', { animate: true, live: true });
+  const groupScope = useRef<{ kind: 'activity' | 'trip'; id: string } | null>(null);
+  groupScope.current = info.data && (info.data.scope === 'activity' || info.data.scope === 'trip') ? { kind: info.data.scope, id: info.data.scopeId } : null;
+  useLiveEvents((e) => {
+    if (e.type === 'ready' || (e.type === 'group-changed' && e.kind === groupScope.current?.kind && e.id === groupScope.current?.id)) void info.reload();
+  });
   useEnterMode(info.data ? (info.data.scope === 'activity' ? 'here' : 'there') : undefined); // an activity group is HERE; trip groups and travel matches are THERE
   const [reportMsg, setReportMsg] = useState<{ id: string; category?: string } | null>(null);
   // press and hold a message: report it (or flag spam), see who wrote it, or block them
@@ -300,7 +301,10 @@ function Chat({ id }: { id: string }) {
   };
   const confirmDates = () => tripId && void plan.run(() => post(`/v1/trips/${tripId}/confirm-dates`));
   const safety = useAction(() => void msgs.reload());
-  const list = useRef<ScrollViewInstance>(null);
+  const list = useRef<FlatList<Msg>>(null);
+  // the rows on screen, so earlier messages fade in as the reader reaches them
+  const onViewable = useRef(({ viewableItems }: { viewableItems: { key: string }[] }) => setInView(viewableItems.map((v) => v.key))).current;
+  const viewability = useRef({ itemVisiblePercentThreshold: 10 }).current;
   const stick = useRef(true);
   const loaded = useRef(false);
 
@@ -312,8 +316,6 @@ function Chat({ id }: { id: string }) {
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     stick.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 80;
-    scrollY.current = contentOffset.y;
-    setViewport(contentOffset.y, layoutMeasurement.height, contentSize.height); // the rows fade in as they come into view
     // a few screens before the top (and not while the screen is still settling on its first load): load the earlier messages,
     // so they are already there by the time the reader scrolls up to them
     if (loaded.current && contentOffset.y < 900) void loadOlder();
@@ -459,40 +461,57 @@ function Chat({ id }: { id: string }) {
         </View>
       ) : null}
 
-      <ScrollView ref={list} showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 10, gap: 3 }} onScroll={onScroll} scrollEventThrottle={16} onContentSizeChange={(_w, h) => {
-          contentHeight.current = h;
-          // earlier messages were just added above: move down by what was added, so the reader stays on the same message
-          if (place.current && h > place.current.height) {
-            list.current?.scrollTo({ y: place.current.y + (h - place.current.height), animated: false });
-            place.current = null;
-            return;
-          }
+      {/* a recycling list: only the messages near the screen are drawn, so a chat with thousands of messages stays light. When earlier
+          messages are added above, the list keeps the reader on the same message by itself (maintainVisibleContentPosition). */}
+      <FlatList
+        ref={list}
+        data={shown}
+        extraData={`${amHost}${plan.busy}${me?.id}`}
+        keyExtractor={(m) => m.id}
+        showsVerticalScrollIndicator={false}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 10 }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={30}
+        windowSize={11}
+        maxToRenderPerBatch={12}
+        maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+        onViewableItemsChanged={onViewable}
+        viewabilityConfig={viewability}
+        ItemSeparatorComponent={RowGap}
+        onContentSizeChange={() => {
           if (!stick.current) return;
           // the first load jumps to the latest message; later ones glide
           list.current?.scrollToEnd({ animated: loaded.current });
           if (msgs.data) loaded.current = true;
-        }} keyboardShouldPersistTaps="handled">
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: c.sand, borderRadius: 14, padding: 10, marginBottom: 6 }}>
-          <Ionicons name="lock-closed-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
-          <Text style={{ flex: 1, color: c.text, fontSize: 12.5, lineHeight: 17 }}>{t('Only approved members can see this chat. Meet at public venues, and report anything that feels wrong. Hold a message to report or block.')}</Text>
-        </View>
-        {/* The top of the history. While there are earlier messages it is a fixed-height area: grey message shapes while they load,
-            empty otherwise, so it never changes size and nothing moves when loading starts. At the very first message it becomes a line. */}
-        {olderCursor ? (
-          <View style={{ height: 164, overflow: 'hidden' }}>{loadingOlder ? <SkeletonChat compact /> : null}</View>
-        ) : older.length > 0 && olderCursor === null ? (
-          <View style={{ height: 34, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: c.muted, fontSize: 11 }}>{t('Start of the conversation')}</Text>
+        }}
+        ListHeaderComponent={
+          <View>
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: c.sand, borderRadius: 14, padding: 10, marginBottom: 6 }}>
+              <Ionicons name="lock-closed-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
+              <Text style={{ flex: 1, color: c.text, fontSize: 12.5, lineHeight: 17 }}>{t('Only approved members can see this chat. Meet at public venues, and report anything that feels wrong. Hold a message to report or block.')}</Text>
+            </View>
+            {/* The top of the history. While there are earlier messages it is a fixed-height area: grey message shapes while they load,
+                empty otherwise, so it never changes size and nothing moves when loading starts. At the very first message it becomes a line. */}
+            {olderCursor ? (
+              <View style={{ height: 164, overflow: 'hidden' }}>{loadingOlder ? <SkeletonChat compact /> : null}</View>
+            ) : older.length > 0 && olderCursor === null ? (
+              <View style={{ height: 34, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: c.muted, fontSize: 11 }}>{t('Start of the conversation')}</Text>
+              </View>
+            ) : null}
+            {msgs.loading && !msgs.data && <SkeletonChat />}
+            {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>{t('No messages yet. Say hi 👋')}</Txt>}
           </View>
-        ) : null}
-        {msgs.loading && !msgs.data && <SkeletonChat />}
-        {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>{t('No messages yet. Say hi 👋')}</Txt>}
-        {shown.map((m, i, all) => {
+        }
+        renderItem={({ item: m, index: i }) => {
           const earlierBatch = i < older.length; // loaded above the newest page: it fades in when scrolled to
           const mine = m.sender.id === me?.id;
-          const newDay = i === 0 || dayLabel(all[i - 1].createdAt) !== dayLabel(m.createdAt);
+          const newDay = i === 0 || dayLabel(shown[i - 1].createdAt) !== dayLabel(m.createdAt);
           // in a run of messages from one person the name shows once, on the first
-          const showName = !mine && (newDay || all[i - 1].sender.id !== m.sender.id);
+          const showName = !mine && (newDay || shown[i - 1].sender.id !== m.sender.id);
           const day = newDay ? (
             <View style={{ alignSelf: 'center', backgroundColor: c.infoBg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, marginVertical: 8 }}>
               <Text style={{ color: c.muted, fontSize: 11, fontWeight: '700' }}>{dayLabel(m.createdAt)}</Text>
@@ -500,7 +519,7 @@ function Chat({ id }: { id: string }) {
           ) : null;
           if (m.kind === 'system')
             return (
-              <Appear key={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
+              <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
                 {day}
                 <View style={{ alignSelf: 'center', maxWidth: '88%', backgroundColor: c.accentSoft, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, marginVertical: 4 }}>
                   <Text style={{ color: c.text, fontSize: 12.5, lineHeight: 17, textAlign: 'center' }}>{m.body}</Text>
@@ -509,19 +528,19 @@ function Chat({ id }: { id: string }) {
             );
           if (m.kind === 'poll')
             return (
-              <Appear key={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
+              <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
                 {day}
                 <PollCard m={m} amHost={amHost} busy={plan.busy} onVote={(v) => vote(m.poll!.id, v)} onClose={(adopt) => void closePoll(m.poll!.id, adopt)} />
               </Appear>
             );
           return (
-            <Appear key={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
+            <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
               {day}
               <Bubble m={m} mine={mine} showName={showName} newDay={newDay} onPick={setPicked} />
             </Appear>
           );
-        })}
-      </ScrollView>
+        }}
+      />
 
       <View style={{ paddingHorizontal: 16 }}>
         <ErrorBanner message={send.error ?? safety.error ?? plan.error ?? (msgs.error && !locked ? msgs.error.message : null)} />

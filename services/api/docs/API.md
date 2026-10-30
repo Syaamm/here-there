@@ -5,10 +5,11 @@ Version 0.1.0. Generated from `openapi.json` by `npm run docs`: do not edit by h
 The shared backend for **HERE.** (activities happening soon) and **THERE.** (trips and travel buddies), used by the mobile app and the admin console. One account and one verification serve both products.
 
 ### Conventions
-- **Sign-in.** Send `Authorization: Bearer <token>` from `POST /v1/auth/login`, `/v1/auth/register` or `/v1/auth/guest`. Routes marked public need no token. Authorization is decided on the server from live data on every call (suspension, role, verification and chat membership take effect immediately).
+- **Sign-in.** Send `Authorization: Bearer <token>` from `POST /v1/auth/login`, `/v1/auth/register/confirm` or `/v1/auth/guest`. The token is short-lived (15 minutes, `expiresIn` says); sign-in also returns a `refreshToken` (30 days) that is sent only to `POST /v1/auth/refresh` for a new pair, and an old refresh token never works twice. `POST /v1/me/sessions/logout-all` ends every sign-in at once. Routes marked public need no token. Authorization is decided on the server from live data on every call (suspension, role, verification and chat membership take effect immediately).
 - **Verified adults only.** Creating or joining activities, creating or applying to trips, and chat need a verified adult. Routes that need it are marked, and fail with `VERIFICATION_REQUIRED` otherwise. Browsing needs no verification.
 - **Errors.** Every failure has the same body, `{ "statusCode", "code", "message", "details"? }`. Branch on `code`, never on `message`. The full list, with what each means and what a client should do, is in the *Error codes* section below and in `ERROR-CODES.md`.
 - **Paging.** List routes that return pages answer `{ items, nextCursor }`. Send `nextCursor` back as `cursor` for the next page; `null` means the last page. Treat the cursor as opaque.
+- **Safe retries.** Send an `Idempotency-Key` header (8 to 100 characters, unique per action, the same for a retry of that action) on any write. The first answer is kept for 24 hours and a repeat with the same key gets that same answer back with `Idempotent-Replayed: true`, without doing the thing twice. The same key for a different request is refused (`IDEMPOTENCY_KEY_REUSED`); while the first try is still running the answer is `REQUEST_IN_PROGRESS`. Failed requests are not kept.
 - **Caching.** `GET` answers carry an `ETag`; send `If-None-Match` to get an empty `304` when nothing changed.
 - **Limits.** Sensitive and spam-prone routes are rate limited and answer `429 RATE_LIMITED`.
 - **Live updates.** A WebSocket at `/v1/live` (first message carries the token) pushes chat messages and change signals. It is not part of this document.
@@ -18,15 +19,15 @@ Request bodies and query strings are generated from the same validation rules th
 ## Contents
 
 - [Shared links](#shared-links) (4)
-- [HERE activities](#here-activities) (28)
-- [Admin console](#admin-console) (32)
-- [Sign-in and account](#sign-in-and-account) (26)
+- [HERE activities](#here-activities) (30)
+- [Admin console](#admin-console) (43)
+- [Sign-in and account](#sign-in-and-account) (32)
 - [Safety, blocks and follows](#safety-blocks-and-follows) (9)
 - [Chat and date polls](#chat-and-date-polls) (7)
 - [Profile and photo](#profile-and-photo) (15)
-- [THERE trips](#there-trips) (31)
+- [THERE trips](#there-trips) (32)
+- [Notifications and push](#notifications-and-push) (8)
 - [Identity verification](#identity-verification) (6)
-- [Notifications and push](#notifications-and-push) (6)
 - [API description](#api-description) (1)
 - [Error codes](#error-codes)
 
@@ -420,6 +421,34 @@ Responses
 - **404**: Not found. Codes: `NOT_FOUND`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
+### `POST /v1/activities/{id}/host-no-show`
+
+**Member: say the host did not show up (from 30 minutes after the start until 72 hours after the end)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `note` | string (0 to 1000 characters) | no |  |
+
+Responses
+
+- **200**: { id, status, priority, expectedWithin, coverage, emergency }. It becomes a report that a moderator decides; saying it twice returns the same report.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `HOST_ABSENT_TOO_EARLY`, `HOST_ABSENT_WINDOW_CLOSED`, `PLAN_CANCELLED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
 ### `POST /v1/activities/{id}/leave`
 
 **Leave an activity (chat access ends at once)**
@@ -740,6 +769,26 @@ Responses
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 - **502**: Error. Codes: `PLACES_UNAVAILABLE`
 
+### `GET /v1/regions/limits`
+
+**How far ahead a plan may be made from a city**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `city` | query | string (0 to 80 characters) | no |  |
+
+Responses
+
+- **200**: { city, region, here: { months, latest, text, setBy }, there: { months, latest, text, setBy } }. here is for an activity in that city, there for a trip that starts from it. latest is the last moment a plan may start. setBy names the place whose admin set the limit (null for the built-in default). Without a city: the whole service's setting.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
 ## Admin console
 
 ### `GET /v1/admin/activities`
@@ -892,6 +941,27 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
+### `GET /v1/admin/health`
+
+**How the service is doing right now: per-minute counters, error rate, slow database calls (table and action, with the request id)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: support, moderator, trust_lead, admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `minutes` | query | string | no |  |
+
+Responses
+
+- **200**: { status (ok | degraded), errorRate5m, errorRate60m, totals, lastMinute, series: [{ at, requests, errors, clientErrors, slowRequests, slowQueries, signups, joins, messages, p95Ms }], slowQueries: [{ at, ms, what, reqId }], database: { pingMs }, errorTracking, uptimeSeconds }. Counted by this server only.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
 ### `GET /v1/admin/messages/{id}`
 
 **A reported message with the messages around it**
@@ -1012,6 +1082,86 @@ Responses
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
 
+### `GET /v1/admin/no-shows/hosts`
+
+**Hosts who say many people did not come, or whose notes keep being overturned**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: support, moderator, trust_lead, admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `all` | query | string | no |  |
+
+Responses
+
+- **200**: { rule, items: [{ hostId, name, flag, reasons, marks, attendees, decided, overturned }] }. Only the unusual ones unless all=true. It never acts by itself: moderators are told once a month per host.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `GET /v1/admin/oncall`
+
+**Who is on call for urgent reports, the coming shifts, and what happens when nobody answers**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: support, moderator, trust_lead, admin.
+
+Responses
+
+- **200**: { now, fallback, shifts, steps, ownerContactSet }. With no shift covering now, the trust leads and administrators are on call.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `POST /v1/admin/oncall`
+
+**Add an on-call shift (administrators only)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `userId` | string (1 or more characters) | yes |  |
+| `startsAt` | string (date-time) | yes |  |
+| `endsAt` | string (date-time) | yes |  |
+| `note` | string (0 to 200 characters) | no |  |
+
+Responses
+
+- **200**: { id }
+- **400**: The request is not acceptable. Codes: `INVALID_SHIFT`, `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `DELETE /v1/admin/oncall/{id}`
+
+**Remove an on-call shift (administrators only)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { ok }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
+
 ### `GET /v1/admin/overview`
 
 **Everything the Overview dashboard shows**
@@ -1023,6 +1173,115 @@ Staff only. Roles: support, moderator, trust_lead, admin.
 Responses
 
 - **200**: Counters (users, pending checks, open reports, active plans), real-member totals, identity approval rate, report counts by status, and the last 30 days as daily series (members, activities, trips, reports) with the previous 30 days for comparison, plus reports by category.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `GET /v1/admin/regions`
+
+**The places (whole service, countries, regions, cities) with their planning limits**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: support, moderator, trust_lead, admin.
+
+Responses
+
+- **200**: { scope, defaults: { here, there }, ranges, items: [{ key, name, kind, parentKey, cityKey, hereMonths, thereMonths, effective: { here, hereFrom, there, thereFrom }, children, staff, canEdit, canDelete }] }. hereMonths and thereMonths are what the place itself sets (null = follows the place above); effective is what applies. Staff of one area see only their own place and what is under it.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `POST /v1/admin/regions`
+
+**Add a country, region or city under a place you look after (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string (2 to 60 characters) | yes |  |
+| `kind` | one of: `country`, `region`, `city` | yes |  |
+| `parentKey` | string (1 to 60 characters) | no |  |
+| `key` | string (2 to 40 characters) | no |  |
+| `cityKey` | string (2 to 60 characters) | no |  |
+| `hereMonths` | integer (1 to 12) or null | no |  |
+| `thereMonths` | integer (1 to 24) or null | no |  |
+
+Responses
+
+- **200**: { key }
+- **400**: The request is not acceptable. Codes: `INVALID_PLACE`, `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`, `OUT_OF_SCOPE`
+- **409**: Conflicts with the current state. Codes: `CITY_ALREADY_ASSIGNED`
+
+### `DELETE /v1/admin/regions/{key}`
+
+**Remove a place that has nothing under it and no staff (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `key` | path | string | yes |  |
+
+Responses
+
+- **200**: { ok }
+- **400**: The request is not acceptable. Codes: `INVALID_PLACE`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`, `OUT_OF_SCOPE`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `PLACE_HAS_STAFF`, `PLACE_NOT_EMPTY`
+
+### `PATCH /v1/admin/regions/{key}`
+
+**Change a place's name or its planning limits: HERE months (1 to 12) and THERE months (1 to 24); null = follow the place above (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `key` | path | string | yes |  |
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string (2 to 60 characters) | no |  |
+| `hereMonths` | integer (1 to 12) or null | no |  |
+| `thereMonths` | integer (1 to 24) or null | no |  |
+
+Responses
+
+- **200**: { key }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`, `OUT_OF_SCOPE`
+- **404**: Not found. Codes: `NOT_FOUND`
+
+### `GET /v1/admin/regions/unassigned`
+
+**City names people have used that no place covers yet (whole-service staff only)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: support, moderator, trust_lead, admin.
+
+Responses
+
+- **200**: { items: [{ cityKey, uses }] }, most used first
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
@@ -1109,6 +1368,20 @@ Staff only. Roles: support, moderator, trust_lead, admin.
 Responses
 
 - **200**: { policy, queue: { unassigned, urgent, overdue, oldestUnassignedHours }, moderators: [{ id, name, role, assigned, overdue, oldestHours, resolvedLast7Days }] }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `GET /v1/admin/scope`
+
+**Which part of the service this staff account looks after**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: support, moderator, trust_lead, admin.
+
+Responses
+
+- **200**: { role, scope: null | { key, name, kind } }. null means the whole service; otherwise one city, region or country.
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
@@ -1395,7 +1668,7 @@ Responses
 
 ### `POST /v1/admin/users/{id}/role`
 
-**Change a person's staff role (admin only)**
+**Change a person's staff role, and the area they look after (whole-service administrators only)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1412,13 +1685,14 @@ Request body (JSON)
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `role` | one of: `user`, `support`, `moderator`, `trust_lead`, `admin` | yes |  |
+| `regionKey` | string (1 to 60 characters) or null | no |  |
 
 Responses
 
-- **200**: Done.
-- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **200**: { role, regionKey }. regionKey limits a staff account to one city, region or country and everything under it; leave it out for the whole service.
+- **400**: The request is not acceptable. Codes: `INVALID_PLACE`, `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`, `GLOBAL_STAFF_ONLY`
 - **404**: Not found. Codes: `NOT_FOUND`
 
 ### `POST /v1/admin/users/{id}/suspend`
@@ -1583,9 +1857,24 @@ Request body (JSON)
 
 Responses
 
-- **200**: { token, user }
+- **200**: { token, refreshToken, expiresIn, user }, or { mfaRequired, mfaToken } for staff. An unknown address and a wrong password give the same answer and take the same time.
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_CREDENTIALS`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/auth/logout`
+
+**Sign out of this device**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Optional body: { refreshToken }.
+
+Responses
+
+- **200**: { ok: true }. This sign-in cannot be refreshed any more; its access token ends within 15 minutes.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
@@ -1647,6 +1936,26 @@ Responses
 - **400**: The request is not acceptable. Codes: `INVALID_CODE`, `TOO_MANY_ATTEMPTS`, `VALIDATION_FAILED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
+### `POST /v1/auth/refresh`
+
+**Swap a refresh token for a new pair of tokens**
+
+Access: public (no token needed).
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `refreshToken` | string (10 to 100 characters) | yes |  |
+
+Responses
+
+- **200**: { token, refreshToken, expiresIn }. The old refresh token stops working; showing an old one again later ends that whole sign-in.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_REFRESH_TOKEN`, `REFRESH_TOKEN_REUSED`
+- **409**: Conflicts with the current state. Codes: `REFRESH_IN_PROGRESS`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
 ### `POST /v1/auth/register`
 
 **Create an account (18+ confirmation required)**
@@ -1665,10 +1974,48 @@ Request body (JSON)
 
 Responses
 
-- **200**: { token, user }. A 6-digit email code is sent (in development the code is echoed back as devCode).
+- **200**: { pending: true, email, ticket }, the same whether or not the address already has an account (so it cannot be used to find out who is a member). A new address gets its account and a 6-digit email code (in development echoed back as devCode); a known address gets an email saying so and a ticket that matches nothing. Finish with /v1/auth/register/confirm.
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **403**: Not allowed. Codes: `REGISTRATION_BLOCKED`
-- **409**: Conflicts with the current state. Codes: `EMAIL_TAKEN`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/auth/register/confirm`
+
+**Finish signing up with the emailed code**
+
+Access: public (no token needed).
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `email` | string | yes |  |
+| `code` | string | yes |  |
+| `ticket` | string (10 to 100 characters) | yes |  |
+
+Responses
+
+- **200**: { token, refreshToken, expiresIn, user }. The code and the ticket from the sign-up step confirm the address and sign the person in.
+- **400**: The request is not acceptable. Codes: `INVALID_CODE`, `VALIDATION_FAILED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/auth/register/resend`
+
+**Send the sign-up code again**
+
+Access: public (no token needed).
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `email` | string | yes |  |
+| `ticket` | string (10 to 100 characters) | yes |  |
+
+Responses
+
+- **200**: { ok: true } whatever the address or ticket.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `POST /v1/auth/social`
@@ -1926,7 +2273,7 @@ Request body (JSON)
 
 Responses
 
-- **200**: { ok: true, token }: other devices are signed out, this one gets a fresh token.
+- **200**: { ok: true, token, refreshToken, expiresIn }: other devices are signed out, this one gets a fresh sign-in.
 - **400**: The request is not acceptable. Codes: `SAME_PASSWORD`, `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`, `WRONG_PASSWORD`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
@@ -1985,6 +2332,32 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **409**: Conflicts with the current state. Codes: `PHONE_IN_USE`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `GET /v1/me/sessions`
+
+**Where this account is signed in**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: { items: [{ id, device, createdAt, lastUsedAt, current }] }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/me/sessions/logout-all`
+
+**Sign out of every device at once, this one included**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: { ok: true }. Every access token and refresh token of the account stops working immediately.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `GET /v1/retention`
@@ -2141,7 +2514,7 @@ Request body (JSON)
 | --- | --- | --- | --- |
 | `targetType` | one of: `user`, `activity`, `trip`, `message` | yes |  |
 | `targetId` | string (1 or more characters) | yes |  |
-| `category` | one of: `harassment`, `fraud`, `inappropriate_content`, `underage`, `physical_safety`, `spam`, `financial_solicitation`, `immediate_danger` | yes |  |
+| `category` | one of: `harassment`, `fraud`, `inappropriate_content`, `underage`, `physical_safety`, `spam`, `financial_solicitation`, `immediate_danger`, `host_no_show` | yes |  |
 | `details` | string (0 to 1000 characters) | no |  |
 
 Responses
@@ -2809,6 +3182,7 @@ Request body (JSON)
 | `title` | string (2 to 80 characters) | no |  |
 | `destination` | string (2 to 100 characters) | yes |  |
 | `destinationPlaceId` | string (0 to 200 characters) | no |  |
+| `timeZone` | string (0 to 60 characters) | no |  |
 | `originCity` | string (2 to 60 characters) | yes |  |
 | `dateStart` | string (date-time) | yes |  |
 | `dateEnd` | string (date-time) | yes |  |
@@ -3100,6 +3474,34 @@ Responses
 - **409**: Conflicts with the current state. Codes: `TRIP_CLOSED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
+### `POST /v1/trips/{id}/host-no-show`
+
+**Member: say the organizer did not show up (same rules as for an activity)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `note` | string (0 to 1000 characters) | no |  |
+
+Responses
+
+- **200**: { id, status, priority, expectedWithin, coverage, emergency }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `HOST_ABSENT_TOO_EARLY`, `HOST_ABSENT_WINDOW_CLOSED`, `PLAN_CANCELLED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
 ### `POST /v1/trips/{id}/leave`
 
 **Leave a trip group (chat access ends at once)**
@@ -3344,6 +3746,146 @@ Responses
 - **409**: Conflicts with the current state. Codes: `DAY_PASSED`, `TRIP_CLOSED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
+## Notifications and push
+
+### `GET /v1/me/notification-settings`
+
+**Which alert groups push to my phone, and my quiet hours**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: { groups: [{ key, label, text, push }], important, quietHours: { enabled, start, end, timezone }, note }. Alerts are always kept in the Alerts list; these settings only decide pushes. Safety and account alerts always get through.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `PUT /v1/me/notification-settings`
+
+**Change which alert groups push, and quiet hours (what is left out stays as it was)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `groups` | object | no |  |
+| `quietHours` | object | no |  |
+| `quietHours.enabled` | boolean | yes |  |
+| `quietHours.start` | string | no |  |
+| `quietHours.end` | string | no |  |
+| `quietHours.timezone` | string (0 to 64 characters) | no |  |
+
+Responses
+
+- **200**: The settings as they are now (same as GET).
+- **400**: The request is not acceptable. Codes: `INVALID_QUIET_HOURS`, `INVALID_TIMEZONE`, `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `GET /v1/notifications`
+
+**My alerts**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: A page: { items, nextCursor } (nextCursor is null on the last page).
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/notifications/{id}/read`
+
+**Mark one alert read**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: Done.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/notifications/read-all`
+
+**Mark all alerts read (optionally by scope)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: Done.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `GET /v1/push/config`
+
+**Public key and settings the app needs to register for push**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: Done.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/push/subscribe`
+
+**Register this device for push**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `kind` | one of: `web`, `expo` | yes |  |
+| `token` | string (10 to 4000 characters) | yes |  |
+
+Responses
+
+- **200**: Done.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/push/unsubscribe`
+
+**Stop push to this device**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `token` | string (10 to 4000 characters) | yes |  |
+
+Responses
+
+- **200**: Done.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
 ## Identity verification
 
 ### `DELETE /v1/me/verification`
@@ -3454,108 +3996,6 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_SIGNATURE`
 - **404**: Not found. Codes: `NOT_FOUND`
 
-## Notifications and push
-
-### `GET /v1/notifications`
-
-**My alerts**
-
-Access: signed in (`Authorization: Bearer <token>`).
-
-Responses
-
-- **200**: A page: { items, nextCursor } (nextCursor is null on the last page).
-- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
-- **429**: Too many requests. Codes: `RATE_LIMITED`
-
-### `POST /v1/notifications/{id}/read`
-
-**Mark one alert read**
-
-Access: signed in (`Authorization: Bearer <token>`).
-
-Parameters
-
-| Name | In | Type | Required | Notes |
-| --- | --- | --- | --- | --- |
-| `id` | path | string | yes |  |
-
-Responses
-
-- **200**: Done.
-- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
-- **404**: Not found. Codes: `NOT_FOUND`
-- **429**: Too many requests. Codes: `RATE_LIMITED`
-
-### `POST /v1/notifications/read-all`
-
-**Mark all alerts read (optionally by scope)**
-
-Access: signed in (`Authorization: Bearer <token>`).
-
-Responses
-
-- **200**: Done.
-- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
-- **429**: Too many requests. Codes: `RATE_LIMITED`
-
-### `GET /v1/push/config`
-
-**Public key and settings the app needs to register for push**
-
-Access: signed in (`Authorization: Bearer <token>`).
-
-Responses
-
-- **200**: Done.
-- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
-- **429**: Too many requests. Codes: `RATE_LIMITED`
-
-### `POST /v1/push/subscribe`
-
-**Register this device for push**
-
-Access: signed in (`Authorization: Bearer <token>`).
-
-Request body (JSON)
-
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `kind` | one of: `web`, `expo` | yes |  |
-| `token` | string (10 to 4000 characters) | yes |  |
-
-Responses
-
-- **200**: Done.
-- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
-- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
-- **429**: Too many requests. Codes: `RATE_LIMITED`
-
-### `POST /v1/push/unsubscribe`
-
-**Stop push to this device**
-
-Access: signed in (`Authorization: Bearer <token>`).
-
-Request body (JSON)
-
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `token` | string (10 to 4000 characters) | yes |  |
-
-Responses
-
-- **200**: Done.
-- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
-- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
-- **429**: Too many requests. Codes: `RATE_LIMITED`
-
 ## API description
 
 ### `GET /v1/openapi.json`
@@ -3586,12 +4026,17 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `INVALID_CODE` | 400 | The 6-digit code is wrong or has expired. | Offer to send a new code. |
 | `INVALID_CURSOR` | 400 | The paging cursor is malformed or was made for a different list. | Restart the list from the first page. |
 | `INVALID_DATES` | 400 | The dates are not allowed (for example a trip that starts in the past). | Ask the person to choose other dates. |
+| `INVALID_IDEMPOTENCY_KEY` | 400 | The Idempotency-Key header is not 8 to 100 letters, digits, dash, underscore, dot or colon. | Generate a key such as a random id. |
 | `INVALID_IMAGE` | 400 | The upload is not a readable JPEG, PNG or WebP picture. | Ask for another picture. |
 | `INVALID_LINK` | 400 | A signed download link is malformed or its signature is wrong. | Ask for a new link. |
 | `INVALID_PAYLOAD` | 400 | A webhook body is not valid JSON. | Provider-side problem; no user action. |
+| `INVALID_PLACE` | 400 | The place cannot be made, or does not exist (a city under a city, a country not under the whole service, an unknown area). | Show the message and let the administrator choose another place. |
+| `INVALID_QUIET_HOURS` | 400 | Quiet hours cannot start and end at the same time. | Ask for a different start or end. |
 | `INVALID_SCHEDULE` | 400 | The start or end time breaks the rules (not far enough ahead, too long, end before start). | Ask the person to change the time. |
 | `INVALID_SETUP_CODE` | 400 | The first code from the authenticator app was wrong while switching two-step sign-in on. | Ask for the next code; check the phone clock. |
+| `INVALID_SHIFT` | 400 | The on-call shift is not allowed (ends before it starts, longer than 14 days, or the person is not active staff). | Show the message and let the administrator change it. |
 | `INVALID_TARGET` | 400 | The action cannot be aimed at that person (yourself, for example). | Hide the action for that target. |
+| `INVALID_TIMEZONE` | 400 | The time zone is not a known name (for example Europe/Rome). | Offer the time zones the phone knows. |
 | `LINK_EXPIRED` | 400 | A signed download link is older than its two minutes. | Ask for a new link. |
 | `MFA_NOT_STARTED` | 400 | Switching on was attempted before a secret was created. | Start the setup first. |
 | `NO_DATES` | 400 | A poll without dates was chosen as the trip dates. | Hide "use these dates" for date-less polls. |
@@ -3605,10 +4050,12 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `VERIFICATION_METHOD_UNAVAILABLE` | 400 | The kind of identity check asked for (for example the document-only route) is not set up with the provider. | Offer the other route, or tell the person it is not available right now. |
 | `INVALID_CREDENTIALS` | 401 | Email or password is incorrect. | Show the message; never say which one was wrong. |
 | `INVALID_MFA_CODE` | 401 | The 6-digit code or recovery code is wrong, or was already used. | Let the person try the next code; after too many tries they are rate-limited. |
+| `INVALID_REFRESH_TOKEN` | 401 | The refresh token is not valid, has expired, or belongs to a sign-in that ended (signed out, password changed, suspended). | Send the person to sign in again. |
 | `INVALID_SIGNATURE` | 401 | A provider webhook failed its signature check. | Provider-side problem; the request is ignored. |
 | `INVALID_SOCIAL_TOKEN` | 401 | The Apple or Google sign-in could not be confirmed (bad signature, wrong app, expired, wrong issuer). | Offer to try again or use email and password. |
 | `INVALID_TOKEN` | 401 | The token is invalid, expired, or revoked by a password change. | Sign out and ask the person to sign in again. |
 | `MFA_EXPIRED` | 401 | The pass from the password step is missing, expired (5 minutes) or no longer matches the account. | Start the sign-in again. |
+| `REFRESH_TOKEN_REUSED` | 401 | An already-used refresh token was shown again after the grace period, so the sign-in was copied and has been ended. | Tell the person they were signed out for safety and send them to sign in. |
 | `UNAUTHENTICATED` | 401 | No sign-in token was sent. | Send the person to sign in. |
 | `WRONG_PASSWORD` | 401 | The current password given is wrong. | Show the message on the password field. |
 | `ACCOUNT_SUSPENDED` | 403 | The account is suspended (the message gives the end date when it is timed). | Show the message and sign the person out. |
@@ -3617,6 +4064,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `BLOCKED` | 403 | One of the two people has blocked the other. | Treat as not found; do not reveal who blocked whom. |
 | `EMAIL_NOT_VERIFIED` | 403 | The email address must be confirmed first. | Open the email confirmation step. |
 | `FORBIDDEN` | 403 | The person is not allowed to do this (staff role too low, or not their own item). | Hide the action; show the message if it was tried. |
+| `GLOBAL_STAFF_ONLY` | 403 | A staff account limited to one area used a screen that is only for staff of the whole service. | Hide that screen for staff who have an area (see GET /v1/admin/scope). |
 | `GUEST_READ_ONLY` | 403 | A guest ("explore demo") session tried to change something. | Offer to create an account. |
 | `INVITE_ONLY` | 403 | The activity or trip is by invitation only. | Hide the join button. |
 | `MFA_REQUIRED` | 403 | Staff must have two-step sign-in on to use this part of the console (or to turn it off). | Send the person to the Security page to set it up. |
@@ -3624,6 +4072,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `NOT_HOST` | 403 | Only the host of the activity can do this. | Hide the action for other people. |
 | `NOT_ORGANIZER` | 403 | Only the organizer of the trip can do this. | Hide the action for other people. |
 | `NOT_YOUR_LINE` | 403 | Only the person who added a plan line, or the organizer, can change or remove it. | Hide the edit actions on other people lines. |
+| `OUT_OF_SCOPE` | 403 | A staff member who looks after one city, region or country tried to act on something outside it. | Show the message; the item is for staff of another area or the whole service. |
 | `OWN_APPEAL` | 403 | Staff cannot decide an appeal they made themselves. | Ask another moderator. |
 | `PHONE_BLOCKED` | 403 | This mobile number is on the ban list (it belonged to a removed account). | Show the message and point to support; do not say why. |
 | `REGISTRATION_BLOCKED` | 403 | A new account cannot be created for this person right now (it matches a removed account). Staff can review it. | Show the message and point to support; do not say why. |
@@ -3654,11 +4103,14 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `CANNOT_REMOVE_HOST` | 409 | The host cannot be removed from their own activity. | Hide "remove" on the host. |
 | `CANNOT_REMOVE_ORGANIZER` | 409 | The organizer cannot be removed from their own trip. | Hide "remove" on the organizer. |
 | `CAPACITY_BELOW_MEMBERS` | 409 | The new capacity is lower than the number of approved members. | Show the minimum allowed. |
+| `CITY_ALREADY_ASSIGNED` | 409 | That city name already belongs to another place. | Show which place has it; change that one instead. |
 | `CONVERSATION_CLOSED` | 409 | The chat is read-only (24 hours after the end, or the activity or trip was cancelled). | Show the chat as read-only. |
 | `DAY_PASSED` | 409 | The itinerary line is on a day that has already passed (the trip has started), so it cannot be added, changed, moved or removed. | Only offer days from today on, and hide Edit and Remove on lines whose canEdit is false. |
 | `DISPUTE_CLOSED` | 409 | The 7 days to dispute the note have passed. | Hide the Dispute button. |
 | `DUPLICATE_ACTIVITY` | 409 | The host already has the same activity at that time or place. | Offer to edit the existing one. |
-| `EMAIL_TAKEN` | 409 | An account with this email already exists. | Offer sign-in or password reset. |
+| `EMAIL_TAKEN` | 409 | An account with this email already exists (changing the email address; sign-up never says this). | Offer sign-in or password reset. |
+| `HOST_ABSENT_TOO_EARLY` | 409 | A member tried to say the host did not show up before the plan had been on for 30 minutes. | Offer the action only 30 minutes after the start. |
+| `HOST_ABSENT_WINDOW_CLOSED` | 409 | The 72 hours after the plan ended, in which a member can say the host did not show up, have passed. | Hide the action. |
 | `HOST_CANNOT_LEAVE` | 409 | The host must cancel or hand over the activity first. | Offer cancel or hand over. |
 | `IS_HOST` | 409 | The person is the host of this activity. | Hide the join button. |
 | `IS_ORGANIZER` | 409 | The person is the organizer of this trip. | Hide the apply button. |
@@ -3677,9 +4129,13 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `NOTHING_TO_APPEAL` | 409 | There is no rejected check, staff removal or suspension to appeal. | Hide the appeal action. |
 | `ORGANIZER_CANNOT_LEAVE` | 409 | The organizer must cancel the trip or hand it over first. | Offer cancel. |
 | `PHONE_IN_USE` | 409 | This mobile number is already confirmed on another account. | Ask for a different number. |
+| `PLACE_HAS_STAFF` | 409 | Staff accounts are still assigned to the place. | Change their area first. |
+| `PLACE_NOT_EMPTY` | 409 | The place still has places under it. | Remove or move those first. |
 | `PLAN_CANCELLED` | 409 | The plan was cancelled, so nobody can be noted as not coming. | Hide the action. |
 | `PLAN_FULL` | 409 | The trip plan already holds the most lines allowed of that kind (60). | Ask the group to tidy the plan first. |
 | `POLL_CLOSED` | 409 | The poll is closed; votes are no longer taken. | Show the final result. |
+| `REFRESH_IN_PROGRESS` | 409 | Two refreshes of the same sign-in ran at the same moment. | Try again in a moment; keep one refresh at a time in the app. |
+| `REQUEST_IN_PROGRESS` | 409 | The first try of this request (same Idempotency-Key) is still being handled. | Wait a moment and send it again with the same key. |
 | `REQUEST_WITHDRAWN` | 409 | The applicant withdrew this request before the decision. | Refresh the list of requests. |
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (5). | Ask them to finish or cancel one. |
@@ -3688,6 +4144,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |
 | `PAYLOAD_TOO_LARGE` | 413 | The request is larger than allowed. | Send less data. |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | The content type is not accepted here. | Fix the client. |
+| `IDEMPOTENCY_KEY_REUSED` | 422 | This Idempotency-Key was already used for a different request. | Use a new key for every new action; reuse a key only to retry the same one. |
 | `RATE_LIMITED` | 429 | Too many requests of this kind in a short time. | Wait and try again; do not retry in a loop. |
 | `INTERNAL_ERROR` | 500 | Something failed on the server. Nothing internal is revealed. | Show a "try again" state and retry with a delay. |
 | `PLACES_UNAVAILABLE` | 502 | The map service that finds places did not answer. | Let the person type the place name by hand and carry on without a map position. |

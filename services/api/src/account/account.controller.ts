@@ -10,12 +10,14 @@ import { AuditService } from '../common/audit.service';
 import { CurrentUser, Public } from '../common/auth';
 import { EmailService } from '../common/email.service';
 import { E } from '../common/errors';
+import { EventBus } from '../common/events';
 import { LiveService } from '../common/live.service';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { parse } from '../common/validate';
 import { decryptField } from '../common/vault';
 import { ReliabilityService } from '../reliability/reliability.controller';
+import { NotificationPrefsService } from '../notifications/preference-rules';
 import { TripsService } from '../trips/trips.service';
 import { zipSync, strToU8 } from 'fflate';
 import { VerificationService } from '../verification/verification.service';
@@ -45,7 +47,9 @@ export class AccountService {
     private readonly email: EmailService,
     private readonly limiter: RateLimiter,
     private readonly live: LiveService,
+    private readonly events: EventBus,
     private readonly reliability: ReliabilityService,
+    private readonly prefs: NotificationPrefsService,
   ) {}
 
   // ---------------------------------------------------------------- export
@@ -155,6 +159,7 @@ export class AccountService {
       warnings: (await this.prisma.userWarning.findMany({ where: { userId: id } })).map((w) => ({ reason: w.reason, at: w.createdAt, withdrawn: !!w.withdrawnAt })),
       travelMatching: await this.prisma.travelMatchPref.findUnique({ where: { userId: id }, select: { destination: true, dateStart: true, dateEnd: true } }),
       tripPlanLines: (await this.prisma.tripItem.findMany({ where: { createdById: id } })).map((i) => ({ tripId: i.tripId, kind: i.kind, title: i.title, note: i.note, day: i.day, amount: i.amount })),
+      notificationSettings: await this.prefs.get(id), // which alerts push to the phone, and the quiet hours
       drafts: (await this.prisma.draft.findMany({ where: { userId: id } })).map((d) => ({ kind: d.kind, data: JSON.parse(d.data), savedAt: d.updatedAt })),
       appeals: (await this.prisma.appeal.findMany({ where: { userId: id } })).map((a) => ({ kind: a.kind, message: a.message, state: a.state, decision: a.decision, createdAt: a.createdAt, decidedAt: a.decidedAt })),
       identityChecks: checks.map((c) => ({ provider: c.provider, outcome: c.eligibility, startedAt: c.createdAt, decidedAt: c.decidedAt, validUntil: c.expiresAt, consentGivenAt: c.consentAt })),
@@ -238,7 +243,7 @@ export class AccountService {
       this.prisma.socialIdentity.deleteMany({ where: { userId: id } }),
       this.prisma.message.deleteMany({ where: { senderId: id, id: { notIn: reported } } }),
       this.prisma.verificationCheck.deleteMany({ where: { userId: id } }),
-      this.prisma.profile.updateMany({ where: { userId: id }, data: { displayName: 'Deleted user', homeCity: null, languages: '', interests: '', bio: null, photoUrl: null } }),
+      this.prisma.profile.updateMany({ where: { userId: id }, data: { displayName: 'Deleted user', homeCity: null, homeCityKey: null, languages: '', interests: '', bio: null, photoUrl: null } }),
       this.prisma.user.update({
         where: { id },
         data: {
@@ -263,7 +268,7 @@ export class AccountService {
     ]);
     await this.audit.log(id, 'account.deleted', 'user', id);
     this.live.dropUser(id);
-    this.live.feedChanged();
+    this.events.emit({ type: 'feed.refresh' });
     // a last note to the address they used, so nobody can delete an account unnoticed
     await this.email.send(me.email, 'Your HERE & THERE account was deleted', 'Your HERE & THERE account has been deleted, and your personal details have been erased.\n\nIf this was not you, contact support right away.').catch(() => undefined);
     return { ok: true };

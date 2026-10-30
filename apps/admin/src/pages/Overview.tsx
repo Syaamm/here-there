@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { get } from '../api';
 import { CardHead, DayBars, Kpi, LineChart, Meter, MiniBars, SERIES, ShareBar, Sparkline } from '../charts';
+import { ServiceHealth } from './ServiceHealth';
 import { Chip, ErrorBanner, Icon, Page, RowMenu, Search, Segmented, shortId, useLoad } from '../ui';
 
 type Overview = {
@@ -279,6 +280,7 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
           </section>
         </div>
       </div>
+      <ServiceHealth />
     </Page>
   );
 }

@@ -2,7 +2,9 @@ const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const KEY = 'ht_admin_session';
 
 export type Role = 'user' | 'support' | 'moderator' | 'trust_lead' | 'admin';
-export type Session = { token: string; email: string; role: Role; name: string };
+/** The part of the service a staff account looks after: one city, region or country. `null` = the whole service. */
+export type Scope = { key: string; name: string; kind: string } | null;
+export type Session = { token: string; refreshToken?: string; email: string; role: Role; name: string; scope?: Scope };
 
 export const STAFF: Role[] = ['support', 'moderator', 'trust_lead', 'admin'];
 /** Mirrors the server's @Staff() groups in admin.controller.ts; the server stays the source of truth. */
@@ -40,21 +42,56 @@ export function saveSession(s: Session | null) {
 }
 
 let token: string | null = loadSession()?.token ?? null;
+// the long-lived half of the sign-in: sent only to /v1/auth/refresh when the short-lived token (15 minutes) has ended
+let refreshToken: string | null = loadSession()?.refreshToken ?? null;
 let onUnauthorized: () => void = () => {};
 export const setToken = (t: string | null) => (token = t);
+export const setRefreshToken = (t: string | null) => (refreshToken = t);
+export const getRefreshToken = () => refreshToken;
+
+// one refresh at a time: requests that find the token ended together share a single refresh
+let refreshing: Promise<boolean> | null = null;
+function refreshSession(): Promise<boolean> {
+  if (!refreshToken) return Promise.resolve(false);
+  const sent = refreshToken;
+  return (refreshing ??= (async () => {
+    try {
+      const res = await fetch(BASE + '/v1/auth/refresh', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refreshToken: sent }) });
+      if (res.ok) {
+        const d = await res.json();
+        if (refreshToken !== sent) return !!token; // signed out meanwhile
+        token = d.token;
+        refreshToken = d.refreshToken;
+        const cur = loadSession();
+        if (cur) saveSession({ ...cur, token: d.token, refreshToken: d.refreshToken });
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      refreshing = null;
+    }
+  })());
+}
 export const setUnauthorizedHandler = (fn: () => void) => (onUnauthorized = fn);
 
 export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
-  try {
-    res = await fetch(BASE + path, {
-      method,
-      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    throw new ApiError(0, 'NETWORK', `Cannot reach the API at ${BASE}. Is it running?`);
-  }
+  const send = async () => {
+    try {
+      return await fetch(BASE + path, {
+        method,
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch {
+      throw new ApiError(0, 'NETWORK', `Cannot reach the API at ${BASE}. Is it running?`);
+    }
+  };
+  res = await send();
+  // the short-lived token ended: get a new one and ask again, once
+  if (res.status === 401 && refreshToken && !path.startsWith('/v1/auth/') && (await refreshSession())) res = await send();
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {

@@ -542,4 +542,12 @@ export const details: Record<string, string> = {
   'Add a short bio.': 'Aggiungi una breve bio.',
   'Add your interests.': 'Aggiungi i tuoi interessi.',
   'You appear to others only while this is on.': 'Gli altri ti vedono solo finché è attivo.',
+  'Host did not show up': 'L’organizzatore non si è presentato',
+  'You told us the host did not show up': 'Ci hai segnalato che l’organizzatore non si è presentato',
+  'It is too early to say this. Please wait until the plan has been on for 30 minutes.': 'È troppo presto per segnalarlo. Aspetta che il piano sia iniziato da 30 minuti.',
+  'It is too late to say this about this plan.': 'È troppo tardi per segnalarlo per questo piano.',
+  'This plan was cancelled.': 'Questo piano è stato annullato.',
+  'Too many tries. Please wait a moment and try again.': 'Troppi tentativi. Attendi un momento e riprova.',
+  'Thank you. A moderator will look at it within 24 hours.': 'Grazie. Un moderatore lo esaminerà entro 24 ore.',
+  'Tell us if the host never came. Only moderators see this.': 'Dicci se l’organizzatore non è mai arrivato. Lo vedono solo i moderatori.',
 };

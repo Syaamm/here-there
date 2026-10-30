@@ -1,15 +1,17 @@
+import { cityKeyOf } from '../regions/regions';
+import { metrics } from '../common/observability';
 import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Req } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import { checkPassword, hashPassword } from '../common/password';
 import { TtlCache } from '../common/ttl-cache';
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { CurrentUser, Public, passwordVersion, suspendedMessage } from '../common/auth';
+import { CurrentUser, Public, suspendedMessage } from '../common/auth';
 import { AuditService } from '../common/audit.service';
 import { EmailService } from '../common/email.service';
-import { E } from '../common/errors';
+import { ApiError, E } from '../common/errors';
 import { deviceFingerprint, deviceOverLimit, emailFingerprint, isBanned } from '../common/identity';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -19,6 +21,7 @@ import { VerificationService } from '../verification/verification.service';
 import { ContactVerificationService } from './contact-verification.service';
 import { GUEST_TTL_MS, GuestService } from './guest.service';
 import { MfaService } from './mfa.controller';
+import { SessionService } from './session.service';
 import { SocialService } from './social.service';
 import { ReliabilityService } from '../reliability/reliability.controller';
 
@@ -37,6 +40,13 @@ export const registerSchema = z.object({
 });
 
 const newPassword = z.string().min(10, 'Use at least 10 characters').max(200);
+export const confirmRegistrationSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email()),
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+  ticket: z.string().min(10).max(100),
+});
+export const resendRegistrationSchema = z.object({ email: z.string().trim().toLowerCase().pipe(z.email()), ticket: z.string().min(10).max(100) });
+export const refreshSchema = z.object({ refreshToken: z.string().min(10).max(100) });
 export const forgotSchema = z.object({ email: z.string().trim().toLowerCase().pipe(z.email()) });
 export const resetSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email()),
@@ -92,6 +102,10 @@ function me(u: UserWithProfile) {
   };
 }
 
+let dummy: Promise<string> | undefined;
+/** A real password hash of nothing in particular, so a sign-in for an unknown address costs the same as one for a known address. */
+const dummyHash = () => (dummy ??= hashPassword(randomBytes(16).toString('hex')));
+
 const profileStats = new TtlCache<[number, number]>(Number(process.env.PROFILE_STATS_CACHE_SECONDS ?? 30) * 1000);
 
 @Controller('v1')
@@ -108,40 +122,98 @@ export class AuthController {
     private readonly mfa: MfaService,
     private readonly social: SocialService,
     private readonly reliability: ReliabilityService,
+    private readonly sessions: SessionService,
   ) {}
 
-  /** A sign-in token. `pv` ties it to the current password, so changing the password signs every older sign-in out. */
-  private token(user: Pick<User, 'id' | 'passwordChangedAt'>) {
-    return this.jwt.signAsync({ sub: user.id, pv: passwordVersion(user.passwordChangedAt) });
+  /**
+   * Proves that whoever asks to confirm a sign-up is the person who made it. It is worked out from the new account itself
+   * (never stored), and only the original sign-up response carries it: someone who signs up again with an address that
+   * already has an account gets a random value that matches nothing.
+   */
+  private ticketFor(u: { id: string; createdAt: Date }) {
+    const secret = process.env.JWT_SECRET ?? 'dev-only-secret-change-me';
+    return createHmac('sha256', secret).update(`registration:${u.id}:${+u.createdAt}`).digest('base64url');
+  }
+  private ticketOk(u: { id: string; createdAt: Date }, given: string) {
+    const want = Buffer.from(this.ticketFor(u));
+    const got = Buffer.from(given);
+    return got.length === want.length && timingSafeEqual(got, want);
   }
 
+  /**
+   * Sign-up, step 1. The answer is the same whether or not the address already has an account, so nobody can use this to
+   * find out who is a member: it always says "we sent a code" and hands back a ticket. A new address gets its account and a
+   * real code; an address that already has one gets an email saying so (and a ticket that matches nothing).
+   * Step 2 is `auth/register/confirm`, which signs the person in.
+   */
   @Public()
   @Post('auth/register')
   async register(@Body() body: unknown, @Ip() ip: string, @Headers('x-device-id') deviceRaw?: string) {
     this.limiter.hit(`register:${ip}`, Number(process.env.REGISTER_LIMIT_PER_HOUR ?? 10), 60 * 60 * 1000);
     const dto = parse(registerSchema, body);
-    if (await this.prisma.user.findUnique({ where: { email: dto.email } }))
-      throw E.conflict('EMAIL_TAKEN', 'An account with this email already exists');
     // Starting over after being banned, or making accounts in bulk from one phone: one answer for both, no hints
     const device = deviceFingerprint(deviceRaw);
     if ((await isBanned(this.prisma, [{ kind: 'email', hash: emailFingerprint(dto.email) }, { kind: 'device', hash: device }])) || (await deviceOverLimit(this.prisma, device)))
       throw E.forbidden('REGISTRATION_BLOCKED', 'We cannot create an account for you right now. If you think this is a mistake, contact support.');
+    const passwordHash = await hashPassword(dto.password); // the same work for a new address and a known one
+    if (await this.prisma.user.findUnique({ where: { email: dto.email } })) {
+      await this.email
+        .send(dto.email, 'Someone tried to sign up with your email', 'Someone tried to create a HERE & THERE account with this email address, but you already have one.\n\nIf it was you, sign in, or use "Forgot password" if you do not remember it. If it was not you, you can ignore this message; nothing was changed.')
+        .catch(() => undefined);
+      return { pending: true, email: dto.email, ticket: randomBytes(32).toString('base64url') };
+    }
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
-        passwordHash: await hashPassword(dto.password),
+        passwordHash,
         adultConfirmed: true,
         registeredDevice: device,
-        profile: { create: { displayName: dto.displayName, homeCity: dto.homeCity } },
+        profile: { create: { displayName: dto.displayName, homeCity: dto.homeCity, homeCityKey: dto.homeCity ? cityKeyOf(dto.homeCity) : null } },
       },
       include: { profile: true },
     });
-    // Send the confirmation code right away. If delivery fails the account still exists and the user can re-send.
+    metrics.count('signups');
+    // Send the confirmation code right away. If delivery fails the account still exists and the person can ask for another.
     const sent = await this.contact.sendEmailCode(user).catch((e) => {
       console.error('Could not send verification email:', e?.message ?? e);
       return {} as { devCode?: string };
     });
-    return { token: await this.token(user), user: me(user), ...sent };
+    return { pending: true, email: dto.email, ticket: this.ticketFor(user), ...sent };
+  }
+
+  /** Sign-up, step 2: the 6-digit code from the email, with the ticket from step 1. Confirms the address and signs in. */
+  @Public()
+  @Post('auth/register/confirm')
+  async confirmRegistration(@Body() body: unknown, @Ip() ip: string, @Headers('user-agent') ua?: string) {
+    const dto = parse(confirmRegistrationSchema, body);
+    this.limiter.hit(`register-confirm:${ip}:${dto.email}`, 10, 15 * 60 * 1000);
+    const bad = () => E.badRequest('INVALID_CODE', 'That code is not correct or has expired. Ask for a new one.');
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (!user || user.role === 'guest' || user.emailVerifiedAt || !this.ticketOk(user, dto.ticket)) throw bad();
+    try {
+      await this.contact.verifyEmail(user, { code: dto.code });
+    } catch (e) {
+      if (e instanceof ApiError && e.getStatus() === 429) throw e;
+      throw bad(); // wrong, expired or used up: one answer for all
+    }
+    const fresh = await this.prisma.user.findUniqueOrThrow({ where: { id: user.id }, include: { profile: true } });
+    return { ...(await this.sessions.issue(fresh, ua)), user: me(fresh) };
+  }
+
+  /** Sign-up: send the code again. The same quiet answer whatever the address or ticket. */
+  @Public()
+  @Post('auth/register/resend')
+  async resendRegistration(@Body() body: unknown, @Ip() ip: string) {
+    const dto = parse(resendRegistrationSchema, body);
+    this.limiter.hit(`register-resend-cooldown:${dto.email}`, 1, 30_000);
+    this.limiter.hit(`register-resend-ip:${ip}`, 20, 60 * 60 * 1000);
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    let devCode: string | undefined;
+    if (user && user.role !== 'guest' && !user.emailVerifiedAt && this.ticketOk(user, dto.ticket)) {
+      const sent = await this.contact.sendEmailCode(user).catch(() => ({}) as { devCode?: string });
+      devCode = sent.devCode;
+    }
+    return { ok: true, ...(devCode ? { devCode } : {}) };
   }
 
   /** "Explore demo": a temporary read-only guest session, no sign-up. See GuestService. */
@@ -156,7 +228,7 @@ export class AuthController {
 
   @Public()
   @Post('auth/login')
-  async login(@Body() body: unknown, @Ip() ip: string) {
+  async login(@Body() body: unknown, @Ip() ip: string, @Headers('user-agent') ua?: string) {
     const dto = parse(loginSchema, body);
     const window = 15 * 60 * 1000;
     this.limiter.hit(`login:${ip}:${dto.email}`, 10, window);
@@ -166,17 +238,19 @@ export class AuthController {
     this.limiter.check(`login-fail-account:${dto.email}`, 20, window);
     this.limiter.check(`login-fail-address:${ip}`, 100, window);
     const user = await this.prisma.user.findUnique({ where: { email: dto.email }, include: { profile: true } });
-    const ok = user && (await checkPassword(dto.password, user.passwordHash));
-    if (!user || !ok) {
+    // an address with no account does the same amount of work, so the time taken does not give it away
+    const ok = await checkPassword(dto.password, user?.passwordHash ?? (await dummyHash()));
+    const accepted = !!user && ok;
+    if (!user || !accepted) {
       this.limiter.record(`login-fail-account:${dto.email}`, window);
       this.limiter.record(`login-fail-address:${ip}`, window);
       throw E.unauthorized('INVALID_CREDENTIALS', 'Email or password is incorrect');
     }
-    return this.openSession(user);
+    return this.openSession(user, ua);
   }
 
   /** The person has proved who they are (password or provider). Is their account open, and is a code needed too? */
-  private async openSession(user: UserWithProfile) {
+  private async openSession(user: UserWithProfile, device?: string) {
     if (user.state === 'suspended') {
       if (user.suspendedUntil && user.suspendedUntil <= new Date()) {
         await this.prisma.user.update({ where: { id: user.id }, data: { state: 'active', suspendedUntil: null } });
@@ -185,7 +259,7 @@ export class AuthController {
     }
     // two-step sign-in: the password was right, now ask for the code (no sign-in is issued yet)
     if (user.mfaEnabledAt) return { mfaRequired: true, mfaToken: await this.mfa.mfaToken(user) };
-    return { token: await this.token(user), user: me(user) };
+    return { ...(await this.sessions.issue(user, device)), user: me(user) };
   }
 
   /** Which providers are switched on (they need the app ids from Apple and Google), so the app only shows working buttons. */
@@ -202,7 +276,7 @@ export class AuthController {
    */
   @Public()
   @Post('auth/social')
-  async socialLogin(@Body() body: unknown, @Ip() ip: string, @Headers('x-device-id') deviceRaw?: string) {
+  async socialLogin(@Body() body: unknown, @Ip() ip: string, @Headers('x-device-id') deviceRaw?: string, @Headers('user-agent') ua?: string) {
     const dto = parse(socialSchema, body);
     this.limiter.hit(`social:${ip}`, 30, 60 * 60 * 1000);
     const who = await this.social.verifyIdToken(dto.provider, dto.idToken);
@@ -234,12 +308,13 @@ export class AuthController {
           },
           include: { profile: true },
         });
+        metrics.count('signups');
         await this.audit.log(user.id, 'social.registered', 'user', user.id, { provider: who.provider });
       }
       await this.prisma.socialIdentity.create({ data: { userId: user.id, provider: who.provider, subject: who.subject } });
     }
     if (user.role !== 'user') throw E.forbidden('SOCIAL_NOT_FOR_STAFF', 'Staff accounts sign in with their password and a code.');
-    return this.openSession(user);
+    return this.openSession(user, ua);
   }
 
   /**
@@ -291,7 +366,7 @@ export class AuthController {
 
   /** Change the password while signed in. Other devices are signed out; this one gets a fresh sign-in. */
   @Post('me/password')
-  async changePassword(@CurrentUser() u: User, @Body() body: unknown) {
+  async changePassword(@CurrentUser() u: User, @Body() body: unknown, @Headers('user-agent') ua?: string) {
     const dto = parse(changeSchema, body);
     this.limiter.hit(`pwchange:${u.id}`, 5, 15 * 60 * 1000);
     if (!(await checkPassword(dto.currentPassword, u.passwordHash))) throw E.unauthorized('WRONG_PASSWORD', 'Your current password is not correct');
@@ -299,15 +374,16 @@ export class AuthController {
     const changedAt = await this.setPassword(u.id, dto.newPassword);
     await this.audit.log(u.id, 'password.changed', 'user', u.id);
     await this.tellPasswordChanged(u);
-    return { ok: true, token: await this.token({ id: u.id, passwordChangedAt: changedAt }) };
+    return { ok: true, ...(await this.sessions.issue({ id: u.id, passwordChangedAt: changedAt, sessionsRevokedAt: u.sessionsRevokedAt }, ua)) };
   }
 
   private async setPassword(userId: string, password: string) {
     const changedAt = new Date();
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash: await hashPassword(password), passwordChangedAt: changedAt },
-    });
+    const passwordHash = await hashPassword(password);
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { passwordHash, passwordChangedAt: changedAt } }),
+      this.prisma.session.deleteMany({ where: { userId } }), // every other sign-in is over
+    ]);
     return changedAt;
   }
 
@@ -316,6 +392,38 @@ export class AuthController {
     await this.email
       .send(user.email, 'Your HERE & THERE password was changed', 'The password for your HERE & THERE account was just changed, and any other device was signed out.\n\nIf this was not you, reset your password straight away and contact support.')
       .catch(() => undefined);
+  }
+
+  /** Swap a refresh token for a new pair of tokens. Public: the refresh token itself is the proof. */
+  @Public()
+  @Post('auth/refresh')
+  async refresh(@Body() body: unknown, @Ip() ip: string) {
+    const { refreshToken } = parse(refreshSchema, body);
+    this.limiter.hit(`refresh:${ip}`, 120, 15 * 60 * 1000);
+    return this.sessions.refresh(refreshToken);
+  }
+
+  /** Sign out of this device. Body (optional): { refreshToken }. */
+  @Post('auth/logout')
+  async logout(@CurrentUser() u: User, @Req() req: Request & { sessionId?: string }, @Body() body: { refreshToken?: unknown } | undefined) {
+    await this.sessions.end(u.id, req.sessionId, body?.refreshToken);
+    await this.audit.log(u.id, 'session.logout', 'user', u.id);
+    return { ok: true };
+  }
+
+  /** Sign out of every device at once, this one included. Use it if a phone is lost or a sign-in may have been copied. */
+  @Post('me/sessions/logout-all')
+  async logoutAll(@CurrentUser() u: User) {
+    this.limiter.hit(`logout-all:${u.id}`, 10, 60 * 60 * 1000);
+    await this.sessions.endAll(u.id);
+    await this.audit.log(u.id, 'session.logout_all', 'user', u.id);
+    return { ok: true };
+  }
+
+  /** Where this account is signed in. */
+  @Get('me/sessions')
+  mySessions(@CurrentUser() u: User, @Req() req: Request & { sessionId?: string }) {
+    return this.sessions.list(u.id, req.sessionId);
   }
 
   @Get('me')
@@ -333,7 +441,7 @@ export class AuthController {
       where: { userId: u.id },
       data: {
         ...(dto.displayName !== undefined && { displayName: dto.displayName }),
-        ...(dto.homeCity !== undefined && { homeCity: dto.homeCity }),
+        ...(dto.homeCity !== undefined && { homeCity: dto.homeCity, homeCityKey: dto.homeCity ? cityKeyOf(dto.homeCity) : null }),
         ...(dto.languages && { languages: csv(dto.languages) }),
         ...(dto.interests && { interests: csv(dto.interests) }),
         ...(dto.bio !== undefined && { bio: dto.bio }),

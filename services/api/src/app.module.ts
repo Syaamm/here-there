@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { AccountController, AccountService } from './account/account.controller';
 import { ActivitiesController } from './activities/activities.controller';
@@ -21,18 +21,26 @@ import { PlacesController } from './places/places.controller';
 import { AppealsController, AppealsService } from './appeals/appeals.controller';
 import { MatchingController, MatchingService } from './matching/matching.controller';
 import { ShareController } from './share/share.controller';
+import { RegionsAdminController, RegionsPublicController, RegionsService } from './regions/regions.service';
 import { TripPlanController, TripPlanService } from './trips/trip-plan.controller';
 import { ModerationController, ModerationService } from './moderation/moderation.controller';
+import { OnCallController, OnCallService } from './moderation/oncall';
 import { DraftsController } from './drafts/drafts.controller';
 import { ReliabilityController, ReliabilityService } from './reliability/reliability.controller';
 import { RetentionController, RetentionService } from './retention/retention.service';
 import { ConversationsController, ConversationsService } from './conversations/conversations.controller';
 import { PhotoController } from './profile/photo.controller';
 import { LiveService } from './common/live.service';
+import { EventBus, LiveSubscriber } from './common/events';
+import { SessionService } from './auth/session.service';
+import { IdempotencyInterceptor } from './common/idempotency.interceptor';
+import { JobsService } from './common/jobs.service';
 import { PushService } from './common/push.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { PushController } from './notifications/push.controller';
 import { NotificationsService } from './notifications/notifications.service';
+import { NotificationSettingsController } from './notifications/preferences';
+import { NotificationPrefsService } from './notifications/preference-rules';
 import { FollowsController } from './safety/follows.controller';
 import { SafetyController } from './safety/safety.controller';
 import { SafetyService } from './safety/safety.service';
@@ -59,6 +67,9 @@ function jwtSecret() {
     ReliabilityController,
     DraftsController,
     ModerationController,
+    OnCallController,
+    RegionsPublicController,
+    RegionsAdminController,
     MatchingController,
     TripPlanController,
     ShareController,
@@ -68,6 +79,7 @@ function jwtSecret() {
     TripsController,
     ConversationsController,
     NotificationsController,
+    NotificationSettingsController,
     PushController,
     SafetyController,
     FollowsController,
@@ -85,8 +97,14 @@ function jwtSecret() {
     ContactVerificationService,
     GuestService,
     LiveService,
+    EventBus,
+    LiveSubscriber,
+    JobsService,
     PushService,
     NotificationsService,
+    NotificationPrefsService,
+    OnCallService,
+    RegionsService,
     SafetyService,
     VerificationService,
     ActivitiesService,
@@ -94,6 +112,7 @@ function jwtSecret() {
     ConversationsService,
     AccountService,
     MfaService,
+    SessionService,
     SocialService,
     RetentionService,
     ReliabilityService,
@@ -102,6 +121,7 @@ function jwtSecret() {
     MatchingService,
     TripPlanService,
     { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
   ],
   exports: [PrismaService, RateLimiter],
 })

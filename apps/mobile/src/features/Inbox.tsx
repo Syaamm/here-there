@@ -53,6 +53,9 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   travel_match: 'heart-circle-outline',
   activity_confirmed: 'checkmark-done-circle-outline',
   appeal_decided: 'chatbox-ellipses-outline',
+  host_absence_reported: 'person-remove-outline',
+  host_absence_decided: 'checkmark-done-outline',
+  report_update: 'flag-outline',
 };
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
 

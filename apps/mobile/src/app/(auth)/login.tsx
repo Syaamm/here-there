@@ -21,14 +21,14 @@ export default function Login() {
 
   const submit = () =>
     act.run(async () => {
-      if (pass) return signIn((await post<{ token: string }>('/v1/auth/mfa/verify', { mfaToken: pass, code: code.trim() })).token);
-      const r = await post<{ token?: string; mfaRequired?: boolean; mfaToken?: string }>('/v1/auth/login', { email: email.trim(), password });
+      if (pass) return signIn(await post<{ token: string; refreshToken?: string }>('/v1/auth/mfa/verify', { mfaToken: pass, code: code.trim() }));
+      const r = await post<{ token?: string; refreshToken?: string; mfaRequired?: boolean; mfaToken?: string }>('/v1/auth/login', { email: email.trim(), password });
       if (r.mfaRequired && r.mfaToken) {
         setPass(r.mfaToken);
         setPassword('');
         return;
       }
-      await signIn(r.token!);
+      await signIn({ token: r.token!, refreshToken: r.refreshToken });
     });
 
   return (

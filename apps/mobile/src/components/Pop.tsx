@@ -49,60 +49,53 @@ export function Pop({ on, children, style, inset = 0 }: { on: boolean; children:
   );
 }
 
-// Where the visible part of a scrolling list is (set by the list on every scroll), so rows can fade in as they come into view.
-const view = { top: 0, bottom: 0, content: 0 };
+// Which rows of a list are on screen right now (reported by the list), so rows that wait for the reader can fade in as they arrive.
+const inView = new Set<string>();
 const watchers = new Set<() => void>();
-/**
- * The list tells the rows which part of it is on screen: `top` is the scroll offset, `height` the height of the window and
- * `content` the height of the whole list.
- */
-export function setViewport(top: number, height: number, content: number) {
-  view.top = top;
-  view.bottom = top + height;
-  view.content = content;
+// Rows that have already faded in. A recycling list unmounts rows that scroll far away and mounts them again on the way back; those are
+// drawn as they were, not faded in a second time.
+const shown = new Set<string>();
+/** The list tells the rows which of them are on screen (call it from the list's onViewableItemsChanged). */
+export function setInView(ids: string[]) {
+  if (inView.size > 5000) inView.clear();
+  for (const id of ids) inView.add(id);
   watchers.forEach((w) => w());
 }
 
 /**
  * One row of a list that fades in, with a small rise, when it appears. `animate` is false for the rows that were there when
  * the screen opened (so a whole page does not flicker on), true for the ones that come later. With `gate`, the fade waits until
- * the row scrolls into view (see setViewport): earlier messages are loaded well before the reader gets to them, and would
+ * the list reports the row in view (see setInView): earlier messages are loaded well before the reader gets to them, and would
  * otherwise have finished fading long before anyone saw them. If the row is never reported in view it shows after a while
- * anyway. Opacity and transform only (native thread).
+ * anyway. `id` must be the row's own key. Opacity and transform only (native thread).
  */
-export function Appear({ animate = true, gate = false, children, style }: { animate?: boolean; gate?: boolean; children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  const run = animate && !reduced;
+export function Appear({ id, animate = true, gate = false, children, style }: { id: string; animate?: boolean; gate?: boolean; children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const run = animate && !reduced && !shown.has(id);
   const v = useRef(new Animated.Value(run ? 0 : 1)).current;
-  const spot = useRef<{ y: number; h: number } | null>(null);
   const started = useRef(!run);
-  const settled = useRef(!gate);
-  const base = useRef<number | null>(null); // how far the row's lower edge is from the END of the list
+  const play = (ms: number) => {
+    started.current = true;
+    if (shown.size > 5000) shown.clear();
+    shown.add(id);
+    watchers.delete(poke);
+    Animated.timing(v, { toValue: 1, duration: ms, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  };
   const check = useRef<() => void>(() => {});
   check.current = () => {
-    if (started.current) return;
-    const p = spot.current;
-    if (!p) return;
-    if (gate) {
-      if (!settled.current) return;
-      // Measured from the end of the list, because that does not change when earlier messages are added above (a distance from the
-      // top would). The row shows once the window reaches it from above, or has already gone past it.
-      if (base.current === null) base.current = view.content - (p.y + p.h);
-      if (!(base.current < view.content - view.top + 24)) return;
-    }
-    started.current = true;
-    watchers.delete(poke);
-    Animated.timing(v, { toValue: 1, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    if (started.current || (gate && !inView.has(id))) return;
+    play(340);
   };
   const poke = useRef(() => check.current()).current;
   useEffect(() => {
-    if (started.current) return;
+    if (started.current) {
+      shown.add(id);
+      return;
+    }
     watchers.add(poke);
+    check.current();
     // never leave a row invisible: after a while it shows whether or not it was seen coming into view
     const t = setTimeout(() => {
-      if (started.current) return;
-      started.current = true;
-      watchers.delete(poke);
-      Animated.timing(v, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+      if (!started.current) play(200);
     }, 45000);
     return () => {
       watchers.delete(poke);
@@ -111,25 +104,7 @@ export function Appear({ animate = true, gate = false, children, style }: { anim
     // only when it first appears
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return (
-    <Animated.View
-      onLayout={(e) => {
-        spot.current = { y: e.nativeEvent.layout.y, h: e.nativeEvent.layout.height };
-        // a row that waits for the reader notes where it is after a moment, once the list has settled (when earlier messages are added
-        // the list is moved down at that very time); scrolling checks it from then on
-        if (gate) {
-          setTimeout(() => {
-            settled.current = true;
-            check.current();
-          }, 150);
-        }
-        else check.current();
-      }}
-      style={[{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }, style]}
-    >
-      {children}
-    </Animated.View>
-  );
+  return <Animated.View style={[{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }, style]}>{children}</Animated.View>;
 }
 
 /**

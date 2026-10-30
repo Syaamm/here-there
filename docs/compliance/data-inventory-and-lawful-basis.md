@@ -51,6 +51,9 @@ Written from the code on 2026-10-26. The "proposed basis" column is a starting p
 | Push | Web Push, Expo push | Expo (US) and Apple/Google push services: transfer analysis needed |
 | Maps | OpenStreetMap tiles (web preview); Apple Maps / Google Maps (phone) | Public tile servers are not for heavy production use; a hosted tile provider will be a processor |
 | Place search (meeting locations) | The public OpenStreetMap geocoder, called by our server | Not meant for heavy use: a paid or self-hosted geocoder will be a processor and needs a contract (it receives the words typed and the city) **[CONFIRM]** |
+| Error tracking | None until `SENTRY_DSN` is set | Sentry (choose the EU region, sign the data processing agreement). It receives crash details (the error text and stack), the request id, the route and the person's id. It never receives the request body, headers, address or email (removed before sending). Review what an error message can contain before launch **[CONFIRM]** |
+| Logs | The API console | A log service chosen by the host. Lines hold the route (never the address), status, timing, request id and person id, and slow database statements without their values: no message text, names or emails. Decide the retention (suggested 30 days) **[CONFIRM]** |
+| On-call paging (urgent reports) | Console | The email sender and SMS provider above carry short messages to staff only (a link and a wait time, never what the report says) |
 | Hosting / database | A developer PC | To be chosen (EU region preferred) |
 
 ## Rights: what a person can do today

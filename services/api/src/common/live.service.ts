@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { sessionRevoked } from './auth';
+import { tokenRevoked } from './auth';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -20,7 +20,9 @@ export type LiveEvent =
   // some alerts were taken away (their request was settled): lists and the badge should be asked again
   | { type: 'alerts-changed' }
   // an activity or trip was created, changed, filled or cancelled: open feeds should ask again (carries no data at all)
-  | { type: 'feed-changed' };
+  | { type: 'feed-changed' }
+  // a group's own details changed (members, dates, place, plan, poll): the people in that group should ask again (carries only which group)
+  | { type: 'group-changed'; kind: 'activity' | 'trip'; id: string };
 
 /**
  * Live connection to the apps (a WebSocket at /v1/live), so a new message or alert arrives at once instead of waiting for
@@ -82,10 +84,10 @@ export class LiveService implements OnModuleDestroy {
       try {
         const msg = JSON.parse(raw.toString()) as { type?: string; token?: string };
         if (msg.type !== 'auth' || !msg.token) throw new Error('auth expected');
-        const payload = await this.jwt.verifyAsync<{ sub: string; pv?: number; purpose?: string }>(msg.token);
+        const payload = await this.jwt.verifyAsync<{ sub: string; pv?: number; rv?: number; purpose?: string }>(msg.token);
         if (payload.purpose) throw new Error('not a sign-in');
         const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-        if (!user || user.state !== 'active' || sessionRevoked(payload.pv, user.passwordChangedAt)) throw new Error('inactive');
+        if (!user || user.state !== 'active' || tokenRevoked(payload, user)) throw new Error('inactive');
         clearTimeout(wait);
         userId = user.id;
         (ws as WebSocket & { alive?: boolean }).alive = true;
@@ -167,6 +169,28 @@ export class LiveService implements OnModuleDestroy {
     this.feedTimer.unref();
   }
 
+  private groupTimers = new Map<string, NodeJS.Timeout>();
+  /**
+   * Tell the approved members of one activity or trip that something about their group changed (the member list, the dates
+   * or place, the plan, a poll), so their open chat and plan screens ask again at once instead of polling. The event holds
+   * only which group; each app asks with its own sign-in. Changes close together become one event.
+   */
+  groupChanged(kind: 'activity' | 'trip', id: string) {
+    const key = `${kind}:${id}`;
+    if (this.groupTimers.has(key)) return;
+    const timer = setTimeout(async () => {
+      this.groupTimers.delete(key);
+      try {
+        const rows = kind === 'activity' ? await this.prisma.activityMembership.findMany({ where: { activityId: id, state: 'approved' }, select: { userId: true } }) : await this.prisma.tripMembership.findMany({ where: { tripId: id, state: 'approved' }, select: { userId: true } });
+        for (const r of rows) this.send(r.userId, { type: 'group-changed', kind, id });
+      } catch {
+        /* the app's slow refresh still catches it */
+      }
+    }, 300);
+    timer.unref();
+    this.groupTimers.set(key, timer);
+  }
+
   /** Close every open connection of this person (their account is gone). */
   dropUser(userId: string) {
     for (const ws of this.byUser.get(userId) ?? []) ws.close(4003, 'unauthorized');
@@ -182,6 +206,8 @@ export class LiveService implements OnModuleDestroy {
 
   onModuleDestroy() {
     if (this.pinger) clearInterval(this.pinger);
+    for (const t of this.groupTimers.values()) clearTimeout(t);
+    this.groupTimers.clear();
     for (const set of this.byUser.values()) for (const ws of set) ws.terminate();
     this.byUser.clear();
     this.byCity.clear();

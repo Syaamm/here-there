@@ -3,6 +3,7 @@ import { User } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../common/audit.service';
 import { E } from '../common/errors';
+import { JobsService } from '../common/jobs.service';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -38,7 +39,6 @@ export type ReverifyReason = 'expired' | 'security' | 'fraud_suspected' | 'provi
  */
 @Injectable()
 export class VerificationService implements OnModuleInit, OnModuleDestroy {
-  private timer?: NodeJS.Timeout;
   private readonly providers: Record<string, IdentityProvider> = {
     manual: new ManualProvider('manual'),
     auto: new ManualProvider('auto'),
@@ -53,6 +53,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly limiter: RateLimiter,
+    private readonly jobs: JobsService,
   ) {}
 
   onModuleInit() {
@@ -61,15 +62,9 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     if (!this.providers[this.mode]) throw new Error(`Unknown VERIFICATION_MODE "${this.mode}"`);
     if (this.mode === 'persona') (this.providers.persona as PersonaProvider).assertReady(); // a half-set-up provider is refused at start-up
     if (this.mode === 'idenfy') (this.providers.idenfy as IdenfyProvider).assertReady();
-    if (process.env.NODE_ENV !== 'test') {
-      void this.expireDue().catch(() => {});
-      this.timer = setInterval(() => void this.expireDue().catch(() => {}), 3600 * 1000);
-      this.timer.unref();
-    }
+    this.jobs.every('verification.expire-due', 3600 * 1000, () => this.expireDue());
   }
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
-  }
+  onModuleDestroy() {}
 
   get mode() {
     return process.env.VERIFICATION_MODE ?? (isDemo() ? 'sandbox' : 'manual');

@@ -28,7 +28,7 @@ export default function ChangePassword() {
     if (!ready) return;
     const r = await act.run(() => post<{ token: string }>('/v1/me/password', { currentPassword: current, newPassword: password }));
     if (r) {
-      await signIn(r.token); // the old sign-in has just ended; this keeps the person in
+      await signIn(r); // the old sign-in has just ended; this keeps the person in
       setCurrent('');
       setPassword('');
       setAgain('');

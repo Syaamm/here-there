@@ -28,12 +28,17 @@ Every failed request returns the same body:
 | `INVALID_CODE` | 400 | The 6-digit code is wrong or has expired. | Offer to send a new code. |
 | `INVALID_CURSOR` | 400 | The paging cursor is malformed or was made for a different list. | Restart the list from the first page. |
 | `INVALID_DATES` | 400 | The dates are not allowed (for example a trip that starts in the past). | Ask the person to choose other dates. |
+| `INVALID_IDEMPOTENCY_KEY` | 400 | The Idempotency-Key header is not 8 to 100 letters, digits, dash, underscore, dot or colon. | Generate a key such as a random id. |
 | `INVALID_IMAGE` | 400 | The upload is not a readable JPEG, PNG or WebP picture. | Ask for another picture. |
 | `INVALID_LINK` | 400 | A signed download link is malformed or its signature is wrong. | Ask for a new link. |
 | `INVALID_PAYLOAD` | 400 | A webhook body is not valid JSON. | Provider-side problem; no user action. |
+| `INVALID_PLACE` | 400 | The place cannot be made, or does not exist (a city under a city, a country not under the whole service, an unknown area). | Show the message and let the administrator choose another place. |
+| `INVALID_QUIET_HOURS` | 400 | Quiet hours cannot start and end at the same time. | Ask for a different start or end. |
 | `INVALID_SCHEDULE` | 400 | The start or end time breaks the rules (not far enough ahead, too long, end before start). | Ask the person to change the time. |
 | `INVALID_SETUP_CODE` | 400 | The first code from the authenticator app was wrong while switching two-step sign-in on. | Ask for the next code; check the phone clock. |
+| `INVALID_SHIFT` | 400 | The on-call shift is not allowed (ends before it starts, longer than 14 days, or the person is not active staff). | Show the message and let the administrator change it. |
 | `INVALID_TARGET` | 400 | The action cannot be aimed at that person (yourself, for example). | Hide the action for that target. |
+| `INVALID_TIMEZONE` | 400 | The time zone is not a known name (for example Europe/Rome). | Offer the time zones the phone knows. |
 | `LINK_EXPIRED` | 400 | A signed download link is older than its two minutes. | Ask for a new link. |
 | `MFA_NOT_STARTED` | 400 | Switching on was attempted before a secret was created. | Start the setup first. |
 | `NO_DATES` | 400 | A poll without dates was chosen as the trip dates. | Hide "use these dates" for date-less polls. |
@@ -52,10 +57,12 @@ Every failed request returns the same body:
 | --- | --- | --- | --- |
 | `INVALID_CREDENTIALS` | 401 | Email or password is incorrect. | Show the message; never say which one was wrong. |
 | `INVALID_MFA_CODE` | 401 | The 6-digit code or recovery code is wrong, or was already used. | Let the person try the next code; after too many tries they are rate-limited. |
+| `INVALID_REFRESH_TOKEN` | 401 | The refresh token is not valid, has expired, or belongs to a sign-in that ended (signed out, password changed, suspended). | Send the person to sign in again. |
 | `INVALID_SIGNATURE` | 401 | A provider webhook failed its signature check. | Provider-side problem; the request is ignored. |
 | `INVALID_SOCIAL_TOKEN` | 401 | The Apple or Google sign-in could not be confirmed (bad signature, wrong app, expired, wrong issuer). | Offer to try again or use email and password. |
 | `INVALID_TOKEN` | 401 | The token is invalid, expired, or revoked by a password change. | Sign out and ask the person to sign in again. |
 | `MFA_EXPIRED` | 401 | The pass from the password step is missing, expired (5 minutes) or no longer matches the account. | Start the sign-in again. |
+| `REFRESH_TOKEN_REUSED` | 401 | An already-used refresh token was shown again after the grace period, so the sign-in was copied and has been ended. | Tell the person they were signed out for safety and send them to sign in. |
 | `UNAUTHENTICATED` | 401 | No sign-in token was sent. | Send the person to sign in. |
 | `WRONG_PASSWORD` | 401 | The current password given is wrong. | Show the message on the password field. |
 
@@ -69,6 +76,7 @@ Every failed request returns the same body:
 | `BLOCKED` | 403 | One of the two people has blocked the other. | Treat as not found; do not reveal who blocked whom. |
 | `EMAIL_NOT_VERIFIED` | 403 | The email address must be confirmed first. | Open the email confirmation step. |
 | `FORBIDDEN` | 403 | The person is not allowed to do this (staff role too low, or not their own item). | Hide the action; show the message if it was tried. |
+| `GLOBAL_STAFF_ONLY` | 403 | A staff account limited to one area used a screen that is only for staff of the whole service. | Hide that screen for staff who have an area (see GET /v1/admin/scope). |
 | `GUEST_READ_ONLY` | 403 | A guest ("explore demo") session tried to change something. | Offer to create an account. |
 | `INVITE_ONLY` | 403 | The activity or trip is by invitation only. | Hide the join button. |
 | `MFA_REQUIRED` | 403 | Staff must have two-step sign-in on to use this part of the console (or to turn it off). | Send the person to the Security page to set it up. |
@@ -76,6 +84,7 @@ Every failed request returns the same body:
 | `NOT_HOST` | 403 | Only the host of the activity can do this. | Hide the action for other people. |
 | `NOT_ORGANIZER` | 403 | Only the organizer of the trip can do this. | Hide the action for other people. |
 | `NOT_YOUR_LINE` | 403 | Only the person who added a plan line, or the organizer, can change or remove it. | Hide the edit actions on other people lines. |
+| `OUT_OF_SCOPE` | 403 | A staff member who looks after one city, region or country tried to act on something outside it. | Show the message; the item is for staff of another area or the whole service. |
 | `OWN_APPEAL` | 403 | Staff cannot decide an appeal they made themselves. | Ask another moderator. |
 | `PHONE_BLOCKED` | 403 | This mobile number is on the ban list (it belonged to a removed account). | Show the message and point to support; do not say why. |
 | `REGISTRATION_BLOCKED` | 403 | A new account cannot be created for this person right now (it matches a removed account). Staff can review it. | Show the message and point to support; do not say why. |
@@ -116,11 +125,14 @@ Every failed request returns the same body:
 | `CANNOT_REMOVE_HOST` | 409 | The host cannot be removed from their own activity. | Hide "remove" on the host. |
 | `CANNOT_REMOVE_ORGANIZER` | 409 | The organizer cannot be removed from their own trip. | Hide "remove" on the organizer. |
 | `CAPACITY_BELOW_MEMBERS` | 409 | The new capacity is lower than the number of approved members. | Show the minimum allowed. |
+| `CITY_ALREADY_ASSIGNED` | 409 | That city name already belongs to another place. | Show which place has it; change that one instead. |
 | `CONVERSATION_CLOSED` | 409 | The chat is read-only (24 hours after the end, or the activity or trip was cancelled). | Show the chat as read-only. |
 | `DAY_PASSED` | 409 | The itinerary line is on a day that has already passed (the trip has started), so it cannot be added, changed, moved or removed. | Only offer days from today on, and hide Edit and Remove on lines whose canEdit is false. |
 | `DISPUTE_CLOSED` | 409 | The 7 days to dispute the note have passed. | Hide the Dispute button. |
 | `DUPLICATE_ACTIVITY` | 409 | The host already has the same activity at that time or place. | Offer to edit the existing one. |
-| `EMAIL_TAKEN` | 409 | An account with this email already exists. | Offer sign-in or password reset. |
+| `EMAIL_TAKEN` | 409 | An account with this email already exists (changing the email address; sign-up never says this). | Offer sign-in or password reset. |
+| `HOST_ABSENT_TOO_EARLY` | 409 | A member tried to say the host did not show up before the plan had been on for 30 minutes. | Offer the action only 30 minutes after the start. |
+| `HOST_ABSENT_WINDOW_CLOSED` | 409 | The 72 hours after the plan ended, in which a member can say the host did not show up, have passed. | Hide the action. |
 | `HOST_CANNOT_LEAVE` | 409 | The host must cancel or hand over the activity first. | Offer cancel or hand over. |
 | `IS_HOST` | 409 | The person is the host of this activity. | Hide the join button. |
 | `IS_ORGANIZER` | 409 | The person is the organizer of this trip. | Hide the apply button. |
@@ -139,15 +151,25 @@ Every failed request returns the same body:
 | `NOTHING_TO_APPEAL` | 409 | There is no rejected check, staff removal or suspension to appeal. | Hide the appeal action. |
 | `ORGANIZER_CANNOT_LEAVE` | 409 | The organizer must cancel the trip or hand it over first. | Offer cancel. |
 | `PHONE_IN_USE` | 409 | This mobile number is already confirmed on another account. | Ask for a different number. |
+| `PLACE_HAS_STAFF` | 409 | Staff accounts are still assigned to the place. | Change their area first. |
+| `PLACE_NOT_EMPTY` | 409 | The place still has places under it. | Remove or move those first. |
 | `PLAN_CANCELLED` | 409 | The plan was cancelled, so nobody can be noted as not coming. | Hide the action. |
 | `PLAN_FULL` | 409 | The trip plan already holds the most lines allowed of that kind (60). | Ask the group to tidy the plan first. |
 | `POLL_CLOSED` | 409 | The poll is closed; votes are no longer taken. | Show the final result. |
+| `REFRESH_IN_PROGRESS` | 409 | Two refreshes of the same sign-in ran at the same moment. | Try again in a moment; keep one refresh at a time in the app. |
+| `REQUEST_IN_PROGRESS` | 409 | The first try of this request (same Idempotency-Key) is still being handled. | Wait a moment and send it again with the same key. |
 | `REQUEST_WITHDRAWN` | 409 | The applicant withdrew this request before the decision. | Refresh the list of requests. |
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (5). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
 | `TRIP_CLOSED` | 409 | The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over). | Hide the edit, apply, favourite and share actions. |
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |
+
+## Cannot be done as asked (422)
+
+| Code | Status | What it means | What the app should do |
+| --- | --- | --- | --- |
+| `IDEMPOTENCY_KEY_REUSED` | 422 | This Idempotency-Key was already used for a different request. | Use a new key for every new action; reuse a key only to retry the same one. |
 
 ## Limits (413, 415, 429)
 

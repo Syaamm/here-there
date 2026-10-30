@@ -3,7 +3,7 @@ import path from 'node:path';
 
 export type ErrorCode = { code: string; status: number; message: string; where: string[] };
 
-const KIND_STATUS: Record<string, number> = { badRequest: 400, unauthorized: 401, forbidden: 403, notFound: 404, conflict: 409, tooMany: 429 };
+const KIND_STATUS: Record<string, number> = { badRequest: 400, unauthorized: 401, forbidden: 403, notFound: 404, conflict: 409, unprocessable: 422, tooMany: 429 };
 
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? files(path.join(dir, d.name)) : d.name.endsWith('.ts') ? [path.join(dir, d.name)] : []));
@@ -37,7 +37,7 @@ export function scanErrorCodes(srcDir: string): { codes: ErrorCode[]; dynamic: s
     const text = readFileSync(file, 'utf8');
     const rel = path.relative(srcDir, file).replace(/\\/g, '/');
 
-    for (const m of text.matchAll(/\bE\.(badRequest|unauthorized|forbidden|conflict)\(/g)) {
+    for (const m of text.matchAll(/\bE\.(badRequest|unauthorized|forbidden|conflict|unprocessable)\(/g)) {
       const status = KIND_STATUS[m[1]];
       const tail = text.slice(m.index! + m[0].length);
       const code = literal(tail);

@@ -179,4 +179,10 @@ export const create: Record<string, string> = {
   'Verified people join at once.': 'I verificati entrano subito.',
   'You approve each person.': 'Approvi tu ogni persona.',
   'Shown as an estimate, never a price.': 'Mostrato come stima, mai come prezzo.',
+  'Pick the day': 'Scegli il giorno',
+  'Pick a later date': 'Scegli una data più avanti',
+  'You can plan up to {date}.': 'Puoi pianificare fino a {date}.',
+  'dates within the next month': 'date entro il prossimo mese',
+  'dates within the next {n} months': 'date entro i prossimi {n} mesi',
+  'Nothing planned further ahead yet.': 'Ancora niente in programma più avanti.',
 };

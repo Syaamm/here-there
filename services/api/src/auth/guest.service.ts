@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { JobsService } from '../common/jobs.service';
 import { PrismaService } from '../common/prisma.service';
 
 export const GUEST_TTL_MS = 24 * 3600 * 1000;
@@ -12,18 +13,15 @@ export const GUEST_TTL_MS = 24 * 3600 * 1000;
  */
 @Injectable()
 export class GuestService implements OnModuleInit, OnModuleDestroy {
-  private timer?: NodeJS.Timeout;
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jobs: JobsService,
+  ) {}
 
   onModuleInit() {
-    if (process.env.NODE_ENV === 'test') return;
-    void this.purge().catch(() => {});
-    this.timer = setInterval(() => void this.purge().catch(() => {}), 3600 * 1000);
-    this.timer.unref();
+    this.jobs.every('guests.purge', 3600 * 1000, () => this.purge());
   }
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
-  }
+  onModuleDestroy() {}
 
   create() {
     return this.prisma.user.create({

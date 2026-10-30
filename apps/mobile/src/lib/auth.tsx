@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { clearLoadCache } from './hooks';
-import { ApiError, get, loadToken, saveToken, setToken, setUnauthorizedHandler, type Me } from './api';
+import { ApiError, get, getRefreshToken, loadRefreshToken, loadToken, post, saveRefreshToken, saveToken, setRefreshToken, setToken, setUnauthorizedHandler, type Me } from './api';
 
 type SignInOptions = {
   /** true right after registering: show the onboarding steps (confirm email, set up profile) once */
@@ -9,6 +9,8 @@ type SignInOptions = {
   /** dev only: the API echoes the email code so a phone can finish sign-up without a mail server */
   devCode?: string;
 };
+
+export type Tokens = { token: string; refreshToken?: string };
 
 type AuthState = {
   me: Me | null;
@@ -21,8 +23,9 @@ type AuthState = {
   setDevCode: (c: string | null) => void;
   finishOnboarding: () => void;
   reload: () => Promise<void>;
-  signIn: (token: string, opts?: SignInOptions) => Promise<void>;
-  logout: () => void;
+  /** `tokens` is the answer of a sign-in: the short-lived token and the refresh token (a guest has no refresh token) */
+  signIn: (tokens: Tokens | string, opts?: SignInOptions) => Promise<void>;
+  logout: (why?: string) => void;
 };
 const Ctx = createContext<AuthState>({
   me: null,
@@ -48,8 +51,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback((why?: string) => {
     clearLoadCache(); // nothing the last person saw is kept for the next one
+    // a sign-out the person chose also ends this sign-in on the server (best effort: with no connection it simply ends here)
+    if (typeof why !== 'string') void post('/v1/auth/logout', { refreshToken: getRefreshToken() ?? undefined }).catch(() => undefined);
     setToken(null);
+    setRefreshToken(null);
     void saveToken(null);
+    void saveRefreshToken(null);
     setMe(null);
     setOnboarding(false);
     setDevCode(null);
@@ -67,12 +74,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [logout]);
 
   const signIn = useCallback(
-    async (token: string, opts?: SignInOptions) => {
+    async (tokens: Tokens | string, opts?: SignInOptions) => {
+      const { token, refreshToken } = typeof tokens === 'string' ? { token: tokens, refreshToken: undefined } : tokens;
       setNotice(null);
       setDevCode(opts?.devCode ?? null);
       setOnboarding(!!opts?.fresh);
       setToken(token);
-      await saveToken(token);
+      setRefreshToken(refreshToken ?? null);
+      await Promise.all([saveToken(token), saveRefreshToken(refreshToken ?? null)]);
       await reload();
     },
     [reload],
@@ -84,9 +93,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUnauthorizedHandler(() => logout('Your session expired. Please log in again.'));
     (async () => {
-      const t = await loadToken();
+      const [t, r] = await Promise.all([loadToken(), loadRefreshToken()]);
       if (t) {
         setToken(t);
+        setRefreshToken(r);
         await reload();
       }
       setReady(true);

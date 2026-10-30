@@ -1,15 +1,19 @@
+import { metrics } from '../common/observability';
 import { decryptField, maskPhone } from '../common/vault';
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { ActivitiesService } from '../activities/activities.service';
 import { AuditService } from '../common/audit.service';
-import { CurrentUser, Staff } from '../common/auth';
+import { CurrentUser, RegionalOk, Staff } from '../common/auth';
 import { STAFF_ROLES } from '../common/constants';
 import { E } from '../common/errors';
 import { afterKeyset, beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { banIdentities, liftBans } from '../common/identity';
 import { ModerationService } from '../moderation/moderation.controller';
+import { ReliabilityService } from '../reliability/reliability.controller';
+import { RegionsService } from '../regions/regions.service';
+import { inScope } from '../regions/regions';
 import { MfaService } from '../auth/mfa.controller';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/validate';
@@ -36,7 +40,7 @@ export const resolveSchema = z.object({
   status: z.enum(['resolved', 'dismissed', 'in_review']),
   resolution: z.string().trim().max(1000).optional(),
 });
-export const roleSchema = z.object({ role: z.enum(['user', ...STAFF_ROLES]) });
+export const roleSchema = z.object({ role: z.enum(['user', ...STAFF_ROLES]), regionKey: z.string().trim().min(1).max(60).nullable().optional() });
 
 /** Internal operations console API (spec 12). Every mutating action writes an audit event. */
 @Controller('v1/admin')
@@ -49,7 +53,24 @@ export class AdminController {
     private readonly trips: TripsService,
     private readonly mfa: MfaService,
     private readonly moderation: ModerationService,
+    private readonly reliability: ReliabilityService,
+    private readonly regions: RegionsService,
   ) {}
+
+  /** Staff who look after one area may only touch members whose home city is in it, and never other staff. */
+  private async assertUserInScope(actor: User, userId: string) {
+    const scope = await this.regions.scopeOf(actor);
+    if (!scope) return;
+    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true, profile: { select: { homeCityKey: true } } } });
+    if (!target) throw E.notFound('User');
+    if (target.role !== 'user' || !inScope(scope, target.profile?.homeCityKey)) throw E.forbidden('OUT_OF_SCOPE', 'That is outside the area you look after');
+  }
+
+  private async assertActivityInScope(actor: User, activityId: string) {
+    const a = await this.prisma.activity.findUnique({ where: { id: activityId }, select: { cityKey: true } });
+    if (!a) throw E.notFound('Activity');
+    await this.regions.assertCity(actor, a.cityKey);
+  }
 
   // ------------------------------------------------------------ overview
   @Staff(...ALL)
@@ -114,13 +135,32 @@ export class AdminController {
     };
   }
 
+  /**
+   * How the service is doing right now, for the console's Overview: per-minute sign-ups, joins, messages and requests, the
+   * error rate, the slowest recent database statements (never with the values in them) and how long a trivial query takes.
+   * Counted by this server process since it started (see docs/FOR_DEPLOYMENT.md for more than one server).
+   */
+  @Staff(...ALL)
+  @Get('health')
+  async health(@Query('minutes') minutes?: string) {
+    const n = Math.min(120, Math.max(5, Number(minutes) || 60));
+    const started = process.hrtime.bigint();
+    await this.prisma.$queryRaw`SELECT 1`;
+    const dbMs = Math.round((Number(process.hrtime.bigint() - started) / 1e6) * 10) / 10;
+    return { ...metrics.snapshot(n), database: { pingMs: dbMs }, errorTracking: { configured: !!process.env.SENTRY_DSN }, logFormat: process.env.LOG_FORMAT ?? (process.env.NODE_ENV === 'production' ? 'json' : 'text') };
+  }
+
   // ------------------------------------------------------------ users
   @Staff(...ALL)
+  @RegionalOk()
   @Get('users')
-  async users(@Query('q') q?: string, @Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+  async users(@CurrentUser() actor: User, @Query('q') q?: string, @Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
     // timed suspensions that have run out end now, so the list never shows someone as suspended who is not
     await this.prisma.user.updateMany({ where: { state: 'suspended', suspendedUntil: { lte: new Date() } }, data: { state: 'active', suspendedUntil: null } });
+    // staff who look after one area see the members whose home city is in it, and never other staff
+    const scope = await this.regions.scopeOf(actor);
     const where: Prisma.UserWhereInput = {
+      ...(scope && { role: 'user', profile: { homeCityKey: { in: [...scope.cityKeys] } } }),
       ...(state && { state }),
       ...(q && { OR: [{ email: { contains: q } }, { profile: { displayName: { contains: q } } }, { id: q }] }),
     };
@@ -141,6 +181,7 @@ export class AdminController {
         id: u.id,
         email: u.email,
         role: u.role,
+        adminRegionKey: u.adminRegionKey,
         state: u.state,
         suspendedUntil: u.suspendedUntil,
         eligibility: u.eligibility,
@@ -158,8 +199,10 @@ export class AdminController {
   }
 
   @Staff(...ALL)
+  @RegionalOk()
   @Get('users/:id')
-  async user(@Param('id') id: string) {
+  async user(@CurrentUser() actor: User, @Param('id') id: string) {
+    await this.assertUserInScope(actor, id);
     const u = await this.prisma.user.findUnique({
       where: { id },
       include: { profile: true, verifications: { orderBy: { createdAt: 'desc' }, take: 5 } },
@@ -200,9 +243,11 @@ export class AdminController {
   }
 
   @Staff(...MOD)
+  @RegionalOk()
   @Post('users/:id/suspend')
   async suspend(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason, days } = parse(suspendSchema, body);
+    await this.assertUserInScope(actor, id);
     const target = await this.prisma.user.findUnique({ where: { id } });
     if (!target) throw E.notFound('User');
     if (target.id === actor.id) throw E.badRequest('INVALID_TARGET', 'You cannot suspend yourself');
@@ -217,9 +262,11 @@ export class AdminController {
   }
 
   @Staff(...MOD)
+  @RegionalOk()
   @Post('users/:id/restore')
   async restore(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
+    await this.assertUserInScope(actor, id);
     if (!(await this.prisma.user.findUnique({ where: { id } }))) throw E.notFound('User');
     await this.prisma.user.update({ where: { id }, data: { state: 'active', suspendedUntil: null } });
     await liftBans(this.prisma, id);
@@ -242,12 +289,15 @@ export class AdminController {
   @Staff('admin')
   @Post('users/:id/role')
   async setRole(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
-    const { role } = parse(roleSchema, body);
+    const { role, regionKey } = parse(roleSchema, body);
     if (id === actor.id) throw E.badRequest('INVALID_TARGET', 'You cannot change your own role');
     if (!(await this.prisma.user.findUnique({ where: { id } }))) throw E.notFound('User');
-    await this.prisma.user.update({ where: { id }, data: { role } });
-    await this.audit.log(actor.id, 'user.role_change', 'user', id, { role });
-    return { role };
+    // Staff can be limited to one city, region or country; leave it out for the whole service. Members have no area.
+    const area = role === 'user' ? null : (regionKey ?? null);
+    if (area && !(await this.regions.exists(area))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
+    await this.prisma.user.update({ where: { id }, data: { role, adminRegionKey: area } });
+    await this.audit.log(actor.id, 'user.role_change', 'user', id, { role, regionKey: area });
+    return { role, regionKey: area };
   }
 
   // ------------------------------------------------------------ verification
@@ -328,26 +378,32 @@ export class AdminController {
 
   // ------------------------------------------------------------ moderation: reports
   @Staff(...ALL)
+  @RegionalOk()
   @Get('reports')
-  async reports(@Query('status') status?: string, @Query('category') category?: string) {
-    return this.moderation.queue(status, category);
+  async reports(@CurrentUser() actor: User, @Query('status') status?: string, @Query('category') category?: string) {
+    return this.moderation.queue(status, category, new Date(), await this.regions.scopeOf(actor));
   }
 
   @Staff(...MOD)
+  @RegionalOk()
   @Post('reports/:id/assign')
   async assign(@CurrentUser() actor: User, @Param('id') id: string) {
     const r = await this.prisma.report.findUnique({ where: { id } });
     if (!r) throw E.notFound('Report');
+    await this.moderation.assertReportInScope(await this.regions.scopeOf(actor), r);
     await this.prisma.report.update({ where: { id }, data: { assignedTo: actor.id, status: r.status === 'open' ? 'in_review' : r.status, firstReviewedAt: r.firstReviewedAt ?? new Date() } });
     await this.audit.log(actor.id, 'report.assign', 'report', id);
     return { ok: true };
   }
 
   @Staff(...MOD)
+  @RegionalOk()
   @Post('reports/:id/resolve')
   async resolve(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const dto = parse(resolveSchema, body);
-    if (!(await this.prisma.report.findUnique({ where: { id } }))) throw E.notFound('Report');
+    const report = await this.prisma.report.findUnique({ where: { id } });
+    if (!report) throw E.notFound('Report');
+    await this.moderation.assertReportInScope(await this.regions.scopeOf(actor), report);
     await this.prisma.report.update({
       where: { id },
       data: {
@@ -358,16 +414,20 @@ export class AdminController {
       },
     });
     await this.audit.log(actor.id, `report.${dto.status}`, 'report', id, { resolution: dto.resolution });
+    // "resolved" on a host-did-not-show-up report means a moderator confirmed it: the host's notes for that plan are cancelled
+    if (dto.status === 'resolved' && report.category === 'host_no_show' && report.status !== 'resolved') await this.reliability.onHostAbsenceUpheld(actor, report);
     return { ok: true };
   }
 
   // ------------------------------------------------------------ moderation: content
   @Staff(...ALL)
+  @RegionalOk()
   @Get('activities')
-  async activitiesList(@Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+  async activitiesList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
     const size = pageLimit(limit, 100, 200);
+    const scope = await this.regions.scopeOf(actor);
     const all = await this.prisma.activity.findMany({
-      where: { AND: [status ? { status } : {}, beforeKeyset(decodeKeyset(cursor))] },
+      where: { AND: [status ? { status } : {}, scope ? { cityKey: { in: [...scope.cityKeys] } } : {}, beforeKeyset(decodeKeyset(cursor))] },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: size + 1,
       include: { host: { select: { id: true, profile: { select: { displayName: true } } } }, _count: { select: { memberships: { where: { state: 'approved' } } } } },
@@ -390,20 +450,24 @@ export class AdminController {
   }
 
   @Staff(...MOD)
+  @RegionalOk()
   @Post('activities/:id/remove')
   async removeActivity(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
+    await this.assertActivityInScope(actor, id);
     await this.audit.log(actor.id, 'activity.remove_reason', 'activity', id, { reason });
     await this.settleReports(actor, 'activity', id, 'listing removed');
     return this.activities.cancel(actor, id, true);
   }
 
   @Staff(...ALL)
+  @RegionalOk()
   @Get('trips')
-  async tripsList(@Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+  async tripsList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
     const size = pageLimit(limit, 100, 200);
+    const scope = await this.regions.scopeOf(actor);
     const all = await this.prisma.trip.findMany({
-      where: { AND: [status ? { status } : {}, beforeKeyset(decodeKeyset(cursor))] },
+      where: { AND: [status ? { status } : {}, scope ? { originKey: { in: [...scope.cityKeys] } } : {}, beforeKeyset(decodeKeyset(cursor))] },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: size + 1,
       include: { host: { select: { id: true, profile: { select: { displayName: true } } } }, _count: { select: { memberships: { where: { state: 'approved' } } } } },
@@ -424,17 +488,23 @@ export class AdminController {
   }
 
   @Staff(...MOD)
+  @RegionalOk()
   @Post('trips/:id/remove')
   async removeTrip(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
+    const trip = await this.prisma.trip.findUnique({ where: { id }, select: { originKey: true } });
+    if (!trip) throw E.notFound('Trip');
+    await this.regions.assertCity(actor, trip.originKey);
     await this.audit.log(actor.id, 'trip.remove_reason', 'trip', id, { reason });
     await this.settleReports(actor, 'trip', id, 'trip removed');
     return this.trips.cancel(actor, id, true);
   }
 
   @Staff(...MOD)
+  @RegionalOk()
   @Post('activities/:id/members/:userId/remove')
   async removeMember(@CurrentUser() actor: User, @Param('id') id: string, @Param('userId') userId: string) {
+    await this.assertActivityInScope(actor, id);
     return this.activities.removeMember(actor, id, userId, true);
   }
 

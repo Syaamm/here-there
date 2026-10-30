@@ -13,74 +13,81 @@ datasource db {
 // so the schema stays portable between SQLite and PostgreSQL.
 
 model User {
-  id                String   @id @default(cuid())
-  email             String   @unique
-  passwordHash      String
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  passwordHash       String
   // Sign-ins made before this moment stop working (set whenever the password is changed or reset).
-  passwordChangedAt DateTime?
-  role              String   @default("user") // user | support | moderator | trust_lead | admin
-  state             String   @default("active") // active | suspended | deleted (a bare tombstone: nothing personal is kept)
-  deletedAt         DateTime?
+  passwordChangedAt  DateTime?
+  // "Log out everywhere": sign-ins issued before this moment stop working (checked against the token's issue time).
+  sessionsRevokedAt  DateTime?
+  role               String    @default("user") // user | support | moderator | trust_lead | admin
+  // Staff only: the account works only inside this region and everything under it (a city, a region or a whole country). Empty = the whole service.
+  adminRegionKey     String?
+  state              String    @default("active") // active | suspended | deleted (a bare tombstone: nothing personal is kept)
+  deletedAt          DateTime?
   // A timed suspension ends by itself at this moment; empty while suspended means until staff restore the account.
-  suspendedUntil    DateTime?
+  suspendedUntil     DateTime?
   // Three separate statuses (never merged into one flag):
   //   1. email:    emailVerifiedAt
   //   2. adult:    adultConfirmed (self-declared at sign-up) + adultVerifiedAt (provider/staff confirmed 18+; no birth date kept)
   //   3. identity: eligibility (+ verifiedUntil)
-  adultConfirmed    Boolean  @default(false)
-  adultVerifiedAt   DateTime?
+  adultConfirmed     Boolean   @default(false)
+  adultVerifiedAt    DateTime?
   // Set when the user proves they control this email address (spec 3.1 step 2).
-  emailVerifiedAt   DateTime?
+  emailVerifiedAt    DateTime?
   // Optional mobile number, confirmed by SMS code. Nothing is gated on it.
   // The number is stored ENCRYPTED (see common/vault.ts); phoneHash is a keyed fingerprint so one number can belong to one account.
-  phoneNumber       String?
-  phoneHash         String?  @unique
-  phoneVerifiedAt   DateTime?
+  phoneNumber        String?
+  phoneHash          String?   @unique
+  phoneVerifiedAt    DateTime?
   // A keyed fingerprint of the device the account was created on (never the device id itself): limits accounts per device.
-  registeredDevice  String?
+  registeredDevice   String?
   // Two-step sign-in for staff (TOTP authenticator app). The secret is stored encrypted.
-  mfaSecret         String?
-  mfaEnabledAt      DateTime?
-  mfaLastStep       Int?
+  mfaSecret          String?
+  mfaEnabledAt       DateTime?
+  mfaLastStep        Int?
   // Reliability level (new | reliable | very_reliable | needs_care), worked out from verified, completed plans only.
-  reliabilityLevel  String?
+  reliabilityLevel   String?
   reliabilityChecked DateTime?
   // unverified | pending | verified | rejected | expired | reverification_required
-  eligibility       String   @default("unverified")
+  eligibility        String    @default("unverified")
   // Identity verification is one-time: valid until this moment, then re-verification is needed.
-  verifiedUntil     DateTime?
+  verifiedUntil      DateTime?
   // Why a new check is required: expired | security | fraud_suspected | provider_required | other
-  reverifyReason    String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  reverifyReason     String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  profile           Profile?
-  pushSubscriptions PushSubscription[]
-  photo             ProfilePhoto?
-  verifications     VerificationCheck[]
-  contactCodes      ContactCode[]
-  activitiesHosted  Activity[]
-  activityRequests  ActivityRequest[]  @relation("applicant")
+  profile             Profile?
+  pushSubscriptions   PushSubscription[]
+  sessions            Session[]
+  photo               ProfilePhoto?
+  verifications       VerificationCheck[]
+  contactCodes        ContactCode[]
+  activitiesHosted    Activity[]
+  activityRequests    ActivityRequest[]    @relation("applicant")
   activityMemberships ActivityMembership[]
-  trips             Trip[]
-  tripApplications  TripApplication[]  @relation("tripApplicant")
-  tripMemberships   TripMembership[]
-  messages          Message[]
-  notifications     Notification[]
-  blocksMade        Block[]  @relation("blocker")
-  blocksReceived    Block[]  @relation("blocked")
-  reportsMade       Report[] @relation("reporter")
-  favorites         Favorite[]
-  tripFavorites     TripFavorite[]
-  following         Follow[] @relation("follower")
-  followers         Follow[] @relation("followed")
-  recoveryCodes     MfaRecoveryCode[]
-  reliabilityChanges ReliabilityChange[]
-  drafts            Draft[]
-  travelMatchPref   TravelMatchPref?
-  warnings          UserWarning[]
-  appeals           Appeal[]
-  socialIdentities  SocialIdentity[]
+  trips               Trip[]
+  tripApplications    TripApplication[]    @relation("tripApplicant")
+  tripMemberships     TripMembership[]
+  messages            Message[]
+  notifications       Notification[]
+  blocksMade          Block[]              @relation("blocker")
+  blocksReceived      Block[]              @relation("blocked")
+  reportsMade         Report[]             @relation("reporter")
+  favorites           Favorite[]
+  tripFavorites       TripFavorite[]
+  following           Follow[]             @relation("follower")
+  followers           Follow[]             @relation("followed")
+  recoveryCodes       MfaRecoveryCode[]
+  reliabilityChanges  ReliabilityChange[]
+  drafts              Draft[]
+  travelMatchPref     TravelMatchPref?
+  warnings            UserWarning[]
+  appeals             Appeal[]
+  socialIdentities    SocialIdentity[]
+  notificationPref    NotificationPref?
+  onCallShifts        OnCallShift[]
 
   @@index([registeredDevice])
 }
@@ -102,8 +109,8 @@ model SocialIdentity {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider  String   // apple | google
-  subject   String   // the provider's stable id for the person
+  provider  String // apple | google
+  subject   String // the provider's stable id for the person
   createdAt DateTime @default(now())
 
   @@unique([provider, subject])
@@ -114,7 +121,7 @@ model SocialIdentity {
 // until further notice, so the same person cannot simply start again.
 model BannedIdentity {
   id        String   @id @default(cuid())
-  kind      String   // phone | device | email
+  kind      String // phone | device | email
   hash      String
   userId    String?
   reason    String?
@@ -137,6 +144,7 @@ model Profile {
   user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   displayName String
   homeCity    String?
+  homeCityKey String? // homeCity lowercased and trimmed, so staff of a region can find the people in it
   languages   String  @default("") // comma separated
   interests   String  @default("") // comma separated
   bio         String?
@@ -148,8 +156,8 @@ model ContactCode {
   id        String    @id @default(cuid())
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  channel   String    // email | phone
-  target    String?   // the phone number being confirmed (email uses the account address)
+  channel   String // email | phone
+  target    String? // the phone number being confirmed (email uses the account address)
   codeHash  String
   expiresAt DateTime
   attempts  Int       @default(0)
@@ -162,57 +170,59 @@ model ContactCode {
 // Data minimisation: only the outcome, a provider reference and timestamps live here.
 // Never identity documents, selfies, face data, names or birth dates.
 model VerificationCheck {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider        String   @default("manual") // manual | auto | sandbox | (veriff | sumsub | persona ...)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        String    @default("manual") // manual | auto | sandbox | (veriff | sumsub | persona ...)
   // face = document + selfie/liveness match (biometric, explicit consent); document = document only, no face match
-  method          String   @default("face")
+  method          String    @default("face")
   providerRef     String
-  eligibility     String   // pending | verified | rejected
+  eligibility     String // pending | verified | rejected
   // underage | document | liveness | resubmission | other (set when rejected)
   rejectionReason String?
   // When the user explicitly agreed to the identity + facial check (GDPR Art. 9 explicit consent).
   consentAt       DateTime?
   expiresAt       DateTime?
   decidedAt       DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
   reviewedBy      String?
 
   @@index([providerRef])
 }
 
 model Activity {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   hostId        String
-  host          User     @relation(fields: [hostId], references: [id])
+  host          User      @relation(fields: [hostId], references: [id])
   title         String
-  category      String   // coffee | drinks | food | sports | culture
-  tags          String   @default("")
+  category      String // coffee | drinks | food | sports | culture
+  tags          String    @default("")
   description   String?
   city          String
-  cityKey       String   // lowercased/trimmed for case-insensitive search
+  cityKey       String // lowercased/trimmed for case-insensitive search
   venueName     String
   venuePlaceId  String?
   lat           Float?
   lng           Float?
+  // The venue's own time zone (IANA name, worked out from lat/lng when the plan is made), so "starts soon" and reminders are right wherever it is.
+  timeZone      String?
   startsAt      DateTime
   endsAt        DateTime
-  capacity      Int      // includes organizer
-  joinPolicy    String   @default("host_approval")
-  visibility    String   @default("public") // public | invite_only
+  capacity      Int // includes organizer
+  joinPolicy    String    @default("host_approval")
+  visibility    String    @default("public") // public | invite_only
   language      String?
-  status        String   @default("published") // draft | published | full | confirmed | in_progress | completed | cancelled | archived
-  pendingHostId String?  // a member the host has offered to hand the activity to (needs their acceptance)
+  status        String    @default("published") // draft | published | full | confirmed | in_progress | completed | cancelled | archived
+  pendingHostId String? // a member the host has offered to hand the activity to (needs their acceptance)
   cancelledAt   DateTime? // when the HOST cancelled it (staff removals do not set this)
   remindedAt    DateTime? // when the "starting soon" reminder went out (once)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  requests      ActivityRequest[]
-  memberships   ActivityMembership[]
-  conversation  Conversation?
-  favorites     Favorite[]
+  requests     ActivityRequest[]
+  memberships  ActivityMembership[]
+  conversation Conversation?
+  favorites    Favorite[]
 
   @@index([cityKey, startsAt])
   @@index([hostId, startsAt])
@@ -220,17 +230,17 @@ model Activity {
 }
 
 model ActivityRequest {
-  id           String   @id @default(cuid())
-  activityId   String
-  activity     Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  applicantId  String
-  applicant    User     @relation("applicant", fields: [applicantId], references: [id])
-  intro        String?
-  state        String   @default("requested") // requested | approved | declined | waitlisted | withdrawn
-  reviewedBy   String?
-  appealedAt   DateTime? // the person asked the host to look again (once)
-  createdAt    DateTime @default(now())
-  decidedAt    DateTime?
+  id          String    @id @default(cuid())
+  activityId  String
+  activity    Activity  @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  applicantId String
+  applicant   User      @relation("applicant", fields: [applicantId], references: [id])
+  intro       String?
+  state       String    @default("requested") // requested | approved | declined | waitlisted | withdrawn
+  reviewedBy  String?
+  appealedAt  DateTime? // the person asked the host to look again (once)
+  createdAt   DateTime  @default(now())
+  decidedAt   DateTime?
 
   @@unique([activityId, applicantId])
   @@index([applicantId, state])
@@ -238,56 +248,59 @@ model ActivityRequest {
 }
 
 model ActivityMembership {
-  id              String   @id @default(cuid())
-  activityId      String
-  activity        Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  role            String   @default("attendee") // host | attendee
-  state           String   @default("approved") // approved | withdrawn | removed
-  attendance      String   @default("unknown") // unknown | attended | no_show (only ever set by the member themselves)
-  reconfirm       String   @default("none") // none | needed (the host changed the time or place) | confirmed
-  leftAt          DateTime? // when the member left themselves (withdrawn): a late exit counts against reliability
-  createdAt       DateTime @default(now())
+  id         String    @id @default(cuid())
+  activityId String
+  activity   Activity  @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  role       String    @default("attendee") // host | attendee
+  state      String    @default("approved") // approved | withdrawn | removed
+  attendance String    @default("unknown") // unknown | attended | no_show (only ever set by the member themselves)
+  reconfirm  String    @default("none") // none | needed (the host changed the time or place) | confirmed
+  leftAt     DateTime? // when the member left themselves (withdrawn): a late exit counts against reliability
+  createdAt  DateTime  @default(now())
 
   @@unique([activityId, userId])
   @@index([userId, state])
 }
 
 model Trip {
-  id                    String   @id @default(cuid())
-  hostId                String
-  host                  User     @relation(fields: [hostId], references: [id])
-  title                 String
-  destination           String
-  destinationKey        String   // lowercased for search
-  destinationPlaceId    String?
-  originCity            String
-  dateStart             DateTime
-  dateEnd               DateTime
-  dateFlexibility       String   @default("exact") // exact | plus_minus_3 | plus_minus_7 | same_month
-  budgetCurrency        String   @default("EUR")
-  budgetMin             Int
-  budgetMax             Int
-  budgetIncludesTransport Boolean @default(false)
-  tags                  String   @default("")
-  description           String?
-  minCapacity           Int      @default(4)
-  maxCapacity           Int      @default(6)
-  approvalMode          String   @default("organizer_review")
-  visibility            String   @default("public")
-  status                String   @default("published") // draft | published | full | planning | confirmed | completed | cancelled
-  createdAt             DateTime @default(now())
-  cancelledAt           DateTime? // when the organizer cancelled it (staff removals do not set this)
-  updatedAt             DateTime @updatedAt
+  id                      String    @id @default(cuid())
+  hostId                  String
+  host                    User      @relation(fields: [hostId], references: [id])
+  title                   String
+  destination             String
+  destinationKey          String // lowercased for search
+  destinationPlaceId      String?
+  originCity              String
+  originKey               String? // originCity lowercased and trimmed: the place whose planning limit applies to this trip
+  // The time zone of the destination (IANA name), so "which day is it on the trip" is right wherever it goes.
+  timeZone                String?
+  dateStart               DateTime
+  dateEnd                 DateTime
+  dateFlexibility         String    @default("exact") // exact | plus_minus_3 | plus_minus_7 | same_month
+  budgetCurrency          String    @default("EUR")
+  budgetMin               Int
+  budgetMax               Int
+  budgetIncludesTransport Boolean   @default(false)
+  tags                    String    @default("")
+  description             String?
+  minCapacity             Int       @default(4)
+  maxCapacity             Int       @default(6)
+  approvalMode            String    @default("organizer_review")
+  visibility              String    @default("public")
+  status                  String    @default("published") // draft | published | full | planning | confirmed | completed | cancelled
+  createdAt               DateTime  @default(now())
+  cancelledAt             DateTime? // when the organizer cancelled it (staff removals do not set this)
+  updatedAt               DateTime  @updatedAt
 
-  applications          TripApplication[]
-  memberships           TripMembership[]
-  polls                 TripPoll[]
-  datesState            String   @default("tentative") // tentative | proposed (final dates put to the group; everyone must confirm)
-  conversation          Conversation?
-  items                 TripItem[]
-  favorites             TripFavorite[]
+  applications TripApplication[]
+  memberships  TripMembership[]
+  polls        TripPoll[]
+  datesState   String            @default("tentative") // tentative | proposed (final dates put to the group; everyone must confirm)
+  conversation Conversation?
+  items        TripItem[]
+  favorites    TripFavorite[]
 
   @@index([destinationKey, dateStart])
   @@index([hostId])
@@ -295,18 +308,18 @@ model Trip {
 }
 
 model TripApplication {
-  id           String   @id @default(cuid())
-  tripId       String
-  trip         Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  applicantId  String
-  applicant    User     @relation("tripApplicant", fields: [applicantId], references: [id])
-  intro        String
-  experience   String?
-  state        String   @default("pending") // pending | approved | declined | withdrawn | expired | waitlisted
-  reviewedBy   String?
-  appealedAt   DateTime? // the person asked the organizer to look again (once)
-  createdAt    DateTime @default(now())
-  decidedAt    DateTime?
+  id          String    @id @default(cuid())
+  tripId      String
+  trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  applicantId String
+  applicant   User      @relation("tripApplicant", fields: [applicantId], references: [id])
+  intro       String
+  experience  String?
+  state       String    @default("pending") // pending | approved | declined | withdrawn | expired | waitlisted
+  reviewedBy  String?
+  appealedAt  DateTime? // the person asked the organizer to look again (once)
+  createdAt   DateTime  @default(now())
+  decidedAt   DateTime?
 
   @@unique([tripId, applicantId])
   @@index([applicantId, state])
@@ -314,16 +327,16 @@ model TripApplication {
 }
 
 model TripMembership {
-  id        String   @id @default(cuid())
-  tripId    String
-  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  role      String   @default("member") // organizer | member
-  state     String   @default("approved") // approved | left | removed
-  datesConfirmed Boolean @default(false) // said yes to the final dates
-  leftAt    DateTime? // when the member left themselves
-  createdAt DateTime @default(now())
+  id             String    @id @default(cuid())
+  tripId         String
+  trip           Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  role           String    @default("member") // organizer | member
+  state          String    @default("approved") // approved | left | removed
+  datesConfirmed Boolean   @default(false) // said yes to the final dates
+  leftAt         DateTime? // when the member left themselves
+  createdAt      DateTime  @default(now())
 
   @@unique([tripId, userId])
   @@index([userId, state])
@@ -331,55 +344,56 @@ model TripMembership {
 
 // One conversation per activity/trip; read/write is derived from LIVE membership.
 model Conversation {
-  id         String   @id @default(cuid())
-  scopeType  String   // activity | trip | match (two travelers who both said yes)
-  activityId String?  @unique
+  id         String    @id @default(cuid())
+  scopeType  String // activity | trip | match (two travelers who both said yes)
+  activityId String?   @unique
   activity   Activity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  tripId     String?  @unique
-  trip       Trip?    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripId     String?   @unique
+  trip       Trip?     @relation(fields: [tripId], references: [id], onDelete: Cascade)
   // match chats only: the two people (ids in sorted order, joined by a colon, so a pair has one chat), what they matched on, and when it was ended
-  pairKey    String?  @unique
+  pairKey    String?   @unique
   userAId    String?
   userBId    String?
   topic      String?
   endedAt    DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
   messages   Message[]
+
   @@index([userAId])
   @@index([userBId])
 }
 
 model Message {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   conversationId  String
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   senderId        String
-  sender          User     @relation(fields: [senderId], references: [id])
+  sender          User         @relation(fields: [senderId], references: [id])
   body            String
-  kind            String   @default("text") // text | poll | link | system
-  refId           String?  // the poll a poll message points at
-  meta            String?  // JSON, e.g. the url of a link message
-  moderationState String   @default("ok") // ok | flagged | removed
-  removedBy       String?  // staff member who hid it
+  kind            String       @default("text") // text | poll | link | system
+  refId           String? // the poll a poll message points at
+  meta            String? // JSON, e.g. the url of a link message
+  moderationState String       @default("ok") // ok | flagged | removed
+  removedBy       String? // staff member who hid it
   removedReason   String?
   removedAt       DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime     @default(now())
 
   @@index([conversationId, createdAt])
 }
 
 model Notification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      String
   title     String
   body      String
-  data      String?  // JSON
+  data      String? // JSON
   /// "here" or "there": which product the alert belongs to. Empty means both (follows, warnings, verification).
   product   String?
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
@@ -391,7 +405,7 @@ model PushSubscription {
   id         String   @id @default(cuid())
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  kind       String   // web | expo
+  kind       String // web | expo
   token      String   @unique
   createdAt  DateTime @default(now())
   lastUsedAt DateTime @default(now())
@@ -450,47 +464,48 @@ model Block {
 }
 
 model Report {
-  id            String   @id @default(cuid())
-  reporterId    String
-  reporter      User     @relation("reporter", fields: [reporterId], references: [id])
-  targetType    String   // user | activity | trip | message
-  targetId      String
-  category      String   // harassment | fraud | inappropriate_content | underage | physical_safety | spam | financial_solicitation
-  details       String?
-  status        String   @default("open") // open | in_review | resolved | dismissed
-  assignedTo    String?
-  resolution    String?
-  priority      String   @default("normal") // normal | urgent (immediate danger and physical safety)
+  id              String    @id @default(cuid())
+  reporterId      String
+  reporter        User      @relation("reporter", fields: [reporterId], references: [id])
+  targetType      String // user | activity | trip | message
+  targetId        String
+  category        String // harassment | fraud | inappropriate_content | underage | physical_safety | spam | financial_solicitation
+  details         String?
+  status          String    @default("open") // open | in_review | resolved | dismissed
+  assignedTo      String?
+  resolution      String?
+  priority        String    @default("normal") // normal | urgent (immediate danger and physical safety)
   firstReviewedAt DateTime? // when a moderator first took it
-  escalatedAt   DateTime? // when it passed its answer time and the senior staff were told
-  reopenedAt    DateTime? // when an appeal sent a dismissed report back for a second look
-  createdAt     DateTime @default(now())
-  resolvedAt    DateTime?
+  escalatedAt     DateTime? // when it passed its answer time and the senior staff were told
+  escalationLevel Int       @default(0) // 0 none, 1 senior staff told (answer time passed), 2 nobody took it and every administrator was told (urgent only)
+  reopenedAt      DateTime? // when an appeal sent a dismissed report back for a second look
+  createdAt       DateTime  @default(now())
+  resolvedAt      DateTime?
 }
 
 model AuditEvent {
-  id        String   @id @default(cuid())
-  actorId   String?
-  action    String
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
   objectType String
-  objectId  String
-  metadata  String?  // JSON
-  createdAt DateTime @default(now())
+  objectId   String
+  metadata   String? // JSON
+  createdAt  DateTime @default(now())
 
   @@index([objectType, objectId])
 }
 
 // The organizer asks the group about dates; each member answers accept or reject.
 model TripPoll {
-  id          String   @id @default(cuid())
+  id          String         @id @default(cuid())
   tripId      String
-  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  trip        Trip           @relation(fields: [tripId], references: [id], onDelete: Cascade)
   createdById String
   title       String
   dateStart   DateTime?
   dateEnd     DateTime?
-  state       String   @default("open") // open | adopted (became the trip's dates) | closed
-  createdAt   DateTime @default(now())
+  state       String         @default("open") // open | adopted (became the trip's dates) | closed
+  createdAt   DateTime       @default(now())
   votes       TripPollVote[]
 
   @@index([tripId, createdAt])
@@ -501,7 +516,7 @@ model TripPollVote {
   pollId    String
   poll      TripPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
   userId    String
-  vote      String   // accept | reject
+  vote      String // accept | reject
   createdAt DateTime @default(now())
 
   @@unique([pollId, userId])
@@ -510,19 +525,19 @@ model TripPollVote {
 // A host's note that a member did not come to the plan. It counts toward reliability only once it is CONFIRMED: the member
 // had 7 days to dispute it and did not, or a moderator upheld it. A disputed or overturned mark counts for nothing.
 model AttendanceMark {
-  id          String    @id @default(cuid())
-  kind        String    // activity | trip
-  targetId    String    // the activity or trip
-  userId      String    // the member who is said not to have come
-  markedById  String    // the host or organizer
-  title       String    // the plan's title, kept so the note reads right later
-  planEndsAt  DateTime  // when the plan ended: reliability events fade from here
-  markedAt    DateTime  @default(now())
-  state       String    @default("marked") // marked | disputed | upheld | overturned
-  disputeNote String?
-  disputedAt  DateTime?
-  decidedById String?
-  decidedAt   DateTime?
+  id           String    @id @default(cuid())
+  kind         String // activity | trip
+  targetId     String // the activity or trip
+  userId       String // the member who is said not to have come
+  markedById   String // the host or organizer
+  title        String // the plan's title, kept so the note reads right later
+  planEndsAt   DateTime // when the plan ended: reliability events fade from here
+  markedAt     DateTime  @default(now())
+  state        String    @default("marked") // marked | disputed | upheld | overturned
+  disputeNote  String?
+  disputedAt   DateTime?
+  decidedById  String?
+  decidedAt    DateTime?
   decisionNote String?
 
   @@unique([kind, targetId, userId])
@@ -537,64 +552,72 @@ model ReliabilityChange {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   fromLevel String?
   toLevel   String
-  facts     String   // JSON: the counts behind the level at that moment
-  because   String   // plain words: the newest event
+  facts     String // JSON: the counts behind the level at that moment
+  because   String // plain words: the newest event
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
 }
 
-/** A half-finished activity or trip, kept only for its owner. Nothing here is visible to anyone else or counts as a listing. */
+/**
+ * A half-finished activity or trip, kept only for its owner. Nothing here is visible to anyone else or counts as a listing.
+ */
 model Draft {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  kind      String   // activity | trip
-  data      String   // the form as JSON, possibly incomplete
+  kind      String // activity | trip
+  data      String // the form as JSON, possibly incomplete
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 
   @@index([userId, updatedAt])
 }
 
-/** A person asking staff to look at a decision again: a rejected identity check, a suspension, or a listing staff removed. */
+/**
+ * A person asking staff to look at a decision again: a rejected identity check, a suspension, or a listing staff removed.
+ */
 model Appeal {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  kind       String   // verification | suspension | removal
-  targetType String?  // removal only: activity | trip
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String // verification | suspension | removal
+  targetType String? // removal only: activity | trip
   targetId   String?
   message    String
-  state      String   @default("open") // open | upheld (the decision was changed) | rejected (the decision stands)
+  state      String    @default("open") // open | upheld (the decision was changed) | rejected (the decision stands)
   decidedBy  String?
-  decision   String?  // staff note, shown to the person
-  createdAt  DateTime @default(now())
+  decision   String? // staff note, shown to the person
+  createdAt  DateTime  @default(now())
   decidedAt  DateTime?
 
   @@index([state, createdAt])
   @@index([userId, createdAt])
 }
 
-/** A line of the group's shared plan: a stop or idea for a day (itinerary), or an estimated cost (budget note). Never a payment. */
+/**
+ * A line of the group's shared plan: a stop or idea for a day (itinerary), or an estimated cost (budget note). Never a payment.
+ */
 model TripItem {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   tripId      String
-  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  kind        String   // itinerary | budget
+  trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  kind        String // itinerary | budget
   day         DateTime? // itinerary: the day it is planned for (empty = not decided yet)
-  startTime   String?   // itinerary: the time of day as "HH:MM" (empty = any time that day)
+  startTime   String? // itinerary: the time of day as "HH:MM" (empty = any time that day)
   title       String
   note        String?
-  amount      Int?     // budget: estimated cost per person, in the trip's currency
+  amount      Int? // budget: estimated cost per person, in the trip's currency
   createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([tripId, kind])
 }
 
-/** "Match me with people going to this place on these dates". One per person; switching it off deletes it. */
+/**
+ * "Match me with people going to this place on these dates". One per person; switching it off deletes it.
+ */
 model TravelMatchPref {
   id             String   @id @default(cuid())
   userId         String   @unique
@@ -609,19 +632,23 @@ model TravelMatchPref {
   @@index([destinationKey])
 }
 
-/** One person's answer about another suggested traveler. Nobody can see an answer about them: a chat only opens when both said yes. */
+/**
+ * One person's answer about another suggested traveler. Nobody can see an answer about them: a chat only opens when both said yes.
+ */
 model TravelMatchChoice {
   id        String   @id @default(cuid())
   fromId    String
   toId      String
-  choice    String   // yes | pass
+  choice    String // yes | pass
   createdAt DateTime @default(now())
 
   @@unique([fromId, toId])
   @@index([toId])
 }
 
-/** A formal warning from a moderator. It is told to the person, can be appealed once, and counts toward the repeat-offender flag. */
+/**
+ * A formal warning from a moderator. It is told to the person, can be appealed once, and counts toward the repeat-offender flag.
+ */
 model UserWarning {
   id          String    @id @default(cuid())
   userId      String
@@ -634,4 +661,113 @@ model UserWarning {
   createdAt   DateTime  @default(now())
 
   @@index([userId, createdAt])
+}
+
+/// What a person wants to be pushed about, and when not to be disturbed. In-app alerts are always kept; this only controls pushes.
+/// `muted` lists the alert groups switched off (see notifications/preferences.ts); safety and account alerts cannot be switched off.
+model NotificationPref {
+  userId     String   @id
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  muted      String   @default("") // comma separated group names
+  quietStart Int? // minutes after midnight, in the person's own time zone; empty = no quiet hours
+  quietEnd   Int?
+  timezone   String   @default("Europe/Rome")
+  updatedAt  DateTime @updatedAt
+}
+
+/// Who is on call for urgent reports between two moments. When nobody's shift covers a moment, the trust leads and administrators are the fallback.
+model OnCallShift {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startsAt  DateTime
+  endsAt    DateTime
+  note      String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([startsAt, endsAt])
+  @@index([userId])
+}
+
+/// One sign-in on one device. The app holds a short-lived access token and a long-lived refresh token; only a hash of the
+/// refresh token is kept here. Using a refresh token swaps it for a new one; using an old one again means it was copied,
+/// so the whole sign-in is ended.
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshHash  String   @unique
+  // the hash this one replaced: if it shows up again, the refresh token was stolen or replayed
+  previousHash String?  @unique
+  device       String?
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// A request that carried an Idempotency-Key: its answer is kept for a day so a repeat (a retry after a lost connection)
+/// gets the same answer instead of doing the thing twice.
+model IdempotencyKey {
+  id          String   @id @default(cuid())
+  userId      String
+  key         String
+  fingerprint String
+  state       String   @default("running") // running | done
+  status      Int?
+  body        String?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@unique([userId, key])
+  @@index([expiresAt])
+}
+
+/// Background work that must happen, and be retried if it fails (a push, a reminder). Any API server may take a job;
+/// `lockedUntil` makes sure only one does at a time.
+model Job {
+  id          String    @id @default(cuid())
+  type        String
+  payload     String    @default("{}")
+  state       String    @default("queued") // queued | done | dead
+  runAt       DateTime  @default(now())
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  lockedUntil DateTime?
+  lastError   String?
+  // a job with the same key is only queued once
+  uniqueKey   String?   @unique
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@index([state, runAt])
+}
+
+/// A job that repeats (every 15 seconds, hourly, daily). Whichever server moves `nextRunAt` forward first runs it, so with
+/// several servers it still runs once per round.
+model JobSchedule {
+  name      String    @id
+  nextRunAt DateTime
+  lastRunAt DateTime?
+}
+
+/// A place with its own planning limits and its own staff: the whole service (global), a country, a region or a city.
+/// A setting left empty follows the place above it. Activities and trips find their place by city name (cityKey).
+model Region {
+  id          String   @id @default(cuid())
+  key         String   @unique // global | it | it-lombardy | it-milan: short, lowercase, never changes
+  name        String
+  kind        String   // global | country | region | city
+  parentKey   String?
+  cityKey     String?  @unique // cities only: the lowercase city name activities and trips are filed under
+  hereMonths  Int?     // how far ahead a HERE activity may be planned, in months
+  thereMonths Int?     // how far ahead a THERE trip may be planned, in months
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([parentKey])
 }

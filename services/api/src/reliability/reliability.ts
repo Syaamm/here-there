@@ -23,6 +23,14 @@ export const HOUR = 3600 * 1000;
 export const MARK_WINDOW_H = 48; // after a plan ends, how long the host has to say who did not come
 export const DISPUTE_DAYS = 7; // how long a person has to dispute a note
 export const HALF_LIFE_DAYS = 180;
+export const HOST_ABSENT_GRACE_MIN = 30; // a member can say the host did not show up once the plan has been on this long
+export const HOST_ABSENT_WINDOW_H = 72; // ... and for this long after it ended
+/**
+ * The check on hosts who say many people did not come. A host is looked at (a moderator is told, nothing happens to the host
+ * by itself) when, in the last `windowDays`, they made `minMarks` or more notes AND either those notes cover half or more of
+ * the people they hosted, or at least `minDecided` of their notes were decided and half or more of those were overturned.
+ */
+export const HOST_MARK_REVIEW = { windowDays: 90, minMarks: 4, shareOfAttendees: 0.5, minDecided: 2, overturnedShare: 0.5 };
 export const HORIZON_DAYS = 730;
 export const MAX_KEPT_PER_DAY = 2; // two plans a day at most count: back-to-back fake meetups cannot farm a level
 export const LATE_ACTIVITY_H = 2;
@@ -130,6 +138,7 @@ export function reliabilityInfo() {
     { what: 'What lowers it', how: `A host saying you did not come (if you do not dispute it), leaving a plan in its last ${LATE_ACTIVITY_H} hours, or a report that a moderator upheld.`, why: 'Reports on their own never count. A moderator has to uphold them.' },
     { what: 'If a host says you did not come', how: `You are told, and you have ${DISPUTE_DAYS} days to dispute it. A moderator decides, and can overturn it later.`, why: 'Nothing counts against you until then.' },
     { what: 'How long it counts', how: `Older events count less every month and drop out after ${years} years.`, why: 'You can always build your level back.' },
+    { what: 'If a host does not show up', how: `Members of a plan can tell us the host did not come, ${HOST_ABSENT_GRACE_MIN} minutes after it started and for ${HOST_ABSENT_WINDOW_H} hours after it ended. A moderator looks at it. If it is confirmed it counts against the host, and any notes the host made about members for that plan are cancelled.`, why: 'Turning up goes both ways. Nobody is marked down for a plan the host never came to.' },
     { what: 'What it is not', how: 'It is not a safety guarantee, and it has nothing to do with whether people liked you, or with likes or profile views.', why: 'It only reflects turning up.' },
     { what: 'Who sees it', how: 'Verified members can see your level on your profile and when you ask to join.', why: 'People who are verified see each other on equal terms.' },
     { what: 'Your full details', how: 'Everything your level is based on is in your data download.', why: 'Settings, Your data, Download my data.' },

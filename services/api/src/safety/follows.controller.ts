@@ -3,7 +3,7 @@ import { User } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser } from '../common/auth';
 import { E } from '../common/errors';
-import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { decodeKeyset, pageLimit, sliceKeyset, pageOf } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { parse } from '../common/validate';
@@ -70,15 +70,7 @@ export class FollowsController {
       this.prisma.follow.count({ where: where.followers }),
     ]);
 
-    const limit = pageLimit(limitRaw, 100);
-    const cur = decodeKeyset(cursorRaw);
-    const rows = await this.prisma.follow.findMany({
-      where: { ...where[which], ...(cur ? { OR: [{ createdAt: { lt: cur.at } }, { createdAt: cur.at, id: { lt: cur.id } }] } : {}) },
-      include: { following: { include: { profile: true } }, follower: { include: { profile: true } } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1,
-    });
-    const page = sliceKeyset(rows, limit, (f) => f.createdAt);
+    const page = await pageOf((a) => this.prisma.follow.findMany({ ...a, include: { following: { include: { profile: true } }, follower: { include: { profile: true } } } }), { limit: pageLimit(limitRaw, 100), cursor: cursorRaw, where: where[which] });
     const otherIds = page.items.map((f) => (which === 'followers' ? f.followerId : f.followingId));
     // who of these also follows me / is followed by me (for the "Follow back" button and the Buddy tag)
     const [iFollowThem, theyFollowMe] = await Promise.all([

@@ -6,11 +6,13 @@ import { DraftBar } from '@/components/DraftBar';
 import { PlaceSearch, type Place } from '@/components/PlaceSearch';
 import { TabHeader } from '@/components/TabHeader';
 import { Banner, Between, Btn, CheckRow, ErrorBanner, Field, Row, Screen, Txt, useGo } from '@/components/ui';
-import { post, type Activity } from '@/lib/api';
+import { DateRangeSheet, shortDay } from '@/components/DateRangeSheet';
+import { get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useCity } from '@/lib/city';
 import { catColor, CATS, MILAN_AREAS } from '@/lib/constants';
-import { useAction } from '@/lib/hooks';
+import { useAction, useLoad } from '@/lib/hooks';
+import { isoDay, parseDay } from '@/lib/format';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
 import { localeTag, useT } from '@/lib/i18n';
@@ -27,7 +29,7 @@ function earliestStart(now: number) {
   return d;
 }
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-/** HERE is for plans within a day: today (while there is still time left) or tomorrow. */
+/** The quick day choices: today (while there is still time left) and tomorrow. Any later day (up to the city's limit) is picked from a calendar. */
 function dayChips(earliest: Date) {
   const today = new Date();
   const tomorrow = new Date(today.getTime() + 24 * 3600e3);
@@ -144,8 +146,14 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
 
   const isMilan = city.trim().toLowerCase() === 'milan';
   const verified = me?.eligibility === 'verified';
+  // how far ahead this city's admin lets people plan (a month unless they set it otherwise)
+  const limits = useLoad(() => get<{ here: { months: number; latest: string } }>(`/v1/regions/limits?city=${encodeURIComponent(city.trim())}`), [city.trim()]);
+  const [calendar, setCalendar] = useState(false);
+  const latest = limits.data ? new Date(limits.data.here.latest) : null;
   const days = dayChips(earliest);
-  const day = days.find((d) => d.i === f.dayIdx) ?? days[0];
+  // dayIdx is how many days from today: 0 today, 1 tomorrow, more = a day picked from the calendar
+  const later = f.dayIdx >= 2 ? { i: f.dayIdx, d: new Date(new Date().setHours(0, 0, 0, 0) + f.dayIdx * 864e5 + 12 * 3600e3), label: '' } : null;
+  const day = later ?? days.find((d) => d.i === f.dayIdx) ?? days[0];
   const isEarliestDay = sameDay(day.d, earliest);
   const hours = Array.from({ length: 24 }, (_, h) => h).filter((h) => !isEarliestDay || h >= earliest.getHours());
   const hour = hours.includes(f.hour) ? f.hour : hours[0];
@@ -227,6 +235,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   };
 
   return (
+    <View style={{ flex: 1 }}>
     <Screen tabBar header={<TabHeader />}>
       <Between>
         <View style={{ flex: 1 }}>
@@ -262,7 +271,17 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
             </Pressable>
           ))}
         </View>
-        <Txt variant="small">{t('Today or tomorrow only.')}</Txt>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={later ? t('Day {label}', { label: shortDay(later.d) }) : t('Pick a later date')}
+          accessibilityState={{ selected: !!later }}
+          onPress={() => setCalendar(true)}
+          style={{ height: 36, borderRadius: 12, borderWidth: 1.5, borderColor: later ? c.forest : c.line, backgroundColor: later ? c.accentSoft : 'transparent', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+        >
+          <Ionicons name="calendar-outline" size={15} color={c.forest} />
+          <Txt variant="h3" style={{ fontSize: 12, lineHeight: 16 }}>{later ? shortDay(later.d) : t('Pick a later date')}</Txt>
+        </Pressable>
+        {latest ? <Txt variant="small">{t('You can plan up to {date}.', { date: shortDay(latest) })}</Txt> : null}
 
         <View style={{ backgroundColor: c.sand, borderRadius: 16, padding: 10, gap: 8, alignItems: 'center' }}>
           <Row style={{ gap: 14 }}>
@@ -375,5 +394,22 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       <DraftBar kind="activity" data={f} onLoad={loadDraft} />
       <Txt variant="small">{t("Your activity is public in the feed. Only the venue is shown, never anyone's live location.")}</Txt>
     </Screen>
+    {/* the calendar sits just above the dock, outside the scrolling page */}
+    <DateRangeSheet
+      single
+      visible={calendar}
+      focus="start"
+      start={f.dayIdx >= 2 && later ? isoDay(later.d) : ''}
+      end=""
+      min={new Date(earliest.getFullYear(), earliest.getMonth(), earliest.getDate())}
+      max={latest ?? new Date(Date.now() + 24 * 3600e3)}
+      onClose={() => setCalendar(false)}
+      onDone={(s) => {
+        const picked = parseDay(s);
+        if (picked) set('dayIdx', Math.round((+picked - new Date().setHours(0, 0, 0, 0)) / 864e5));
+        setCalendar(false);
+      }}
+    />
+    </View>
   );
 }

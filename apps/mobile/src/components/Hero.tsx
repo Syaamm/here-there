@@ -2,7 +2,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Animated, Easing, Image, Pressable, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Animated, Easing, Pressable, View } from 'react-native';
 import { Text } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CAT_IMAGES } from '@/lib/constants';
@@ -66,7 +67,7 @@ export function Hero({ color, emoji, category, right, height = 220, rounded, pla
   const { c } = useTheme();
   return (
     <View style={{ height: height + (rounded || plain ? 0 : statusTop(insets.top)), backgroundColor: color, borderRadius: rounded ? 24 : 0, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
-      {category && CAT_IMAGES[category] ? <Image source={CAT_IMAGES[category]} resizeMode="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : null}
+      {category && CAT_IMAGES[category] ? <Image source={CAT_IMAGES[category]} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : null}
       {emoji && !(category && CAT_IMAGES[category]) ? (
         <Text style={{ fontSize: 72, opacity: 0.45 }} accessibilityElementsHidden>
           {emoji}

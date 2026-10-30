@@ -108,7 +108,7 @@ export default function Welcome() {
   const { mode, setMode } = useTheme();
   const demo = useAction();
   // "Explore the demo": a temporary read-only guest session. No account, no personal data.
-  const explore = () => demo.run(async () => signIn((await post<{ token: string }>('/v1/auth/guest')).token));
+  const explore = () => demo.run(async () => signIn(await post<{ token: string }>('/v1/auth/guest')));
   // 0 = HERE, 1 = THERE. Only opacity animates, on the native thread.
   const fade = useRef(new Animated.Value(mode === 'there' ? 1 : 0)).current;
   useEffect(() => {

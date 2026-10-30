@@ -27,6 +27,7 @@ const STATUS_TITLE: Record<number, string> = {
   403: 'Not allowed',
   404: 'Not found',
   409: 'Conflicts with the current state',
+  422: 'The request is well formed but cannot be done',
   429: 'Too many requests',
   500: 'Server error',
 };
@@ -34,10 +35,11 @@ const STATUS_TITLE: Record<number, string> = {
 const INFO = `The shared backend for **HERE.** (activities happening soon) and **THERE.** (trips and travel buddies), used by the mobile app and the admin console. One account and one verification serve both products.
 
 ## Conventions
-- **Sign-in.** Send \`Authorization: Bearer <token>\` from \`POST /v1/auth/login\`, \`/v1/auth/register\` or \`/v1/auth/guest\`. Routes marked public need no token. Authorization is decided on the server from live data on every call (suspension, role, verification and chat membership take effect immediately).
+- **Sign-in.** Send \`Authorization: Bearer <token>\` from \`POST /v1/auth/login\`, \`/v1/auth/register/confirm\` or \`/v1/auth/guest\`. The token is short-lived (15 minutes, \`expiresIn\` says); sign-in also returns a \`refreshToken\` (30 days) that is sent only to \`POST /v1/auth/refresh\` for a new pair, and an old refresh token never works twice. \`POST /v1/me/sessions/logout-all\` ends every sign-in at once. Routes marked public need no token. Authorization is decided on the server from live data on every call (suspension, role, verification and chat membership take effect immediately).
 - **Verified adults only.** Creating or joining activities, creating or applying to trips, and chat need a verified adult. Routes that need it are marked, and fail with \`VERIFICATION_REQUIRED\` otherwise. Browsing needs no verification.
 - **Errors.** Every failure has the same body, \`{ "statusCode", "code", "message", "details"? }\`. Branch on \`code\`, never on \`message\`. The full list, with what each means and what a client should do, is in the *Error codes* section below and in \`ERROR-CODES.md\`.
 - **Paging.** List routes that return pages answer \`{ items, nextCursor }\`. Send \`nextCursor\` back as \`cursor\` for the next page; \`null\` means the last page. Treat the cursor as opaque.
+- **Safe retries.** Send an \`Idempotency-Key\` header (8 to 100 characters, unique per action, the same for a retry of that action) on any write. The first answer is kept for 24 hours and a repeat with the same key gets that same answer back with \`Idempotent-Replayed: true\`, without doing the thing twice. The same key for a different request is refused (\`IDEMPOTENCY_KEY_REUSED\`); while the first try is still running the answer is \`REQUEST_IN_PROGRESS\`. Failed requests are not kept.
 - **Caching.** \`GET\` answers carry an \`ETag\`; send \`If-None-Match\` to get an empty \`304\` when nothing changed.
 - **Limits.** Sensitive and spam-prone routes are rate limited and answer \`429 RATE_LIMITED\`.
 - **Live updates.** A WebSocket at \`/v1/live\` (first message carries the token) pushes chat messages and change signals. It is not part of this document.
@@ -159,7 +161,7 @@ export function buildErrorTable(errors: ErrorCode[]): string {
     '- A mistyped URL, bad JSON, an oversized body or a crash also get a code (`ROUTE_NOT_FOUND`, `BAD_REQUEST`, `PAYLOAD_TOO_LARGE`, `INTERNAL_ERROR`), so a client never has to parse an unknown shape.',
     '',
   ];
-  const groups: Array<[number, string]> = [[400, 'Bad request (400)'], [401, 'Not signed in (401)'], [403, 'Not allowed (403)'], [404, 'Not found (404, 405)'], [409, 'Conflicts with the current state (409)'], [429, 'Limits (413, 415, 429)'], [500, 'Server (500)']];
+  const groups: Array<[number, string]> = [[400, 'Bad request (400)'], [401, 'Not signed in (401)'], [403, 'Not allowed (403)'], [404, 'Not found (404, 405)'], [409, 'Conflicts with the current state (409)'], [422, 'Cannot be done as asked (422)'], [429, 'Limits (413, 415, 429)'], [500, 'Server (500)']];
   const bucket = (s: number) => (s === 405 ? 404 : s === 413 || s === 415 ? 429 : s);
   for (const [st, title] of groups) {
     const list = rows.filter((r) => bucket(r.status) === st);
