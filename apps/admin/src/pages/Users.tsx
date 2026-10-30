@@ -192,7 +192,7 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
         </td>
         <td>
           {can.admin(me.role) && u.email !== me.email ? (
-            <select aria-label={`Role for ${u.email}`} value={u.role} onChange={(e) => p.onRole(u, e.target.value)} disabled={p.busy} style={{ minWidth: 112 }}>
+            <select aria-label={`Role for ${u.email}`} value={u.role} onChange={(e) => p.onRole(u, e.target.value)} disabled={p.busy} style={{ minWidth: 148 }}>
               {(['user', ...STAFF] as Role[]).map((r) => (
                 <option key={r} value={r}>
                   {r.replace('_', ' ')}
@@ -219,18 +219,23 @@ function UserRow(p: { u: U; me: Session; open: boolean; onToggle: () => void; on
         </td>
         <td className="nowrap">{fmt(u.createdAt)}</td>
         <td>
-          <div className="cell-actions">
-            {canActOn &&
-              (u.state === 'suspended' ? (
-                <button className="btn" onClick={() => p.onRestore(u)} disabled={p.busy}>
-                  Restore
-                </button>
-              ) : (
-                <button className="btn danger" onClick={() => p.onSuspend(u)} disabled={p.busy}>
-                  Suspend
-                </button>
-              ))}
-            <RowMenu label={`More actions for ${u.displayName ?? u.email}`} items={more} />
+          {/* two fixed slots (the main button, the "..." menu) so every row lines up whether or not it has both */}
+          <div className="action-slots">
+            <span className="slot-main">
+              {canActOn &&
+                (u.state === 'suspended' ? (
+                  <button className="btn" onClick={() => p.onRestore(u)} disabled={p.busy}>
+                    Restore
+                  </button>
+                ) : (
+                  <button className="btn danger" onClick={() => p.onSuspend(u)} disabled={p.busy}>
+                    Suspend
+                  </button>
+                ))}
+            </span>
+            <span className="slot-menu">
+              <RowMenu label={`More actions for ${u.displayName ?? u.email}`} items={more} />
+            </span>
           </div>
         </td>
       </tr>

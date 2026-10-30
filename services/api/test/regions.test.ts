@@ -313,3 +313,87 @@ describe('staff who look after one city, region or country', () => {
     assert.equal((await h.get('/v1/admin/audit', orphan.token)).body.code, 'GLOBAL_STAFF_ONLY');
   });
 });
+
+describe('choosing where to work after signing in (the X-Admin-Place header)', () => {
+  const asPlace = (token: string, path: string, place?: string) => fetch(h.base + path, { headers: { authorization: `Bearer ${token}`, ...(place ? { 'x-admin-place': place } : {}) } }).then(async (r) => ({ status: r.status, body: (await r.json()) as any }));
+  const ids = async (token: string, path: string, place?: string) => ((await asPlace(token, path, place)).body.items as { id: string }[]).map((i) => i.id);
+  let milanPerson: Person;
+  let romePerson: Person;
+  let milanPlan = '';
+  let romePlan = '';
+  let wholeAdmin: Person;
+  let italyAdmin: Person;
+  let milanAdmin: Person;
+
+  it('narrows every list to the chosen place, for staff of the whole service', async () => {
+    // a second country, so there is a place outside Italy to choose
+    assert.equal((await region(admin, { name: 'France', kind: 'country' })).status, 201);
+    assert.equal((await region(admin, { name: 'Paris', kind: 'city', parentKey: 'france' })).status, 201);
+    milanPerson = await h.verified('PlMilan');
+    romePerson = await h.verified('PlRome');
+    await h.prisma.profile.update({ where: { userId: romePerson.id }, data: { homeCity: 'Rome', homeCityKey: 'rome' } });
+    milanPlan = (await h.post('/v1/activities', milanPerson.token, act('Milan', 2))).body.id;
+    romePlan = (await h.post('/v1/activities', romePerson.token, act('Rome', 2))).body.id;
+    assert.ok(milanPlan && romePlan);
+    const romeTrip = (await h.post('/v1/trips', romePerson.token, trip('Rome', 30))).body.id;
+    const milanTrip = (await h.post('/v1/trips', milanPerson.token, trip('Milan', 30))).body.id;
+    for (const [u, ref] of [[milanPerson, 'pl-m'], [romePerson, 'pl-r']] as const) await h.prisma.verificationCheck.create({ data: { userId: u.id, providerRef: ref, eligibility: 'pending', provider: 'manual' } });
+
+    const acts = (place?: string) => ids(admin, '/v1/admin/activities', place);
+    assert.ok((await acts()).includes(romePlan) && (await acts()).includes(milanPlan), 'no place chosen: everything');
+    assert.ok((await acts('all')).includes(romePlan), '"all" is the same as nothing chosen');
+    assert.deepEqual([(await acts('milan')).includes(milanPlan), (await acts('milan')).includes(romePlan)], [true, false]);
+    assert.deepEqual([(await acts('rome')).includes(milanPlan), (await acts('rome')).includes(romePlan)], [false, true]);
+    assert.ok((await acts('italy')).includes(romePlan) && (await acts('italy')).includes(milanPlan), 'a country covers its cities');
+    assert.ok(!(await acts('france')).includes(milanPlan), 'another country: nothing of Italy');
+    assert.ok(!(await acts('lombardy')).includes(romePlan), 'a region covers only its own cities');
+
+    const trips = (place?: string) => ids(admin, '/v1/admin/trips', place);
+    assert.deepEqual([(await trips('milan')).includes(milanTrip), (await trips('milan')).includes(romeTrip)], [true, false]);
+    const users = (place?: string) => ids(admin, '/v1/admin/users', place);
+    assert.deepEqual([(await users('milan')).includes(milanPerson.id), (await users('milan')).includes(romePerson.id)], [true, false]);
+    assert.ok((await users('italy')).includes(romePerson.id));
+    const pending = async (place?: string) => ((await asPlace(admin, '/v1/admin/verifications?status=pending', place)).body.items as { providerRef: string }[]).map((c) => c.providerRef);
+    assert.deepEqual([(await pending('milan')).includes('pl-m'), (await pending('milan')).includes('pl-r')], [true, false]);
+    assert.ok((await pending()).includes('pl-r'));
+
+    // reports follow what they are about
+    const reporter = await h.verified('PlReporter');
+    const aboutRome = (await h.post('/v1/reports', reporter.token, { targetType: 'activity', targetId: romePlan, category: 'spam' })).body.id;
+    const aboutMilan = (await h.post('/v1/reports', reporter.token, { targetType: 'activity', targetId: milanPlan, category: 'spam' })).body.id;
+    const queue = (place?: string) => ids(admin, '/v1/admin/reports?status=open', place);
+    assert.deepEqual([(await queue('rome')).includes(aboutRome), (await queue('rome')).includes(aboutMilan)], [true, false]);
+    assert.deepEqual([(await queue('milan')).includes(aboutRome), (await queue('milan')).includes(aboutMilan)], [false, true]);
+
+    // a place that does not exist is an error, not "everything"
+    const bad = await asPlace(admin, '/v1/admin/activities', 'atlantis');
+    assert.equal(bad.status, 400);
+    assert.equal(bad.body.code, 'INVALID_PLACE');
+  });
+
+  it('lets an area admin choose their area or a place inside it, never one outside, and never more than their area', async () => {
+    wholeAdmin = await staff('PlWhole', 'admin', null);
+    italyAdmin = await staff('PlItaly', 'admin', 'italy');
+    milanAdmin = await staff('PlMilanAdmin', 'admin', 'milan');
+    const acts = (t: Person, place?: string) => ids(t.token, '/v1/admin/activities', place);
+    // Italy: no choice = all of Italy; Milan or Rome = just that city
+    const both = await acts(italyAdmin);
+    assert.ok(both.includes(milanPlan) && both.includes(romePlan));
+    assert.deepEqual([(await acts(italyAdmin, 'milan')).includes(milanPlan), (await acts(italyAdmin, 'milan')).includes(romePlan)], [true, false]);
+    assert.deepEqual([(await acts(italyAdmin, 'rome')).includes(milanPlan), (await acts(italyAdmin, 'rome')).includes(romePlan)], [false, true]);
+    assert.deepEqual([(await acts(italyAdmin, 'italy')).includes(milanPlan), (await acts(italyAdmin, 'all')).includes(romePlan)], [true, true]);
+    // outside the area: refused, whatever the header says
+    for (const place of ['france', 'global', 'paris']) {
+      const r = await asPlace(italyAdmin.token, '/v1/admin/activities', place);
+      assert.equal(r.status, 403, place);
+      assert.equal(r.body.code, 'OUT_OF_SCOPE', place);
+    }
+    // a city admin: their city only; another city is refused; "all" means their own city, not everything
+    assert.equal((await asPlace(milanAdmin.token, '/v1/admin/activities', 'rome')).body.code, 'OUT_OF_SCOPE');
+    assert.ok(!(await acts(milanAdmin, 'all')).includes(romePlan), 'all = the whole of their own area');
+    assert.ok((await acts(milanAdmin, 'milan')).includes(milanPlan));
+    // the header cannot be used to reach a page that is not for an area
+    assert.equal((await asPlace(milanAdmin.token, '/v1/admin/audit', 'milan')).body.code, 'GLOBAL_STAFF_ONLY');
+    assert.equal((await asPlace(wholeAdmin.token, '/v1/admin/audit', 'milan')).status, 200, 'staff of the whole service still reach it');
+  });
+});

@@ -105,8 +105,19 @@ export class RegionsService implements OnModuleInit {
   }
 
   // ---------------------------------------------------------------- staff scope
-  async scopeOf(user: { adminRegionKey?: string | null }): Promise<Scope | null> {
-    return scopeFor(await this.all(), user.adminRegionKey);
+  /**
+   * What a staff member may reach. `place` is where they chose to work after signing in (header X-Admin-Place): it can only
+   * NARROW what the account may reach, never widen it. A staff account for the whole service with a place chosen sees that
+   * place; an account limited to an area may choose that area or a place inside it, and anything else is refused.
+   */
+  async scopeOf(user: { adminRegionKey?: string | null }, place?: string | null): Promise<Scope | null> {
+    const rows = await this.all();
+    const own = scopeFor(rows, user.adminRegionKey);
+    const chosen = (place ?? '').trim();
+    if (!chosen || chosen === 'all') return own;
+    if (!rows.some((r) => r.key === chosen)) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
+    if (own && !own.regionKeys.has(chosen)) throw outOfScope();
+    return scopeFor(rows, chosen);
   }
   /** Throws unless the staff member may touch something in this city. Staff of the whole service always may. */
   async assertCity(user: { adminRegionKey?: string | null }, cityKey: string | null | undefined) {

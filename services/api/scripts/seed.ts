@@ -26,12 +26,17 @@ async function user(email: string, name: string, password: string, extra: { role
       verifiedUntil: new Date(Date.now() + 365 * 24 * 3600 * 1000),
       eligibility: 'verified',
       role: extra.role ?? 'user',
-      profile: { create: { displayName: name, homeCity: 'Milan', languages: 'English,Italian', interests: 'coffee,culture,travel' } },
+      profile: { create: { displayName: name, homeCity: 'Milan', homeCityKey: 'milan', languages: 'English,Italian', interests: 'coffee,culture,travel' } },
     },
   });
 }
 
 const DEFAULT_ADMIN_PASSWORD = 'change-me-admin-1';
+const STAFF_DEMO: [string, string, string, string][] = [
+  ['support@herethere.local', 'Support', 'support', 'support-demo-1'],
+  ['moderator@herethere.local', 'Moderator', 'moderator', 'moderator-demo-1'],
+  ['trustlead@herethere.local', 'Trust lead', 'trust_lead', 'trustlead-demo-1'],
+];
 
 async function main() {
   const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@herethere.local';
@@ -46,6 +51,9 @@ async function main() {
     return;
   }
   await user(adminEmail, 'Admin', adminPassword, { role: 'admin' });
+  // One staff account for each other role, for trying the admin console in development (never made on a live system, see above):
+  // support looks only, a moderator acts on reports and members, a trust lead also decides identity checks and reads the audit log.
+  for (const [email, name, role, password] of STAFF_DEMO) await user(email, name, password, { role });
 
   const sofia = await user('sofia@demo.local', 'Sofia', 'demo-password-1');
   const marco = await user('marco@demo.local', 'Marco', 'demo-password-1');
@@ -197,7 +205,7 @@ async function main() {
     await prisma.conversation.create({ data: { scopeType: 'trip', tripId: t.id } });
   }
 
-  console.log(`Seeded. Admin: ${adminEmail} / ${adminPassword}  |  demo users: sofia|marco|alex@demo.local / demo-password-1`);
+  console.log(`Seeded. Admin: ${adminEmail} / ${adminPassword}  |  staff: ${STAFF_DEMO.map(([e, , r, p]) => `${r} ${e} / ${p}`).join(', ')}  |  demo users: sofia|marco|alex@demo.local / demo-password-1`);
 }
 
 main().finally(() => prisma.$disconnect());

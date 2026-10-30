@@ -20,7 +20,7 @@
   --info-bg: #1c2833;
   --info-fg: #a9b9c8;
   --radius: 16px;
-  font-family: 'Plus Jakarta Sans', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: Inter, 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
   background: var(--bg);
   color-scheme: dark;
@@ -357,3 +357,68 @@ td.end { text-align: right; }
 .oncall-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
 .oncall-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; align-items: end; }
 .warn-note { padding: 10px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-fg); font-size: 0.88rem; margin: 0; }
+
+
+/* ================= LIGHT / CREAM THEME (THERE colours, HERE green sidebar) =================
+   Applied on top of the base rules above: the page is cream, cards are white, the sidebar stays deep green. */
+:root {
+  --bg: #ebe6dc;
+  --side: #12302b;
+  --surface: #ffffff;
+  --surface-2: #f3efe6;
+  --text: #12302b;
+  --muted: #667a72;
+  --label: #2f7358;
+  --line: #ded7c9;
+  --line-2: #cbc3b2;
+  --accent: #2f7358;
+  --accent-ink: #ffffff;
+  --cream: #ece7dc;
+  --orange: #cf5a28;
+  --danger: #b8412c;
+  --ok-bg: #dcefe4; --ok-fg: #1f6a4a;
+  --warn-bg: #f8ecc9; --warn-fg: #7a5a0a;
+  --bad-bg: #f9dcd3; --bad-fg: #9c3420;
+  --info-bg: #e0eaf3; --info-fg: #3a5a78;
+  color-scheme: light;
+}
+.card, .table-wrap, .note, .segmented, .who { box-shadow: 0 1px 2px rgba(18, 48, 43, 0.05); }
+
+/* deep green sidebar, like the HERE screens */
+.side { background: #12302b; border-right: 0; color: #f4f1ea;
+  --surface: #1a3d36; --surface-2: #22493f; --text: #f4f1ea; --muted: #9bb2aa; --label: #86bda7; --line: #2a4f47; --line-2: #3a6258; }
+.side :focus-visible { outline-color: #78d3ab; }
+.side .who { box-shadow: none; }
+.nav.active, .nav.active:hover { background: #ece7dc; color: #12302b; }
+
+/* controls */
+.btn.primary { background: #12302b; border-color: #12302b; color: #ffffff; }
+.btn.primary:hover:not(:disabled) { background: #1d4a41; border-color: #1d4a41; }
+.btn.danger { color: #b8412c; border-color: #e8c4ba; background: #fdf1ee; }
+.btn.danger:hover:not(:disabled) { background: #fbe3dc; }
+.seg.active { background: #12302b; color: #ffffff; }
+.seg.active .count { background: rgba(255, 255, 255, 0.2); color: #ffffff; }
+.tab.active { border-bottom-color: #cf5a28; }
+input, select, textarea { background-color: #ffffff; }
+input::placeholder, textarea::placeholder { color: #8a9b94; }
+select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312302b' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
+
+/* text greys that were tuned for dark */
+.note, .chip.plain, .audit-meta pre, .tip div { color: #3b544c; }
+.avatar.sm, .avatar.lg { background: #e8d5bd; color: #3a2a1a; }
+.stat-icon.info { color: #3a6ea5; }
+.feed .dot.info { background: #5b8fc4; }
+tbody tr:hover > td { background: rgba(18, 48, 43, 0.03); }
+.menu, .tip { box-shadow: 0 12px 32px rgba(18, 48, 43, 0.18); }
+.dialog::backdrop { background: rgba(18, 48, 43, 0.55); }
+.login-wrap { background: radial-gradient(1100px 560px at 50% -8%, #f7f3ea, var(--bg) 70%); }
+
+/* row actions that line up: a main button column and a "..." column of fixed width, so rows with and without a menu match */
+.action-slots { display: grid; grid-template-columns: 104px 40px; gap: 8px; justify-content: end; align-items: center; }
+.action-slots .slot-main .btn { width: 100%; }
+.action-slots .slot-menu { display: grid; place-items: center; min-height: 40px; }
+
+/* sidebar: where this person chose to work, with a way to change it */
+.working-in { display: grid; gap: 2px; padding: 10px 14px; margin-top: -10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.working-in strong { font-size: 0.95rem; }
+.working-in .link { justify-self: start; color: #78d3ab; }

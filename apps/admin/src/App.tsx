@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, can, getRefreshToken, loadSession, saveSession, setRefreshToken, setToken, setUnauthorizedHandler, STAFF, type Role, type Scope, type Session } from './api';
+import { api, can, getPlace, getRefreshToken, loadSession, saveSession, setPlace, setRefreshToken, setToken, setUnauthorizedHandler, STAFF, type Role, type Scope, type Session } from './api';
 import { AuditPage } from './pages/Audit';
 import { ContentPage } from './pages/Content';
 import { AppealsPage } from './pages/Appeals';
 import { NoShowsPage } from './pages/NoShows';
 import { OverviewPage } from './pages/Overview';
+import { PlacePicker } from './pages/PlacePicker';
 import { RegionsPage } from './pages/Regions';
 import { ReportsPage } from './pages/Reports';
 import { SecurityPage } from './pages/Security';
@@ -38,6 +39,7 @@ export default function App() {
     if (getRefreshToken()) void api('POST', '/v1/auth/logout', { refreshToken: getRefreshToken() }).catch(() => undefined);
     setToken(null);
     setRefreshToken(null);
+    setPlace(null); // the next sign-in asks again where to work
     saveSession(null);
     setSession(null);
   };
@@ -122,6 +124,10 @@ function Console({ session: signedIn, page, setPage, reportId, setReportId, user
   const scopeLoad = useLoad(() => api<{ scope: Scope }>('GET', '/v1/admin/scope'), [signedIn.token]);
   const session: Session = { ...signedIn, scope: scopeLoad.data?.scope ?? null };
   const regional = !!session.scope;
+  // where this person chose to work (asked right after signing in)
+  const [place, setPlaceState] = useState(getPlace);
+  const pick = (key: string, name: string) => (setPlace({ key, name }), setPlaceState({ key, name }));
+  const changePlace = () => (setPlace(null), setPlaceState(null));
   useEffect(() => {
     // a staff account with an area has no overview: it starts at the reports
     if (regional && !NAV.find((n) => n.id === page)?.regional) setPage('reports');
@@ -142,6 +148,7 @@ function Console({ session: signedIn, page, setPage, reportId, setReportId, user
     );
 
   if (!scopeLoad.data && !scopeLoad.error) return <div className="login-wrap"><p className="muted">Loading…</p></div>;
+  if (!place) return <PlacePicker me={session} onPick={pick} onSignOut={logout} />;
   const nav = NAV.filter((n) => n.show(session.role) && (!regional || n.regional));
   return (
     <div className="shell">
@@ -149,6 +156,13 @@ function Console({ session: signedIn, page, setPage, reportId, setReportId, user
         <div className="brand">
           HERE<span>.</span> / THERE<span>.</span>
           <small>Admin console</small>
+        </div>
+        <div className="working-in">
+          <span className="muted small">Working in</span>
+          <strong>{place.key === 'all' ? 'Whole service' : place.name}</strong>
+          <button className="link small" onClick={changePlace}>
+            Change
+          </button>
         </div>
         <nav aria-label="Main">
           {nav.map((n) => {
@@ -183,6 +197,11 @@ function Console({ session: signedIn, page, setPage, reportId, setReportId, user
         </div>
       </aside>
       <main className="main">
+        {place.key !== 'all' && ['overview', 'noshows', 'appeals', 'audit'].includes(page) && (
+          <p className="note">
+            This page always shows the whole service, not only {place.name}. Members, reports, content and identity checks are limited to {place.name}.
+          </p>
+        )}
         {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
         {page === 'verifications' && <VerificationsPage me={session} />}
         {page === 'reports' && <ReportsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} focusId={reportId} onClearFocus={() => setReportId(null)} />}

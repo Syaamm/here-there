@@ -21,6 +21,8 @@ type Unassigned = { items: { cityKey: string; uses: number }[] };
 
 const KIND: Record<Place['kind'], string> = { global: 'Whole service', country: 'Country', region: 'Region', city: 'City' };
 const months = (n: number) => `${n} ${n === 1 ? 'month' : 'months'}`;
+/** How a place is named in "Same as ...": the whole service reads as plain words, any other place by its name. */
+const called = (p?: { kind: string; name: string }) => (!p || p.kind === 'global' ? 'whole service' : p.name);
 const title = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
 
 /**
@@ -55,14 +57,27 @@ export function RegionsPage({ me }: { me: Session }) {
   const [kind, setKind] = useState<'country' | 'region' | 'city'>('city');
   const [parent, setParent] = useState('');
   const [cityKey, setCityKey] = useState('');
+  // which limit the new place sets: activities (HERE), trips (THERE) or both (whole service); the other follows the place above
+  const [applies, setApplies] = useState<'here' | 'there' | 'both'>('both');
+  const [hereM, setHereM] = useState('');
+  const [thereM, setThereM] = useState('');
   const parents = items.filter((p) => p.canEdit || (me.scope && p.key === me.scope.key)).filter((p) => p.kind !== 'city' && (kind === 'country' ? p.kind === 'global' : true));
   const parentKey = parents.some((p) => p.key === parent) ? parent : (parents[0]?.key ?? '');
   const add = (e: FormEvent) => {
     e.preventDefault();
     act.run(async () => {
-      await post('/v1/admin/regions', { name: name.trim(), kind, parentKey, ...(kind === 'city' && cityKey.trim() && { cityKey: cityKey.trim() }) });
+      await post('/v1/admin/regions', {
+        name: name.trim(),
+        kind,
+        parentKey,
+        ...(kind === 'city' && cityKey.trim() && { cityKey: cityKey.trim() }),
+        ...(applies !== 'there' && hereM && { hereMonths: Number(hereM) }),
+        ...(applies !== 'here' && thereM && { thereMonths: Number(thereM) }),
+      });
       setName('');
       setCityKey('');
+      setHereM('');
+      setThereM('');
     });
   };
   const useCity = (key: string) => {
@@ -111,7 +126,7 @@ export function RegionsPage({ me }: { me: Session }) {
                       <td>
                         {editable ? (
                           <select aria-label={`${label} limit for ${p.name}`} value={own ?? ''} onChange={(e) => setMonths(p, which, e.target.value)} disabled={act.busy} style={{ minWidth: 150 }}>
-                            {p.kind !== 'global' && <option value="">Same as {above?.name ?? 'above'} ({months(eff)})</option>}
+                            {p.kind !== 'global' && <option value="">Same as {called(above)} ({months(eff)})</option>}
                             {options(range).map((n) => (
                               <option key={n} value={n}>
                                 {months(n)}
@@ -129,7 +144,7 @@ export function RegionsPage({ me }: { me: Session }) {
                     <tr key={p.key}>
                       <td>
                         <div style={{ paddingLeft: depth(p) * 18 }}>
-                          <strong>{p.name}</strong> <Chip value={KIND[p.kind]} tone="plain" />
+                          <strong>{p.name}</strong> {p.kind !== 'global' && <Chip value={KIND[p.kind]} tone="plain" />}
                           {p.cityKey && p.cityKey !== p.name.toLowerCase() && <div className="muted small">plans filed as “{p.cityKey}”</div>}
                         </div>
                       </td>
@@ -167,7 +182,15 @@ export function RegionsPage({ me }: { me: Session }) {
               </select>
             </label>
             <label>
-              Under
+              In
+              <select value={applies} onChange={(e) => setApplies(e.target.value as typeof applies)} disabled={act.busy}>
+                <option value="here">HERE</option>
+                <option value="there">THERE</option>
+                <option value="both">Whole service</option>
+              </select>
+            </label>
+            <label>
+              Part of
               <select value={parentKey} onChange={(e) => setParent(e.target.value)} disabled={act.busy}>
                 {parents.map((p) => (
                   <option key={p.key} value={p.key}>
@@ -176,6 +199,32 @@ export function RegionsPage({ me }: { me: Session }) {
                 ))}
               </select>
             </label>
+            {applies !== 'there' && (
+              <label>
+                Activities up to
+                <select value={hereM} onChange={(e) => setHereM(e.target.value)} disabled={act.busy}>
+                  <option value="">Same as {called(items.find((p) => p.key === parentKey))}</option>
+                  {options(data.ranges.here).map((n) => (
+                    <option key={n} value={n}>
+                      {months(n)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {applies !== 'here' && (
+              <label>
+                Trips up to
+                <select value={thereM} onChange={(e) => setThereM(e.target.value)} disabled={act.busy}>
+                  <option value="">Same as {called(items.find((p) => p.key === parentKey))}</option>
+                  {options(data.ranges.there).map((n) => (
+                    <option key={n} value={n}>
+                      {months(n)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label>
               Name
               <input id="place-name" required minLength={2} maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
@@ -191,7 +240,7 @@ export function RegionsPage({ me }: { me: Session }) {
             </button>
           </div>
           <p className="muted small" style={{ margin: 0 }}>
-            A city is matched by the name people type for it (for example “milan”). If people spell it two ways, add both as cities. Limits start as “same as the place above”.
+            “In” says which limit this place sets: activities (HERE), trips (THERE) or both; the other follows the place it is part of. A city is matched by the name people type for it (for example “milan”). If people spell it two ways, add both as cities.
           </p>
         </form>
       )}

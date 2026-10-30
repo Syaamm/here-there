@@ -24,6 +24,25 @@ export class ApiError extends Error {
   }
 }
 
+const PLACE_KEY = 'ht_admin_place';
+/** Where this person chose to work after signing in: a place key, "all" (the whole service), or nothing yet. */
+export const getPlace = (): { key: string; name: string } | null => {
+  try {
+    const raw = sessionStorage.getItem(PLACE_KEY);
+    return raw ? (JSON.parse(raw) as { key: string; name: string }) : null;
+  } catch {
+    return null;
+  }
+};
+export function setPlace(p: { key: string; name: string } | null) {
+  try {
+    if (p) sessionStorage.setItem(PLACE_KEY, JSON.stringify(p));
+    else sessionStorage.removeItem(PLACE_KEY);
+  } catch {
+    /* storage unavailable: the choice just lives until the page is reloaded */
+  }
+}
+
 export function loadSession(): Session | null {
   try {
     const raw = sessionStorage.getItem(KEY);
@@ -82,7 +101,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
     try {
       return await fetch(BASE + path, {
         method,
-        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...(getPlace() && getPlace()!.key !== 'all' ? { 'x-admin-place': getPlace()!.key } : {}) },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch {

@@ -1,6 +1,6 @@
 import { metrics } from '../common/observability';
 import { decryptField, maskPhone } from '../common/vault';
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { ActivitiesService } from '../activities/activities.service';
@@ -154,11 +154,11 @@ export class AdminController {
   @Staff(...ALL)
   @RegionalOk()
   @Get('users')
-  async users(@CurrentUser() actor: User, @Query('q') q?: string, @Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+  async users(@CurrentUser() actor: User, @Query('q') q?: string, @Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string) {
     // timed suspensions that have run out end now, so the list never shows someone as suspended who is not
     await this.prisma.user.updateMany({ where: { state: 'suspended', suspendedUntil: { lte: new Date() } }, data: { state: 'active', suspendedUntil: null } });
     // staff who look after one area see the members whose home city is in it, and never other staff
-    const scope = await this.regions.scopeOf(actor);
+    const scope = await this.regions.scopeOf(actor, place);
     const where: Prisma.UserWhereInput = {
       ...(scope && { role: 'user', profile: { homeCityKey: { in: [...scope.cityKeys] } } }),
       ...(state && { state }),
@@ -303,10 +303,11 @@ export class AdminController {
   // ------------------------------------------------------------ verification
   @Staff(...ALL)
   @Get('verifications')
-  async verifications(@Query('status') status = 'pending', @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+  async verifications(@CurrentUser() actor: User, @Query('status') status = 'pending', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string) {
     const size = pageLimit(limit, 100, 200);
+    const scope = await this.regions.scopeOf(actor, place);
     const all = await this.prisma.verificationCheck.findMany({
-      where: { AND: [{ eligibility: status }, afterKeyset(decodeKeyset(cursor))] },
+      where: { AND: [{ eligibility: status }, scope ? { user: { profile: { homeCityKey: { in: [...scope.cityKeys] } } } } : {}, afterKeyset(decodeKeyset(cursor))] },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: size + 1,
       include: { user: { select: { id: true, email: true, profile: { select: { displayName: true, homeCity: true } } } } },
@@ -380,8 +381,8 @@ export class AdminController {
   @Staff(...ALL)
   @RegionalOk()
   @Get('reports')
-  async reports(@CurrentUser() actor: User, @Query('status') status?: string, @Query('category') category?: string) {
-    return this.moderation.queue(status, category, new Date(), await this.regions.scopeOf(actor));
+  async reports(@CurrentUser() actor: User, @Query('status') status?: string, @Query('category') category?: string, @Headers('x-admin-place') place?: string) {
+    return this.moderation.queue(status, category, new Date(), await this.regions.scopeOf(actor, place));
   }
 
   @Staff(...MOD)
@@ -423,9 +424,9 @@ export class AdminController {
   @Staff(...ALL)
   @RegionalOk()
   @Get('activities')
-  async activitiesList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+  async activitiesList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string) {
     const size = pageLimit(limit, 100, 200);
-    const scope = await this.regions.scopeOf(actor);
+    const scope = await this.regions.scopeOf(actor, place);
     const all = await this.prisma.activity.findMany({
       where: { AND: [status ? { status } : {}, scope ? { cityKey: { in: [...scope.cityKeys] } } : {}, beforeKeyset(decodeKeyset(cursor))] },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -463,9 +464,9 @@ export class AdminController {
   @Staff(...ALL)
   @RegionalOk()
   @Get('trips')
-  async tripsList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+  async tripsList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string) {
     const size = pageLimit(limit, 100, 200);
-    const scope = await this.regions.scopeOf(actor);
+    const scope = await this.regions.scopeOf(actor, place);
     const all = await this.prisma.trip.findMany({
       where: { AND: [status ? { status } : {}, scope ? { originKey: { in: [...scope.cityKeys] } } : {}, beforeKeyset(decodeKeyset(cursor))] },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
