@@ -6,20 +6,17 @@ import { Reveal } from '@/components/Reveal';
 import { CityPicker } from '@/components/CityPicker';
 import { Brand, ModeTabs } from '@/components/TabHeader';
 import { VerifyBanner } from '@/components/VerifyBanner';
-import { Between, Btn, Card, Chip, Empty, ErrorBanner, Pill, PillRow, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
+import { Between, Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type Activity } from '@/lib/api';
 import { comingUp, type MyActivitiesData } from '@/lib/myActivities';
 import { useLayout } from '@/lib/layout';
 import { hhmm } from '@/lib/format';
 import { useCity } from '@/lib/city';
-import { CATS } from '@/lib/constants';
 import { feedRange, splitFeed } from '@/lib/feed';
 import { useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
-
-const CAT_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = { coffee: 'cafe-outline', drinks: 'wine-outline', food: 'restaurant-outline', sports: 'basketball-outline', culture: 'color-palette-outline' };
 
 /** HERE · Explore: a time-sensitive feed of what is happening nearby. */
 export function ExploreHere() {
@@ -27,7 +24,6 @@ export function ExploreHere() {
   const go = useGo();
   const { c } = useTheme();
   const [city, setCity] = useCity();
-  const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   // the filter button: which part of the day to show
   const [when, setWhen] = useState<'any' | 'soon' | 'tonight' | 'tomorrow' | 'later'>('any');
@@ -36,10 +32,10 @@ export function ExploreHere() {
   const feed = useLoad(
     () => {
       const [from, to] = feedRange();
-      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance', ...(cat && { category: cat }) });
+      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
-    [city, cat],
+    [city],
     60_000, // changes arrive by the live connection (below); this is only the slow fallback
     'feed:here',
     { keep: true, live: true },
@@ -87,21 +83,8 @@ export function ExploreHere() {
       <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>{t('What are you up for?')}</Txt>
       <SearchBar value={q} onChangeText={setQ} placeholder={t('Search activities or neighborhoods')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
 
-      <PillRow>
-        <Pill label={t('All')} icon="apps-outline" active={cat === ''} onPress={() => setCat('')} />
-        {Object.entries(CATS).map(([k, v]) => (
-          <Pill key={k} label={t(v.label)} icon={CAT_ICON[k]} active={cat === k} onPress={() => setCat(k)} />
-        ))}
-      </PillRow>
-
       <ErrorBanner message={feed.error?.message} />
       {feed.loading && !feed.data && <Spinner />}
-
-      {feed.data && items.length === 0 && (
-        <Empty title={q ? t('No matches') : t('Nothing planned yet')}>
-          {q ? t('Try another search.') : t('Be the first to host.')}
-        </Empty>
-      )}
 
       {next.length > 0 && (
         <Reveal index={0} style={{ gap: 12 }}>
@@ -133,6 +116,13 @@ export function ExploreHere() {
             </Pressable>
           ) : null}
         </Reveal>
+      )}
+
+      {/* the feed has nothing to list: said below Next up (your own plans come first), and "Nothing planned yet" only when you have no plan either */}
+      {feed.data && items.length === 0 && (q || next.length === 0) && (
+        <Empty title={q ? t('No matches') : t('Nothing planned yet')}>
+          {q ? t('Try another search.') : t('Be the first to host.')}
+        </Empty>
       )}
 
       <ListSection index={1} title={t('Happening soon')} list={when === 'any' || when === 'soon' ? soon : []} max={MAX} onMore={() => go('/activities?section=soon')} />

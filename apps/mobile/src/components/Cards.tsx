@@ -71,15 +71,30 @@ function startsIn(iso: string) {
 }
 
 
-/** The host's face and dashed rings for the open places (up to three in all): who is going, at a glance. */
+/**
+ * Who is going, at a glance, and it always agrees with "3 of 4 going · 1 spot left": the real faces of the people going (the
+ * host first, then in the order they joined; the server sends the first three in `faces`), then a dashed ring for each open
+ * place. Never more than four circles in all, and at most three people. If a face is missing (an older answer from the server)
+ * the host's own face and a plain person circle stand in.
+ */
 function Faces({ a }: { a: Activity }) {
   const { c } = useTheme();
-  const rings = Math.max(0, Math.min(3, a.capacity) - 1);
+  const people = Math.min(Math.max(1, a.going), 3);
+  const rings = Math.max(0, Math.min(a.spotsLeft, 4 - people));
+  const faces = Array.from({ length: people }, (_, i) => a.faces?.[i] ?? (i === 0 ? { id: a.host.id, displayName: a.host.displayName, photoUrl: a.host.photoUrl } : null));
   return (
     <View accessibilityElementsHidden importantForAccessibility="no" style={{ flexDirection: 'row', alignItems: 'center' }}>
-      <View style={{ borderRadius: 999, borderWidth: 2, borderColor: c.surface }}>
-        <Avatar name={a.host.displayName} uri={a.host.photoUrl} size={28} />
-      </View>
+      {faces.map((f, i) =>
+        f ? (
+          <View key={f.id} style={{ marginLeft: i === 0 ? 0 : -7, borderRadius: 999, borderWidth: 2, borderColor: c.surface }}>
+            <Avatar name={f.displayName} uri={f.photoUrl} size={28} />
+          </View>
+        ) : (
+          <View key={`p${i}`} style={{ marginLeft: -7, width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: c.surface, backgroundColor: c.line, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="person" size={15} color={c.muted} />
+          </View>
+        ),
+      )}
       {Array.from({ length: rings }).map((_, i) => (
         <View key={i} style={{ marginLeft: -7, width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.muted, backgroundColor: c.surface }} />
       ))}

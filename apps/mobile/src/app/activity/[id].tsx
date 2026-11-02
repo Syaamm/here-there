@@ -122,10 +122,11 @@ export default function ActivityDetail() {
   const STRIP = top + 84; // what is left of it once collapsed: the button row (44) plus the sheet's 28 px rounded edge and a little air, so the white stays below the buttons
   const fav = favNow ?? !!a.favorited;
 
-  // who is going: up to three faces, open places drawn as dashed rings, and a bar with one segment per place
+  // who is going: up to three faces, open places drawn as dashed rings (one per open place, never more than four circles in all),
+  // and a bar with one segment per place
   const going = a.participants ?? [];
   const faces = going.slice(0, 3);
-  const rings = Math.max(0, Math.min(3, a.capacity) - faces.length);
+  const rings = Math.max(0, Math.min(a.spotsLeft, 4 - faces.length));
   const segs = Math.min(a.capacity, 12);
   const filled = Math.min(segs, Math.round((a.going / Math.max(a.capacity, 1)) * segs));
 

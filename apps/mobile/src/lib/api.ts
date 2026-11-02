@@ -6,10 +6,13 @@ import { currentLang, t } from './i18n';
 /**
  * API address. Priority: EXPO_PUBLIC_API_URL, then the computer running `expo start`
  * (so Expo Go on your phone finds the dev API on the same Wi-Fi), then emulator defaults.
+ * "same-origin" (the web build the API serves itself, `npm run build:web`) means the API is wherever the page came from, so
+ * one build works on any domain.
  */
 function baseUrl() {
   const env = process.env.EXPO_PUBLIC_API_URL;
-  if (env) return env.replace(/\/$/, '');
+  if (env === 'same-origin' && Platform.OS === 'web' && typeof window !== 'undefined') return window.location.origin;
+  if (env && env !== 'same-origin') return env.replace(/\/$/, '');
   const host = Constants.expoConfig?.hostUri?.split(':')[0];
   if (host) return `http://${host}:3000`;
   return Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
@@ -347,6 +350,8 @@ export type Activity = {
   /** how many people you follow (who do not follow back) are going or hosting */
   followingGoing?: number;
   favorited?: boolean;
+  /** the first three people going (the host first), on the lists of your own plans: what the small avatar row shows */
+  faces?: { id: string; displayName: string; photoUrl: string | null }[];
   // detail only
   isHost?: boolean;
   isMember?: boolean;

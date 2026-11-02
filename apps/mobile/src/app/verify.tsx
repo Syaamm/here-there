@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as WebBrowser from 'expo-web-browser';
 import { Linking, Platform, View } from 'react-native';
 import { EmailVerifyCard } from '@/components/EmailVerifyCard';
@@ -76,6 +76,21 @@ export default function Verify() {
     if (st.data && st.data.eligibility !== me?.eligibility) void reload();
   }, [st.data?.eligibility, me?.eligibility]);
 
+  // in a browser the check runs in another tab: when the person comes back to this one, look for the decision at once
+  const refresh = useRef(() => {});
+  refresh.current = () => {
+    void st.reload();
+    void reload();
+  };
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const back = () => {
+      if (document.visibilityState === 'visible') refresh.current();
+    };
+    document.addEventListener('visibilitychange', back);
+    return () => document.removeEventListener('visibilitychange', back);
+  }, []);
+
   if (st.loading && !st.data && !me) return <Screen hasHeader><SkeletonDetail /></Screen>;
 
   const e: Eligibility = st.data?.eligibility ?? me?.eligibility ?? 'unverified';
@@ -87,15 +102,28 @@ export default function Verify() {
   const chipLabel = t(chipEn);
 
   const start = async () => {
+    // in a browser the check opens in a NEW tab. A tab opened after the request has finished is blocked as a pop-up, so an empty one
+    // is opened right now, while the tap is still counted, and sent to the check page when the answer arrives
+    const tab = Platform.OS === 'web' ? window.open('', '_blank') : null;
     const r = await act.run(() => post<{ eligibility: string; url?: string }>('/v1/me/verification', { consent: true, method }));
     // a provider returns its hosted page (ID photo + selfie with liveness): open it
-    // in a browser, a new tab opened after the request finishes is blocked as a pop-up, so go there in this tab
-    if (r?.url && Platform.OS === 'web') goTo(r.url);
+    if (r?.url && Platform.OS === 'web') openTab(r.url, tab);
     else if (r?.url) await openCheck(r.url);
-    else if (r && r.eligibility !== 'verified') act.setError(t('The check started but no page link came back ({status}). Tap Check for an update, or Cancel and start over.', { status: r.eligibility }));
+    else {
+      tab?.close();
+      if (r && r.eligibility !== 'verified') act.setError(t('The check started but no page link came back ({status}). Tap Check for an update, or Cancel and start over.', { status: r.eligibility }));
+    }
   };
 
-  // in a browser, go to the provider in the whole tab: the web preview shows the app inside a phone-shaped frame, and the provider's page refuses to load inside a frame
+  // in a browser: show the provider's page in a new tab (the empty one opened at the tap, or a fresh one); if the browser refuses
+  // a new tab, go there in the whole tab instead (the web preview shows the app inside a phone-shaped frame, and a provider's page
+  // refuses to load inside a frame, so it is the top window that moves)
+  const openTab = (url: string, tab?: Window | null) => {
+    if (tab && !tab.closed) {
+      tab.location.href = url;
+      tab.focus();
+    } else if (!window.open(url, '_blank')) goTo(url);
+  };
   const goTo = (url: string) => {
     try {
       (window.top ?? window).location.href = url;
@@ -153,7 +181,7 @@ export default function Verify() {
       {e === 'pending' && (
         <>
           <Banner tone="warn">{t('Check in progress. We\'ll notify you.')}</Banner>
-          {st.data?.resumeUrl ? <Btn title={t('Continue identity check')} onPress={() => (Platform.OS === 'web' ? goTo(st.data!.resumeUrl!) : void openCheck(st.data!.resumeUrl!))} /> : null}
+          {st.data?.resumeUrl ? <Btn title={t('Continue identity check')} onPress={() => (Platform.OS === 'web' ? openTab(st.data!.resumeUrl!) : void openCheck(st.data!.resumeUrl!))} /> : null}
           <Btn title={t('Check for an update')} variant="secondary" loading={st.loading} onPress={() => void st.reload()} />
           {/* closed the provider page, or it got stuck: abandon this attempt and begin again */}
           <Btn title={t('Cancel and start over')} variant="ghost" loading={act.busy} onPress={() => act.run(() => del('/v1/me/verification'))} />

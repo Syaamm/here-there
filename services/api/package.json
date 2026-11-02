@@ -6,6 +6,7 @@
     "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "start": "node dist/src/main.js",
     "dev": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "db:generate": "node ../../node_modules/prisma/build/index.js generate",
     "db:push": "node ../../node_modules/prisma/build/index.js db push",
     "seed": "node dist/scripts/seed.js",
     "docs": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json && node dist/scripts/gen-docs.js && node dist/scripts/openapi-to-md.js && node dist/scripts/gen-app-types.js",

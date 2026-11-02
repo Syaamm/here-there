@@ -22,6 +22,8 @@ import { ReliabilityService } from '../reliability/reliability.controller';
 import { decodeCursor, encodeCursor, scoreActivity, topK } from './feed-ranking';
 
 const HOUR = 3600 * 1000;
+/** One person going, as a card shows them: a face and a name (the first three people going come with each card). */
+type Face = { id: string; displayName: string; photoUrl: string | null };
 const RANK_POOL = 500; // most activities scored for one feed request (a city's next two days is far fewer)
 const MIN_LEAD = 9 * 60 * 1000; // "at least 10 minutes" in the app, minus a minute of grace for the submit
 
@@ -219,13 +221,30 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.activityMembership.count({ where: { activityId, state: 'approved' } });
   }
 
-  /** Map rows to cards with the going-count of each one's activity, counted for the whole page in one query. */
-  private async withGoing<T, R>(rows: T[], activityId: (row: T) => string, build: (row: T, going: number) => R): Promise<R[]> {
+  /**
+   * Map rows to cards with the going-count of each one's activity, counted for the whole page in one query. With `withFaces`
+   * the first three people going (the host first, then in the order they joined) come too, read in one more query for the page.
+   */
+  private async withGoing<T, R>(rows: T[], activityId: (row: T) => string, build: (row: T, going: number, faces: Face[]) => R, withFaces = false): Promise<R[]> {
     const ids = [...new Set(rows.map(activityId))];
     const counts = new Map<string, number>();
     if (ids.length > 0)
       for (const g of await this.prisma.activityMembership.groupBy({ by: ['activityId'], where: { activityId: { in: ids }, state: 'approved' }, _count: { _all: true } })) counts.set(g.activityId, g._count._all);
-    return rows.map((row) => build(row, counts.get(activityId(row)) ?? 0));
+    const faces = new Map<string, Face[]>();
+    if (withFaces && ids.length > 0) {
+      const members = await this.prisma.activityMembership.findMany({
+        where: { activityId: { in: ids }, state: 'approved' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { activityId: true, role: true, user: { select: { id: true, profile: { select: { displayName: true, photoUrl: true } } } } },
+      });
+      for (const m of [...members.filter((x) => x.role === 'host'), ...members.filter((x) => x.role !== 'host')]) {
+        const list = faces.get(m.activityId) ?? [];
+        if (list.length >= 3) continue;
+        list.push({ id: m.user.id, displayName: m.user.profile?.displayName ?? 'Member', photoUrl: m.user.profile?.photoUrl ?? null });
+        faces.set(m.activityId, list);
+      }
+    }
+    return rows.map((row) => build(row, counts.get(activityId(row)) ?? 0, faces.get(activityId(row)) ?? []));
   }
 
   // ---------------------------------------------------------------- discovery
@@ -1138,12 +1157,12 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       this.prisma.activityRequest.count({ where: requestWhere(['declined']) }),
     ]);
     const counts = { mine, pending, rejected };
-    const joinedDto = (m: Awaited<ReturnType<typeof memberRows>>[number], going: number) => this.dto(m.activity, going, { role: m.role });
-    const requestDto = (r: Awaited<ReturnType<typeof requestRows>>[number], going: number) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going) });
+    const joinedDto = (m: Awaited<ReturnType<typeof memberRows>>[number], going: number, faces: Face[]) => this.dto(m.activity, going, { role: m.role, faces });
+    const requestDto = (r: Awaited<ReturnType<typeof requestRows>>[number], going: number, faces: Face[]) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going, { faces }) });
 
     if (tab === 'mine') {
       const page = sliceKeyset(await memberRows(limit + 1), limit, (m) => m.activity.startsAt);
-      return { items: await this.withGoing(page.items, (m) => m.activityId, joinedDto), nextCursor: page.nextCursor, counts };
+      return { items: await this.withGoing(page.items, (m) => m.activityId, joinedDto, true), nextCursor: page.nextCursor, counts };
     }
     if (tab === 'all') {
       // both kinds side by side, newest start first: each is read one page deep, merged, and cut to one page
@@ -1154,15 +1173,15 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       ].sort((x, y) => +y.at - +x.at || (x.id < y.id ? 1 : -1));
       const page = sliceKeyset(merged, limit, (x) => x.at);
       return {
-        items: await this.withGoing(page.items, (x) => (x.joined ? x.joined.activityId : x.request!.activityId), (x, going) =>
-          x.joined ? { row: 'joined' as const, ...joinedDto(x.joined, going) } : { row: 'request' as const, ...requestDto(x.request!, going) },
-        ),
+        items: await this.withGoing(page.items, (x) => (x.joined ? x.joined.activityId : x.request!.activityId), (x, going, faces) =>
+          x.joined ? { row: 'joined' as const, ...joinedDto(x.joined, going, faces) } : { row: 'request' as const, ...requestDto(x.request!, going, faces) },
+        true),
         nextCursor: page.nextCursor,
         counts,
       };
     }
     const page = sliceKeyset(await requestRows(tab === 'pending' ? ['requested', 'waitlisted'] : ['declined'], limit + 1), limit, (r) => r.activity.startsAt);
-    return { items: await this.withGoing(page.items, (r) => r.activityId, requestDto), nextCursor: page.nextCursor, counts };
+    return { items: await this.withGoing(page.items, (r) => r.activityId, requestDto, true), nextCursor: page.nextCursor, counts };
   }
 
   /**
@@ -1193,8 +1212,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       this.prisma.activityRequest.findMany({ where: { applicantId: me.id, state: { in: ['requested', 'waitlisted'] }, activity: open }, include: { activity: { include: this.hostInclude } }, orderBy: { activity: { startsAt: 'asc' } }, take: 50 }),
     ]);
     return {
-      joined: await this.withGoing(memberships, (m) => m.activityId, (m, going) => this.dto(m.activity, going, { role: m.role })),
-      requests: await this.withGoing(requests, (r) => r.activityId, (r, going) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going) })),
+      joined: await this.withGoing(memberships, (m) => m.activityId, (m, going, faces) => this.dto(m.activity, going, { role: m.role, faces }), true),
+      requests: await this.withGoing(requests, (r) => r.activityId, (r, going, faces) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going, { faces }) }), true),
     };
   }
 
@@ -1213,8 +1232,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       }),
     ]);
     return {
-      joined: await this.withGoing(memberships, (m) => m.activityId, (m, going) => this.dto(m.activity, going, { role: m.role })),
-      requests: await this.withGoing(requests, (r) => r.activityId, (r, going) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going) })),
+      joined: await this.withGoing(memberships, (m) => m.activityId, (m, going, faces) => this.dto(m.activity, going, { role: m.role, faces }), true),
+      requests: await this.withGoing(requests, (r) => r.activityId, (r, going, faces) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going, { faces }) }), true),
     };
   }
 }

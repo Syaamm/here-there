@@ -9,6 +9,7 @@ import { isDemo } from './common/demo';
 import { assertVaultReady } from './common/vault';
 import { initErrorTracking } from './common/error-tracking';
 import { JsonLogger, requestLogging } from './common/observability';
+import { siteHandlers } from './common/site';
 
 export async function createApp() {
   assertVaultReady(); // in production, refuses to start without the encryption keys
@@ -19,10 +20,14 @@ export async function createApp() {
   // first in line: every request gets an id (X-Request-Id), and one log line when it finishes
   app.use(requestLogging);
   // Standard security headers (no sniffing, no framing, HTTPS-only hint, no referrer leaks). The API answers JSON, so the strict
-  // default content policy fits; the share and docs pages are HTML with their own needs and set their own policy.
+  // default content policy fits; the share and docs pages, and the website (the web app and the admin console, which need
+  // fonts, map pictures and scripts of their own), are HTML with their own needs and set their own policy or none.
   const strict = helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } });
   const pages = helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } });
-  app.use((req: { path: string }, res: unknown, next: () => void) => (/^\/(a|t|v1\/docs|\.well-known)(\/|$)/.test(req.path) ? pages : strict)(req as never, res as never, next));
+  const jsonOnly = (path: string) => /^\/v1(\/|$)/.test(path) && !/^\/v1\/docs(\/|$)/.test(path);
+  app.use((req: { path: string }, res: unknown, next: () => void) => (jsonOnly(req.path) ? strict : pages)(req as never, res as never, next));
+  // the website, when it has been built (npm run build:web): the web app at / and the admin console at /admin/
+  for (const handler of siteHandlers() ?? []) app.use(handler);
   // the profile picture arrives as raw image bytes
   app.use('/v1/me/photo', raw({ type: 'image/*', limit: '6mb' }));
   // one error shape everywhere: { statusCode, code, message, details? }

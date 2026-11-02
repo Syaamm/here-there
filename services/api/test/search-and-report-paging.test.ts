@@ -93,3 +93,20 @@ describe('finished reports come a page at a time', () => {
     assert.equal((await h.get('/v1/admin/reports?status=open', admin)).body.nextCursor, null);
   });
 });
+
+describe('cards show the real people going', () => {
+  it('sends the first three faces with each of your plans, the host first, then in the order they joined', async () => {
+    const host = await h.verified('FacesHost');
+    const id = (await h.post('/v1/activities', host.token, h.activityBody({ capacity: 5, joinPolicy: 'instant' }))).body.id;
+    for (const who of ['FacesAna', 'FacesBea', 'FacesCleo']) {
+      const p = await h.verified(who);
+      assert.equal((await h.post(`/v1/activities/${id}/requests`, p.token, {})).body.state, 'approved');
+    }
+    const soon = await h.get('/v1/me/activities/soon?hours=48', host.token);
+    assert.equal(soon.status, 200, JSON.stringify(soon.body));
+    const card = soon.body.joined.find((x: { id: string }) => x.id === id);
+    assert.equal(card.going, 4);
+    assert.deepEqual(card.faces.map((f: { displayName: string }) => f.displayName), ['FacesHost', 'FacesAna', 'FacesBea'], 'three faces for four going: the host, then the first two to join');
+    assert.ok(card.faces.every((f: { id: string; photoUrl: string | null }) => typeof f.id === 'string' && 'photoUrl' in f));
+  });
+});

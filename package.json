@@ -7,6 +7,9 @@
     "admin": "npm run mobile",
     "admin:standalone": "npm run dev -w @here-there/admin",
     "admin:build": "npm run build -w @here-there/admin",
+    "build:web": "node scripts/build-web.cjs",
+    "build:all": "npm run db:generate -w @here-there/api && npm run build -w @here-there/api && node scripts/build-web.cjs",
+    "deploy": "node scripts/deploy.cjs",
     "mobile": "npm start -w @here-there/mobile"
   },
   "overrides": {

@@ -34,6 +34,19 @@ After you change `prisma/schema.prisma`, stop the API, run `npm run db:push`, re
 
 `npm run demo:feed`, `demo:there`, `demo:chat`, `demo:waitlist`, `demo:reliability` and the other `demo:*` scripts in `services/api` fill the *development* database with sample accounts and plans for trying one feature. They never touch a live server.
 
+## Deploying (from git)
+
+The full guide is **`DEPLOY.md`**: a test site in development mode (no production keys), written for a developer or for Claude doing it for you. In short, on the server, in the repository folder (Node 24.7 or newer, a PostgreSQL database, and `services/api/.env` with `DATABASE_URL`):
+
+```
+git pull
+npm ci
+npm run deploy
+npm start -w @here-there/api
+```
+
+`npm run deploy` builds everything (the database client, the API, and the website: the web app and the admin console), creates the database tables, and adds the first admin and sample data only if the database is empty. The API serves the website itself: the app at `/`, the admin console at `/admin/`, the API at `/v1`. Point your web server at the API's port and it is all live at the server's own address, on any domain, with no files to copy. A real launch needs more (keys, real providers): `docs/FOR_DEPLOYMENT.md`.
+
 ## Tests
 
 ```

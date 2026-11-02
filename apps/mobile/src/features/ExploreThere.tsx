@@ -5,28 +5,14 @@ import { TripNextUpCard, TripRow } from '@/components/Cards';
 import { Reveal } from '@/components/Reveal';
 import { Brand, ModeTabs } from '@/components/TabHeader';
 import { VerifyBanner } from '@/components/VerifyBanner';
-import { Btn, Card, Chip, Empty, ErrorBanner, Pill, PillRow, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
+import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type MyTripsPage, type Trip } from '@/lib/api';
 import { dateSpan } from '@/lib/format';
 import { useLayout } from '@/lib/layout';
-import { TRIP_TAGS } from '@/lib/constants';
 import { useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
-
-const TAG_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
-  culture: 'color-palette-outline',
-  food: 'restaurant-outline',
-  adventure: 'compass-outline',
-  nature: 'leaf-outline',
-  city: 'business-outline',
-  beach: 'sunny-outline',
-  relax: 'cafe-outline',
-  hiking: 'trail-sign-outline',
-  photography: 'camera-outline',
-  art: 'brush-outline',
-};
 
 type When = 'any' | 'month' | 'quarter' | 'later';
 const DAY = 864e5;
@@ -36,13 +22,12 @@ export function ExploreThere() {
   const { t } = useT();
   const go = useGo();
   const { c } = useTheme();
-  const [tag, setTag] = useState('');
   const [q, setQ] = useState('');
   // the filter button: how far ahead to look
   const [when, setWhen] = useState<When>('any');
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?${new URLSearchParams({ limit: '50', ...(tag && { tags: tag }) })}`), [tag], 60_000, 'feed:there', { keep: true, live: true });
+  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?limit=50`), [], 60_000, 'feed:there', { keep: true, live: true });
   // a trip was proposed, filled or cancelled somewhere: ask again at once
   useLiveEvents((e) => {
     if (e.type === 'feed-changed') void feed.reload();
@@ -92,19 +77,8 @@ export function ExploreThere() {
       <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>{t('Where to next?')}</Txt>
       <SearchBar value={q} onChangeText={setQ} placeholder={t('Search a destination, trip or country')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
 
-      <PillRow>
-        <Pill label={t('All')} icon="apps-outline" active={tag === ''} onPress={() => setTag('')} />
-        {TRIP_TAGS.map((g) => (
-          <Pill key={g} label={t(g[0].toUpperCase() + g.slice(1))} icon={TAG_ICON[g]} active={tag === g} onPress={() => setTag(g)} />
-        ))}
-      </PillRow>
-
       <ErrorBanner message={feed.error?.message} />
       {feed.loading && !feed.data && <Spinner />}
-
-      {feed.data && items.length === 0 && (
-        <Empty title={q || tag ? t('No trips match') : t('No trips yet')}>{q || tag ? t('Try another search.') : t('Be the first to propose one.')}</Empty>
-      )}
 
       {taking.length > 0 && (
         <Reveal index={0} style={{ gap: 12 }}>
@@ -155,6 +129,11 @@ export function ExploreThere() {
             </Pressable>
           ) : null}
         </Reveal>
+      )}
+
+      {/* the feed has nothing to list: said below your own trips, and "No trips yet" only when you have none either */}
+      {feed.data && items.length === 0 && (q || (next.length === 0 && taking.length === 0)) && (
+        <Empty title={q ? t('No trips match') : t('No trips yet')}>{q ? t('Try another search.') : t('Be the first to propose one.')}</Empty>
       )}
 
       <ListSection index={1} title={t('Leaving soon')} list={when === 'any' || when === 'month' ? soon : []} max={MAX} onMore={() => go('/trips?section=soon')} />
