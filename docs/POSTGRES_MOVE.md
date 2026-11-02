@@ -1,6 +1,6 @@
 # The move from SQLite to PostgreSQL
 
-Status (2 November 2026): **done in the code.** All 282 tests pass on PostgreSQL 18 (the whole suite takes about 2 minutes, against about 30 minutes on SQLite). Still open: the owner's own local database, a managed Postgres server for going live, real Prisma migrations, PostGIS, alert columns, backups and the load test (see "Still open").
+Status (2 November 2026): **done in the code.** All 282 tests pass on PostgreSQL 18 (the whole suite takes about 2 minutes, against about 30 minutes on SQLite). Still open: the owner's own local database, a managed Postgres server for going live, real Prisma migrations, PostGIS, alert columns, backups and bigger load tests (the first one, chat with 2,000 phones, is done: `LOAD_TEST.md`; see "Still open").
 
 The code has no raw SQL worth the name (everything goes through Prisma), so the move was mostly settings, tests and a few behaviour checks. The order of the wider launch work is in `FOR_DEPLOYMENT.md` (Postgres, then Cloudflare, then a load test, then Redis and more servers if needed).
 
@@ -41,7 +41,7 @@ Your old `dev.db` data does not carry over: the app starts empty, and the demo s
 - **Real Prisma migrations** (`prisma migrate dev` to write them, `prisma migrate deploy` on the server) instead of `db push`, before the first upgrade of live data.
 - **Alerts found by their JSON text.** These filter the `Notification.data` text column with `contains`: the unread-chat check (`conversations.controller.ts`, two places), `settleRequest` and the grouping check (`notifications.service.ts`). They work on Postgres but cannot use an index. Better: real columns (`conversationId`, `activityId`, `tripId`, `applicantId`) on `Notification`, filled when an alert is created, with an index.
 - **PostGIS** for the distance filter (today the exact radius runs in code after the query), real array or JSON columns for tags, languages and the `data` / `meta` text fields, photos in cloud storage with a CDN instead of `ProfilePhoto.data` bytes.
-- **The load test** (`FOR_DEPLOYMENT.md` section 9 E): a seed script with realistic data and k6 scripts for browsing, joining, chat and sign-in bursts, run against a production-like server.
+- **The load test** (`FOR_DEPLOYMENT.md` section 11 E): **first run done 2 Nov 2026 with our own scripts, `docs/LOAD_TEST.md`** (not k6): chat with 2,000 phones passes. Still to do: browsing, joining and sign-in bursts, bigger sizes and a production-like server.
 
 ## If the machine's Postgres asks for a password you do not have
 

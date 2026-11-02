@@ -164,7 +164,7 @@ export const inbox: Record<string, string> = {
   'Dutch': 'Olandese',
   'Arabic': 'Arabo',
 
-  // ---- Reliability, my reports
+  // ---- Reliability, reports about you
   'Your level': 'Il tuo livello',
   'The host says you did not come.': 'L\'organizzatore dice che non ti sei presentato.',
   'Disputed': 'Contestato',
@@ -173,11 +173,13 @@ export const inbox: Record<string, string> = {
   'What happened?': 'Cos\'è successo?',
   'Send': 'Invia',
   '{text} Urgent reports are answered within {urgent}, others within {normal}.': '{text} Alle segnalazioni urgenti rispondiamo entro {urgent}, alle altre entro {normal}.',
-  'The reports you sent, and what became of them.': 'Le segnalazioni che hai inviato e come sono andate a finire.',
-  'No reports': 'Nessuna segnalazione',
-  'Reports you send will show up here.': 'Le segnalazioni che invii compariranno qui.',
   'Sent {date}': 'Inviata il {date}',
-  'Ask for a second look': 'Chiedi un nuovo esame',
+  'Reports about you': 'Segnalazioni su di te',
+  'Reports about you where a moderator took a decision. You can ask for a review once for each.': 'Segnalazioni su di te per cui un moderatore ha preso una decisione. Puoi chiedere un riesame una sola volta per ciascuna.',
+  'Nothing to show': 'Niente da mostrare',
+  'Decided {date}': 'Decisa il {date}',
+  'Review: {text}': 'Riesame: {text}',
+  'Ask for a review': 'Chiedi un riesame',
 
   // ---- Travel buddies
   '{from} to {to}': 'dal {from} al {to}',
@@ -231,7 +233,10 @@ export const inbox: Record<string, string> = {
   'Leaving the group also takes you out of the trip.': 'Lasciando il gruppo esci anche dal viaggio.',
   'Leaving the group also takes you out of the activity.': 'Lasciando il gruppo esci anche dall\'attività.',
   'Leave': 'Esci',
-  'You blocked {name}. Their messages are hidden, and you can unblock them in Safety & privacy.': 'Hai bloccato {name}. I suoi messaggi sono nascosti e puoi sbloccarlo da Sicurezza e privacy.',
+  'You blocked {name}. Their messages are hidden, and you can unblock them in Settings > Reports & blocked.': 'Hai bloccato {name}. I suoi messaggi sono nascosti e puoi sbloccarlo da Impostazioni > Segnalazioni e bloccati.',
+  'Reports & blocked': 'Segnalazioni e bloccati',
+  'Reports': 'Segnalazioni',
+  'Blocked': 'Bloccati',
   'Verify to chat': 'Verificati per chattare',
   "Group chat is for verified adults. You can keep exploring, and chat opens as soon as you're verified.": 'La chat di gruppo è riservata agli adulti verificati. Puoi continuare a esplorare: la chat si apre appena sei verificato.',
   'Get verified': 'Verificati',

@@ -591,6 +591,49 @@ describe('HERE: create, discover, request, approve, chat', () => {
     void ae;
   });
 
+  it('writes no alert for a member who has that chat open in front, and does again once they leave it', async () => {
+    const { WebSocket } = await import('ws');
+    const waitFor = async (ok: () => boolean) => {
+      for (let i = 0; i < 60 && !ok(); i++) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(ok(), 'timed out');
+    };
+    const host = await verified('OpenHost');
+    const member = await verified('OpenMember');
+    const id = (await post('/v1/activities', host.token, activityBody({ capacity: 3 }))).body.id;
+    const joined = await post(`/v1/activities/${id}/requests`, member.token, {});
+    await post(`/v1/activities/${id}/requests/${joined.body.id}/decision`, host.token, { decision: 'approve' });
+    const conv = await prisma.conversation.findUnique({ where: { activityId: id } });
+    const alerts = () => prisma.notification.count({ where: { userId: member.id, type: 'chat_message' } });
+
+    const events: any[] = [];
+    const ws = new WebSocket(base.replace('http', 'ws') + '/v1/live');
+    let ready = false;
+    ws.on('message', (raw) => {
+      const e = JSON.parse(raw.toString());
+      if (e.type === 'ready') ready = true;
+      else events.push(e);
+    });
+    await new Promise<void>((res) => ws.on('open', () => res()));
+    ws.send(JSON.stringify({ type: 'auth', token: member.token }));
+    await waitFor(() => ready);
+    ws.send(JSON.stringify({ type: 'presence', visible: true }));
+    ws.send(JSON.stringify({ type: 'chat', id: conv.id }));
+    await new Promise((r) => setTimeout(r, 150));
+
+    // reading the chat in front: the message arrives live and writes no alert
+    assert.equal((await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'while you read' })).status, 201);
+    await waitFor(() => events.some((e) => e.type === 'message'));
+    assert.equal(await alerts(), 0, 'no alert for someone reading the chat');
+    assert.equal(events.some((e) => e.type === 'notification'), false);
+
+    // the chat open on another screen's chat, or none: the alert is written as before
+    ws.send(JSON.stringify({ type: 'chat', id: null }));
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal((await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'after you left' })).status, 201);
+    assert.equal(await alerts(), 1, 'an alert once they left the chat');
+    ws.close();
+  });
+
   it('delivers chat messages live over the WebSocket and pushes to members who are away', async () => {
     const { WebSocket } = await import('ws');
     const waitFor = async (ok: () => boolean) => {

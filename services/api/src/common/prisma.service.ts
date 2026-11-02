@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { log, metrics, slowQueryMs } from './observability';
+import { logSlowQuery, metrics, slowQueryMs } from './observability';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -21,7 +21,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
             if (ms >= slowQueryMs()) {
               const what = model ? `${model}.${operation}` : operation;
               metrics.slowQuery(ms, what);
-              log('warn', 'slow query', { ms: Math.round(ms), what });
+              logSlowQuery(ms, what);
             }
           }
         },

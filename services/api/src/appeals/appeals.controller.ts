@@ -29,7 +29,7 @@ const STAFF = ['moderator', 'trust_lead', 'admin'];
 /** After a suspension appeal the person may ask again no sooner than this. */
 const SUSPENSION_COOLDOWN_DAYS = 30;
 
-const WORDS: Record<string, string> = { verification: 'identity check', suspension: 'suspension', removal: 'removed listing', report: 'report that was dismissed', warning: 'warning', message: 'removed message' };
+const WORDS: Record<string, string> = { verification: 'identity check', suspension: 'suspension', removal: 'removed listing', report: 'decision on a report about you', warning: 'warning', message: 'removed message' };
 
 /**
  * Appeals (spec 4.3, 9.4, 17): a person asking staff to look at a decision again. Three kinds: a rejected identity check, a
@@ -69,9 +69,9 @@ export class AppealsService {
       targetType = 'verification_check';
       targetId = check.id;
     } else if (dto.kind === 'report') {
-      // the person who reported can ask for a second look when the report was dismissed
+      // the person a report is ABOUT can ask for a review once, after staff took a decision (a person who reports cannot appeal)
       const rep = await this.prisma.report.findUnique({ where: { id: dto.targetId } });
-      if (!rep || rep.reporterId !== me.id || rep.status !== 'dismissed') throw E.conflict('NOTHING_TO_APPEAL', 'Only a report of yours that was dismissed can be appealed');
+      if (!rep || rep.status !== 'resolved' || rep.reporterId === me.id || !(await this.about(rep, me.id))) throw E.conflict('NOTHING_TO_APPEAL', 'There is no decision about you to appeal');
       targetType = 'report';
       targetId = rep.id;
     } else if (dto.kind === 'warning') {
@@ -98,6 +98,14 @@ export class AppealsService {
     const a = await this.prisma.appeal.create({ data: { userId: me.id, kind: dto.kind, targetType, targetId, message: dto.message } });
     await this.audit.log(me.id, 'appeal.create', 'appeal', a.id, { kind: dto.kind });
     return this.dto(a);
+  }
+
+  /** Is this report about the person: the user reported, the sender of the message, or the host of the listing? */
+  private async about(r: { targetType: string; targetId: string }, userId: string) {
+    if (r.targetType === 'user') return r.targetId === userId;
+    if (r.targetType === 'message') return (await this.prisma.message.findUnique({ where: { id: r.targetId }, select: { senderId: true } }))?.senderId === userId;
+    const row = r.targetType === 'activity' ? await this.prisma.activity.findUnique({ where: { id: r.targetId }, select: { hostId: true } }) : r.targetType === 'trip' ? await this.prisma.trip.findUnique({ where: { id: r.targetId }, select: { hostId: true } }) : null;
+    return row?.hostId === userId;
   }
 
   /** A suspended person cannot sign in, so this one proves who they are with their email and password instead. */
@@ -158,7 +166,7 @@ export class AppealsService {
     }
     if (a.kind === 'report' && a.targetId) {
       const r = await this.prisma.report.findUnique({ where: { id: a.targetId }, select: { category: true, targetType: true, resolution: true, assignedTo: true } });
-      return r ? { reportCategory: r.category, reportAbout: r.targetType, dismissedWith: r.resolution } : null;
+      return r ? { reportCategory: r.category, reportAbout: r.targetType, decidedWith: r.resolution } : null;
     }
     if (a.kind === 'warning' && a.targetId) {
       const w = await this.prisma.userWarning.findUnique({ where: { id: a.targetId }, select: { reason: true, createdAt: true } });

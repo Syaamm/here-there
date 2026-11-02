@@ -14,3 +14,7 @@ docs/FOR_DEPLOYMENT.md
 docs/client-progress-report-*
 *.db-wal
 *.db-shm
+
+# load-test output (npm run load:seed / load:test)
+load-manifest.json
+load-result-*.json

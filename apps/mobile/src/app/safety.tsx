@@ -1,23 +1,18 @@
 import { View } from 'react-native';
 import { useEffect } from 'react';
-import { Between, Btn, Card, Chip, ErrorBanner, ListRow, Screen, Txt, useGo } from '@/components/ui';
-import { del } from '@/lib/api';
+import { Between, Btn, Card, Chip, ListRow, Screen, Txt, useGo } from '@/components/ui';
 import { useMe } from '@/lib/auth';
-import { useAction } from '@/lib/hooks';
-import { PagedTail, useCursorList } from '@/lib/paged';
 import { useT } from '@/lib/i18n';
 
-/** Safety controls shared by HERE and THERE: identity verification status, blocking, and plain-language guidance. */
+/** Safety controls shared by HERE and THERE: identity verification status and plain-language guidance. (Blocked people are under Settings > Reports & blocked.) */
 export default function Safety() {
   const { me, reload } = useMe();
   const go = useGo();
-  const { t, tn } = useT();
-  const blocks = useCursorList<{ userId: string; displayName?: string }>('/v1/blocks', {}, 'blocks');
+  const { t } = useT();
   // always re-check the latest verification result when this screen is opened
   useEffect(() => {
     void reload();
   }, [reload]);
-  const unblock = useAction(() => void blocks.reload());
   const e = me?.eligibility;
 
   return (
@@ -35,19 +30,6 @@ export default function Safety() {
       </Card>
 
       <ListRow icon="flag-outline" title={t('Report a user, activity or trip')} subtitle={t('Tap ⋯ on anything to report it.')} />
-
-      <Card>
-        <Txt variant="h3">{t('Blocked people')}</Txt>
-        <ErrorBanner message={unblock.error} />
-        {blocks.data?.items.length === 0 && <Txt variant="muted">{t('You haven\'t blocked anyone.')}</Txt>}
-        {blocks.data?.items.map((b) => (
-          <Between key={b.userId}>
-            <Txt>{b.displayName ?? b.userId}</Txt>
-            <Btn title={t('Unblock')} variant="secondary" small disabled={unblock.busy} onPress={() => unblock.run(() => del(`/v1/blocks/${b.userId}`))} />
-          </Between>
-        ))}
-        <PagedTail paged={blocks} rows={1} />
-      </Card>
 
       <View>
         <ListRow icon="location-outline" title={t('Location controls')} subtitle={t('We never share live location.')} />

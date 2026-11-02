@@ -20,10 +20,10 @@ Request bodies and query strings are generated from the same validation rules th
 
 - [Shared links](#shared-links) (4)
 - [HERE activities](#here-activities) (30)
-- [Admin console](#admin-console) (43)
-- [Sign-in and account](#sign-in-and-account) (32)
-- [Safety, blocks and follows](#safety-blocks-and-follows) (9)
-- [Chat and date polls](#chat-and-date-polls) (7)
+- [Admin console](#admin-console) (45)
+- [Sign-in and account](#sign-in-and-account) (33)
+- [Safety, blocks and follows](#safety-blocks-and-follows) (10)
+- [Chat and date polls](#chat-and-date-polls) (8)
 - [Profile and photo](#profile-and-photo) (15)
 - [THERE trips](#there-trips) (32)
 - [Notifications and push](#notifications-and-push) (8)
@@ -1387,6 +1387,45 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
+### `GET /v1/admin/staff`
+
+**Every staff account and whether its two-step sign-in is connected (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Responses
+
+- **200**: { items: [{ id, email, displayName, photoUrl, role, regionKey, state, mfaEnabled, createdAt }] }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `POST /v1/admin/staff`
+
+**Create a support, moderator or trust-lead account (whole-service administrators only)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `email` | string (email) (0 to 254 characters) | yes |  |
+| `displayName` | string (2 to 40 characters) | yes |  |
+| `role` | one of: `support`, `moderator`, `trust_lead` | yes |  |
+| `regionKey` | string (1 to 60 characters) or null | no |  |
+
+Responses
+
+- **200**: { id, email, role, regionKey, temporaryPassword }. The temporary password is shown once. At the first sign-in the console asks the person to connect an authenticator app.
+- **400**: The request is not acceptable. Codes: `INVALID_PLACE`, `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`, `GLOBAL_STAFF_ONLY`
+- **409**: Conflicts with the current state. Codes: `EMAIL_TAKEN`
+
 ### `GET /v1/admin/trips`
 
 **THERE trips for moderation**
@@ -2220,7 +2259,7 @@ Access: signed in (`Authorization: Bearer <token>`).
 
 Responses
 
-- **200**: { enabled, required, recoveryCodesLeft }
+- **200**: { enabled, required, setupNeeded, canSkip, recoveryCodesLeft }. setupNeeded: a staff account without an authenticator (the console asks for it after the first sign-in). canSkip: administrators only.
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
@@ -2258,6 +2297,19 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `STAFF_ONLY`
 - **409**: Conflicts with the current state. Codes: `MFA_ALREADY_ON`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/me/mfa/skip`
+
+**Administrators only: set up two-step sign-in later (asked again at the next sign-in)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: { skipped }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `POST /v1/me/password`
@@ -2499,7 +2551,20 @@ Access: signed in (`Authorization: Bearer <token>`).
 
 Responses
 
-- **200**: A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, category, targetType, status, outcome, createdAt, canAppeal }, newest first. A dismissed report can be appealed once with POST /v1/me/appeals (kind report).
+- **200**: A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, category, targetType, status, outcome, createdAt }, newest first. A person who reports cannot appeal: it goes to the moderators.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `GET /v1/me/reports-about-me`
+
+**Reports about me where staff took a decision, and whether I can appeal**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, category, targetType, decidedAt, decision, appeal: { id, state, decision } | null, canAppeal }, newest first. Never who reported or what they wrote. Appeal once with POST /v1/me/appeals (kind report, targetId = the report id).
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
@@ -2647,6 +2712,28 @@ Responses
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_ORGANIZER`, `VERIFICATION_REQUIRED`
 - **404**: Not found. Codes: `NOT_FOUND`
 - **409**: Conflicts with the current state. Codes: `TOO_MANY_OPEN_POLLS`, `TRIP_CLOSED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/conversations/{id}/read`
+
+**Clear this chat's unread alert (the chat is open and its newest message arrived live)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Needs a **verified adult**.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { ok: true }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`, `VERIFICATION_REQUIRED`
+- **404**: Not found. Codes: `NOT_FOUND`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `GET /v1/me/conversations`

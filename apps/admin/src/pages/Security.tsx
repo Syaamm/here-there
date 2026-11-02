@@ -1,8 +1,27 @@
-import { useState, type FormEvent } from 'react';
+import QRCode from 'qrcode';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { errMsg, ErrorBanner, Page } from '../ui';
+import './Security.css';
 
-type Status = { enabled: boolean; required: boolean; recoveryCodesLeft: number };
+/** The setup QR code, drawn here in the browser: the secret in it never goes to any outside service. It stays dark on white so apps can read it. */
+function SetupQr({ uri }: { uri: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    QRCode.toDataURL(uri, { width: 224, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#12302b', light: '#ffffff' } }).then((d) => live && setSrc(d), () => live && setSrc(null));
+    return () => {
+      live = false;
+    };
+  }, [uri]);
+  return (
+    <div className="sc-qr">
+      {src ? <img src={src} width={224} height={224} alt="QR code to scan with your authenticator app" /> : <span className="spinner" role="status" aria-label="Making the QR code" />}
+    </div>
+  );
+}
+
+type Status = { enabled: boolean; required: boolean; setupNeeded?: boolean; canSkip?: boolean; recoveryCodesLeft: number };
 
 /**
  * Two-step sign-in: set it up with an authenticator app, see the recovery codes once, and (where allowed) turn it off.
@@ -15,6 +34,7 @@ export function SecurityPage({ status, onChanged, forced }: { status: Status; on
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -46,77 +66,146 @@ export function SecurityPage({ status, onChanged, forced }: { status: Status; on
       onChanged();
     });
   };
+  const copy = (text: string) => {
+    void navigator.clipboard?.writeText(text).then(() => (setCopied(true), setTimeout(() => setCopied(false), 1800)));
+  };
 
   const body = codes ? (
-    <div className="card" style={{ maxWidth: 520, display: 'grid', gap: 12 }}>
-      <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Two-step sign-in is on</h2>
-      <p className="muted">
-        Keep these recovery codes somewhere safe, such as a password manager. Each works once if you lose your phone. <strong>They will not be shown again.</strong>
-      </p>
-      <ul style={{ columns: 2, listStyle: 'none', padding: 0, margin: 0, fontFamily: 'monospace', fontSize: '1rem', display: 'grid', gap: 6 }} aria-label="Recovery codes">
+    <div className="sc-card">
+      <div className="sc-head">
+        <span className="sc-status">
+          <span className="sc-dot" aria-hidden="true" />
+          Two-step sign-in is on
+        </span>
+      </div>
+      <h2 className="sc-title">Save your recovery codes</h2>
+      <p className="sc-lead">Keep these somewhere safe, such as a password manager. Each works once if you lose your phone.</p>
+      <ul className="sc-codes" aria-label="Recovery codes">
         {codes.map((c) => (
           <li key={c}>{c}</li>
         ))}
       </ul>
-      <button className="btn primary" onClick={() => (setCodes(null), onChanged())}>
-        I have saved them
-      </button>
+      <p className="sc-warn">
+        <strong>They will not be shown again.</strong>
+      </p>
+      <div className="sc-actions">
+        <button className="sc-btn ghost" type="button" onClick={() => copy(codes.join('\n'))}>
+          {copied ? 'Copied' : 'Copy all'}
+        </button>
+        <button className="sc-btn" onClick={() => (setCodes(null), onChanged())}>
+          I have saved them
+        </button>
+      </div>
     </div>
   ) : status.enabled ? (
-    <form className="card" onSubmit={disable} style={{ maxWidth: 520, display: 'grid', gap: 12 }}>
-      <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Two-step sign-in is on</h2>
-      <p className="muted">{status.recoveryCodesLeft} recovery {status.recoveryCodesLeft === 1 ? 'code' : 'codes'} left.</p>
+    <form className="sc-card" onSubmit={disable}>
+      <div className="sc-head">
+        <span className="sc-status">
+          <span className="sc-dot" aria-hidden="true" />
+          Two-step sign-in is on
+        </span>
+      </div>
+      <p className="sc-lead">
+        {status.recoveryCodesLeft} recovery {status.recoveryCodesLeft === 1 ? 'code' : 'codes'} left.
+      </p>
       {status.required ? (
-        <p className="muted">Staff accounts must keep this on. If you lose your phone and your recovery codes, an administrator can reset it for you.</p>
+        <p className="sc-lead">Staff accounts must keep this on. If you lose your phone and your recovery codes, an administrator can reset it for you.</p>
       ) : (
         <>
-          <label>
+          <label className="sc-field">
             Password
             <input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
           </label>
-          <label>
+          <label className="sc-field">
             Code from your app (or a recovery code)
             <input inputMode="numeric" autoComplete="one-time-code" required value={code} onChange={(e) => setCode(e.target.value)} />
           </label>
-          <button className="btn danger" disabled={busy}>
-            Turn off two-step sign-in
-          </button>
+          <div className="sc-actions">
+            <button className="sc-btn danger" disabled={busy}>
+              Turn off two-step sign-in
+            </button>
+          </div>
         </>
       )}
     </form>
   ) : setup ? (
-    <form className="card" onSubmit={enable} style={{ maxWidth: 520, display: 'grid', gap: 12 }}>
-      <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Add it to your authenticator app</h2>
-      <ol style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 6 }}>
-        <li>Open an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, Authy…).</li>
-        <li>
-          Choose "Enter a setup key" and type this key: <code style={{ fontSize: '1.05rem', letterSpacing: 1, wordBreak: 'break-all' }}>{setup.secret}</code>
+    <form className="sc-card" onSubmit={enable}>
+      <div className="sc-head">
+        <h2 className="sc-title">Add it to your authenticator app</h2>
+      </div>
+      <ol className="sc-steps">
+        <li className="sc-step">
+          <span className="sc-num" aria-hidden="true">
+            1
+          </span>
+          <div>
+            <h3>Scan the QR code</h3>
+            <p>Open an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, Authy…), choose “Scan a QR code”, and point it at this.</p>
+            <SetupQr uri={setup.otpauthUri} />
+            <div className="sc-key">
+              <small>Cannot scan it? Setup key</small>
+              <code>{setup.secret}</code>
+              <button type="button" className="sc-copy" onClick={() => copy(setup.secret)}>
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <a className="sc-direct" href={setup.otpauthUri}>
+              Open it directly on this device
+            </a>
+          </div>
         </li>
-        <li>
-          On a phone with the app installed you can also <a href={setup.otpauthUri}>open it directly</a>.
+        <li className="sc-step">
+          <span className="sc-num" aria-hidden="true">
+            2
+          </span>
+          <div>
+            <h3>Type the 6-digit code</h3>
+            <p>The app now shows a code that changes every 30 seconds.</p>
+            <input className="sc-input" aria-label="6-digit code" inputMode="numeric" autoComplete="one-time-code" required autoFocus pattern="\d{6}" maxLength={6} placeholder="000000" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+          </div>
         </li>
-        <li>Type the 6-digit code the app now shows:</li>
       </ol>
-      <label>
-        6-digit code
-        <input inputMode="numeric" autoComplete="one-time-code" required autoFocus pattern="\d{6}" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
-      </label>
-      <button className="btn primary" disabled={busy || code.length !== 6}>
-        Turn on two-step sign-in
-      </button>
+      <div className="sc-actions">
+        <button className="sc-btn" disabled={busy || code.length !== 6}>
+          Turn on two-step sign-in
+        </button>
+      </div>
     </form>
   ) : (
-    <div className="card" style={{ maxWidth: 520, display: 'grid', gap: 12 }}>
-      <h2 style={{ margin: 0, fontSize: '1.05rem' }}>{forced ? 'Set up two-step sign-in to continue' : 'Two-step sign-in is off'}</h2>
-      <p className="muted">After your password you will also type a 6-digit code from an authenticator app. It protects the console, and everyone's data in it, if your password is ever stolen.</p>
-      <button className="btn primary" onClick={start} disabled={busy}>
-        Set it up
-      </button>
+    <div className="sc-card">
+      <div className="sc-head">
+        <span className="sc-status">
+          <span className="sc-dot off" aria-hidden="true" />
+          Two-step sign-in is off
+        </span>
+      </div>
+      <h2 className="sc-title">{forced ? 'Connect an authenticator app to continue' : 'Protect your account with a second step'}</h2>
+      <p className="sc-lead">After your password you will also type a 6-digit code from an authenticator app. It protects the console, and everyone's data in it, if your password is ever stolen.</p>
+      <div className="sc-actions">
+        <button className="sc-btn" onClick={start} disabled={busy}>
+          Set it up
+        </button>
+        {forced && status.canSkip && (
+          <button className="sc-btn ghost" disabled={busy} onClick={() => run(async () => (await api('POST', '/v1/me/mfa/skip'), onChanged()))}>
+            Set it up later
+          </button>
+        )}
+      </div>
+      {forced && status.canSkip && <p className="sc-small">Administrators can put this off. You will be asked again the next time you sign in.</p>}
     </div>
   );
 
+  if (forced)
+    return (
+      <div className="sc-forced">
+        <p className="lg-card-eyebrow">Two-step sign-in</p>
+        <ErrorBanner message={error} />
+        {body}
+      </div>
+    );
+
   return (
-    <Page title="Security" sub={forced ? 'This account needs two-step sign-in before it can use the console.' : 'Your own sign-in'}>
+    <Page title="Security" sub={forced ? (status.canSkip ? 'Connect an authenticator app now, or set it up later.' : 'Your account needs two-step sign-in before it can use the console.') : 'Your own sign-in'}>
       <ErrorBanner message={error} />
       {body}
     </Page>

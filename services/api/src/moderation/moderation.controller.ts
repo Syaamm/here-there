@@ -106,13 +106,12 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     await this.audit.log(null, 'report.urgent_alerted', 'report', report.id, { staff: staff.length });
   }
 
-  /** What the person who reported sees: where each report stands, in plain words (never the moderator's notes). */
+  /** What the person who reported sees: where each report stands, in plain words (never the moderator's notes). A reporter cannot appeal: the report goes to the moderators and that is all. */
   async mine(me: User, limitRaw?: string, cursorRaw?: string) {
     const limit = pageLimit(limitRaw, 20);
     const found = await this.prisma.report.findMany({ where: { reporterId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw)) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
     const page = sliceKeyset(found, limit, (r) => r.createdAt);
     const rows = page.items;
-    const appealed = new Set((await this.prisma.appeal.findMany({ where: { userId: me.id, kind: 'report', targetId: { in: rows.map((r) => r.id) } }, select: { targetId: true } })).map((a) => a.targetId));
     const words: Record<string, string> = { open: 'Waiting for a moderator', in_review: 'Being reviewed', resolved: 'We took action', dismissed: 'We found nothing to act on' };
     return {
       nextCursor: page.nextCursor,
@@ -123,9 +122,66 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
         status: r.status,
         outcome: words[r.status] ?? r.status,
         createdAt: r.createdAt,
-        canAppeal: r.status === 'dismissed' && !appealed.has(r.id),
       })),
     };
+  }
+
+  /** True when a report is about this person: they are the user reported, the sender of the message, or the host of the listing. */
+  async isAbout(report: { id: string; targetType: string; targetId: string }, userId: string) {
+    return (await this.targetUsers([report])).get(report.id) === userId;
+  }
+
+  /**
+   * Reports about the person where a moderator or administrator has taken a decision (resolved). They see what it was about
+   * and what was decided, never who reported or what the reporter wrote, and can ask for a review once.
+   */
+  async aboutMe(me: User, limitRaw?: string, cursorRaw?: string) {
+    const limit = pageLimit(limitRaw, 20);
+    const [acts, trips, sent] = await Promise.all([
+      this.prisma.activity.findMany({ where: { hostId: me.id }, select: { id: true } }),
+      this.prisma.trip.findMany({ where: { hostId: me.id }, select: { id: true } }),
+      this.prisma.message.findMany({ where: { senderId: me.id }, select: { id: true }, orderBy: { createdAt: 'desc' }, take: 5000 }),
+    ]);
+    const found = await this.prisma.report.findMany({
+      where: {
+        status: 'resolved',
+        reporterId: { not: me.id },
+        OR: [
+          { targetType: 'user', targetId: me.id },
+          { targetType: 'activity', targetId: { in: acts.map((x) => x.id) } },
+          { targetType: 'trip', targetId: { in: trips.map((x) => x.id) } },
+          { targetType: 'message', targetId: { in: sent.map((x) => x.id) } },
+        ],
+        ...beforeKeyset(decodeKeyset(cursorRaw)),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    const page = sliceKeyset(found, limit, (r) => r.createdAt);
+    const appeals = await this.prisma.appeal.findMany({ where: { userId: me.id, kind: 'report', targetId: { in: page.items.map((r) => r.id) } } });
+    const byReport = new Map(appeals.map((a) => [a.targetId, a]));
+    return {
+      nextCursor: page.nextCursor,
+      items: page.items.map((r) => {
+        const a = byReport.get(r.id);
+        return {
+          id: r.id,
+          category: r.category,
+          targetType: r.targetType,
+          decidedAt: r.resolvedAt,
+          decision: r.resolution,
+          appeal: a ? { id: a.id, state: a.state, decision: a.decision } : null,
+          canAppeal: !a,
+        };
+      }),
+    };
+  }
+
+  /** Tells the person a report about them was decided, so they can read the outcome and ask for a review. */
+  async tellSubject(report: { id: string; category: string; targetType: string; targetId: string; reporterId: string }) {
+    const who = (await this.targetUsers([report])).get(report.id);
+    if (!who || who === report.reporterId) return;
+    await this.notifications.notify(who, 'report_decision', 'A decision was made about a report about you', 'A moderator looked at a report about you and took action. You can read what was decided, and ask for a review once.', { reportId: report.id });
   }
 
   // ---------------------------------------------------------------- the queue
@@ -428,6 +484,11 @@ export class ModerationController {
   @Get('me/reports')
   mine(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
     return this.moderation.mine(me, limit, cursor);
+  }
+
+  @Get('me/reports-about-me')
+  aboutMe(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.moderation.aboutMe(me, limit, cursor);
   }
 
   @Staff(...ALL)

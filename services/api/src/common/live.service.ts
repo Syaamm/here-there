@@ -15,7 +15,7 @@ export const tripCities = (t: { originCity: string; destination: string }) => [t
 
 /** What the server tells a connected app. */
 export type LiveEvent =
-  | { type: 'message'; conversationId: string; message: { id: string; body: string; createdAt: Date; sender: { id: string; displayName: string; photoUrl: string | null } } }
+  | { type: 'message'; conversationId: string; message: { id: string; body: string; kind: string; createdAt: Date; sender: { id: string; displayName: string; photoUrl: string | null } } }
   | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: Date } }
   // some alerts were taken away (their request was settled): lists and the badge should be asked again
   | { type: 'alerts-changed' }
@@ -73,7 +73,9 @@ export class LiveService implements OnModuleDestroy {
       if (userId) {
         // after sign-in the only thing an app tells us is whether it is on screen right now
         try {
-          const m = JSON.parse(raw.toString()) as { type?: string; visible?: unknown; city?: unknown };
+          const m = JSON.parse(raw.toString()) as { type?: string; visible?: unknown; city?: unknown; id?: unknown };
+          // which chat is open in front right now (null = none): what lets a message skip the alert for someone already reading it
+          if (m.type === 'chat') (ws as WebSocket & { chat?: string }).chat = typeof m.id === 'string' && m.id.length <= 64 ? m.id : undefined;
           if (m.type === 'presence') (ws as WebSocket & { visible?: boolean }).visible = m.visible === true;
           if (m.type === 'scope') this.setCity(ws, typeof m.city === 'string' ? m.city : '');
         } catch {
@@ -116,6 +118,15 @@ export class LiveService implements OnModuleDestroy {
    */
   isViewing(userId: string) {
     for (const ws of this.byUser.get(userId) ?? []) if ((ws as WebSocket & { visible?: boolean }).visible === true) return true;
+    return false;
+  }
+
+  /** Does this person have this very chat open in front of them right now (app on screen, that chat the screen in front)? */
+  isViewingChat(userId: string, conversationId: string) {
+    for (const ws of this.byUser.get(userId) ?? []) {
+      const w = ws as WebSocket & { visible?: boolean; chat?: string };
+      if (w.visible === true && w.chat === conversationId) return true;
+    }
     return false;
   }
 
@@ -202,6 +213,17 @@ export class LiveService implements OnModuleDestroy {
     if (!set) return;
     const text = JSON.stringify(event);
     for (const ws of set) if (ws.readyState === WebSocket.OPEN) ws.send(text);
+  }
+
+  /** The same event to several people: written out once, not once per person (a message to a big group). */
+  sendMany(userIds: string[], event: LiveEvent) {
+    let text: string | undefined;
+    for (const userId of userIds) {
+      const set = this.byUser.get(userId);
+      if (!set) continue;
+      text ??= JSON.stringify(event);
+      for (const ws of set) if (ws.readyState === WebSocket.OPEN) ws.send(text);
+    }
   }
 
   onModuleDestroy() {

@@ -18,7 +18,7 @@ import { useKeyboardOverlap, useKeyboardShown } from '@/lib/keyboard';
 import { cursorDeps, patchCache, useAction, useLoad } from '@/lib/hooks';
 import { BackArrow } from '@/components/TabHeader';
 import { statusTop } from '@/lib/layout';
-import { useLiveEvents } from '@/lib/live';
+import { clearOpenChat, setOpenChat, useLiveEvents } from '@/lib/live';
 import { refreshUnread } from '@/lib/unread';
 import { t, useT } from '@/lib/i18n';
 import { useEnterMode, useTheme } from '@/lib/theme';
@@ -175,16 +175,33 @@ function Chat({ id }: { id: string }) {
   inFront.current = focused;
   const msgs = useLoad(() => get<{ writable: boolean; ended?: boolean; items: Msg[]; nextCursor?: string | null }>(`/v1/conversations/${id}/messages${inFront.current ? '?read=1' : ''}`), [id], 30_000, 'chat:msgs', { animate: true, live: true });
   // a new message for this chat (or a reconnect) loads at once; the 30-second poll above is only the safety net
+  // while this chat is the screen in front, the server knows: a message to it then needs no alert and no push for this person
+  useEffect(() => {
+    if (!focused) return;
+    setOpenChat(id);
+    return () => clearOpenChat(id);
+  }, [focused, id]);
   useLiveEvents((e) => {
     if (!inFront.current) return; // not on screen: it loads when you open it
-    if (e.type === 'ready' || (e.type === 'message' && e.conversationId === id)) void msgs.reload();
+    if (e.type === 'message' && e.conversationId === id) {
+      const m = e.message;
+      if ((m.kind ?? 'text') === 'text' && msgs.data) {
+        // a plain message already holds everything the screen needs: put it in its place, no fetch at all
+        patchCache<NonNullable<typeof msgs.data>>('chat:msgs', [id], (old) =>
+          old.items.some((x) => x.id === m.id) ? old : { ...old, items: [...old.items, m as Msg].sort((a, b) => (a.createdAt < b.createdAt || (a.createdAt === b.createdAt && a.id < b.id) ? -1 : 1)) },
+        );
+      } else void msgs.reload(); // a poll, a notice, or nothing on screen yet
+      return;
+    }
+    if (e.type === 'ready') void msgs.reload();
     if (e.type === 'group-changed' && e.kind === 'trip' && e.id === groupScope.current?.id) void msgs.reload(); // a poll was answered or closed
   });
-  // fetching the messages reads this chat's alert on the server: ask for the new badge number each time something arrives
-  const arrived = msgs.data?.items.length ?? -1;
+  // opening the chat reads its alert on the server: ask for the new badge number once. Messages that arrive while it is open
+  // make no alert (the server knows the chat is open), so there is nothing more to ask for.
+  const opened = (msgs.data?.items.length ?? -1) >= 0;
   useEffect(() => {
-    if (arrived >= 0) refreshUnread();
-  }, [arrived]);
+    if (opened) refreshUnread();
+  }, [opened, id]);
   // ---- earlier messages: the screen opens on the newest ones, and scrolling up near the top loads the page before them,
   // as in any chat app. What has been loaded stays; the screen keeps its place while the older ones are added above.
   const [older, setOlder] = useState<Msg[]>([]);
@@ -360,7 +377,7 @@ function Chat({ id }: { id: string }) {
   const block = async (m: Msg) => {
     if (await confirmAsync(t('Block {name}?', { name: m.sender.displayName }), t("Their messages will be hidden from you and they can't contact you, in HERE or THERE."), t('Block'), true)) {
       const r = await safety.run(() => post('/v1/blocks', { userId: m.sender.id }));
-      if (r) setNote(t('You blocked {name}. Their messages are hidden, and you can unblock them in Safety & privacy.', { name: m.sender.displayName }));
+      if (r) setNote(t('You blocked {name}. Their messages are hidden, and you can unblock them in Settings > Reports & blocked.', { name: m.sender.displayName }));
     }
   };
 

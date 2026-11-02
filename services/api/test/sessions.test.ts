@@ -29,8 +29,8 @@ describe('sign-ins that can be ended', () => {
     const u = await h.verified('Copied');
     const first = await login(u.email);
     const second = (await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken })).body;
-    // the first token is a used one; after the short grace period, showing it again means someone else has it
-    await h.prisma.session.updateMany({ where: { userId: u.id }, data: { lastUsedAt: new Date(Date.now() - 60_000) } });
+    // the first token is a used one; after the grace window, showing it again means someone else has it
+    await h.prisma.session.updateMany({ where: { userId: u.id }, data: { lastUsedAt: new Date(Date.now() - 3 * 3600_000) } });
     const replay = await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken });
     assert.equal(replay.status, 401);
     assert.equal(replay.body.code, 'REFRESH_TOKEN_REUSED');
@@ -43,6 +43,17 @@ describe('sign-ins that can be ended', () => {
     const first = await login(u.email);
     assert.equal((await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken })).status, 201);
     assert.equal((await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken })).status, 201, 'inside the grace period');
+  });
+
+  it('a refresh answer that never reached the phone does not sign the person out when they come back later', async () => {
+    const u = await h.verified('LostAnswer');
+    const first = await login(u.email);
+    await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken }); // the answer is lost: the phone keeps `first`
+    await h.prisma.session.updateMany({ where: { userId: u.id }, data: { lastUsedAt: new Date(Date.now() - 20 * 60_000) } }); // it opens the app 20 minutes later
+    const again = await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken });
+    assert.equal(again.status, 201, JSON.stringify(again.body));
+    assert.equal((await h.get('/v1/me', again.body.token)).status, 200);
+    assert.equal((await h.post('/v1/auth/refresh', undefined, { refreshToken: again.body.refreshToken })).status, 201, 'and the new pair keeps working');
   });
 
   it('log out of this device ends that sign-in only', async () => {

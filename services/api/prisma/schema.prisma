@@ -46,6 +46,8 @@ model User {
   mfaSecret          String?
   mfaEnabledAt       DateTime?
   mfaLastStep        Int?
+  // An administrator chose "set up later" at this sign-in; cleared at the next password sign-in. Only administrators can do this.
+  mfaSkippedAt       DateTime?
   // Reliability level (new | reliable | very_reliable | needs_care), worked out from verified, completed plans only.
   reliabilityLevel   String?
   reliabilityChecked DateTime?

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Chip, Empty, ErrorBanner, fmt, Page, Segmented, useAction, useLoad, useMore } from '../ui';
+import { askText, Avatar, Chip, Empty, ErrorBanner, fmt, Loading, Page, useAction, useLoad, useMore } from '../ui';
+import './Appeals.css';
 
 type Appeal = {
   id: string;
@@ -12,10 +13,15 @@ type Appeal = {
   createdAt: string;
   decidedAt: string | null;
   user: { id: string; email: string; displayName: string | null; state: string; eligibility: string };
-  target: { reason?: string | null; method?: string | null; type?: string | null; title?: string | null; suspendedUntil?: string | null; reportCategory?: string; reportAbout?: string; dismissedWith?: string | null; warning?: string; message?: string; removedBecause?: string | null } | null;
+  target: { reason?: string | null; method?: string | null; type?: string | null; title?: string | null; suspendedUntil?: string | null; reportCategory?: string; reportAbout?: string; decidedWith?: string | null; warning?: string; message?: string; removedBecause?: string | null } | null;
 };
 type View = 'open' | 'upheld' | 'rejected';
 const TONE: Record<string, 'ok' | 'warn' | 'bad' | 'info' | 'plain'> = { open: 'warn', upheld: 'ok', rejected: 'bad' };
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'open', label: 'Waiting' },
+  { id: 'upheld', label: 'Accepted' },
+  { id: 'rejected', label: 'Rejected' },
+];
 
 /** Appeals: a person asking us to look at a decision again. Accepting undoes the decision; either way they are told, with your note. */
 export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: string) => void }) {
@@ -41,54 +47,77 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
     a.kind === 'verification' ? 'Accepting verifies them as an adult.' : a.kind === 'suspension' ? 'Accepting restores the account and lifts any ban.' : a.kind === 'report' ? 'Accepting sends the report back to the queue, unassigned, for a fresh review.' : a.kind === 'warning' ? 'Accepting withdraws the warning (and puts back the message it was about).' : a.kind === 'message' ? 'Accepting puts the message back in its chat.' : 'Accepting puts the listing back, if it has not ended.';
 
   return (
-    <Page title="Appeals" sub="People asking us to look again: a rejected identity check, a suspension, or a listing we removed. Each decision can be appealed once.">
-      <Segmented<View>
-        label="Which appeals"
-        value={view}
-        onChange={setView}
-        options={[
-          { id: 'open', label: 'Waiting' },
-          { id: 'upheld', label: 'Accepted' },
-          { id: 'rejected', label: 'Rejected' },
-        ]}
-      />
-      <ErrorBanner message={error ?? act.error} />
-      {loading && !data && <p className="muted">Loading…</p>}
-      {data && items.length === 0 && <Empty>Nothing here.</Empty>}
-      <ul className="stack">
-        {items.map((a) => (
-          <li key={a.id} className="card" style={{ display: 'grid', gap: 8 }}>
-            <div className="row wrap" style={{ justifyContent: 'space-between' }}>
-              <strong>{a.what.charAt(0).toUpperCase() + a.what.slice(1)}</strong>
-              <Chip value={a.state} tone={TONE[a.state] ?? 'plain'} />
-            </div>
-            <div className="muted small">
-              <button className="link" onClick={() => openUser?.(a.user.id)}>{a.user.displayName ?? a.user.email}</button> · sent {fmt(a.createdAt)}
-              {a.target?.reason ? ` · rejected for: ${a.target.reason}` : ''}
-              {a.target?.title ? ` · ${a.target.type}: ${a.target.title}` : ''}
-              {a.target?.warning ? ` · warning: ${a.target.warning}` : ''}
-              {a.target?.message ? ` · message: “${a.target.message}”${a.target.removedBecause ? ` (removed: ${a.target.removedBecause})` : ''}` : ''}
-              {a.target?.reportCategory ? ` · dismissed ${a.target.reportCategory.replace(/_/g, ' ')} report about a ${a.target.reportAbout}${a.target.dismissedWith ? ` (${a.target.dismissedWith})` : ''}` : ''}
-              {a.kind === 'suspension' ? (a.target?.suspendedUntil ? ` · suspended until ${fmt(a.target.suspendedUntil)}` : ' · suspended until staff restore the account') : ''}
-            </div>
-            <p className="note" style={{ margin: 0 }}>{a.message}</p>
-            {a.decision && <p className="muted small" style={{ margin: 0 }}>Decision: {a.decision}</p>}
-            {a.state === 'open' &&
-              (canDecide(a) ? (
-                <>
-                  <p className="muted small" style={{ margin: 0 }}>{undo(a)}</p>
-                  <div className="row wrap">
-                    <button className="btn small" onClick={() => decide(a, 'uphold')} disabled={act.busy}>Accept the appeal</button>
-                    <button className="btn danger small" onClick={() => decide(a, 'reject')} disabled={act.busy}>Reject it</button>
-                  </div>
-                </>
-              ) : (
-                <p className="muted small">{a.kind === 'verification' ? 'The trust team decides identity appeals.' : 'Moderators decide these. A different moderator from the one who made the decision.'}</p>
-              ))}
-          </li>
+    <Page fill title="Appeals" sub="People asking us to look again at a decision. Each decision can be appealed once.">
+      <div className="ap-filters" role="group" aria-label="Which appeals">
+        {VIEWS.map((v) => (
+          <button key={v.id} type="button" className={view === v.id ? 'ap-pill on' : 'ap-pill'} aria-pressed={view === v.id} onClick={() => setView(v.id)}>
+            {v.label}
+          </button>
         ))}
-      </ul>
-      {more.more}
+      </div>
+      <ErrorBanner message={error ?? act.error} />
+      {loading && !data && <Loading rows={5} />}
+      {data && items.length === 0 && <Empty title="Nothing here">No appeals in this list.</Empty>}
+      {items.length > 0 && (
+        <div className="ap-scroll" aria-label="Appeals">
+          {items.map((a) => {
+            const d = new Date(a.createdAt);
+            const name = a.user.displayName ?? a.user.email;
+            return (
+              <section key={a.id} className="ap-card">
+                <header className="ap-date">
+                  <span className="ap-kind">{a.what}</span>
+                  <strong className="ap-num">{d.getDate()}</strong>
+                  <span className="ap-mon">{d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</span>
+                  <span className="ap-state">
+                    <Chip value={a.state} tone={TONE[a.state] ?? 'plain'} />
+                  </span>
+                </header>
+                <div className="ap-body">
+                  <div className="ap-person">
+                    <Avatar name={name} size="lg" />
+                    <div style={{ minWidth: 0 }}>
+                      <button className="ap-name" onClick={() => openUser?.(a.user.id)}>
+                        {name}
+                      </button>
+                      <div className="ap-sub">sent {fmt(a.createdAt)}</div>
+                    </div>
+                  </div>
+                  {(a.target || a.kind === 'suspension') && (
+                    <div className="ap-target">
+                      {a.target?.reason ? <span>rejected for: {a.target.reason}</span> : null}
+                      {a.target?.title ? <span>{a.target.type}: {a.target.title}</span> : null}
+                      {a.target?.warning ? <span>warning: {a.target.warning}</span> : null}
+                      {a.target?.message ? <span>message: “{a.target.message}”{a.target.removedBecause ? ` (removed: ${a.target.removedBecause})` : ''}</span> : null}
+                      {a.target?.reportCategory ? <span>decision on a {a.target.reportCategory.replace(/_/g, ' ')} report about their {a.target.reportAbout}{a.target.decidedWith ? ` (${a.target.decidedWith})` : ''}</span> : null}
+                      {a.kind === 'suspension' ? <span>{a.target?.suspendedUntil ? `suspended until ${fmt(a.target.suspendedUntil)}` : 'suspended until staff restore the account'}</span> : null}
+                    </div>
+                  )}
+                  <p className="ap-quote">{a.message}</p>
+                  {a.decision && <p className="ap-decision">Decision: {a.decision}</p>}
+                  {a.state === 'open' &&
+                    (canDecide(a) ? (
+                      <>
+                        <p className="ap-hint">{undo(a)}</p>
+                        <div className="ap-actions">
+                          <button className="ap-accept" onClick={() => decide(a, 'uphold')} disabled={act.busy}>
+                            Accept the appeal
+                          </button>
+                          <button className="ap-reject" onClick={() => decide(a, 'reject')} disabled={act.busy}>
+                            Reject it
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="ap-hint">{a.kind === 'verification' ? 'The trust team decides identity appeals.' : 'Moderators decide these. A different moderator from the one who made the decision.'}</p>
+                    ))}
+                </div>
+              </section>
+            );
+          })}
+          {more.hasMore && <div className="ap-more">{more.more}</div>}
+        </div>
+      )}
     </Page>
   );
 }

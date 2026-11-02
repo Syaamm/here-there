@@ -194,6 +194,18 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     assert.equal((await texts(b, conv)).includes('C again'), true);
   });
 
+  it('clears a chat alert with the light read call and only for members', async () => {
+    const { host, members: [b], conv } = await group(['ReadB', 'ReadOutsider']);
+    const outsider = await verified('ReadStranger');
+    await say(host, conv, 'Read me');
+    const unread = async () => (await notified(b, 'chat_message')).filter((x: { readAt?: string | null }) => !x.readAt).length;
+    assert.equal(await unread(), 1, 'the message left one unread alert');
+    assert.equal((await post(`/v1/conversations/${conv}/read`, outsider.token, {})).status, 403, 'not a member');
+    assert.equal(await unread(), 1, 'a refused call clears nothing');
+    assert.equal((await post(`/v1/conversations/${conv}/read`, b.token, {})).status, 201);
+    assert.equal(await unread(), 0, 'the alert is read, with no message page fetched');
+  });
+
   it('treats a report of immediate danger as urgent: first in the queue, every moderator alerted, emergency number shown', async () => {
     const mod = await staff('UrgMod');
     const lead = await staff('UrgLead', 'trust_lead');
@@ -327,18 +339,31 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     await post(`/v1/admin/appeals/${a2.body.id}/decision`, mod2.token, { decision: 'reject', note: 'It stays removed.' });
     assert.equal((await texts(reporter, conv)).includes('Another remark'), false);
 
-    // a dismissed report: the reporter asks for a second look, and it goes back to the queue unassigned
+    // a report goes to the moderators and that is all for the person who reported: no second look
     const rep = (await post('/v1/reports', reporter.token, { targetType: 'user', targetId: bad.id, category: 'harassment', details: 'again' })).body.id;
-    assert.equal((await post('/v1/me/appeals', reporter.token, { kind: 'report', targetId: rep, message: 'Please look at this again.' })).body.code, 'NOTHING_TO_APPEAL', 'only dismissed reports');
     await post(`/v1/admin/reports/${rep}/resolve`, mod.token, { status: 'dismissed', resolution: 'Nothing found' });
-    assert.equal((await get('/v1/me/reports', reporter.token)).body.items.find((r: any) => r.id === rep).canAppeal, true);
-    assert.equal((await post('/v1/me/appeals', bad.token, { kind: 'report', targetId: rep, message: 'I am not the reporter at all.' })).body.code, 'NOTHING_TO_APPEAL');
-    const a3 = await post('/v1/me/appeals', reporter.token, { kind: 'report', targetId: rep, message: 'There was more to it than the first review saw.' });
+    assert.equal('canAppeal' in (await get('/v1/me/reports', reporter.token)).body.items.find((r: any) => r.id === rep), false);
+    assert.equal((await post('/v1/me/appeals', reporter.token, { kind: 'report', targetId: rep, message: 'Please look at this again.' })).body.code, 'NOTHING_TO_APPEAL', 'a reporter cannot appeal');
+    assert.equal((await get('/v1/me/reports-about-me', bad.token)).body.items.length, 0, 'a dismissed report is not shown to the person it was about');
+
+    // a report staff acted on: the person it is about can read the decision (not who reported) and appeal once
+    const rep2 = (await post('/v1/reports', reporter.token, { targetType: 'user', targetId: bad.id, category: 'harassment', details: 'Secret words of the reporter' })).body.id;
+    assert.equal((await post('/v1/me/appeals', bad.token, { kind: 'report', targetId: rep2, message: 'I am sure there was no decision yet.' })).body.code, 'NOTHING_TO_APPEAL', 'only after a decision');
+    await post(`/v1/admin/reports/${rep2}/resolve`, mod.token, { status: 'resolved', resolution: 'Rude messages confirmed.' });
+    const seen = (await get('/v1/me/reports-about-me', bad.token)).body.items;
+    assert.equal(seen.length, 1);
+    assert.deepEqual([seen[0].id, seen[0].category, seen[0].decision, seen[0].canAppeal, seen[0].appeal], [rep2, 'harassment', 'Rude messages confirmed.', true, null]);
+    assert.equal(JSON.stringify(seen).includes('Secret words'), false, 'what the reporter wrote stays private');
+    assert.equal(JSON.stringify(seen).includes(reporter.id), false, 'and so does who they are');
+    assert.equal((await notified(bad, 'report_decision')).length, 1, 'the person is told');
+    assert.equal((await post('/v1/me/appeals', reporter.token, { kind: 'report', targetId: rep2, message: 'I reported it myself, let me appeal.' })).body.code, 'NOTHING_TO_APPEAL');
+    const a3 = await post('/v1/me/appeals', bad.token, { kind: 'report', targetId: rep2, message: 'That was a joke between friends, not harassment.' });
     assert.equal(a3.status, 201, JSON.stringify(a3.body));
-    assert.equal((await post(`/v1/admin/appeals/${a3.body.id}/decision`, mod.token, { decision: 'uphold', note: 'x second look' })).body.code, 'SECOND_REVIEWER');
+    assert.equal((await post(`/v1/admin/appeals/${a3.body.id}/decision`, mod.token, { decision: 'uphold', note: 'x second look' })).body.code, 'SECOND_REVIEWER', 'the moderator who decided cannot review it');
     assert.equal((await post(`/v1/admin/appeals/${a3.body.id}/decision`, mod2.token, { decision: 'uphold', note: 'Reopened for a fresh review.' })).body.state, 'upheld');
-    const back = await prisma.report.findUnique({ where: { id: rep } });
+    const back = await prisma.report.findUnique({ where: { id: rep2 } });
     assert.deepEqual([back.status, back.assignedTo, !!back.reopenedAt], ['open', null, true]);
-    assert.equal((await get('/v1/me/reports', reporter.token)).body.items.find((r: any) => r.id === rep).canAppeal, false);
+    limiter.reset(); // five appeals a day is enough for this one test person
+    assert.equal((await post('/v1/me/appeals', bad.token, { kind: 'report', targetId: rep2, message: 'And again please, once more.' })).body.code, 'NOTHING_TO_APPEAL', 'it is back in the queue, so there is nothing more to appeal');
   });
 });

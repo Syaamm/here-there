@@ -60,6 +60,8 @@ export interface ApiRoutes {
   "POST /v1/admin/reports/{id}/resolve": { body: { status: "resolved" | "dismissed" | "in_review"; resolution?: string }; errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_FOUND" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "GET /v1/admin/reports/workload": { errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" };
   "GET /v1/admin/scope": { errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" };
+  "GET /v1/admin/staff": { errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" };
+  "POST /v1/admin/staff": { body: { email: string; displayName: string; role: "support" | "moderator" | "trust_lead"; regionKey?: string | null }; errors: "ACCOUNT_SUSPENDED" | "ADMIN_ONLY" | "EMAIL_TAKEN" | "FORBIDDEN" | "GLOBAL_STAFF_ONLY" | "INTERNAL_ERROR" | "INVALID_PLACE" | "INVALID_TOKEN" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "GET /v1/admin/trips": { query: { status?: string; limit?: string; cursor?: string }; errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "POST /v1/admin/trips/{id}/remove": { body: { reason: string }; errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_FOUND" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "GET /v1/admin/users": { query: { q?: string; state?: "active" | "suspended"; limit?: string; cursor?: string }; errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
@@ -96,6 +98,7 @@ export interface ApiRoutes {
   "GET /v1/conversations/{id}/messages": { query: { read?: "0" | "1"; limit?: number; cursor?: string }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_CURSOR" | "INVALID_TOKEN" | "NOT_A_MEMBER" | "NOT_FOUND" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" | "VERIFICATION_REQUIRED" };
   "POST /v1/conversations/{id}/messages": { body: { body: string }; errors: "ACCOUNT_SUSPENDED" | "CONTENT_REJECTED" | "CONVERSATION_CLOSED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_A_MEMBER" | "NOT_FOUND" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" | "VERIFICATION_REQUIRED" };
   "POST /v1/conversations/{id}/polls": { body: { title: string; dateStart?: string; dateEnd?: string }; errors: "ACCOUNT_SUSPENDED" | "CONTENT_REJECTED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_A_TRIP_CHAT" | "NOT_FOUND" | "NOT_ORGANIZER" | "RATE_LIMITED" | "TOO_MANY_OPEN_POLLS" | "TRIP_CLOSED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" | "VERIFICATION_REQUIRED" };
+  "POST /v1/conversations/{id}/read": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_A_MEMBER" | "NOT_FOUND" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VERIFICATION_REQUIRED" };
   "GET /v1/export/zip": { errors: "INTERNAL_ERROR" | "INVALID_LINK" | "LINK_EXPIRED" };
   "POST /v1/follows": { body: { userId: string }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TARGET" | "INVALID_TOKEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "DELETE /v1/follows/{userId}": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNAUTHENTICATED" };
@@ -124,6 +127,7 @@ export interface ApiRoutes {
   "GET /v1/me/mfa": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
   "POST /v1/me/mfa/enable": { body: { code: string }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_SETUP_CODE" | "INVALID_TOKEN" | "MFA_ALREADY_ON" | "MFA_NOT_STARTED" | "RATE_LIMITED" | "STAFF_ONLY" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "POST /v1/me/mfa/setup": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "MFA_ALREADY_ON" | "RATE_LIMITED" | "STAFF_ONLY" | "UNAUTHENTICATED" };
+  "POST /v1/me/mfa/skip": { errors: "ACCOUNT_SUSPENDED" | "ADMIN_ONLY" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
   "GET /v1/me/no-shows": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
   "GET /v1/me/notification-settings": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
   "PUT /v1/me/notification-settings": { body: { groups?: Record<string, boolean>; quietHours?: { enabled: boolean; start?: string; end?: string; timezone?: string } }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_QUIET_HOURS" | "INVALID_TIMEZONE" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
@@ -136,6 +140,7 @@ export interface ApiRoutes {
   "PATCH /v1/me/profile": { body: { displayName?: string; homeCity?: string | null; languages?: Array<string>; interests?: Array<string>; bio?: string | null }; errors: "ACCOUNT_SUSPENDED" | "CONTENT_REJECTED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "GET /v1/me/reliability": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
   "GET /v1/me/reports": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
+  "GET /v1/me/reports-about-me": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
   "GET /v1/me/sessions": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
   "POST /v1/me/sessions/logout-all": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
   "DELETE /v1/me/travel-match": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };

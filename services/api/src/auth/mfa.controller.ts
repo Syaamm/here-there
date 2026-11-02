@@ -68,9 +68,15 @@ export class MfaService {
   }
 
   async status(u: User) {
+    const staff = u.role !== 'user' && u.role !== 'guest';
+    const skipped = u.role === 'admin' && !!u.mfaSkippedAt;
     return {
       enabled: !!u.mfaEnabledAt,
       required: u.role !== 'user' && staffMfaRequired(),
+      // the console asks staff to connect an authenticator right after their first sign-in, until they have
+      setupNeeded: staff && !u.mfaEnabledAt && !skipped,
+      // only an administrator may put it off (until their next sign-in)
+      canSkip: u.role === 'admin' && !u.mfaEnabledAt,
       recoveryCodesLeft: u.mfaEnabledAt ? await this.prisma.mfaRecoveryCode.count({ where: { userId: u.id, usedAt: null } }) : 0,
     };
   }
@@ -104,6 +110,15 @@ export class MfaService {
     return { enabled: true, recoveryCodes: codes };
   }
 
+  /** An administrator puts the setup off until their next sign-in. Nobody else may. */
+  async skip(u: User) {
+    if (u.role !== 'admin') throw E.forbidden('ADMIN_ONLY', 'Only administrators can set up two-step sign-in later.');
+    if (u.mfaEnabledAt) return { skipped: false };
+    await this.prisma.user.update({ where: { id: u.id }, data: { mfaSkippedAt: new Date() } });
+    await this.audit.log(u.id, 'mfa.skipped', 'user', u.id);
+    return { skipped: true };
+  }
+
   async disable(u: User, body: unknown) {
     this.staffOnly(u);
     const dto = parse(disableSchema, body);
@@ -120,7 +135,7 @@ export class MfaService {
   async clear(userId: string) {
     await this.prisma.$transaction([
       this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),
-      this.prisma.user.update({ where: { id: userId }, data: { mfaSecret: null, mfaEnabledAt: null, mfaLastStep: null } }),
+      this.prisma.user.update({ where: { id: userId }, data: { mfaSecret: null, mfaEnabledAt: null, mfaLastStep: null, mfaSkippedAt: null } }),
     ]);
   }
 
@@ -161,6 +176,11 @@ export class MfaController {
   @Post('me/mfa/enable')
   enable(@CurrentUser() u: User, @Body() body: unknown) {
     return this.mfa.enable(u, body);
+  }
+
+  @Post('me/mfa/skip')
+  skip(@CurrentUser() u: User) {
+    return this.mfa.skip(u);
   }
 
   @Delete('me/mfa')

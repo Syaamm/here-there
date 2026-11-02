@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, can, getPlace, getRefreshToken, loadSession, saveSession, setPlace, setRefreshToken, setToken, setUnauthorizedHandler, STAFF, type Role, type Scope, type Session } from './api';
 import { AuditPage } from './pages/Audit';
 import { ContentPage } from './pages/Content';
+import { OnCallPage } from './pages/OnCall';
 import { AppealsPage } from './pages/Appeals';
 import { NoShowsPage } from './pages/NoShows';
 import { OverviewPage } from './pages/Overview';
@@ -9,23 +10,28 @@ import { PlacePicker } from './pages/PlacePicker';
 import { RegionsPage } from './pages/Regions';
 import { ReportsPage } from './pages/Reports';
 import { SecurityPage } from './pages/Security';
+import { StaffPage } from './pages/Staff';
 import { UsersPage } from './pages/Users';
 import { VerificationsPage } from './pages/Verifications';
-import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, useLoad, type IconName } from './ui';
+import './Login.css';
+import { AuthShell } from './AuthShell';
+import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, Loading, PageMeta, PopMenu, useLoad, type IconName } from './ui';
 
-type PageId = 'overview' | 'verifications' | 'reports' | 'noshows' | 'appeals' | 'content' | 'users' | 'audit' | 'security' | 'regions';
+type PageId = 'overview' | 'verifications' | 'reports' | 'noshows' | 'appeals' | 'content' | 'users' | 'staff' | 'oncall' | 'audit' | 'security' | 'regions';
 /** `regional`: staff who look after one city, region or country may open it. Everything else is for staff of the whole service. */
-const NAV: { id: PageId; label: string; icon: IconName; show: (r: Role) => boolean; regional?: boolean }[] = [
-  { id: 'overview', label: 'Overview', icon: 'overview', show: () => true },
-  { id: 'verifications', label: 'Verification', icon: 'shield', show: () => true },
-  { id: 'reports', label: 'Reports', icon: 'flag', show: () => true, regional: true },
-  { id: 'noshows', label: 'No-shows', icon: 'alert', show: () => true },
-  { id: 'appeals', label: 'Appeals', icon: 'alert', show: () => true },
-  { id: 'content', label: 'Content', icon: 'layers', show: () => true, regional: true },
-  { id: 'users', label: 'Users', icon: 'users', show: () => true, regional: true },
-  { id: 'regions', label: 'Places & limits', icon: 'plane', show: () => true, regional: true },
-  { id: 'audit', label: 'Audit log', icon: 'clock', show: can.trust },
-  { id: 'security', label: 'Security', icon: 'key', show: () => true },
+const NAV: { id: PageId; label: string; icon: IconName; group: string; show: (r: Role) => boolean; regional?: boolean }[] = [
+  { id: 'overview', label: 'Today', icon: 'overview', group: 'Decide', show: () => true },
+  { id: 'reports', label: 'Reports', icon: 'flag', group: 'Decide', show: () => true, regional: true },
+  { id: 'verifications', label: 'Verification', icon: 'shield', group: 'Decide', show: () => true },
+  { id: 'appeals', label: 'Appeals', icon: 'alert', group: 'Decide', show: () => true },
+  { id: 'noshows', label: 'No-shows', icon: 'clock', group: 'Decide', show: () => true },
+  { id: 'users', label: 'Users', icon: 'users', group: 'Community', show: () => true, regional: true },
+  { id: 'content', label: 'Content', icon: 'layers', group: 'Community', show: () => true, regional: true },
+  { id: 'staff', label: 'Staff', icon: 'userPlus', group: 'Team', show: can.admin },
+  { id: 'oncall', label: 'On-call', icon: 'bell', group: 'Team', show: () => true },
+  { id: 'regions', label: 'Places & limits', icon: 'plane', group: 'Setup', show: () => true, regional: true },
+  { id: 'security', label: 'Security', icon: 'key', group: 'Setup', show: () => true },
+  { id: 'audit', label: 'Audit log', icon: 'clock', group: 'Setup', show: can.trust },
 ];
 
 export default function App() {
@@ -128,91 +134,168 @@ function Console({ session: signedIn, page, setPage, reportId, setReportId, user
   const [place, setPlaceState] = useState(getPlace);
   const pick = (key: string, name: string) => (setPlace({ key, name }), setPlaceState({ key, name }));
   const changePlace = () => (setPlace(null), setPlaceState(null));
+  const [drawer, setDrawer] = useState(false);
+  const [filter, setFilter] = useState('');
+  const mainRef = useRef<HTMLElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     // a staff account with an area has no overview: it starts at the reports
     if (regional && !NAV.find((n) => n.id === page)?.regional) setPage('reports');
   }, [regional, page]);
-  // two-step sign-in: where it is required and not yet set up, nothing else opens until it is
-  const mfa = useLoad(() => api<{ enabled: boolean; required: boolean; recoveryCodesLeft: number }>('GET', '/v1/me/mfa'), [session.token]);
-  if (mfa.data && mfa.data.required && !mfa.data.enabled)
+  useEffect(() => {
+    // keyboard users land on the new page, not back at the top of the menu
+    setDrawer(false);
+    mainRef.current?.focus({ preventScroll: true });
+  }, [page]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawer(false);
+      if ((e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement).tagName)) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+        e.preventDefault();
+        setDrawer(true);
+        searchRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', key);
+    return () => document.removeEventListener('keydown', key);
+  }, []);
+  // two-step sign-in: right after the first sign-in, a staff account without an authenticator sets one up before anything else opens
+  const mfa = useLoad(() => api<{ enabled: boolean; required: boolean; setupNeeded: boolean; canSkip: boolean; recoveryCodesLeft: number }>('GET', '/v1/me/mfa'), [session.token]);
+  if (mfa.data && mfa.data.setupNeeded)
     return (
-      <div className="login-wrap" style={{ alignItems: 'start' }}>
-        <div style={{ width: 'min(560px, 100%)', display: 'grid', gap: 12, paddingTop: 40 }}>
-          <SecurityPage status={mfa.data} onChanged={mfa.reload} forced />
-          <button className="btn" onClick={logout}>
-            Sign out
-          </button>
-        </div>
+      <>
+        <AuthShell headline="One more step to keep it secure." sub="A code from your phone protects the console, and everyone's data in it, if a password is ever stolen.">
+          <div className="lg-card lg-wide">
+            <SecurityPage status={mfa.data} onChanged={mfa.reload} forced />
+            <button type="button" className="lg-link" onClick={logout}>
+              Sign out
+            </button>
+          </div>
+        </AuthShell>
         <DialogHost />
-      </div>
+      </>
     );
 
-  if (!scopeLoad.data && !scopeLoad.error) return <div className="login-wrap"><p className="muted">Loading…</p></div>;
+  if (!scopeLoad.data && !scopeLoad.error)
+    return (
+      <AuthShell headline="Getting your console ready." sub="Your places, queues and reports are loading.">
+        <div className="lg-center">
+          <Loading label="Loading your console…" />
+        </div>
+      </AuthShell>
+    );
   if (!place) return <PlacePicker me={session} onPick={pick} onSignOut={logout} />;
-  const nav = NAV.filter((n) => n.show(session.role) && (!regional || n.regional));
+  const nav = NAV.filter((n) => n.show(session.role) && (!regional || n.regional) && n.label.toLowerCase().includes(filter.trim().toLowerCase()));
+  const groups = [...new Set(nav.map((n) => n.group))];
+  const here = NAV.find((n) => n.id === page);
+  const go = (id: PageId) => (setReportId(null), setUserId(null), setPage(id));
   return (
     <div className="shell">
-      <aside className="side">
+      <a className="skip" href="#main" onClick={(e) => (e.preventDefault(), mainRef.current?.focus())}>
+        Skip to content
+      </a>
+      <aside className={drawer ? 'side open' : 'side'} aria-label="Sidebar">
         <div className="brand">
           HERE<span>.</span> / THERE<span>.</span>
-          <small>Admin console</small>
         </div>
-        <div className="working-in">
-          <span className="muted small">Working in</span>
-          <strong>{place.key === 'all' ? 'Whole service' : place.name}</strong>
-          <button className="link small" onClick={changePlace}>
-            Change
-          </button>
-        </div>
+        <label className="side-search">
+          <span className="sr">Search or jump to a page (Ctrl K)</span>
+          <Icon name="search" />
+          <input ref={searchRef} type="search" placeholder="Search or jump to" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <kbd aria-hidden="true">Ctrl K</kbd>
+        </label>
         <nav aria-label="Main">
-          {nav.map((n) => {
-            const badge = n.id === 'verifications' ? fresh(open?.verifications) : n.id === 'reports' ? fresh(open?.reports) : 0;
-            return (
-              <button key={n.id} className={page === n.id ? 'nav active' : 'nav'} aria-current={page === n.id ? 'page' : undefined} onClick={() => (setReportId(null), setUserId(null), setPage(n.id))}>
-                <Icon name={n.icon} />
-                {n.label}
-                {!!badge && (
-                  <span className="badge" aria-label={`${badge} new`}>
-                    {badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {groups.map((g) => (
+            <div key={g} style={{ display: 'contents' }}>
+              <div className="nav-group">{g}</div>
+              {nav
+                .filter((n) => n.group === g)
+                .map((n) => {
+                  const badge = n.id === 'verifications' ? fresh(open?.verifications) : n.id === 'reports' ? fresh(open?.reports) : n.id === 'overview' ? fresh(open?.reports) + fresh(open?.verifications) : 0;
+                  return (
+                    <button key={n.id} className={page === n.id ? 'nav active' : 'nav'} aria-current={page === n.id ? 'page' : undefined} onClick={() => go(n.id)}>
+                      <Icon name={n.icon} />
+                      {n.label}
+                      {!!badge && (
+                        <span className={n.id === 'reports' ? 'badge hot' : n.id === 'overview' ? 'badge light' : 'badge'} aria-label={`${badge} new`}>
+                          {badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+            </div>
+          ))}
+          {nav.length === 0 && <p className="nav-empty">No page matches “{filter}”.</p>}
         </nav>
-        <div className="who">
-          <Avatar name={session.name} />
-          <div className="info">
-            <div className="name">{session.name}</div>
-            <div className="mail" title={`${session.email} · ${session.role.replace('_', ' ')}`}>
-              {session.email}
-            </div>
-            <div className="mail" title="The part of the service this account looks after">
-              {session.scope ? `${session.scope.name} · ${session.scope.kind}` : 'Whole service'}
-            </div>
-          </div>
-          <button className="icon-btn" onClick={logout} aria-label="Sign out" title="Sign out">
-            <Icon name="logout" />
+        <div className="side-foot">
+          <button className="working-btn" onClick={changePlace} title="Choose where you work">
+            <span className="where">
+              <small>Working in</small>
+              <strong>{place.key === 'all' ? 'Whole service' : place.name}</strong>
+            </span>
+            <span className="switch">Switch</span>
           </button>
+          <PopMenu
+            label="Your account"
+            buttonClass="side-user"
+            align="start"
+            trigger={
+              <>
+                <Avatar name={session.name} />
+                <span className="info">
+                  <b>{session.name}</b>
+                  <span>{session.email}</span>
+                </span>
+              </>
+            }
+            header={
+              <>
+                <strong>{session.name}</strong>
+                <span className="muted small">
+                  {session.role.replace('_', ' ')} · {session.scope ? `${session.scope.name} (${session.scope.kind})` : 'whole service'}
+                </span>
+              </>
+            }
+            items={[
+              { label: 'Security and two-step sign-in', onSelect: () => go('security') },
+              { label: 'Sign out', danger: true, onSelect: logout },
+            ]}
+          />
         </div>
       </aside>
-      <main className="main">
-        {place.key !== 'all' && ['overview', 'noshows', 'appeals', 'audit'].includes(page) && (
-          <p className="note">
-            This page always shows the whole service, not only {place.name}. Members, reports, content and identity checks are limited to {place.name}.
-          </p>
-        )}
-        {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
-        {page === 'verifications' && <VerificationsPage me={session} />}
-        {page === 'reports' && <ReportsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} focusId={reportId} onClearFocus={() => setReportId(null)} />}
-        {page === 'appeals' && <AppealsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
-        {page === 'noshows' && <NoShowsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
-        {page === 'content' && <ContentPage me={session} />}
-        {page === 'users' && <UsersPage me={session} focusId={userId} onClearFocus={() => setUserId(null)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
-        {page === 'audit' && can.trust(session.role) && <AuditPage openReport={(id) => (setReportId(id), setPage('reports'))} />}
-        {page === 'regions' && <RegionsPage me={session} />}
-        {page === 'security' && mfa.data && <SecurityPage status={mfa.data} onChanged={mfa.reload} />}
-      </main>
+      <div className={drawer ? 'scrim show' : 'scrim'} onClick={() => setDrawer(false)} aria-hidden="true" />
+      <div className="workspace">
+        <header className="topbar">
+          <button className="icon-btn menu-btn" aria-label="Open the menu" aria-expanded={drawer} onClick={() => setDrawer(true)}>
+            <Icon name="menu" />
+          </button>
+          <div className="brand">
+            HERE<span>.</span> / THERE<span>.</span>
+          </div>
+        </header>
+        <main className="main" id="main" ref={mainRef} tabIndex={-1}>
+          <PageMeta.Provider value={{ eyebrow: here ? `${here.group} · ${here.label}` : undefined }}>
+          {place.key !== 'all' && ['overview', 'noshows', 'appeals', 'audit'].includes(page) && (
+            <p className="note" style={{ marginBottom: 14 }}>
+              This page always shows the whole service, not only {place.name}. Members, reports, content and identity checks are limited to {place.name}.
+            </p>
+          )}
+          {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
+          {page === 'verifications' && <VerificationsPage me={session} />}
+          {page === 'reports' && <ReportsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} focusId={reportId} onClearFocus={() => setReportId(null)} onCall={() => go('oncall')} />}
+          {page === 'appeals' && <AppealsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
+          {page === 'noshows' && <NoShowsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
+          {page === 'content' && <ContentPage me={session} />}
+          {page === 'users' && <UsersPage me={session} focusId={userId} onClearFocus={() => setUserId(null)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
+          {page === 'staff' && can.admin(session.role) && <StaffPage me={session} />}
+          {page === 'audit' && can.trust(session.role) && <AuditPage openReport={(id) => (setReportId(id), setPage('reports'))} />}
+          {page === 'regions' && <RegionsPage me={session} />}
+          {page === 'oncall' && <OnCallPage me={session} />}
+          {page === 'security' && mfa.data && <SecurityPage status={mfa.data} onChanged={mfa.reload} />}
+          </PageMeta.Provider>
+        </main>
+      </div>
       <DialogHost />
     </div>
   );
@@ -227,6 +310,7 @@ function Login({ onDone }: { onDone: (s: Session) => void }) {
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<{ mfaToken: string } | null>(null); // the password was right: now the code
   const [code, setCode] = useState('');
+  const [showPw, setShowPw] = useState(false);
 
   const finish = (r: LoginReply) => {
     if (!r.token || !r.user) throw new Error('Sign-in failed.');
@@ -260,51 +344,72 @@ function Login({ onDone }: { onDone: (s: Session) => void }) {
     }
   };
 
+  const eye = (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {showPw ? (
+        <>
+          <path d="M3 3l18 18" />
+          <path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c5 0 8.5 4.2 9.5 6a11 11 0 0 1-2.6 3.1M6.3 7.6A11 11 0 0 0 2.5 12c1 1.8 4.5 6 9.5 6 1.5 0 2.8-.4 4-1M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+        </>
+      ) : (
+        <>
+          <path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      )}
+    </svg>
+  );
+
   if (step)
     return (
-      <div className="login-wrap">
-        <form className="login card" onSubmit={submit}>
-          <div className="brand">
-            HERE<span>.</span> / THERE<span>.</span>
-            <small>Admin console</small>
-          </div>
+      <AuthShell headline="Almost there." sub="Type the code from your authenticator app to finish signing in.">
+        <form className="lg-card" onSubmit={submit}>
+          <p className="lg-card-eyebrow">Two-step sign-in</p>
+          <h1 className="lg-title">Enter your code</h1>
+          <p className="lg-sub">Open your authenticator app and type the 6-digit code for HERE &amp; THERE. Lost your phone? Use one of your recovery codes instead.</p>
           <ErrorBanner message={error} />
-          <p className="muted">Open your authenticator app and type the 6-digit code for HERE &amp; THERE. Lost your phone? Use one of your recovery codes instead.</p>
-          <label>
+          <label className="lg-field lg-code">
             Code
-            <input inputMode="text" autoComplete="one-time-code" required autoFocus value={code} onChange={(e) => setCode(e.target.value)} />
+            <input inputMode="text" autoComplete="one-time-code" placeholder="000000" required autoFocus value={code} onChange={(e) => setCode(e.target.value)} />
           </label>
-          <button className="btn primary" disabled={busy || code.trim().length < 6}>
+          <button className="lg-btn" disabled={busy || code.trim().length < 6}>
             {busy ? 'Checking…' : 'Sign in'}
+            {!busy && <Icon name="arrow" />}
           </button>
-          <button type="button" className="btn small" onClick={() => (setStep(null), setCode(''), setError(null))}>
+          <button type="button" className="lg-link" onClick={() => (setStep(null), setCode(''), setError(null))}>
             Back
           </button>
         </form>
-      </div>
+      </AuthShell>
     );
 
   return (
-    <div className="login-wrap">
-      <form className="login card" onSubmit={submit}>
-        <div className="brand">
-          HERE<span>.</span> / THERE<span>.</span>
-          <small>Admin console</small>
-        </div>
+    <AuthShell headline="Keep every meet-up safe and fair." sub="Reports, identity checks and appeals get decided here, calmly and on the record.">
+      <form className="lg-card" onSubmit={submit}>
+        <p className="lg-card-eyebrow">Welcome back</p>
+        <h1 className="lg-title">Staff sign-in</h1>
         <ErrorBanner message={error} />
-        <label>
-          Email
-          <input type="email" autoComplete="username" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
-        </label>
-        <label>
-          Password
-          <input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-        </label>
-        <button className="btn primary" disabled={busy}>
+        <div className="lg-form">
+          <label className="lg-field">
+            Email
+            <input type="email" autoComplete="username" placeholder="you@herethere.local" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+          <label className="lg-field">
+            Password
+            <span className="lg-pass">
+              <input type={showPw ? 'text' : 'password'} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+              <button type="button" className="lg-eye" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'} aria-pressed={showPw}>
+                {eye}
+              </button>
+            </span>
+          </label>
+        </div>
+        <button className="lg-btn" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
+          {!busy && <Icon name="arrow" />}
         </button>
-        <p className="muted small">Staff accounts only. Every action you take is recorded in the audit log.</p>
+        <p className="lg-note">Staff accounts only. Every action you take is recorded in the audit log.</p>
       </form>
-    </div>
+    </AuthShell>
   );
 }

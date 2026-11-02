@@ -39,15 +39,53 @@ export function log(level: LogLevel, msg: string, fields: Record<string, unknown
   const line: LogLine = { t: new Date().toISOString(), level, msg, reqId: currentRequestId(), userId: currentUserId(), ...fields };
   if (sink) return sink(line);
   if (process.env.NODE_ENV === 'test' && !process.env.LOG_IN_TEST) return; // quiet in tests unless LOG_IN_TEST=1
-  if (format() === 'json') {
-    const out = JSON.stringify(line);
-    if (level === 'error') console.error(out);
-    else console.log(out);
-    return;
-  }
+  if (format() === 'json') return emit(level === 'error', JSON.stringify(line), level === 'error');
   const { t: _t, level: _l, msg: _m, reqId, userId: _u, ...rest } = line;
   const extra = Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : '';
-  (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(`[${level}] ${msg}${extra}${reqId ? ` (req ${reqId.slice(0, 8)})` : ''}`);
+  emit(level !== 'info', `[${level}] ${msg}${extra}${reqId ? ` (req ${reqId.slice(0, 8)})` : ''}`, level === 'error');
+}
+
+/**
+ * Writing to the console is a synchronous system call per line (to a file or a pipe: pm2, systemd, docker), and on a busy server
+ * that was found to take about half of the busy time (load test, 2 Nov 2026: one line per request and per slow query). Lines are
+ * collected and written together every LOG_FLUSH_MS (default 100 ms; 0 = write each line at once). An error is written at once,
+ * after what is waiting, and whatever is waiting is written when the process ends.
+ */
+const flushMs = () => Number(process.env.LOG_FLUSH_MS ?? 100);
+const waiting: { out: string[]; err: string[] } = { out: [], err: [] };
+let flushTimer: NodeJS.Timeout | undefined;
+export function flushLogs() {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = undefined;
+  const out = waiting.out.splice(0);
+  const err = waiting.err.splice(0);
+  if (out.length) process.stdout.write(`${out.join('\n')}\n`);
+  if (err.length) process.stderr.write(`${err.join('\n')}\n`);
+}
+process.once('exit', flushLogs);
+function emit(toStderr: boolean, text: string, now: boolean) {
+  (toStderr ? waiting.err : waiting.out).push(text);
+  if (now || flushMs() <= 0) return flushLogs();
+  flushTimer ??= setTimeout(flushLogs, flushMs()).unref();
+}
+
+/**
+ * The slow-query line, at most SLOW_QUERY_LOG_PER_SEC (default 10) a second. When the database is struggling every query is slow,
+ * and a line for each one makes the server slower still; the counters and the list in the admin console still see every one.
+ */
+let slowWindow = 0;
+let slowLogged = 0;
+let slowDropped = 0;
+export function logSlowQuery(ms: number, what: string) {
+  const second = Math.floor(Date.now() / 1000);
+  if (second !== slowWindow) {
+    if (slowDropped) log('warn', 'slow queries not logged (over the per-second limit; the counters have them)', { count: slowDropped });
+    slowWindow = second;
+    slowLogged = 0;
+    slowDropped = 0;
+  }
+  if (++slowLogged <= Number(process.env.SLOW_QUERY_LOG_PER_SEC ?? 10)) log('warn', 'slow query', { ms: Math.round(ms), what });
+  else slowDropped++;
 }
 
 /** Nest's own messages (start-up, route mapping, crashes) go through the same lines when logs are JSON. */

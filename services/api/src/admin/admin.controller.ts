@@ -2,12 +2,14 @@ import { metrics } from '../common/observability';
 import { decryptField, maskPhone } from '../common/vault';
 import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { ActivitiesService } from '../activities/activities.service';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser, RegionalOk, Staff } from '../common/auth';
 import { STAFF_ROLES } from '../common/constants';
 import { E } from '../common/errors';
+import { hashPassword } from '../common/password';
 import { afterKeyset, beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { banIdentities, liftBans } from '../common/identity';
 import { ModerationService } from '../moderation/moderation.controller';
@@ -39,6 +41,12 @@ export const reverifySchema = z.object({
 export const resolveSchema = z.object({
   status: z.enum(['resolved', 'dismissed', 'in_review']),
   resolution: z.string().trim().max(1000).optional(),
+});
+export const staffCreateSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  displayName: z.string().trim().min(2).max(40),
+  role: z.enum(['support', 'moderator', 'trust_lead']),
+  regionKey: z.string().trim().min(1).max(60).nullable().optional(),
 });
 export const roleSchema = z.object({ role: z.enum(['user', ...STAFF_ROLES]), regionKey: z.string().trim().min(1).max(60).nullable().optional() });
 
@@ -170,7 +178,7 @@ export class AdminController {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: size + 1,
       include: {
-        profile: { select: { displayName: true, homeCity: true } },
+        profile: { select: { displayName: true, homeCity: true, photoUrl: true } },
         verifications: { orderBy: { createdAt: 'desc' }, take: 1, select: { rejectionReason: true } },
       },
     });
@@ -192,6 +200,7 @@ export class AdminController {
         reverifyReason: u.reverifyReason,
         lastRejectionReason: u.eligibility === 'rejected' ? (u.verifications[0]?.rejectionReason ?? null) : null,
         displayName: u.profile?.displayName,
+        photoUrl: u.profile?.photoUrl ?? null,
         homeCity: u.profile?.homeCity,
         createdAt: u.createdAt,
       })),
@@ -284,6 +293,47 @@ export class AdminController {
     await this.mfa.clear(id);
     await this.audit.log(actor.id, 'mfa.reset_by_admin', 'user', id, { reason });
     return { ok: true };
+  }
+
+  /** Every staff account, with whether its two-step sign-in is connected. */
+  @Staff('admin')
+  @Get('staff')
+  async staffList() {
+    const rows = await this.prisma.user.findMany({
+      where: { role: { in: [...STAFF_ROLES] }, state: { not: 'deleted' } },
+      orderBy: [{ createdAt: 'asc' }],
+      take: 200,
+      include: { profile: { select: { displayName: true, photoUrl: true } } },
+    });
+    return { items: rows.map((u) => ({ id: u.id, email: u.email, displayName: u.profile?.displayName ?? null, photoUrl: u.profile?.photoUrl ?? null, role: u.role, regionKey: u.adminRegionKey, state: u.state, mfaEnabled: !!u.mfaEnabledAt, createdAt: u.createdAt })) };
+  }
+
+  /**
+   * An administrator makes a support, moderator or trust-lead account. The server picks a temporary password and shows it once;
+   * on their first sign-in the console asks them to connect an authenticator app before anything else opens.
+   */
+  @Staff('admin')
+  @Post('staff')
+  async createStaff(@CurrentUser() actor: User, @Body() body: unknown) {
+    const dto = parse(staffCreateSchema, body);
+    if (await this.prisma.user.findUnique({ where: { email: dto.email } })) throw E.conflict('EMAIL_TAKEN', 'An account with that email already exists. Change its role from the Users page instead.');
+    const area = dto.regionKey ?? null;
+    if (area && !(await this.regions.exists(area))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
+    const h = randomBytes(8).toString('hex');
+    const temporaryPassword = `${h.slice(0, 4)}-${h.slice(4, 8)}-${h.slice(8, 12)}-${h.slice(12)}`;
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        passwordHash: await hashPassword(temporaryPassword),
+        role: dto.role,
+        adminRegionKey: area,
+        adultConfirmed: true,
+        emailVerifiedAt: new Date(),
+        profile: { create: { displayName: dto.displayName } },
+      },
+    });
+    await this.audit.log(actor.id, 'staff.create', 'user', user.id, { role: dto.role, regionKey: area });
+    return { id: user.id, email: user.email, role: user.role, regionKey: area, temporaryPassword };
   }
 
   @Staff('admin')
@@ -415,6 +465,8 @@ export class AdminController {
       },
     });
     await this.audit.log(actor.id, `report.${dto.status}`, 'report', id, { resolution: dto.resolution });
+    // a decision was taken about someone: they can read it and ask for a review once
+    if (dto.status === 'resolved' && report.status !== 'resolved') await this.moderation.tellSubject(report).catch(() => undefined);
     // "resolved" on a host-did-not-show-up report means a moderator confirmed it: the host's notes for that plan are cancelled
     if (dto.status === 'resolved' && report.category === 'host_no_show' && report.status !== 'resolved') await this.reliability.onHostAbsenceUpheld(actor, report);
     return { ok: true };

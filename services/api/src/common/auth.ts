@@ -116,7 +116,7 @@ export class AuthGuard implements CanActivate {
     if (staff && user.adminRegionKey && !this.reflector.getAllAndOverride<boolean>(REGIONAL_OK, targets))
       throw E.forbidden('GLOBAL_STAFF_ONLY', 'This is only for staff who look after the whole service');
     // staff reach the admin console only with two-step sign-in on (they can still open the page that sets it up)
-    if (staff && staffMfaRequired() && !user.mfaEnabledAt) throw E.forbidden('MFA_REQUIRED', 'Set up two-step sign-in to use the admin console.');
+    if (staff && staffMfaRequired() && !user.mfaEnabledAt && !(user.role === 'admin' && user.mfaSkippedAt)) throw E.forbidden('MFA_REQUIRED', 'Set up two-step sign-in to use the admin console.');
     req.user = user;
     setRequestUser(user.id); // later log lines for this request carry the id
     return true;

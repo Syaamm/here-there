@@ -3,12 +3,17 @@ import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { E } from '../common/errors';
+import { log } from '../common/observability';
 import { PrismaService } from '../common/prisma.service';
 import { tokenVersions } from '../common/auth';
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
-/** Two refreshes from one phone a moment apart (the app asked twice) are not theft; a replay long after the first is. */
-const GRACE_MS = 15_000;
+/**
+ * An old refresh token shown again soon after it was swapped is not theft: the phone asked, the server answered, and the answer
+ * never arrived (the app was put to sleep, the network changed), so the phone still holds the old token. The server cannot see whether
+ * the answer arrived, so the forgiveness is a time window; a replay after it ends the sign-in.
+ */
+const graceMs = () => Math.max(1, Number(process.env.REFRESH_GRACE_MINUTES ?? 60)) * 60_000;
 
 export const accessMinutes = () => Math.max(1, Number(process.env.ACCESS_TOKEN_MINUTES ?? 15));
 export const refreshDays = () => Math.max(1, Number(process.env.REFRESH_TOKEN_DAYS ?? 30));
@@ -22,8 +27,9 @@ type Versioned = Pick<User, 'id' | 'passwordChangedAt' | 'sessionsRevokedAt'>;
  *
  * - A stolen access token stops working within minutes; "log out everywhere" ends it at once (every token carries the
  *   account's sign-out version, so one change cancels all of them).
- * - Each refresh replaces the refresh token. If an OLD one is used again after a short grace, it was copied: that whole
- *   sign-in is ended and the person has to sign in again.
+ * - Each refresh replaces the refresh token. If an OLD one is used again within the grace window (an hour), the answer was
+ *   probably lost on the way to the phone and it gets a new pair; after the window it was copied: that whole sign-in is
+ *   ended and the person has to sign in again.
  * - A password change or "log out everywhere" removes every session.
  */
 @Injectable()
@@ -48,16 +54,21 @@ export class SessionService {
 
   /** Swap a refresh token for a new pair. The old refresh token stops working. */
   async refresh(presented: unknown): Promise<Tokens> {
-    const bad = () => E.unauthorized('INVALID_REFRESH_TOKEN', 'Please sign in again.');
-    if (typeof presented !== 'string' || !presented.startsWith('rt_') || presented.length > 100) throw bad();
+    // every refusal is logged with its reason: the request line alone only says 401
+    const bad = (why = 'not found') => {
+      log('warn', 'refresh refused', { code: 'INVALID_REFRESH_TOKEN', why });
+      return E.unauthorized('INVALID_REFRESH_TOKEN', 'Please sign in again.');
+    };
+    if (typeof presented !== 'string' || !presented.startsWith('rt_') || presented.length > 100) throw bad('malformed');
     const h = hash(presented);
     let s = await this.prisma.session.findUnique({ where: { refreshHash: h }, include: { user: true } });
     let fromGrace = false;
     if (!s) {
       const old = await this.prisma.session.findUnique({ where: { previousHash: h }, include: { user: true } });
-      if (!old) throw bad();
-      if (Date.now() - +old.lastUsedAt > GRACE_MS) {
+      if (!old) throw bad('unknown or signed out');
+      if (Date.now() - +old.lastUsedAt > graceMs()) {
         await this.prisma.session.deleteMany({ where: { id: old.id } }); // a used refresh token came back later: copied. End this sign-in.
+        log('warn', 'refresh refused', { code: 'REFRESH_TOKEN_REUSED', idleMinutes: Math.round((Date.now() - +old.lastUsedAt) / 60_000) });
         throw E.unauthorized('REFRESH_TOKEN_REUSED', 'For your safety you were signed out. Please sign in again.');
       }
       s = old;
@@ -66,12 +77,12 @@ export class SessionService {
     const u = s.user;
     if (s.expiresAt < new Date() || u.state !== 'active') {
       await this.prisma.session.deleteMany({ where: { id: s.id } });
-      throw bad();
+      throw bad(s.expiresAt < new Date() ? 'sign-in expired' : 'account not active');
     }
     // a password change or "log out everywhere" after this sign-in began ends it
     if (+s.createdAt < (u.passwordChangedAt ? +u.passwordChangedAt : 0) || +s.createdAt < (u.sessionsRevokedAt ? +u.sessionsRevokedAt : 0)) {
       await this.prisma.session.deleteMany({ where: { id: s.id } });
-      throw bad();
+      throw bad('password changed or signed out everywhere');
     }
     const refreshToken = 'rt_' + randomBytes(32).toString('base64url');
     // rotate only if nobody else did in the meantime (two refreshes at once: the loser is told to try again)

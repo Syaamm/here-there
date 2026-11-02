@@ -85,17 +85,13 @@ export class ConversationsService {
   }
 
   async messages(me: User, id: string, cursor?: string, limit = 50, markRead = false) {
-    const { writable, ended } = await this.assertAccess(me, id);
+    // the access check and the block list do not depend on each other: ask for both at once
+    const [{ writable, ended }, blocked] = await Promise.all([this.assertAccess(me, id), this.safety.blockedWith(me.id)]);
     // The host cancelled: the chat is terminated. Members get nothing back (the rows stay server-side for moderation).
     if (ended) return { writable: false, ended: true, items: [], nextCursor: null };
     // Only when the app says the chat is open in front of the person (?read=1): its unread alert is cleared and the badge
     // can go. A background reload, or a screen kept loaded behind another one, must NOT read it.
-    if (markRead && !cursor)
-      await this.prisma.notification.updateMany({
-        where: { userId: me.id, type: 'chat_message', readAt: null, data: { contains: `"conversationId":"${id}"` } },
-        data: { readAt: new Date() },
-      });
-    const blocked = await this.safety.blockedWith(me.id);
+    if (markRead && !cursor) await this.clearUnread(me.id, id);
     const take = Math.min(Math.max(limit, 1), 100);
     // newest first, a page at a time: the cursor is the time and id of the oldest message sent so far, so earlier messages
     // follow exactly after it (two messages sent in the same moment are never skipped)
@@ -152,6 +148,23 @@ export class ConversationsService {
         .reverse(),
       nextCursor: rows.length > take ? encodeKeyset(page[page.length - 1].createdAt, page[page.length - 1].id) : null,
     };
+  }
+
+  private clearUnread(userId: string, conversationId: string) {
+    return this.prisma.notification.updateMany({
+      where: { userId, type: 'chat_message', readAt: null, data: { contains: `"conversationId":"${conversationId}"` } },
+      data: { readAt: new Date() },
+    });
+  }
+
+  /**
+   * The chat is open in front of the person and a message arrived live: clear its unread alert without reading any messages
+   * again (the app already has the new message from the live connection). Same access rule as reading the chat.
+   */
+  async markRead(me: User, id: string) {
+    await this.assertAccess(me, id);
+    await this.clearUnread(me.id, id);
+    return { ok: true };
   }
 
   /**
@@ -364,32 +377,43 @@ export class ConversationsService {
    * one unread "chat_message" alert per person per conversation until they read it.
    * People who blocked the sender (or were blocked by them) are skipped.
    */
-  private async notifyOthers(sender: User, conv: Conversation, body: string, m: { id: string; createdAt: Date }) {
+  private async notifyOthers(sender: User, conv: Conversation, body: string, m: { id: string; createdAt: Date; kind?: string }) {
     let userIds: string[] = [];
     let title = 'your group';
     if (conv.scopeType === 'match') {
       userIds = [conv.userAId!, conv.userBId!];
       title = 'your travel match';
     } else if (conv.scopeType === 'activity' && conv.activityId) {
-      userIds = (await this.prisma.activityMembership.findMany({ where: { activityId: conv.activityId, state: 'approved' } })).map((m) => m.userId);
-      title = (await this.prisma.activity.findUnique({ where: { id: conv.activityId } }))?.title ?? title;
+      const [rows, a] = await Promise.all([
+        this.prisma.activityMembership.findMany({ where: { activityId: conv.activityId, state: 'approved' }, select: { userId: true } }),
+        this.prisma.activity.findUnique({ where: { id: conv.activityId }, select: { title: true } }),
+      ]);
+      userIds = rows.map((r) => r.userId);
+      title = a?.title ?? title;
     } else if (conv.scopeType === 'trip' && conv.tripId) {
-      userIds = (await this.prisma.tripMembership.findMany({ where: { tripId: conv.tripId, state: 'approved' } })).map((m) => m.userId);
-      title = (await this.prisma.trip.findUnique({ where: { id: conv.tripId } }))?.title ?? title;
+      const [rows, t] = await Promise.all([
+        this.prisma.tripMembership.findMany({ where: { tripId: conv.tripId, state: 'approved' }, select: { userId: true } }),
+        this.prisma.trip.findUnique({ where: { id: conv.tripId }, select: { title: true } }),
+      ]);
+      userIds = rows.map((r) => r.userId);
+      title = t?.title ?? title;
     }
-    const blocked = new Set(await this.safety.blockedWith(sender.id));
-    const profile = await this.prisma.profile.findUnique({ where: { userId: sender.id } });
+    const [blockedIds, profile] = await Promise.all([this.safety.blockedWith(sender.id), this.prisma.profile.findUnique({ where: { userId: sender.id }, select: { displayName: true, photoUrl: true } })]);
+    const blocked = new Set(blockedIds);
     const name = profile?.displayName ?? 'Someone';
     const marker = `"conversationId":"${conv.id}"`;
     // live: the message reaches every open app of every member at once (the sender's other devices too)
-    const event = { type: 'message' as const, conversationId: conv.id, message: { id: m.id, body, createdAt: m.createdAt, sender: { id: sender.id, displayName: name, photoUrl: profile?.photoUrl ?? null } } };
-    for (const userId of userIds) if (userId === sender.id || !blocked.has(userId)) this.live.send(userId, event);
-    const recipients = userIds.filter((u) => u !== sender.id && !blocked.has(u));
+    // `kind` lets the app put a plain text message straight on screen and ask again only for a poll or a notice
+    const event = { type: 'message' as const, conversationId: conv.id, message: { id: m.id, body, kind: m.kind ?? 'text', createdAt: m.createdAt, sender: { id: sender.id, displayName: name, photoUrl: profile?.photoUrl ?? null } } };
+    this.live.sendMany(userIds.filter((u) => u === sender.id || !blocked.has(u)), event);
+    // Someone with this chat open in front of them has just seen the message arrive live: no alert to write (and none to clear
+    // afterwards), no push. For a busy group this is most of the writes a message used to cause.
+    const recipients = userIds.filter((u) => u !== sender.id && !blocked.has(u) && !this.live.isViewingChat(u, conv.id));
     // who already has an unread alert for this chat: one query for the whole group, not one per member
     const unread = new Map(
       (await this.prisma.notification.findMany({ where: { userId: { in: recipients }, type: 'chat_message', readAt: null, data: { contains: marker } }, select: { id: true, userId: true, data: true } })).map((n) => [n.userId, n] as const),
     );
-    for (const userId of recipients) {
+    const tell = async (userId: string) => {
       // push: to people who are not in the app right now, if their settings and quiet hours allow it, and at most about one a
       // minute per chat (the rest are counted in the one alert in their list)
       this.push.queue(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}`, alert: { type: 'chat_message' }, group: `chat:${conv.id}` });
@@ -402,10 +426,13 @@ export class ConversationsService {
           where: { id: prev.id },
           data: { title: `${count} new messages in ${title}`, body: `${name}: ${body.slice(0, 80)}`, data: JSON.stringify({ ...was, conversationId: conv.id, product: conv.scopeType === 'activity' ? 'here' : 'there', count }), createdAt: new Date() },
         });
-        continue;
+        return;
       }
       await this.notifications.notify(userId, 'chat_message', `New message in ${title}`, `${name}: ${body.slice(0, 80)}`, { conversationId: conv.id, product: conv.scopeType === 'activity' ? 'here' : 'there' });
-    }
+    };
+    // a group's alerts are written a few at a time instead of one after another: a big group does not make the sender wait
+    // for every member in turn, and the database is never hit with the whole group at once
+    for (let i = 0; i < recipients.length; i += 8) await Promise.all(recipients.slice(i, i + 8).map(tell));
   }
 
   /**
@@ -524,6 +551,11 @@ export class ConversationsController {
     @Query('read') read?: string,
   ) {
     return this.conversations.messages(me, id, cursor, limit ? Number(limit) || 50 : 50, read === '1');
+  }
+
+  @Post('conversations/:id/read')
+  markRead(@CurrentUser() me: User, @Param('id') id: string) {
+    return this.conversations.markRead(me, id);
   }
 
   @Get('conversations/:id/info')

@@ -1,5 +1,5 @@
 // "same-origin" (the build the API serves at /admin/, `npm run build:web`): the API is wherever this page came from
-const BASE = import.meta.env.VITE_API_URL === 'same-origin' ? window.location.origin : (import.meta.env.VITE_API_URL ?? 'http://localhost:3000');
+export const BASE = import.meta.env.VITE_API_URL === 'same-origin' ? window.location.origin : (import.meta.env.VITE_API_URL ?? 'http://localhost:3000');
 const KEY = 'ht_admin_session';
 
 export type Role = 'user' | 'support' | 'moderator' | 'trust_lead' | 'admin';

@@ -73,6 +73,7 @@ When you add or change a route, a field or an error code, update `src/docs/route
 | File | Read it for |
 |---|---|
 | `docs/FOR_DEPLOYMENT.md` | Everything needed to go live: settings, keys, outside services, limits, what will not survive many users, a final checklist. |
+| `docs/LOAD_TEST.md` | The load test: how to seed a throw-away database and run thousands of simulated phones against a test server, and the first results (2 Nov 2026). |
 | `docs/POSTGRES_MOVE.md` | The move from SQLite to Postgres: what was done on 2026-11-02, what it found, what is still open, and how to set up your own database. |
 | `docs/PROJECT-HANDOVER.md` | What is built, what is open, how to run and test, the owner's working rules. |
 | `docs/compliance/` | Drafts for the privacy notice, terms, data inventory, DPIA and retention schedule. They need a lawyer's review. |
@@ -82,6 +83,6 @@ Some of these files are kept private and are listed in `.gitignore`.
 
 ## Where it stands
 
-It is a solid prototype for a pilot (one district, hundreds of people) and has never been load-tested. Before thousands of users it needs Postgres, a shared store such as Redis for live connections and rate limits, more than one API server, cloud storage for photos, real push notifications and a real identity provider. The order of that work is in `docs/FOR_DEPLOYMENT.md`.
+It is a solid prototype for a pilot (one district, hundreds of people). Chat has had one load test (2,000 simulated phones, 2 Nov 2026, `docs/LOAD_TEST.md`); the rest of the app has not. Before thousands of users it needs Postgres, a shared store such as Redis for live connections and rate limits, more than one API server, cloud storage for photos, real push notifications and a real identity provider. The order of that work is in `docs/FOR_DEPLOYMENT.md`.
 
 Outside services that are still simulated in development: email and SMS sending, the identity provider (Persona works in its sandbox, iDenfy is built but untried with real keys), map keys, push notifications, and Apple and Google sign-in.

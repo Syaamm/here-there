@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Chip, Empty, ErrorBanner, fmt, Page, Segmented, useAction, useLoad } from '../ui';
+import { askText, Chip, Empty, ErrorBanner, fmt, Loading, Page, useAction, useLoad } from '../ui';
+import './NoShows.css';
 
 type Note = {
   id: string;
@@ -21,6 +22,12 @@ type HostRow = { hostId: string; name: string; flag: boolean; reasons: string[];
 type View = 'disputed' | 'marked' | 'all';
 
 const TONE: Record<string, 'ok' | 'warn' | 'bad' | 'info' | 'plain'> = { marked: 'warn', disputed: 'info', upheld: 'bad', overturned: 'ok' };
+const DOT: Record<string, string> = { marked: 'warn', disputed: 'info', upheld: 'bad', overturned: 'ok' };
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'disputed', label: 'Disputed' },
+  { id: 'marked', label: 'Waiting for the member' },
+  { id: 'all', label: 'All' },
+];
 
 /** No-show notes: a host said a member did not come. Disputed ones wait here for a moderator. Any note can be reviewed later. */
 export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: string) => void }) {
@@ -41,100 +48,111 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
   };
 
   return (
-    <Page title="No-shows" sub="A host said a member did not come. A note only counts once the member had 7 days to dispute it, or you upheld it.">
-      <Segmented<View>
-        label="Which notes"
-        value={view}
-        onChange={setView}
-        options={[
-          { id: 'disputed', label: 'Disputed' },
-          { id: 'marked', label: 'Waiting for the member' },
-          { id: 'all', label: 'All' },
-        ]}
-      />
-      <ErrorBanner message={error ?? act.error} />
-      {loading && !data && <p className="muted">Loading…</p>}
-      {data && items.length === 0 && <Empty>{view === 'disputed' ? 'No disputed notes right now.' : 'Nothing here.'}</Empty>}
-      <ul className="stack">
-        {items.map((n) => (
-          <li key={n.id} className="card" style={{ display: 'grid', gap: 8 }}>
-            <div className="row wrap" style={{ justifyContent: 'space-between' }}>
-              <strong>{n.title}</strong>
-              <span className="row wrap">
-                {n.hostUnusual && n.hostUnusual.length > 0 && <Chip value="Host's notes look unusual" tone="warn" icon="alert" />}
-                <Chip value={n.state} tone={TONE[n.state] ?? 'plain'} />
-              </span>
-            </div>
-            <div className="muted small">
-              Host{' '}
-              <button className="link" onClick={() => n.host && openUser?.(n.host.id)}>
-                {n.host?.displayName}
-              </button>{' '}
-              says{' '}
-              <button className="link" onClick={() => n.member && openUser?.(n.member.id)}>
-                {n.member?.displayName}
-              </button>{' '}
-              did not come · noted {fmt(n.markedAt)}
-            </div>
-            {n.hostUnusual && n.hostUnusual.length > 0 && <p className="small" style={{ margin: 0, color: 'var(--orange)' }}>This host {n.hostUnusual.join('; ')}. Read their notes with care.</p>}
-            {n.disputeNote && (
-              <p className="note" style={{ margin: 0 }}>
-                <strong>Their side:</strong> {n.disputeNote}
-              </p>
-            )}
-            {n.decisionNote && <p className="muted small" style={{ margin: 0 }}>Decision: {n.decisionNote}</p>}
-            {mod ? (
-              <div className="row wrap">
-                {n.state !== 'upheld' && (
-                  <button className="btn danger small" onClick={() => decide(n, 'uphold')} disabled={act.busy}>
-                    Uphold (it counts)
-                  </button>
-                )}
-                {n.state !== 'overturned' && (
-                  <button className="btn small" onClick={() => decide(n, 'overturn')} disabled={act.busy}>
-                    Overturn (it does not count)
-                  </button>
-                )}
-              </div>
-            ) : (
-              <p className="muted small">Moderators decide these.</p>
-            )}
-          </li>
+    <Page fill title="No-shows" sub="A host said a member did not come. A note counts once the member had 7 days to dispute it, or you upheld it.">
+      <div className="ns-filters" role="group" aria-label="Which notes">
+        {VIEWS.map((v) => (
+          <button key={v.id} type="button" className={view === v.id ? 'ns-pill on' : 'ns-pill'} aria-pressed={view === v.id} onClick={() => setView(v.id)}>
+            {v.label}
+          </button>
         ))}
-      </ul>
+      </div>
+      <ErrorBanner message={error ?? act.error} />
+      {loading && !data && <Loading rows={5} />}
+      <div className="ns-grid">
+        <section className="ns-scroll" aria-label="No-show notes">
+          <header className="ns-head">
+            <h2>Notes</h2>
+            <span>{items.length}</span>
+          </header>
+          {data && items.length === 0 && <Empty title="Nothing here">{view === 'disputed' ? 'No disputed notes right now.' : 'No notes in this list.'}</Empty>}
+          {items.map((n) => {
+            const d = new Date(n.markedAt);
+            return (
+              <article key={n.id} className="ns-card">
+                <header className="ns-date">
+                  <span className="ns-kind">Noted</span>
+                  <strong className="ns-num">{d.getDate()}</strong>
+                  <span className="ns-mon">{d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</span>
+                  <span className="ns-state">
+                    <Chip value={n.state} tone={TONE[n.state] ?? 'plain'} />
+                  </span>
+                </header>
+                <div className="ns-body">
+                  <div className="ns-title">
+                    <span className={`ns-dot ${DOT[n.state] ?? ''}`} aria-hidden="true" />
+                    <strong>{n.title}</strong>
+                    {n.hostUnusual && n.hostUnusual.length > 0 && <Chip value="Host's notes look unusual" tone="warn" icon="alert" />}
+                  </div>
+                  <div className="ns-says">
+                    Host{' '}
+                    <button className="ns-link" onClick={() => n.host && openUser?.(n.host.id)}>
+                      {n.host?.displayName}
+                    </button>{' '}
+                    says{' '}
+                    <button className="ns-link" onClick={() => n.member && openUser?.(n.member.id)}>
+                      {n.member?.displayName}
+                    </button>{' '}
+                    did not come · noted {fmt(n.markedAt)}
+                  </div>
+                  {n.hostUnusual && n.hostUnusual.length > 0 && <p className="ns-warn">This host {n.hostUnusual.join('; ')}. Read their notes with care.</p>}
+                  {n.disputeNote && (
+                    <p className="ns-quote">
+                      <strong>Their side:</strong> {n.disputeNote}
+                    </p>
+                  )}
+                  {n.decisionNote && <p className="ns-decision">Decision: {n.decisionNote}</p>}
+                  {mod ? (
+                    <div className="ns-actions">
+                      {n.state !== 'upheld' && (
+                        <button className="ns-uphold" onClick={() => decide(n, 'uphold')} disabled={act.busy}>
+                          Uphold (it counts)
+                        </button>
+                      )}
+                      {n.state !== 'overturned' && (
+                        <button className="ns-overturn" onClick={() => decide(n, 'overturn')} disabled={act.busy}>
+                          Overturn (it does not count)
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="ns-decision">Moderators decide these.</p>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </section>
 
-      <section className="card" style={{ display: 'grid', gap: 8 }} aria-labelledby="noshow-hosts">
-        <div className="row between wrap">
-          <h2 id="noshow-hosts" style={{ margin: 0, fontSize: 16 }}>Hosts who say many people did not come</h2>
-          <label className="row small">
-            <input type="checkbox" checked={allHosts} onChange={(e) => setAllHosts(e.target.checked)} /> Show all hosts
-          </label>
-        </div>
-        <p className="muted small" style={{ margin: 0 }}>
-          Looked at when a host made 4 or more notes in 90 days and they cover half of the people they hosted, or half of their decided notes were overturned. It never acts by itself: it only tells you where to look.
-        </p>
-        <ErrorBanner message={hosts.error} />
-        {hosts.loading && !hosts.data && <p className="muted">Loading…</p>}
-        {hosts.data && hosts.data.items.length === 0 && <Empty>{allHosts ? 'No host has made a note lately.' : 'No host looks unusual.'}</Empty>}
-        <ul className="stack">
-          {(hosts.data?.items ?? []).map((h) => (
-            <li key={h.hostId} className="row between wrap">
-              <span>
-                <button className="link" onClick={() => openUser?.(h.hostId)}>
-                  {h.name}
-                </button>
-                <span className="muted small">
-                  {' '}
-                  · {h.marks} {h.marks === 1 ? 'note' : 'notes'} for {h.attendees} {h.attendees === 1 ? 'person' : 'people'} hosted
-                  {h.decided > 0 ? ` · ${h.overturned} of ${h.decided} decided overturned` : ''}
+        <section className="ns-hosts" aria-labelledby="noshow-hosts">
+          <header className="ns-head">
+            <h2 id="noshow-hosts">Hosts to look at</h2>
+            <label className="ns-check">
+              <input type="checkbox" checked={allHosts} onChange={(e) => setAllHosts(e.target.checked)} /> Show all hosts
+            </label>
+          </header>
+          <p className="ns-intro">Hosts whose notes cover half of the people they hosted, or half overturned. It only points; it never acts.</p>
+          <ErrorBanner message={hosts.error} />
+          {hosts.loading && !hosts.data && <Loading rows={5} />}
+          {hosts.data && hosts.data.items.length === 0 && <Empty>{allHosts ? 'No host has made a note lately.' : 'No host looks unusual.'}</Empty>}
+          <ul className="ns-host-list">
+            {(hosts.data?.items ?? []).map((h) => (
+              <li key={h.hostId} className="ns-host">
+                <span style={{ minWidth: 0 }}>
+                  <button className="ns-link strong" onClick={() => openUser?.(h.hostId)}>
+                    {h.name}
+                  </button>
+                  <span className="ns-host-sub">
+                    {h.marks} {h.marks === 1 ? 'note' : 'notes'} for {h.attendees} {h.attendees === 1 ? 'person' : 'people'} hosted
+                    {h.decided > 0 ? ` · ${h.overturned} of ${h.decided} decided overturned` : ''}
+                  </span>
+                  {h.reasons.length > 0 && <span className="ns-host-why">{h.reasons.join('; ')}</span>}
                 </span>
-                {h.reasons.length > 0 && <span className="small" style={{ color: 'var(--orange)' }}> · {h.reasons.join('; ')}</span>}
-              </span>
-              {h.flag ? <Chip value="unusual" tone="warn" icon="alert" /> : <Chip value="normal" tone="ok" />}
-            </li>
-          ))}
-        </ul>
-      </section>
+                {h.flag ? <Chip value="unusual" tone="warn" icon="alert" /> : <Chip value="normal" tone="ok" />}
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
     </Page>
   );
 }

@@ -11,7 +11,7 @@ const ASK: Record<string, { title: string; hint: string }> = {
   removal: { title: 'Ask for a review of the removal', hint: 'Tell us why it was fine.' },
   warning: { title: 'Ask for a review of the warning', hint: 'Tell us your side.' },
   message: { title: 'Ask for a review of the removed message', hint: 'Tell us why it was fine.' },
-  report: { title: 'Ask for a second look at your report', hint: 'Tell us what we missed.' },
+  report: { title: 'Ask for a review of the report decision', hint: 'Tell us your side.' },
 };
 const STATE: Record<MyAppeal['state'], { label: string; tone: 'warn' | 'ok' | 'bad' }> = { open: { label: 'Waiting for a decision', tone: 'warn' }, upheld: { label: 'Accepted', tone: 'ok' }, rejected: { label: 'Decision stands', tone: 'bad' } };
 

@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { get } from '../api';
 import { CardHead, Kpi, SERIES, Sparkline } from '../charts';
-import { Chip, ErrorBanner, useLoad } from '../ui';
+import { Chip, ErrorBanner, Loading, useLoad } from '../ui';
 
 type Health = {
   status: 'ok' | 'degraded';
@@ -23,6 +24,7 @@ const uptime = (s: number) => (s < 3600 ? `${Math.max(1, Math.round(s / 60))} mi
 
 /** The live health of the service over the last hour, one point per minute. Looks again every 30 seconds while the page is open. */
 export function ServiceHealth() {
+  const [more, setMore] = useState(false);
   const { data, error, loading } = useLoad(() => get<Health>('/v1/admin/health?minutes=60'), [], 30000);
   const s = data?.series ?? [];
   // the last minute is still filling up, so latency comes from the newest minute that had requests
@@ -30,14 +32,50 @@ export function ServiceHealth() {
   const per = (pick: (m: Health['series'][number]) => number) => s.map(pick);
 
   return (
-    <section className="card health" aria-labelledby="health-h" aria-busy={loading && !data}>
+    <>
+      <section className="ov-health" aria-label="Service health" aria-busy={loading && !data}>
+        {error && !data ? (
+          <div className="ov-health-line">
+            <span className="state-bad">Health not available</span>
+          </div>
+        ) : !data ? (
+          <div className="ov-health-line">Checking the service…</div>
+        ) : (
+          <div className="ov-health-line">
+            <span className={data.status === 'ok' ? 'state-ok' : 'state-bad'}>{data.status === 'ok' ? 'Running normally' : 'Degraded'}</span>
+            <span>
+              <b>{data.totals.errors}</b> errors of {data.totals.requests.toLocaleString()} requests
+            </span>
+            <span>
+              Error rate <b>{rate(data.errorRate60m)}</b>
+            </span>
+            <span>
+              Slowest 5% <b>{p95 == null ? '–' : `${Math.round(p95)} ms`}</b>
+            </span>
+            <span>
+              Database <b>{Math.round(data.database.pingMs)} ms</b>
+            </span>
+            <span>
+              Up <b>{uptime(data.uptimeSeconds)}</b>
+            </span>
+          </div>
+        )}
+        <div className="ov-health-foot">
+          {data && !data.errorTracking.configured && <span className="warn">Error tracking not connected</span>}
+          <button className="link" onClick={() => setMore(!more)} aria-expanded={more}>
+            {more ? 'Hide details ↑' : 'Service details →'}
+          </button>
+        </div>
+      </section>
+      {more && (
+<section className="ov-health-more" aria-labelledby="health-h">
       <CardHead
         id="health-h"
         title="Service health"
         right={<span className="muted small" aria-live="polite">{error && !data ? 'Not available' : 'Last hour · updates every 30 seconds'}</span>}
       />
       <ErrorBanner message={error} />
-      {!data && !error && <p className="muted small">Loading…</p>}
+      {!data && !error && <Loading rows={5} />}
       {data && (
         <>
           <div className="health-status">
@@ -127,5 +165,7 @@ export function ServiceHealth() {
         </>
       )}
     </section>
+      )}
+    </>
   );
 }

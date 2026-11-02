@@ -57,7 +57,7 @@ export default function Settings() {
         {!me?.emailVerified ? <ListRow icon="mail-outline" title={t('Confirm your email')} onPress={() => go('/onboarding')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
         {me?.role !== 'guest' ? <ListRow icon="mail-outline" title={t('Change email address')} onPress={() => go('/change-email')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
         {me?.role !== 'guest' ? <ListRow icon="key-outline" title={t('Change password')} onPress={() => go('/change-password')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last={me?.role === 'guest'} /> : null}
-        {me?.role !== 'guest' ? <ListRow icon="flag-outline" title={t('My reports')} onPress={() => go('/my-reports')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
+        {me?.role !== 'guest' ? <ListRow icon="flag-outline" title={t('Reports & blocked')} onPress={() => go('/reports-blocked')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
         {me?.role !== 'guest' ? <ListRow icon="chatbox-ellipses-outline" title={t('Reviews of decisions')} onPress={() => go('/appeal')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} /> : null}
         {me?.role !== 'guest' ? <ListRow icon="download-outline" title={t('Your data')} onPress={() => go('/my-data')} right={<Ionicons name="chevron-forward" size={16} color={c.muted} />} last /> : null}
       </Card>

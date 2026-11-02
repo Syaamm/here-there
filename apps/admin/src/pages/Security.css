@@ -1,0 +1,66 @@
+/* Security: one clean white card, a numbered stepper for setup, cream chips for the key and the recovery codes */
+.sc-card { max-width: 600px; display: grid; gap: 20px; padding: 28px 30px; background: #fff; border: 1px solid #e4dfd4; border-radius: 18px; }
+.sc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sc-title { margin: 0; font: 700 1.25rem Inter, sans-serif; letter-spacing: -0.02em; color: #14201b; }
+.sc-status { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; color: #14201b; }
+.sc-dot { width: 10px; height: 10px; border-radius: 50%; background: #27a05a; box-shadow: 0 0 0 4px #dcebe2; }
+.sc-dot.off { background: #b7b0a1; box-shadow: 0 0 0 4px #ece7dc; }
+.sc-lead { margin: 0; font-size: 0.92rem; line-height: 1.55; color: #6b756f; }
+.sc-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 22px; }
+.sc-step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; align-items: start; position: relative; }
+.sc-step:not(:last-child)::before { content: ''; position: absolute; left: 16px; top: 38px; bottom: -16px; width: 2px; background: #e4dfd4; }
+.sc-num { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #12302b; color: #fff; font-weight: 700; font-size: 0.9rem; }
+.sc-step h3 { margin: 4px 0 6px; font: 700 1rem Inter, sans-serif; color: #14201b; }
+.sc-step p { margin: 0 0 12px; font-size: 0.88rem; line-height: 1.5; color: #6b756f; }
+.sc-qr { display: grid; place-items: center; width: fit-content; min-width: 248px; min-height: 248px; padding: 12px; background: #fff; border: 1px solid #d5cfc2; border-radius: 16px; }
+.sc-qr img { display: block; border-radius: 4px; }
+.sc-key { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding: 8px 8px 8px 14px; background: #f1ede4; border-radius: 12px; width: fit-content; max-width: 100%; }
+.sc-key small { font-size: 0.72rem; color: #6b756f; }
+.sc-key code { font: 600 0.82rem ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.06em; color: #14201b; word-break: break-all; }
+.sc-copy { min-height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid #d5cfc2; background: #fff; color: #14201b; font: 600 0.78rem Inter, sans-serif; cursor: pointer; }
+.sc-copy:hover { background: #f5f3ee; }
+.sc-direct { display: inline-block; margin-top: 10px; font-size: 0.82rem; color: #12302b; }
+.sc-input { width: 100%; max-width: 280px; min-height: 52px; padding: 0 22px; border-radius: 999px; border: 1px solid #d5cfc2; background: #fff; font: 700 1.3rem ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.4em; color: #14201b; }
+.sc-input:focus-visible { outline: 2px solid #12302b; outline-offset: 1px; border-color: #12302b; }
+.sc-field { display: grid; gap: 6px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #3b4a43; }
+.sc-field input { min-height: 46px; padding: 0 20px; border-radius: 999px; border: 1px solid #d5cfc2; background: #fff; font: 500 0.92rem Inter, sans-serif; letter-spacing: 0; text-transform: none; color: #14201b; }
+.sc-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.sc-btn { min-height: 46px; padding: 0 26px; border-radius: 999px; border: 1px solid #12302b; background: #12302b; color: #fff; font: 700 0.9rem Inter, sans-serif; cursor: pointer; }
+.sc-btn:hover:not(:disabled) { background: #1d4a41; border-color: #1d4a41; }
+.sc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.sc-btn.ghost { background: #fff; color: #14201b; border-color: #d5cfc2; }
+.sc-btn.ghost:hover:not(:disabled) { background: #f5f3ee; }
+.sc-btn.danger { background: #f7dcdc; color: #a02828; border-color: #ecc0c0; }
+.sc-codes { list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; background: #f1ede4; border-radius: 14px; }
+.sc-codes li { padding: 8px 12px; background: #fff; border-radius: 10px; font: 600 0.92rem ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.04em; text-align: center; }
+.sc-warn { margin: 0; padding: 12px 16px; border-radius: 12px; background: #fbedc9; color: #7a5a00; font-size: 0.86rem; line-height: 1.5; }
+.sc-small { margin: 0; font-size: 0.8rem; color: #6b756f; }
+
+
+/* ---- the forced setup screen (inside the white card of the split layout) */
+.sc-forced { display: grid; gap: 16px; }
+.lg-card .sc-title { font: 800 1.6rem/1.15 Inter, sans-serif; letter-spacing: -0.035em; }
+.lg-card .sc-lead { font-size: 0.92rem; }
+.lg-card .sc-card { gap: 18px; }
+.lg-card .sc-head { margin-bottom: -4px; }
+.lg-card .sc-steps { gap: 26px; }
+.lg-card .sc-step { grid-template-columns: 38px minmax(0, 1fr); gap: 16px; }
+.lg-card .sc-step:not(:last-child)::before { left: 18px; top: 44px; bottom: -20px; background: linear-gradient(180deg, #cfd8d1, #e4dfd4); }
+.lg-card .sc-num { width: 38px; height: 38px; font-size: 0.95rem; background: linear-gradient(135deg, #1d4a41, #12302b); box-shadow: 0 0 0 5px #e3efe9; }
+.lg-card .sc-step h3 { margin-top: 7px; font-size: 1.02rem; }
+.lg-card .sc-qr { margin-inline: auto; padding: 14px; border: 0; border-radius: 22px; background: #fff; box-shadow: 0 0 0 1px #e4dfd4, 0 0 0 9px #f1ede4, 0 14px 30px rgba(18, 48, 43, 0.12); }
+.lg-card .sc-qr img { border-radius: 8px; }
+.lg-card .sc-key { margin-inline: auto; margin-top: 22px; border: 1px dashed #d5cfc2; background: #f8f5ee; justify-content: center; }
+.lg-card .sc-direct { display: block; text-align: center; margin-top: 12px; font-weight: 600; }
+.lg-card .sc-input { max-width: none; min-height: 60px; text-align: center; padding-left: 30px; background: #fbfaf7; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
+.lg-card .sc-input:focus { outline: none; border-color: #12302b; background: #fff; box-shadow: 0 0 0 4px rgba(18, 48, 43, 0.12); }
+.lg-card .sc-actions { gap: 12px; }
+.lg-card .sc-btn { min-height: 52px; padding: 0 28px; border: 0; background: linear-gradient(135deg, #1d4a41, #12302b 60%, #0d2622); box-shadow: 0 10px 22px rgba(18, 48, 43, 0.22); transition: filter 0.15s, box-shadow 0.15s; }
+.lg-card .sc-btn:hover:not(:disabled) { filter: brightness(1.12); background: linear-gradient(135deg, #1d4a41, #12302b 60%, #0d2622); }
+.lg-card .sc-btn:focus-visible { outline: 3px solid #7fd1ae; outline-offset: 2px; }
+.lg-card .sc-btn.ghost { background: #fff; border: 1px solid #d5cfc2; box-shadow: none; color: #3b4a43; font-weight: 600; }
+.lg-card .sc-btn.ghost:hover:not(:disabled) { background: #f5f3ee; filter: none; }
+.lg-card .sc-codes { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px; gap: 10px; background: #f1ede4; border: 1px solid #e6dfd0; }
+.lg-card .sc-codes li { padding: 11px 12px; background: #fff; box-shadow: 0 1px 0 #e4dfd4; }
+.lg-card .sc-warn { border: 1px solid #efd99a; }
+@media (prefers-reduced-motion: reduce) { .lg-card .sc-input, .lg-card .sc-btn { transition: none; } }

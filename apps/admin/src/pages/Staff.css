@@ -1,0 +1,21 @@
+/* Staff page: same look as Users (PDF page 4): white rounded cards on beige, pill controls, dark green accents */
+.st-made { display: grid; gap: 10px; padding: 18px 20px; border-radius: 18px; background: #12302b; color: #fff; }
+.st-made h2 { margin: 0; color: #fff; font-size: 1.1rem; }
+.st-made p { margin: 0; color: #c8dbd1; }
+.st-made code { background: #1b4137; padding: 6px 14px; border-radius: 999px; font-size: 1.05rem; letter-spacing: 1px; color: #fff; }
+.st-made .btn { border-radius: 999px; background: transparent; border-color: #5a7a6e; color: #fff; }
+.st-made .btn:hover:not(:disabled) { background: #24503f; }
+
+.st-form { display: grid; gap: 16px; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 20px 22px; }
+.st-form h2 { margin: 0; font-size: 1.1rem; }
+.st-form input, .st-form select { border-radius: 12px; }
+.st-form .btn { border-radius: 999px; }
+
+.st-search .search input { border-radius: 999px; background: #fff; }
+
+.st-table { border-radius: 18px; }
+.st-table th { font-size: 0.68rem; letter-spacing: 0.08em; }
+.st-table td { padding-top: 12px; padding-bottom: 12px; }
+.st-table tbody tr:hover > td { background: #f5f3ee; }
+.st-table .chip { border-radius: 999px; }
+.st-table .person .name { font-weight: 700; }

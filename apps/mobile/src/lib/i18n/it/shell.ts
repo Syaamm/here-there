@@ -25,7 +25,6 @@ export const shell: Record<string, string> = {
   'My activities': 'Le mie attività',
   'My trips': 'I miei viaggi',
   'My drafts': 'Le mie bozze',
-  'My reports': 'Le mie segnalazioni',
   'Travel buddies': 'Compagni di viaggio',
   'Trip plan': 'Piano del viaggio',
   'Ask for a review': 'Chiedi un riesame',

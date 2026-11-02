@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError } from './api';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { ApiError, BASE } from './api';
 
 // ---------------------------------------------------------------- data loading
 /** pollMs: look again every so often while the page is open and visible, so new entries appear without a manual refresh. */
@@ -176,29 +176,60 @@ export function DialogHost() {
 }
 
 // ---------------------------------------------------------------- small pieces
-export function Page({ title, sub, actions, children }: { title: string; sub?: ReactNode; actions?: ReactNode; children: ReactNode }) {
+/** What the sidebar knows about the open page (its group), shown small above the heading. */
+export const PageMeta = createContext<{ eyebrow?: string }>({});
+
+export function Page({ title, sub, actions, children, fill }: { title: string; sub?: ReactNode; actions?: ReactNode; children: ReactNode; fill?: boolean }) {
+  const { eyebrow } = useContext(PageMeta);
   return (
-    <section>
+    <section className="page">
       <header className="page-head">
         <div>
+          {eyebrow && <p className="eyebrow">{eyebrow}</p>}
           <h1>{title}</h1>
           {sub && <p className="sub">{sub}</p>}
         </div>
         <div className="row wrap">{actions}</div>
       </header>
-      {children}
+      <div className={fill ? 'page-body fill' : 'page-body'}>{children}</div>
     </section>
   );
 }
 
-export const ErrorBanner = ({ message }: { message: string | null }) =>
+export const ErrorBanner = ({ message, onRetry }: { message: string | null; onRetry?: () => void }) =>
   message ? (
     <p role="alert" className="banner error">
       {message}
+      {onRetry && (
+        <button type="button" className="link" onClick={onRetry}>
+          Try again
+        </button>
+      )}
     </p>
   ) : null;
 
-export const Empty = ({ children }: { children: ReactNode }) => <p className="empty">{children}</p>;
+/** The same empty state on every page: what is missing, and optionally what to do about it. */
+export const Empty = ({ children, title }: { children: ReactNode; title?: string }) => (
+  <div className="state">
+    {title && <strong>{title}</strong>}
+    <p>{children}</p>
+  </div>
+);
+
+/** The same loading state on every page. `rows` > 0 draws grey placeholder lines instead of a spinner. */
+export const Loading = ({ label = 'Loading…', rows = 0 }: { label?: string; rows?: number }) =>
+  rows > 0 ? (
+    <div className="skeleton" role="status" aria-label={label}>
+      {Array.from({ length: rows }, (_, i) => (
+        <i key={i} />
+      ))}
+    </div>
+  ) : (
+    <div className="state" role="status">
+      <span className="spinner" aria-hidden="true" />
+      <p>{label}</p>
+    </div>
+  );
 
 /** Status chips always carry a text label, never colour alone. */
 export function Chip({ value, tone, icon }: { value: string; tone?: 'ok' | 'warn' | 'bad' | 'info' | 'plain'; icon?: IconName }) {
@@ -241,6 +272,9 @@ const ICONS = {
   copy: 'M9 9h11v11H9zM5 15V5a1 1 0 0 1 1-1h10',
   plane: 'M21 3L3 10.5l7 3 3 7zM10 13.5L21 3',
   plus: 'M12 5v14M5 12h14',
+  menu: 'M4 7h16M4 12h16M4 17h16',
+  userPlus: 'M15 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19 8v6M16 11h6',
+  bell: 'M6 9a6 6 0 1 1 12 0c0 5 2 6 2 7H4c0-1 2-2 2-7zM10 20a2 2 0 0 0 4 0',
   key: 'M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7zM11.4 11.6L15.5 7.5M18 5l3 3-3 3-3-3',
 } as const;
 export type IconName = keyof typeof ICONS;
@@ -250,11 +284,18 @@ export const Icon = ({ name }: { name: IconName }) => (
   </svg>
 );
 
-export const Avatar = ({ name, size }: { name?: string | null; size?: 'sm' | 'lg' }) => (
-  <span className={`avatar ${size ?? ''}`} aria-hidden="true">
-    {(name?.trim()[0] ?? '?').toUpperCase()}
-  </span>
-);
+/** The person's picture when they have one (the small 96 / 192 pixel versions keep lists light), otherwise their first letter. */
+export function Avatar({ name, size, photo }: { name?: string | null; size?: 'sm' | 'lg' | 'xl'; photo?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [photo]);
+  const px = size === 'xl' ? 192 : 96;
+  const src = photo && !failed ? BASE + (photo.includes('/photo') ? photo.replace(/([?&])v=/, `$1s=${px}&v=`) : photo) : null;
+  return (
+    <span className={`avatar ${size ?? ''} ${src ? 'photo' : ''}`} aria-hidden="true">
+      {src ? <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} /> : (name?.trim()[0] ?? '?').toUpperCase()}
+    </span>
+  );
+}
 
 /** cmvgg3ymx000xyz86rh -> cmvgg3ymx000…86rh: ids stay recognisable without filling the row. */
 export const shortId = (id?: string | null) => (!id ? 'system' : id.length > 18 ? `${id.slice(0, 12)}…${id.slice(-4)}` : id);
@@ -281,31 +322,62 @@ export function Segmented<T extends string>({ options, value, onChange, label }:
   );
 }
 
-/** The "..." button on a row, with its actions in a small menu. */
-export function RowMenu({ label, items }: { label: string; items: { label: string; danger?: boolean; onSelect: () => void }[] }) {
+type MenuItem = { label: string; danger?: boolean; onSelect: () => void };
+
+/**
+ * A button that opens a small menu. The menu is placed with `position: fixed` next to the button, so a scrolling card
+ * never clips it; it closes on Escape, on a click elsewhere, and when anything scrolls. Arrow keys move through it.
+ */
+export function PopMenu({ trigger, label, items, header, align = 'end', buttonClass = 'icon-btn' }: { trigger: ReactNode; label: string; items: MenuItem[]; header?: ReactNode; align?: 'start' | 'end'; buttonClass?: string }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const wrap = useRef<HTMLSpanElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const close = (refocus = false) => (setOpen(false), refocus && btn.current?.focus());
+  useLayoutEffect(() => {
+    if (!open || !btn.current) return;
+    const r = btn.current.getBoundingClientRect();
+    const w = list.current?.offsetWidth ?? 220;
+    const h = list.current?.offsetHeight ?? 200;
+    const left = Math.max(8, Math.min(align === 'end' ? r.right - w : r.left, window.innerWidth - w - 8));
+    const top = r.bottom + 6 + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6;
+    setPos({ top, left });
+    list.current?.querySelector<HTMLButtonElement>('button')?.focus();
+  }, [open, align]);
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const away = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && !list.current?.contains(e.target as Node) && setOpen(false);
+    const gone = () => setOpen(false);
     document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', esc);
+    window.addEventListener('resize', gone);
+    window.addEventListener('scroll', gone, true);
     return () => {
       document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', esc);
+      window.removeEventListener('resize', gone);
+      window.removeEventListener('scroll', gone, true);
     };
   }, [open]);
+  const keys = (e: ReactKeyboardEvent) => {
+    if (e.key === 'Escape') return (e.preventDefault(), close(true));
+    if (e.key === 'Tab') return setOpen(false);
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const all = [...(list.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])];
+    const i = all.indexOf(document.activeElement as HTMLButtonElement);
+    all[(i + (e.key === 'ArrowDown' ? 1 : -1) + all.length) % all.length]?.focus();
+  };
   if (items.length === 0) return null;
   return (
-    <span className="menu-wrap" ref={ref}>
-      <button className="icon-btn" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Icon name="more" />
+    <span className="menu-wrap" ref={wrap}>
+      <button ref={btn} className={buttonClass} aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => (setPos(null), setOpen(!open))}>
+        {trigger}
       </button>
       {open && (
-        <div className="menu" role="menu">
+        <div ref={list} className="menu" role="menu" onKeyDown={keys} style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: 'hidden' }}>
+          {header && <div className="menu-info">{header}</div>}
           {items.map((i) => (
-            <button key={i.label} role="menuitem" className={i.danger ? 'danger' : ''} onClick={() => (setOpen(false), i.onSelect())}>
+            <button key={i.label} role="menuitem" className={i.danger ? 'danger' : ''} onClick={() => (close(true), i.onSelect())}>
               {i.label}
             </button>
           ))}
@@ -314,6 +386,9 @@ export function RowMenu({ label, items }: { label: string; items: { label: strin
     </span>
   );
 }
+
+/** The "..." button on a row, with its actions in a small menu. */
+export const RowMenu = ({ label, items }: { label: string; items: MenuItem[] }) => <PopMenu label={label} items={items} trigger={<Icon name="more" />} />;
 
 /** Pages of 10 with "Showing 1-10 of 35" and Previous / Next. */
 export function usePages<T>(items: T[], resetKey: string, size = 10) {

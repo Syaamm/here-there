@@ -39,7 +39,7 @@ When, in 90 days, a host has made 4 or more notes and either those cover half or
 A person is flagged on the queue when any of these is true: 2 or more warnings in the last 6 months, reported by 3 or more different people in 90 days, or suspended before. The flag is a prompt to look closer, not a decision **[CONFIRM thresholds]**.
 
 ## Appeals
-A person can ask for a second look, once per decision, at: a rejected identity check, a suspension, a listing staff removed, a **warning**, a **message a moderator hid**, and (for the person who reported) a **dismissed report**. A different moderator decides (the one who made the decision cannot review it; an administrator can). The person is always told the outcome with a note. Accepting undoes the decision: verified again, account restored, listing or message put back, warning withdrawn, report reopened and unassigned.
+A person can ask for a second look, once per decision, at: a rejected identity check, a suspension, a listing staff removed, a **warning**, a **message a moderator hid**, and **a report staff acted on about the person** (they are told, can read what was decided, never who reported, and ask once). A person who reports cannot appeal: the report goes to the moderators and that is all. A different moderator decides (the one who made the decision cannot review it; an administrator can). The person is always told the outcome with a note. Accepting undoes the decision: verified again, account restored, listing or message put back, warning withdrawn, report reopened and unassigned.
 
 ## Blocking
 Blocking is two-way: neither person sees the other's messages in a shared group chat or the other in the member list, gets alerts from them, or can follow or match with them.

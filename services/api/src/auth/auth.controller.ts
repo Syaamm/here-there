@@ -283,6 +283,8 @@ export class AuthController {
         user.state = 'active';
       } else throw E.forbidden('ACCOUNT_SUSPENDED', suspendedMessage(user.suspendedUntil));
     }
+    // "set up later" lasts one sign-in: the next password sign-in asks again
+    if (user.mfaSkippedAt) await this.prisma.user.update({ where: { id: user.id }, data: { mfaSkippedAt: null } });
     // two-step sign-in: the password was right, now ask for the code (no sign-in is issued yet)
     if (user.mfaEnabledAt) return { mfaRequired: true, mfaToken: await this.mfa.mfaToken(user) };
     return { ...(await this.sessions.issue(user, device)), user: me(user) };

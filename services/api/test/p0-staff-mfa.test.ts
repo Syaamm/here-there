@@ -177,7 +177,7 @@ describe('two-step sign-in for staff', () => {
     const s = await makeStaff('Mod');
     // before it is on: a plain sign-in
     assert.ok((await login(s.email)).body.token);
-    assert.deepEqual((await get('/v1/me/mfa', s.token)).body, { enabled: false, required: false, recoveryCodesLeft: 0 });
+    assert.deepEqual((await get('/v1/me/mfa', s.token)).body, { enabled: false, required: false, setupNeeded: true, canSkip: false, recoveryCodesLeft: 0 });
 
     const setup = await post('/v1/me/mfa/setup', s.token);
     assert.equal(setup.status, 201, JSON.stringify(setup.body));
@@ -255,5 +255,43 @@ describe('two-step sign-in for staff', () => {
     } finally {
       delete process.env.STAFF_MFA_REQUIRED;
     }
+  });
+  it('lets an administrator create staff, asks them to connect an authenticator at first sign-in, and lets only administrators put it off', async () => {
+    const made = await post('/v1/admin/staff', adminToken, { email: 'New.Mod@example.com', displayName: 'New Mod', role: 'moderator' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    assert.equal(made.body.email, 'new.mod@example.com');
+    assert.match(made.body.temporaryPassword, /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/);
+    assert.equal((await post('/v1/admin/staff', adminToken, { email: 'new.mod@example.com', displayName: 'Again', role: 'support' })).body.code, 'EMAIL_TAKEN');
+    assert.equal((await post('/v1/admin/staff', adminToken, { email: 'x@example.com', displayName: 'X', role: 'admin' })).status, 400, 'administrators are not made here');
+    assert.ok((await get('/v1/admin/staff', adminToken)).body.items.some((u: any) => u.email === 'new.mod@example.com' && u.mfaEnabled === false));
+
+    const first = await post('/v1/auth/login', undefined, { email: 'new.mod@example.com', password: made.body.temporaryPassword });
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    const mod = first.body.token as string;
+    const st = (await get('/v1/me/mfa', mod)).body;
+    assert.equal(st.setupNeeded, true, 'the console asks for the authenticator straight away');
+    assert.equal(st.canSkip, false);
+    assert.equal((await post('/v1/me/mfa/skip', mod)).body.code, 'ADMIN_ONLY', 'a moderator cannot put it off');
+    // staff cannot create staff
+    assert.equal((await post('/v1/admin/staff', mod, { email: 'y@example.com', displayName: 'Y', role: 'support' })).status, 403);
+
+    const setup = await post('/v1/me/mfa/setup', mod);
+    await post('/v1/me/mfa/enable', mod, { code: await codeAt(setup.body.secret) });
+    assert.equal((await get('/v1/me/mfa', mod)).body.setupNeeded, false);
+
+    // an administrator may set it up later; the next password sign-in asks again
+    const a = (await get('/v1/me/mfa', adminToken)).body;
+    assert.equal(a.setupNeeded, true);
+    assert.equal(a.canSkip, true);
+    assert.equal((await post('/v1/me/mfa/skip', adminToken)).body.skipped, true);
+    assert.equal((await get('/v1/me/mfa', adminToken)).body.setupNeeded, false);
+    process.env.STAFF_MFA_REQUIRED = 'true';
+    try {
+      assert.notEqual((await get('/v1/admin/overview', adminToken)).status, 403, 'where it is required, a skipped administrator still gets in');
+    } finally {
+      delete process.env.STAFF_MFA_REQUIRED;
+    }
+    const again = await post('/v1/auth/login', undefined, { email: 'admin@example.com', password: 'admin-password-1' });
+    assert.equal((await get('/v1/me/mfa', again.body.token)).body.setupNeeded, true);
   });
 });

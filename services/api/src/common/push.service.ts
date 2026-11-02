@@ -96,6 +96,11 @@ export class PushService implements OnModuleInit {
    * service, and a device that could not be reached is tried again a few times. Nothing here ever throws into the caller.
    */
   queue(userId: string, msg: PushMessage) {
+    // Decided here when it can be decided without the database, because every queued push is several writes (the job, its claim,
+    // its result): someone looking at the app sees it live, and a group already pushed to them inside the grouping window is
+    // not pushed again. The worker checks both again, so nothing that should go out is lost.
+    if (this.live.isViewing(userId)) return;
+    if (msg.group && this.throttled(userId, msg.group)) return;
     void this.jobs.enqueue('push.send', { userId, msg, round: 0 }, { maxAttempts: 3 }).catch(() => undefined);
   }
 

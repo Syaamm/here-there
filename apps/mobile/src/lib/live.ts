@@ -5,7 +5,7 @@ import { API_URL, freshToken } from './api';
 /** What the server sends. 'ready' also fires after every (re)connect, so screens can catch up on what they missed. */
 export type LiveEvent =
   | { type: 'ready' }
-  | { type: 'message'; conversationId: string; message: { id: string; body: string; createdAt: string; sender: { id: string; displayName: string; photoUrl: string | null } } }
+  | { type: 'message'; conversationId: string; message: { id: string; body: string; kind?: string; createdAt: string; sender: { id: string; displayName: string; photoUrl: string | null } } }
   | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: string } }
   | { type: 'alerts-changed' }
   | { type: 'feed-changed' }
@@ -50,6 +50,7 @@ function connect(token: string) {
         signedIn = true;
         sendPresence();
         sendScope();
+        sendChat();
       }
       listeners.forEach((l) => l(e));
     } catch {
@@ -104,6 +105,21 @@ export function setLiveCity(city: string) {
   if (city === liveCity) return;
   liveCity = city;
   sendScope();
+}
+
+/** Tell the server which chat is open in front (or none), so a message to it needs no alert and no push for this person. */
+let openChat: string | null = null;
+function sendChat() {
+  if (socket && signedIn && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'chat', id: openChat }));
+}
+export function setOpenChat(id: string | null) {
+  if (id === openChat) return;
+  openChat = id;
+  sendChat();
+}
+/** Only closes the chat it opened: a second chat that opened a moment earlier stays open. */
+export function clearOpenChat(id: string) {
+  if (openChat === id) setOpenChat(null);
 }
 
 // coming back to the app after it slept: reconnect right away instead of waiting out the back-off

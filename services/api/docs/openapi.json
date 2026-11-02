@@ -4775,6 +4775,168 @@
         }
       }
     },
+    "/v1/admin/staff": {
+      "get": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Every staff account and whether its two-step sign-in is connected (administrators)",
+        "operationId": "Admin_staffList",
+        "description": "Staff only. Roles: admin.",
+        "x-staff-roles": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items: [{ id, email, displayName, photoUrl, role, regionKey, state, mfaEnabled, createdAt }] }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Create a support, moderator or trust-lead account (whole-service administrators only)",
+        "operationId": "Admin_createStaff",
+        "description": "Staff only. Roles: admin.",
+        "x-staff-roles": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254,
+                    "format": "email",
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 40
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "support",
+                      "moderator",
+                      "trust_lead"
+                    ]
+                  },
+                  "regionKey": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "email",
+                  "displayName",
+                  "role"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, email, role, regionKey, temporaryPassword }. The temporary password is shown once. At the first sign-in the console asks the person to connect an authenticator app."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `INVALID_PLACE`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`, `GLOBAL_STAFF_ONLY`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `EMAIL_TAKEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/trips": {
       "get": {
         "tags": [
@@ -7924,6 +8086,81 @@
         }
       }
     },
+    "/v1/conversations/{id}/read": {
+      "post": {
+        "tags": [
+          "Chat and date polls"
+        ],
+        "summary": "Clear this chat's unread alert (the chat is open and its newest message arrived live)",
+        "operationId": "Conversations_markRead",
+        "description": "Needs a **verified adult**.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`, `VERIFICATION_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/export/zip": {
       "get": {
         "tags": [
@@ -9707,7 +9944,7 @@
         "operationId": "Mfa_status",
         "responses": {
           "200": {
-            "description": "{ enabled, required, recoveryCodesLeft }"
+            "description": "{ enabled, required, setupNeeded, canSkip, recoveryCodesLeft }. setupNeeded: a staff account without an authenticator (the console asks for it after the first sign-in). canSkip: administrators only."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -9879,6 +10116,60 @@
           },
           "409": {
             "description": "Conflicts with the current state. Codes: `MFA_ALREADY_ON`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/mfa/skip": {
+      "post": {
+        "tags": [
+          "Sign-in and account"
+        ],
+        "summary": "Administrators only: set up two-step sign-in later (asked again at the next sign-in)",
+        "operationId": "Mfa_skip",
+        "responses": {
+          "200": {
+            "description": "{ skipped }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`",
             "content": {
               "application/json": {
                 "schema": {
@@ -10760,7 +11051,61 @@
         "operationId": "Moderation_mine",
         "responses": {
           "200": {
-            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, category, targetType, status, outcome, createdAt, canAppeal }, newest first. A dismissed report can be appealed once with POST /v1/me/appeals (kind report)."
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, category, targetType, status, outcome, createdAt }, newest first. A person who reports cannot appeal: it goes to the moderators."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/reports-about-me": {
+      "get": {
+        "tags": [
+          "Safety, blocks and follows"
+        ],
+        "summary": "Reports about me where staff took a decision, and whether I can appeal",
+        "operationId": "Moderation_aboutMe",
+        "responses": {
+          "200": {
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item: { id, category, targetType, decidedAt, decision, appeal: { id, state, decision } | null, canAppeal }, newest first. Never who reported or what they wrote. Appeal once with POST /v1/me/appeals (kind report, targetId = the report id)."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
