@@ -1299,10 +1299,12 @@ Parameters
 | --- | --- | --- | --- | --- |
 | `status` | query | string | no |  |
 | `category` | query | string | no |  |
+| `limit` | query | string | no |  |
+| `cursor` | query | string | no |  |
 
 Responses
 
-- **200**: { items }. Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }.
+- **200**: { items, nextCursor }. Waiting reports (open, in review) always come whole; finished ones come newest first, a page at a time (nextCursor is null when there is no more). Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }.
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`

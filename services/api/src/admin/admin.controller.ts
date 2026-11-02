@@ -162,7 +162,7 @@ export class AdminController {
     const where: Prisma.UserWhereInput = {
       ...(scope && { role: 'user', profile: { homeCityKey: { in: [...scope.cityKeys] } } }),
       ...(state && { state }),
-      ...(q && { OR: [{ email: { contains: q } }, { profile: { displayName: { contains: q } } }, { id: q }] }),
+      ...(q && { OR: [{ email: { contains: q, mode: 'insensitive' } }, { profile: { displayName: { contains: q, mode: 'insensitive' } } }, { id: q }] }),
     };
     const size = pageLimit(limit, 100, 200);
     const all = await this.prisma.user.findMany({
@@ -381,8 +381,8 @@ export class AdminController {
   @Staff(...ALL)
   @RegionalOk()
   @Get('reports')
-  async reports(@CurrentUser() actor: User, @Query('status') status?: string, @Query('category') category?: string, @Headers('x-admin-place') place?: string) {
-    return this.moderation.queue(status, category, new Date(), await this.regions.scopeOf(actor, place));
+  async reports(@CurrentUser() actor: User, @Query('status') status?: string, @Query('category') category?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string) {
+    return this.moderation.queue(status, category, new Date(), await this.regions.scopeOf(actor, place), { limit, cursor });
   }
 
   @Staff(...MOD)

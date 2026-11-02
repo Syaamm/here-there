@@ -1,9 +1,10 @@
 import { cityKeyOf } from '../regions/regions';
-import { metrics } from '../common/observability';
+import { log, metrics } from '../common/observability';
 import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Req } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
-import { checkPassword, hashPassword } from '../common/password';
+import { checkPassword, hashPassword, needsRehash } from '../common/password';
+import { authSecret } from '../common/secret';
 import { TtlCache } from '../common/ttl-cache';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request } from 'express';
@@ -131,8 +132,7 @@ export class AuthController {
    * already has an account gets a random value that matches nothing.
    */
   private ticketFor(u: { id: string; createdAt: Date }) {
-    const secret = process.env.JWT_SECRET ?? 'dev-only-secret-change-me';
-    return createHmac('sha256', secret).update(`registration:${u.id}:${+u.createdAt}`).digest('base64url');
+    return createHmac('sha256', authSecret()).update(`registration:${u.id}:${+u.createdAt}`).digest('base64url');
   }
   private ticketOk(u: { id: string; createdAt: Date }, given: string) {
     const want = Buffer.from(this.ticketFor(u));
@@ -235,8 +235,13 @@ export class AuthController {
     // Wrong guesses are also counted for the account, whoever makes them and from wherever (so spreading a guessing attack
     // over many addresses does not help), and for the address, whichever accounts it aims at. A person whose account is
     // being attacked may be told to wait for up to 15 minutes; that is the price of not letting the guessing continue.
-    this.limiter.check(`login-fail-account:${dto.email}`, 20, window);
-    this.limiter.check(`login-fail-address:${ip}`, 100, window);
+    try {
+      this.limiter.check(`login-fail-account:${dto.email}`, 20, window);
+      this.limiter.check(`login-fail-address:${ip}`, 100, window);
+    } catch (e) {
+      await this.lockoutAlert(dto.email, ip, window);
+      throw e;
+    }
     const user = await this.prisma.user.findUnique({ where: { email: dto.email }, include: { profile: true } });
     // an address with no account does the same amount of work, so the time taken does not give it away
     const ok = await checkPassword(dto.password, user?.passwordHash ?? (await dummyHash()));
@@ -246,7 +251,28 @@ export class AuthController {
       this.limiter.record(`login-fail-address:${ip}`, window);
       throw E.unauthorized('INVALID_CREDENTIALS', 'Email or password is incorrect');
     }
+    // an older (bcrypt) password, or weaker settings: save it again with today's method now that we hold the plain password
+    if (needsRehash(user.passwordHash)) {
+      const fresh = await hashPassword(dto.password);
+      await this.prisma.user.updateMany({ where: { id: user.id, passwordHash: user.passwordHash }, data: { passwordHash: fresh } }).catch(() => undefined);
+    }
     return this.openSession(user, ua);
+  }
+
+  /**
+   * Too many wrong guesses locked an account or address out. Staff should hear about it, once per lockout and not once per
+   * refused attempt: a warning in the logs and the metric (alarms hang off these), and a line in the account's audit trail.
+   * The person themself is not emailed: anyone could trigger that, so it would become a way to spam them.
+   */
+  private async lockoutAlert(email: string, ip: string, window: number) {
+    try {
+      this.limiter.hit(`lockout-alert:${email}`, 1, window);
+    } catch {
+      return; // already reported for this lockout
+    }
+    log('warn', 'login.lockout', { email, ip });
+    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true } }).catch(() => null);
+    if (user) await this.audit.log(user.id, 'login.lockout', 'user', user.id, { ip }).catch(() => undefined);
   }
 
   /** The person has proved who they are (password or provider). Is their account open, and is a code needed too? */

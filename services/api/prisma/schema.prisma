@@ -2,15 +2,15 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Local dev uses SQLite (no Docker/Postgres on dev machine yet).
-// For staging/prod switch provider to "postgresql" and enable PostGIS for geo queries.
+// PostgreSQL in development, tests and production. DATABASE_URL looks like postgresql://user:password@localhost:5432/herethere
+// (PostGIS for the distance filter is an optional later step: docs/POSTGRES_MOVE.md).
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 // Enum-like string columns are validated in code (see src/common/constants.ts)
-// so the schema stays portable between SQLite and PostgreSQL.
+// so the schema stays portable between databases.
 
 model User {
   id                 String    @id @default(cuid())

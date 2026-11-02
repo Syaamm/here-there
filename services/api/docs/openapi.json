@@ -4431,11 +4431,27 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "{ items }. Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }."
+            "description": "{ items, nextCursor }. Waiting reports (open, in review) always come whole; finished ones come newest first, a page at a time (nextCursor is null when there is no more). Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",

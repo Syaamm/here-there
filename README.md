@@ -12,7 +12,7 @@ Only verified adults can create, join or chat. Browsing needs no verification.
 
 | Folder | What it is |
 |---|---|
-| `services/api` | The backend: NestJS 12, Prisma 6 (SQLite for development), zod, JWT, WebSocket live updates. Tests use `node:test`. |
+| `services/api` | The backend: NestJS 12, Prisma 6 (PostgreSQL), zod, JWT, WebSocket live updates. Tests use `node:test`. |
 | `apps/mobile` | The app for iOS, Android and web: Expo SDK 58 (React Native), expo-router. HERE and THERE are two modes of the same app. |
 | `apps/admin` | The staff console: Vite and React. Reports, identity checks, users, appeals, no-shows, audit log, overview dashboard. |
 | `docs/` | Planning and deployment documents (see below). |
@@ -23,7 +23,7 @@ Only verified adults can create, join or chat. Browsing needs no verification.
 You need Node.js (the project was built with version 24) and npm. Run `npm install` once in the repository root; the three folders above are npm workspaces.
 
 1. **Settings.** In `services/api`, copy `.env.example` to `.env` and fill it in (at least `DATABASE_URL`, `JWT_SECRET`). Every setting is explained in `docs/FOR_DEPLOYMENT.md`. Never commit `.env`.
-2. **Database.** In `services/api`: `npm run db:push` (creates the SQLite file and its tables). Optionally `npm run seed` for the first staff account.
+2. **Database.** In `services/api`: `npm run db:push` (creates the tables in the PostgreSQL database named in `DATABASE_URL`; create the empty database first). Optionally `npm run seed` for the first staff account.
 3. **API.** In `services/api`: `npm run build`, then `npm start`. It listens on port 3000.
 4. **App.** In `apps/mobile`: `npm start` (Expo on port 8082). Scan the QR code with Expo Go, or press `w` for the browser version. See `apps/mobile/README.md` for phones, tunnels and builds.
 5. **Admin console.** In `apps/admin`: `npm run dev` (port 5173).
@@ -41,7 +41,7 @@ cd services/api
 npm test
 ```
 
-This builds the project and runs every test file (195 tests at the last full run). The full suite takes several minutes, so run it in the background. Each test file uses its own throwaway SQLite database, but the big `p0.test.ts` shares one file, so never start two test runs at the same time.
+This builds the project and runs every test file (282 tests at the last full run, 2 November 2026). The full suite takes about two minutes on a laptop, so run it in the background and send its output to a file. Run a single file with `node --test dist/test/<name>.test.js`. Each test file gets its own throwaway PostgreSQL schema (`test_<name>`, in the database named by `TEST_DATABASE_URL`, or `DATABASE_URL` if that is not set) and drops it when done, so files can run side by side and your data is never touched. Do not run two full suites at the same time.
 
 Type-check the other apps with `npx tsc --noEmit` inside `apps/mobile` or `apps/admin`.
 
@@ -60,7 +60,7 @@ When you add or change a route, a field or an error code, update `src/docs/route
 | File | Read it for |
 |---|---|
 | `docs/FOR_DEPLOYMENT.md` | Everything needed to go live: settings, keys, outside services, limits, what will not survive many users, a final checklist. |
-| `docs/POSTGRES_MOVE.md` | The planned move from SQLite to Postgres, step by step (not started). |
+| `docs/POSTGRES_MOVE.md` | The move from SQLite to Postgres: what was done on 2026-11-02, what it found, what is still open, and how to set up your own database. |
 | `docs/PROJECT-HANDOVER.md` | What is built, what is open, how to run and test, the owner's working rules. |
 | `docs/compliance/` | Drafts for the privacy notice, terms, data inventory, DPIA and retention schedule. They need a lawyer's review. |
 | `WORKFLOW.md` | How the app works end to end: feed ranking, paging, joining, reliability, safety. |

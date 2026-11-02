@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
 import { OnCall } from './OnCall';
-import { askText, Chip, Empty, ErrorBanner, fmt, Icon, Page, Segmented, shortId, useAction, useLoad } from '../ui';
+import { askText, Chip, Empty, ErrorBanner, fmt, Icon, Page, Segmented, shortId, useAction, useLoad, useMore } from '../ui';
 
 type R = {
   id: string;
@@ -63,18 +63,21 @@ const hours = (h: number) => (h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${
 export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Session; openUser?: (id: string) => void; focusId?: string | null; onClearFocus?: () => void }) {
   const [status, setStatus] = useState<Status>('open');
   const [category, setCategory] = useState('');
+  const params = new URLSearchParams({ ...(!focusId && { status }), ...(category && { category }) });
   const { data, error, loading, reload } = useLoad(
     // opened from the audit log: look in every status so the report is found whatever state it is in
-    () => get<{ items: R[] }>(`/v1/admin/reports?${new URLSearchParams({ ...(!focusId && { status }), ...(category && { category }) })}`),
+    () => get<{ items: R[]; nextCursor?: string | null }>(`/v1/admin/reports?${params}`),
     [status, category, focusId],
     6000,
   );
-  const items = focusId ? (data?.items ?? []).filter((r) => r.id === focusId) : (data?.items ?? []);
+  // the waiting queue always comes whole (urgent first); finished reports come a page at a time
+  const more = useMore(data, (c) => get(`/v1/admin/reports?${params}&cursor=${c}`), `${status}|${category}|${focusId}`);
+  const items = focusId ? more.items.filter((r) => r.id === focusId) : more.items;
   const open = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=open'), [status], 6000);
   // the workload view and the on-call rota are for staff of the whole service
   const regional = !!me.scope;
   const work = useLoad(() => (regional ? Promise.resolve<Workload | null>(null) : get<Workload>('/v1/admin/reports/workload')), [status, regional], 15000);
-  const act = useAction(() => (reload(), open.reload(), work.reload()));
+  const act = useAction(() => (more.reset(), reload(), open.reload(), work.reload()));
   const mod = can.moderate(me.role);
 
   const resolve = async (r: R, s: 'resolved' | 'dismissed') => {
@@ -262,6 +265,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
           );
         })}
       </ul>
+      {more.more}
     </Page>
   );
 }

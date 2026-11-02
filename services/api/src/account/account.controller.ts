@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Injectable, Post, Query, Req, Res } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { authSecret } from '../common/secret';
 import type { Request, Response } from 'express';
 import { User } from '@prisma/client';
 import { checkPassword } from '../common/password';
@@ -66,7 +67,7 @@ export class AccountService {
   }
 
   private zipSignature(body: string) {
-    return createHmac('sha256', process.env.JWT_SECRET ?? 'dev-only-secret-change-me').update(`export-zip:${body}`).digest('base64url');
+    return createHmac('sha256', authSecret()).update(`export-zip:${body}`).digest('base64url');
   }
 
   /** Checks the link (signature and age), then builds the ZIP in memory: the complete JSON copy and a short note on it. */

@@ -31,7 +31,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     const hooks = timed as unknown as { onModuleInit(): Promise<void>; onModuleDestroy(): Promise<void> };
     hooks.onModuleInit = async () => {
       await base.$connect();
-      await useWriteAheadLog(base);
     };
     hooks.onModuleDestroy = () => base.$disconnect();
     return timed as unknown as this;
@@ -39,24 +38,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   async onModuleInit() {
     await this.$connect();
-    await useWriteAheadLog(this);
   }
   async onModuleDestroy() {
     await this.$disconnect();
-  }
-}
-
-/**
- * A development database is one SQLite file. By default every write waits for the disk three times; on a slow disk (measured:
- * 130 ms a write on a laptop with antivirus scanning) every request feels slow. The write-ahead log waits once, about three
- * times faster, and stays on in the file. Not used in tests (they delete their file when done) or with another database, and
- * `SQLITE_WAL=off` turns it off.
- */
-async function useWriteAheadLog(db: PrismaClient) {
-  if (process.env.NODE_ENV === 'test' || process.env.SQLITE_WAL === 'off' || !/^file:/.test(process.env.DATABASE_URL ?? '')) return;
-  try {
-    await db.$queryRawUnsafe('PRAGMA journal_mode=WAL');
-  } catch (e) {
-    log('warn', 'could not switch the database to the write-ahead log', { error: (e as Error).message });
   }
 }

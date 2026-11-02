@@ -199,9 +199,11 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     if (!inScope(scope, (await this.cityOfReports([report])).get(report.id))) throw E.forbidden('OUT_OF_SCOPE', 'That is outside the area you look after');
   }
 
-  async queue(status?: string, category?: string, now = new Date(), scope: Scope | null = null) {
+  async queue(status?: string, category?: string, now = new Date(), scope: Scope | null = null, paging: { limit?: string; cursor?: string } = {}) {
     // Waiting reports (a status of open or in review): the oldest 500, PLUS every urgent or escalated one however new, so a long queue can never hide the
-    // newest urgent report. Finished ones: the latest 200.
+    // newest urgent report. Finished ones: newest first, a page at a time (default 200) with a cursor for the next.
+    const size = pageLimit(paging.limit, 200, 200);
+    let nextCursor: string | null = null;
     const waiting = status === 'open' || status === 'in_review';
     const where = { ...(status && { status }), ...(category && { category }) };
     const include = { reporter: { select: { id: true, profile: { select: { displayName: true } } } } };
@@ -215,7 +217,13 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
             include,
           }),
         ]).then(([oldest, urgent]) => [...new Map([...oldest, ...urgent].map((r) => [r.id, r])).values()])
-      : await this.prisma.report.findMany({ where, orderBy: [{ createdAt: 'desc' }], take: 200, include });
+      : await this.prisma.report
+          .findMany({ where: { AND: [where, beforeKeyset(decodeKeyset(paging.cursor))] }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: size + 1, include })
+          .then((all) => {
+            const page = sliceKeyset(all, size, (r) => r.createdAt);
+            nextCursor = page.nextCursor;
+            return page.items;
+          });
     // staff who look after one area see only the reports about it (a report about something no place covers is for the whole-service staff)
     const cities = scope ? await this.cityOfReports(found) : null;
     const rows = scope ? found.filter((r) => inScope(scope, cities!.get(r.id))) : found;
@@ -252,7 +260,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
         repeatOffender: subject ? (flags.get(subject) ?? null) : null,
       };
     });
-    return { items: orderQueue(items) };
+    return { items: orderQueue(items), nextCursor };
   }
 
   /** Who is carrying what: each moderator's open reports, how long the oldest has waited, and what the queue looks like. */

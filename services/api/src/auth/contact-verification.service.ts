@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { authSecret } from '../common/secret';
 import { User } from '@prisma/client';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
@@ -60,8 +61,7 @@ export class ContactVerificationService implements OnModuleInit {
   }
 
   private hash(userId: string, channel: Channel, code: string) {
-    const secret = process.env.JWT_SECRET ?? 'dev-only-secret-change-me';
-    return createHmac('sha256', secret).update(`${userId}:${channel}:${code}`).digest('hex');
+    return createHmac('sha256', authSecret()).update(`${userId}:${channel}:${code}`).digest('hex');
   }
 
   /** Issues a new code (replacing any earlier one) and hands it to `deliver`. */

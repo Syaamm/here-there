@@ -1,10 +1,9 @@
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_URL = 'file:./docs-test.db'; // its own file, so the other test file's database is never touched
+process.env.DATABASE_URL = require('./test-db').testDatabaseUrl('docs'); // its own schema, so the other test files' databases are never touched
 process.env.VERIFICATION_MODE = 'manual';
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { ApiError } from '../src/common/errors';
@@ -13,17 +12,15 @@ import { generateDocs, API_ROOT } from '../src/docs/generate';
 import { ERROR_GUIDE, FRAMEWORK_ERROR_CODES } from '../src/docs/error-guide';
 import { ROUTE_DOCS } from '../src/docs/routes';
 import { createApp } from '../src/main';
+import { dropTestDatabase, resetTestDatabase } from './test-db';
 
 let app: Awaited<ReturnType<typeof createApp>>;
 let docs: ReturnType<typeof generateDocs>;
 let base = '';
 
-const dbFiles = ['docs-test.db', 'docs-test.db-journal'].map((f) => path.join(API_ROOT, 'prisma', f));
-
 before(async () => {
   // the app reads the database when it starts, so it gets a real (empty) one of its own
-  for (const f of dbFiles) rmSync(f, { force: true });
-  execFileSync(process.execPath, [path.join(API_ROOT, '..', '..', 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], { cwd: API_ROOT, env: { ...process.env }, stdio: 'ignore' });
+  await resetTestDatabase('docs');
   app = await createApp();
   docs = generateDocs(app);
   await app.listen(0);
@@ -31,7 +28,7 @@ before(async () => {
 });
 after(async () => {
   await app.close();
-  for (const f of dbFiles) rmSync(f, { force: true });
+  await dropTestDatabase('docs');
 });
 
 describe('API documentation', () => {

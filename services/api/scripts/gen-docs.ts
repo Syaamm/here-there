@@ -1,6 +1,6 @@
 // Writes docs/openapi.json and docs/ERROR-CODES.md from the running code. Run with: npm run docs
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_URL ??= 'file:./dev.db'; // the app is only assembled, never started, so nothing is read from it
+process.env.DATABASE_URL ??= 'postgresql://localhost:5432/docs_only'; // the app is only assembled, never started, so nothing is read from it
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { generateDocs, API_ROOT } from '../src/docs/generate';

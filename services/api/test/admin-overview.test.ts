@@ -1,15 +1,13 @@
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_URL = 'file:./overview-test.db'; // its own file, so no other test's database is touched
+process.env.DATABASE_URL = require('./test-db').testDatabaseUrl('overview'); // its own schema, so no other test's database is touched
 process.env.VERIFICATION_MODE = 'manual';
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { dropTestDatabase, resetTestDatabase } from './test-db';
 
 const root = path.resolve(__dirname, '..', '..');
-const dbFiles = ['overview-test.db', 'overview-test.db-journal'].map((f) => path.join(root, 'prisma', f));
 let app: any;
 let prisma: any;
 let base = '';
@@ -17,8 +15,7 @@ let adminToken = '';
 const DAY = 24 * 3600 * 1000;
 
 before(async () => {
-  for (const f of dbFiles) rmSync(f, { force: true });
-  execFileSync(process.execPath, [path.join(root, '..', '..', 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], { cwd: root, env: { ...process.env }, stdio: 'ignore' });
+  await resetTestDatabase('overview');
   const { createApp } = await import('../src/main');
   const { PrismaService } = await import('../src/common/prisma.service');
   const { JwtService } = await import('@nestjs/jwt');
@@ -50,7 +47,7 @@ before(async () => {
 });
 after(async () => {
   await app.close();
-  for (const f of dbFiles) rmSync(f, { force: true });
+  await dropTestDatabase('overview');
 });
 
 describe('admin overview', () => {

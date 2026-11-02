@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { requireVerified } from '../common/auth';
 import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset } from '../common/paging';
-import { decodeCursor, encodeCursor, topK } from '../activities/feed-ranking';
+import { decodeCursor, encodeCursor } from '../activities/feed-ranking';
+import { TtlCache } from '../common/ttl-cache';
 import { circleOf, crowd, tierCounts } from '../common/social';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { E } from '../common/errors';
@@ -127,6 +128,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     return r.count;
   }
 
+  /** The ranked result of one person's search, reused while they page through it (see `search`). */
+  private readonly rankedSearch = new TtlCache<Awaited<ReturnType<TripsService['rankTrips']>>>(Number(process.env.TRIP_SEARCH_CACHE_MS ?? (process.env.NODE_ENV === 'test' ? 0 : 15_000)), 1000);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
@@ -192,11 +196,57 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ---------------------------------------------------------------- discovery
+  /**
+   * One page of trip search. Scoring up to 500 trips is the costly part and does not change from one page to the next, so the
+   * ranked list (ids and scores only) is kept for a short time per person and search, and the later pages are cut from it. Only
+   * the trips on the page are read again, so counts, blocks and cancellations are always current.
+   */
   async search(me: User, query: unknown) {
     const q = parse(searchSchema, query);
-    const blocked = await this.safety.blockedWith(me.id);
     const now = new Date();
+    const cur = q.cursor ? decodeCursor(q.cursor) : null;
+    if (q.cursor && !cur) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
 
+    const { cursor: _c, limit: _l, ...filters } = q;
+    const ranked = await this.rankedSearch.get(`${me.id}|${JSON.stringify(filters)}`, async () => this.rankTrips(me, q, await this.safety.blockedWith(me.id), now));
+    const after = cur ? ranked.filter((x) => x.score < cur.score || (x.score === cur.score && x.id > cur.id)) : ranked;
+    const best = after.slice(0, q.limit + 1);
+    const picked = best.slice(0, q.limit);
+
+    // the page's trips are read fresh: one that was cancelled, blocked or made private since is simply left out
+    const blocked = await this.safety.blockedWith(me.id);
+    const rows = picked.length
+      ? await this.prisma.trip.findMany({
+          where: {
+            id: { in: picked.map((x) => x.id) },
+            hostId: { notIn: blocked },
+            status: { in: q.openOnly === 'true' ? ['published'] : ['published', 'full', 'planning', 'confirmed'] },
+            OR: [{ visibility: 'public' }, { hostId: me.id }, { memberships: { some: { userId: me.id, state: 'approved' } } }],
+          },
+          include: { ...this.hostInclude, _count: { select: { memberships: { where: { state: 'approved' } } } } },
+        })
+      : [];
+    const byId = new Map(rows.map((t) => [t.id, t]));
+    const last = picked[picked.length - 1];
+    return {
+      total: ranked.length,
+      items: picked.flatMap((x) => {
+        const t = byId.get(x.id);
+        if (!t) return [];
+        const members = t._count.memberships;
+        return [this.dto(t, members, {
+          match: { dates: x.dateMatch, budgetScopeMismatch: x.budgetScopeMismatch, score: Math.round(x.score) },
+          groupOpen: t.status !== 'full' && t.maxCapacity - members > 0,
+          buddiesGoing: x.buddies,
+          followingGoing: x.following,
+        })];
+      }),
+      nextCursor: best.length > q.limit && last ? encodeCursor(now, last.score, last.id) : null,
+    };
+  }
+
+  /** Every trip that fits the search, scored for this person, best first (score high to low, then id). Ids and scores only. */
+  private async rankTrips(me: User, q: z.infer<typeof searchSchema>, blocked: string[], now: Date) {
     const where: Prisma.TripWhereInput = {
       status: { in: q.openOnly === 'true' ? ['published'] : ['published', 'full', 'planning', 'confirmed'] },
       dateStart: { gt: now }, // a trip that has started is no longer offered: people already on it see it under Taking part
@@ -229,8 +279,6 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     const window: [number, number] | null = q.from ? [+q.from, +(q.to ?? q.from)] : null;
     const userWindow = window ? expandedRange(new Date(window[0]), new Date(window[1]), q.flexibility) : null;
 
-    const cur = q.cursor ? decodeCursor(q.cursor) : null;
-    if (q.cursor && !cur) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
     const matches = rows
       .map((t) => {
         // date overlap: "exact" = nominal ranges overlap; "approximate" = only overlap after flexibility
@@ -269,27 +317,13 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         const tiers = tierCounts(peopleByTrip.get(t.id) ?? [], circle);
         score += 30 * crowd(tiers.buddies) + 10 * crowd(tiers.following);
 
-        // only the score is worked out for every trip; the card itself is built later, for the page that is sent
-        return { id: t.id, score, build: () => this.dto(t, members, {
-          match: { dates: dateMatch, budgetScopeMismatch, score: Math.round(score) },
-          groupOpen: t.status !== 'full' && t.maxCapacity - members > 0,
-          buddiesGoing: tiers.buddies,
-          followingGoing: tiers.following,
-        }) };
+        // only the score is worked out here; the card is built later, for the page that is sent
+        return { id: t.id, score, dateMatch, budgetScopeMismatch, buddies: tiers.buddies, following: tiers.following };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
 
-    // same as the HERE feed: only the best page is kept (a small heap), and the cursor is the last score and id sent,
-    // so a trip that appears or goes away between pages cannot cause a duplicate or a gap
-    const after = cur ? matches.filter((x) => x.score < cur.score || (x.score === cur.score && x.id > cur.id)) : matches;
-    const best = topK(after, q.limit + 1);
-    const page = best.slice(0, q.limit);
-    const last = page[page.length - 1];
-    return {
-      total: matches.length,
-      items: page.map((x) => x.build()),
-      nextCursor: best.length > q.limit && last ? encodeCursor(now, last.score, last.id) : null,
-    };
+    // the cursor is the last score and id sent, so a trip that appears or goes away between pages cannot cause a duplicate or a gap
+    return matches.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
   async detail(me: User, id: string) {

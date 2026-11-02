@@ -194,12 +194,21 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
    * otherwise open. Cancelled, archived and draft activities are left alone. The people going are told the moment it is confirmed.
    */
   async refreshStatus(activityId: string) {
-    const a = await this.prisma.activity.findUnique({ where: { id: activityId } });
-    if (!a || !['published', 'full', 'confirmed'].includes(a.status)) return;
-    const going = await this.goingCount(activityId);
-    const next = going >= a.capacity ? 'full' : going >= MIN_TO_CONFIRM ? 'confirmed' : 'published';
-    if (next === a.status) return;
-    await this.prisma.activity.update({ where: { id: activityId }, data: { status: next } });
+    // counted and written under the activity's lock: with several people joining at once, a count taken a moment earlier must
+    // never overwrite a newer status (two joins both seeing 2 of 3 would otherwise leave a full activity marked confirmed)
+    const change = await this.prisma.$transaction(async (tx) => {
+      if (!(await tx.activity.findUnique({ where: { id: activityId }, select: { id: true } }))) return null;
+      await lockActivity(tx, activityId);
+      const a = await tx.activity.findUnique({ where: { id: activityId } });
+      if (!a || !['published', 'full', 'confirmed'].includes(a.status)) return null;
+      const going = await tx.activityMembership.count({ where: { activityId, state: 'approved' } });
+      const next = going >= a.capacity ? 'full' : going >= MIN_TO_CONFIRM ? 'confirmed' : 'published';
+      if (next === a.status) return null;
+      await tx.activity.update({ where: { id: activityId }, data: { status: next } });
+      return { a, next };
+    });
+    if (!change) return;
+    const { a, next } = change;
     if (a.status === 'published' && next !== 'published' && effectiveStatus(a) === 'published') {
       for (const userId of await this.attendeeIds(activityId))
         await this.notifications.notify(userId, 'activity_confirmed', 'It is happening', `Enough people are going: ${a.title} is confirmed.`, { activityId });

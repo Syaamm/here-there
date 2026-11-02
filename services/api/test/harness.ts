@@ -3,27 +3,25 @@
  * on a free port, an admin, and the helpers the tests use. Each test file calls `startHarness('name')` once.
  * (p0.test.ts is the original big file and keeps its own copy of this.)
  */
-import { execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { dropTestDatabase, resetTestDatabase, testDatabaseUrl } from './test-db';
 
 type Res = { status: number; body: any };
 
 export async function startHarness(name: string, opts: { queueWrites?: boolean } = {}) {
-  const root = path.resolve(__dirname, '..', '..');
-  const prismaDir = path.join(root, 'prisma');
-  const dbFiles = [`test-${name}.db`, `test-${name}.db-journal`];
   process.env.NODE_ENV = 'test';
-  // queueWrites: one database connection, so a burst of simultaneous requests waits in line instead of timing out on SQLite's single writer
-  process.env.DATABASE_URL = `file:./test-${name}.db${opts.queueWrites ? '?connection_limit=1&socket_timeout=60' : ''}`;
+  // `queueWrites` was for SQLite's single writer; PostgreSQL takes simultaneous writes, so it no longer changes anything
+  void opts;
+  process.env.DATABASE_URL = testDatabaseUrl(name);
   process.env.VERIFICATION_MODE = 'manual';
   process.env.REGISTER_LIMIT_PER_HOUR = '10000';
   process.env.BCRYPT_ROUNDS = '4';
+  process.env.ARGON2_MEMORY_KIB = '8';
+  process.env.ARGON2_PASSES = '1';
   process.env.TRUST_PROXY = '1';
   process.env.ACCESS_TOKEN_MINUTES ??= '600'; // a slow test run must not outlive the real 15-minute sign-in (a test may set its own first)
-  for (const f of dbFiles) rmSync(path.join(prismaDir, f), { force: true });
-  execFileSync(process.execPath, [path.join(root, '..', '..', 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], { cwd: root, env: { ...process.env }, stdio: 'ignore' });
+  await resetTestDatabase(name);
 
   const { createApp } = await import('../src/main');
   const { PrismaService } = await import('../src/common/prisma.service');
@@ -72,7 +70,7 @@ export async function startHarness(name: string, opts: { queueWrites?: boolean }
     get, post, call, base, hours, verified, activityBody, prisma, app, emailSvc,
     async stop() {
       await app.close();
-      for (const f of dbFiles) rmSync(path.join(prismaDir, f), { force: true });
+      await dropTestDatabase(name);
     },
   };
 }

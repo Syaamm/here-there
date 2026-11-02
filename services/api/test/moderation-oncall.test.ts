@@ -113,6 +113,8 @@ describe('when nobody answers: escalation, in steps, each once', () => {
     const lead = await staff('EscLead', 'trust_lead');
     const mod = await staff('EscMod');
     const reporter = await h.verified('EscUrgentReporter');
+    // start from an empty queue: reports the earlier tests left open (one is a day old) must not be escalated in the middle of this one
+    await h.prisma.report.updateMany({ where: { status: { in: ['open', 'in_review'] } }, data: { status: 'dismissed' } });
     const r = await report('immediate_danger', 20, reporter);
 
     // 20 minutes in: nothing happens yet

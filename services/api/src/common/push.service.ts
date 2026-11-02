@@ -35,16 +35,20 @@ export class PushService implements OnModuleInit {
 
   private readonly lastPush = new Map<string, number>();
 
-  /** True when a push for this group went out less than the grouping window ago (and notes this one as sent otherwise). */
+  /** True when a push for this group went out less than the grouping window ago. */
   private throttled(userId: string, group: string) {
     const windowMs = Number(process.env.PUSH_GROUP_SECONDS ?? 60) * 1000;
     if (windowMs <= 0) return false;
-    const key = `${userId}:${group}`;
+    return Date.now() - (this.lastPush.get(`${userId}:${group}`) ?? 0) < windowMs;
+  }
+
+  /** Starts the grouping window for this group. Called only once a push is really about to go out, so a message with nobody to send it to does not hold back the next one. */
+  private noteSent(userId: string, group: string) {
+    const windowMs = Number(process.env.PUSH_GROUP_SECONDS ?? 60) * 1000;
+    if (windowMs <= 0) return;
     const now = Date.now();
-    if (now - (this.lastPush.get(key) ?? 0) < windowMs) return true;
     if (this.lastPush.size > 5000) for (const [k, t] of this.lastPush) if (now - t > windowMs) this.lastPush.delete(k);
-    this.lastPush.set(key, now);
-    return false;
+    this.lastPush.set(`${userId}:${group}`, now);
   }
 
   /**
@@ -109,6 +113,7 @@ export class PushService implements OnModuleInit {
     }
     const subs = (await this.prisma.pushSubscription.findMany({ where: { userId: p.userId } })).filter((s) => !p.only || p.only.includes(s.token));
     if (subs.length === 0) return;
+    if (!p.only && p.msg.group) this.noteSent(p.userId, p.msg.group);
     const results = await Promise.all(subs.map(async (s) => ((s.kind === 'expo' ? await this.sendExpo(s.token, p.msg) : await this.sendWeb(s.token, p.msg)) ? null : s.token)));
     const failed = results.filter((t): t is string => !!t);
     if (failed.length && p.round < 2) await this.jobs.enqueue('push.send', { ...p, only: failed, round: p.round + 1 }, { delayMs: 30_000 * 2 ** p.round, maxAttempts: 3 });

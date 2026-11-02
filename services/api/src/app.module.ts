@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { authSecret } from './common/secret';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { AccountController, AccountService } from './account/account.controller';
@@ -49,16 +50,9 @@ import { TripsService } from './trips/trips.service';
 import { VerificationController } from './verification/verification.controller';
 import { VerificationService } from './verification/verification.service';
 
-function jwtSecret() {
-  const s = process.env.JWT_SECRET;
-  if (s) return s;
-  if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET must be set in production');
-  return 'dev-only-secret-change-me';
-}
-
 @Global()
 @Module({
-  imports: [JwtModule.register({ global: true, secret: jwtSecret(), signOptions: { expiresIn: '7d' } })],
+  imports: [JwtModule.register({ global: true, secret: authSecret(), signOptions: { expiresIn: '7d' } })],
   controllers: [
     AuthController,
     AccountController,

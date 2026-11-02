@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync } from 'node:crypto';
+import { authSecret } from './secret';
 
 /**
  * Field-level encryption for personal data that must be read back (a phone number, a 2FA secret), plus a "blind index":
@@ -23,8 +24,7 @@ function keys() {
       return b;
     }
     if (process.env.NODE_ENV === 'production') throw new Error(`${name} must be set in production`);
-    const secret = process.env.JWT_SECRET ?? 'dev-only-secret-change-me';
-    return scryptSync(secret, `herethere-${label}`, 32);
+    return scryptSync(authSecret(), `herethere-${label}`, 32);
   };
   cached = { enc: fromEnv('DATA_ENCRYPTION_KEY', 'data-encryption'), idx: fromEnv('BLIND_INDEX_KEY', 'blind-index') };
   return cached;

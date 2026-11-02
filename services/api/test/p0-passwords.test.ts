@@ -1,24 +1,24 @@
 // Split out of the original p0.test.ts (30 Oct 2026): one file per area, each with its own database, so the files
 // run side by side and a failure points at its area. The set-up below is the same in every file.
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_URL = 'file:./test-p0-passwords.db';
+process.env.DATABASE_URL = require('./test-db').testDatabaseUrl('p0-passwords');
 process.env.VERIFICATION_MODE = 'manual';
 process.env.REGISTER_LIMIT_PER_HOUR = '10000';
 process.env.BCRYPT_ROUNDS = '4';
+process.env.ARGON2_MEMORY_KIB = '8';
+process.env.ARGON2_PASSES = '1';
 process.env.TRUST_PROXY = '1';
 process.env.ACCESS_TOKEN_MINUTES = '600'; // a slow test run must not outlive the real 15-minute sign-in
 
-import { execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { strFromU8, unzipSync } from 'fflate';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import * as bcrypt from 'bcryptjs';
+import { dropTestDatabase, resetTestDatabase } from './test-db';
 
 const root = path.resolve(__dirname, '..', '..');
-const prismaDir = path.join(root, 'prisma');
 let base = '';
 let app: any;
 let prisma: any;
@@ -100,12 +100,7 @@ const activityBody = (over: Record<string, unknown> = {}) => ({
 });
 
 before(async () => {
-  for (const f of ['test-p0-passwords.db', 'test-p0-passwords.db-journal']) rmSync(path.join(prismaDir, f), { force: true });
-  execFileSync(process.execPath, [path.join(root, '..', '..', 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], {
-    cwd: root,
-    env: { ...process.env },
-    stdio: 'ignore',
-  });
+  await resetTestDatabase('p0-passwords');
   const { createApp } = await import('../src/main');
   const { PrismaService } = await import('../src/common/prisma.service');
   const { RateLimiter } = await import('../src/common/rate-limiter');
@@ -137,7 +132,7 @@ before(async () => {
 
 after(async () => {
   await app?.close();
-  for (const f of ['test-p0-passwords.db', 'test-p0-passwords.db-journal']) rmSync(path.join(prismaDir, f), { force: true });
+  await dropTestDatabase('p0-passwords');
 });
 
 /** Downloads the data ZIP the way the app does (signed link), and returns the JSON inside it with the README. */

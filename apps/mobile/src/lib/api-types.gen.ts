@@ -55,7 +55,7 @@ export interface ApiRoutes {
   "DELETE /v1/admin/regions/{key}": { errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_PLACE" | "INVALID_TOKEN" | "NOT_FOUND" | "OUT_OF_SCOPE" | "PLACE_HAS_STAFF" | "PLACE_NOT_EMPTY" | "UNAUTHENTICATED" };
   "PATCH /v1/admin/regions/{key}": { body: { name?: string; hereMonths?: number | null; thereMonths?: number | null }; errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_FOUND" | "OUT_OF_SCOPE" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "GET /v1/admin/regions/unassigned": { errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" };
-  "GET /v1/admin/reports": { query: { status?: string; category?: string }; errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
+  "GET /v1/admin/reports": { query: { status?: string; category?: string; limit?: string; cursor?: string }; errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "POST /v1/admin/reports/{id}/assign": { errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_FOUND" | "UNAUTHENTICATED" };
   "POST /v1/admin/reports/{id}/resolve": { body: { status: "resolved" | "dismissed" | "in_review"; resolution?: string }; errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_FOUND" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "GET /v1/admin/reports/workload": { errors: "ACCOUNT_SUSPENDED" | "FORBIDDEN" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "UNAUTHENTICATED" };
