@@ -1,6 +1,6 @@
 # On-call process for urgent reports (DRAFT: the owner must decide the items marked [DECIDE])
 
-Software can tell people something is urgent. It cannot make a person pick up a phone. This page is the plan for the humans: who is on call, what they do, and what happens when nobody answers. The code carries out exactly what is written here (`services/api/src/moderation/oncall.ts`, `moderation.controller.ts`); change the text and the code together.
+Software can tell people something is urgent. It cannot make a person pick up a phone. This page is the plan for the humans: who is on call, what they do, and what happens when nobody answers. The code carries out exactly what is written here (`backend/api/src/moderation/oncall.ts`, `moderation.controller.ts`); change the text and the code together.
 
 ## What counts as urgent
 - **Someone is in danger right now** (`immediate_danger`): at any hour.
@@ -45,7 +45,7 @@ The software's answer is the table above. The owner must confirm each of these, 
 Emails and texts say only that an urgent report is waiting, give a link to the admin console and (for an escalation) how long it has waited. They **never** contain what the report says or who it is about: phones and mailboxes are not a safe place for that.
 
 ## Needed to switch this on for real
-- An SMS provider (Twilio settings in `docs/FOR_DEPLOYMENT.md`) and an email sender; without them texts and emails only print in the console.
+- An SMS provider (Twilio settings in `deployment/FOR_DEPLOYMENT.md`) and an email sender; without them texts and emails only print in the console.
 - `ADMIN_URL` (the link in the messages), `ON_CALL_OWNER_EMAIL`, `ON_CALL_OWNER_PHONE`.
 - Staff push needs the staff app/browser to be subscribed; do not rely on push alone.
 - A drill: before launch, create a test urgent report on a staging server at an unusual hour and check that the on-call person's phone really rings, then leave it untaken and check the 1-hour and 2-hour steps arrive.

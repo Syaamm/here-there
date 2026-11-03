@@ -1,15 +1,15 @@
 {
   "name": "here-there",
   "private": true,
-  "workspaces": ["services/*", "apps/*", "packages/*"],
+  "workspaces": ["backend/*", "frontend/*", "packages/*"],
   "scripts": {
     "api": "npm start -w @here-there/api",
     "admin": "npm run mobile",
     "admin:standalone": "npm run dev -w @here-there/admin",
     "admin:build": "npm run build -w @here-there/admin",
-    "build:web": "node scripts/build-web.cjs",
-    "build:all": "npm run db:generate -w @here-there/api && npm run build -w @here-there/api && node scripts/build-web.cjs",
-    "deploy": "node scripts/deploy.cjs",
+    "build:web": "node deployment/build-web.cjs",
+    "build:all": "npm run db:generate -w @here-there/api && npm run build -w @here-there/api && node deployment/build-web.cjs",
+    "deploy": "node deployment/deploy.cjs",
     "mobile": "npm start -w @here-there/mobile"
   },
   "overrides": {

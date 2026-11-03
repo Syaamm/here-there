@@ -9,9 +9,9 @@ build
 WORKFLOW.md
 
 # private notes and client documents
-docs/PROJECT-HANDOVER.md
-docs/FOR_DEPLOYMENT.md
-docs/client-progress-report-*
+handover/PROJECT-HANDOVER.md
+deployment/FOR_DEPLOYMENT.md
+handover/client-progress-report-*
 *.db-wal
 *.db-shm
 

@@ -4,9 +4,9 @@
 
   Before the first run (once):
     1. npx eas-cli login          (a free Expo account)
-    2. cd apps/mobile; npx eas-cli init     (creates the Expo project; its id goes in apps/mobile/eas.json, see "EAS_PROJECT_ID")
+    2. cd frontend/mobile; npx eas-cli init     (creates the Expo project; its id goes in frontend/mobile/eas.json, see "EAS_PROJECT_ID")
   Then, with the API running on port 3000 (npm run api):
-    powershell -File scripts/build-apk.ps1
+    powershell -File deployment/build-apk.ps1
 
   What it does: opens a Cloudflare quick tunnel to http://localhost:3000, checks it works, writes the tunnel address into
   the "preview" build settings (EXPO_PUBLIC_API_URL), starts the cloud build, and puts eas.json back as it was.
@@ -14,7 +14,7 @@
 #>
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$mobile = Join-Path $root 'apps\mobile'
+$mobile = Join-Path $root 'frontend\mobile'
 $easJson = Join-Path $mobile 'eas.json'
 
 # 1. the API must be running

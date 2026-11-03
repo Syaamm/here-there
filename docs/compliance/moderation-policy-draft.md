@@ -1,6 +1,6 @@
 # Moderation policy (DRAFT for approval)
 
-How reports, warnings and appeals are handled. The numbers below are the ones the software uses today (one place in code: `services/api/src/moderation/moderation.controller.ts`). **The owner should approve or change them [CONFIRM].** The same text is served to the app at `GET /v1/reports/policy`.
+How reports, warnings and appeals are handled. The numbers below are the ones the software uses today (one place in code: `backend/api/src/moderation/moderation.controller.ts`). **The owner should approve or change them [CONFIRM].** The same text is served to the app at `GET /v1/reports/policy`.
 
 ## Emergencies
 - Reports are **not** an emergency service. Every report screen shows "In immediate danger? Call 112" with a call button, and the confirmation after a report repeats it.

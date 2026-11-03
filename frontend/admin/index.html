@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <meta name="color-scheme" content="light" />
+    <title>HERE / THERE Admin</title>
+    <script>
+      // Guards against the blank page after the browser's Back button. A page kept from before an update can point at script
+      // files that no longer exist; reloading fetches the current page and fixes it. Each guard acts once, so it can never loop.
+      (function () {
+        var KEY = 'ht_admin_boot_reload';
+        function once() {
+          try {
+            if (sessionStorage.getItem(KEY)) return false;
+            sessionStorage.setItem(KEY, '1');
+          } catch (e) {
+            return false;
+          }
+          return true;
+        }
+        // a script file failed to load
+        window.addEventListener('error', function (e) { if (e.target && e.target.tagName === 'SCRIPT' && once()) location.reload(); }, true);
+        // the page came back from the browser's back/forward store as it was left
+        window.addEventListener('pageshow', function (e) { if (e.persisted) location.reload(); });
+        // nothing was drawn after six seconds
+        setTimeout(function () { var r = document.getElementById('root'); if (r && !r.firstChild && once()) location.reload(); }, 6000);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

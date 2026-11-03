@@ -5,7 +5,7 @@
  *   npm run build:web
  *
  * With no address (the normal way) the builds find the API wherever the page came from ("same-origin"). The API serves
- * build/site itself when the folder exists (services/api/src/common/site.ts), so putting the code on a server, running this
+ * build/site itself when the folder exists (backend/api/src/common/site.ts), so putting the code on a server, running this
  * and starting the API makes the app and the admin console live at the server's own address, whatever its domain. Nothing is
  * copied or uploaded by hand.
  *
@@ -21,8 +21,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const mobile = path.join(root, 'apps', 'mobile');
-const admin = path.join(root, 'apps', 'admin');
+const mobile = path.join(root, 'frontend', 'mobile');
+const admin = path.join(root, 'frontend', 'admin');
 const out = path.join(root, 'build', 'site');
 
 const given = (process.argv[2] ?? process.env.PUBLIC_API_URL ?? '').trim().replace(/\/+$/, '');
@@ -46,10 +46,10 @@ function run(label, command, cwd, env) {
   }
 }
 
-// 1. the admin console: type-checked, then built to apps/admin/dist (it is made to live under /admin/)
+// 1. the admin console: type-checked, then built to frontend/admin/dist (it is made to live under /admin/)
 run('Admin console', 'npm run build', admin, { VITE_API_URL: raw });
 
-// 2. the web version of the app: apps/mobile/dist
+// 2. the web version of the app: frontend/mobile/dist
 fs.rmSync(path.join(mobile, 'dist'), { recursive: true, force: true });
 run('Web version of the app', 'npx expo export --platform web --output-dir dist', mobile, { EXPO_PUBLIC_API_URL: raw, EXPO_OFFLINE: '1', CI: '1' });
 
@@ -66,5 +66,5 @@ if (!hasApp || !hasAdmin) {
   process.exit(1);
 }
 console.log(`\nDone: ${out}\n\n  /        the app\n  /admin/  the admin console\n\n` + (raw === 'same-origin'
-  ? 'The API serves this folder itself: start it (npm start in services/api) and both are live at the API\'s address.'
-  : `Upload the CONTENTS of the folder to the web server; the API itself must be running at ${raw}. See docs/FOR_DEPLOYMENT.md.`));
+  ? 'The API serves this folder itself: start it (npm start in backend/api) and both are live at the API\'s address.'
+  : `Upload the CONTENTS of the folder to the web server; the API itself must be running at ${raw}. See deployment/FOR_DEPLOYMENT.md.`));
