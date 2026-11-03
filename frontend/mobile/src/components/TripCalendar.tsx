@@ -6,7 +6,7 @@ import { reducedMotion, SOFT } from './Pop';
 import { Text } from './ScaledText';
 import { useT } from '@/lib/i18n';
 
-const WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -22,7 +22,7 @@ const RING = 42; // the frame is a ring around the chosen day
 /** One day of the grid. The chosen day is marked by the frame that glides over the grid (see TripCalendar), not here. */
 function DayButton({ on, base, number, dots, onPress, label, disabled, look, ring }: {
   on: boolean; base: object | null; number: string; dots: number; onPress: () => void; label: string; disabled: boolean;
-  look: { dot: string; numberColor: string; weight: '600' | '800' }; ring: object | null;
+  look: { dot: string; numberColor: string; weight: '500' | '600' | '800' }; ring: object | null;
 }) {
   const shape = { width: 36, height: 36, borderRadius: 18, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 2 };
   return (
@@ -81,8 +81,8 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
   const y = Math.floor(shown / 12);
   const m = shown % 12;
 
-  // Monday first, blanks before the 1st
-  const lead = (new Date(y, m, 1).getDay() + 6) % 7;
+  // Sunday first, blanks before the 1st
+  const lead = new Date(y, m, 1).getDay();
   const count = new Date(y, m + 1, 0).getDate();
   const keyOf = (d: number) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   const cells: (number | null)[] = [...Array.from({ length: lead }, () => null), ...Array.from({ length: count }, (_, i) => i + 1)];
@@ -140,7 +140,7 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         {first === last ? <View style={{ width: 32 }} /> : arrow(-1, t('Previous month'), shown > first)}
         <View style={{ alignItems: 'center' }}>
-          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 14 }}>{t(MONTHS[m])} {y}</Text>
+          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '600', fontSize: 15 }}>{t(MONTHS[m])} {y}</Text>
           <Text style={{ color: c.muted, fontSize: 11 }}>{tn(tripDays.length, '{planned} of {n} day planned', '{planned} of {n} days planned').split('{planned}').join(String(plannedDays))}</Text>
         </View>
         {first === last ? <View style={{ width: 32 }} /> : arrow(1, t('Next month'), shown < last)}
@@ -150,11 +150,19 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
         <View style={{ flexDirection: 'row' }}>
           {WEEK.map((w) => (
             <View key={w} style={{ flex: 1, alignItems: 'center', paddingVertical: 2 }}>
-              <Text style={{ color: c.muted, fontSize: 10, fontWeight: '700' }}>{t(w)}</Text>
+              <Text style={{ color: c.text, fontSize: 12, fontWeight: '500' }}>{t(w)}</Text>
             </View>
           ))}
         </View>
         <View onLayout={(e) => setGridW(e.nativeEvent.layout.width)}>
+        {gridW ? (
+          <Animated.View
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            style={{ position: 'absolute', left: 0, top: 0, width: ring, height: ring, borderRadius: ring / 2, backgroundColor: c.forest, opacity: seeFrame, transform: [{ translateX: fx }, { translateY: fy }] }}
+          />
+        ) : null}
         {Array.from({ length: cells.length / 7 }, (_, row) => (
           <View key={row} style={{ flexDirection: 'row' }}>
             {cells.slice(row * 7, row * 7 + 7).map((d, i) => {
@@ -174,23 +182,15 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
                     onPress={() => onSelect(k)}
                     number={String(d)}
                     dots={Math.min(stops, 3)}
-                    base={trip ? { backgroundColor: c.accentSoft } : null}
+                    base={trip && !on ? { backgroundColor: c.surface } : null}
                     ring={k === today && !on ? { borderWidth: 1.5, borderColor: c.green } : null}
-                    look={{ dot: c.green, numberColor: on ? c.forest : open ? c.text : c.line, weight: on || trip ? '800' : '600' }}
+                    look={{ dot: c.green, numberColor: on ? '#fff' : open ? c.text : c.line, weight: on ? '600' : '500' }}
                   />
                 </View>
               );
             })}
           </View>
         ))}
-        {gridW ? (
-          <Animated.View
-            pointerEvents="none"
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-            style={{ position: 'absolute', left: 0, top: 0, width: ring, height: ring, borderRadius: ring / 2, borderWidth: 1.5, borderColor: `${c.green}AA`, backgroundColor: `${c.green}1A`, opacity: seeFrame, transform: [{ translateX: fx }, { translateY: fy }] }}
-          />
-        ) : null}
         </View>
       </Animated.View>
     </View>

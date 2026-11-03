@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Banner, Btn, CheckRow, ErrorBanner, Field, Screen, Txt } from '@/components/ui';
+import { View } from 'react-native';
+import { AuthBack, AuthButton, AuthCheck, AuthField, AuthHeading, AuthSwitch } from '@/components/AuthForm';
+import { Banner, Btn, ErrorBanner, Screen, Txt } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
@@ -53,35 +55,38 @@ export default function Register() {
   if (pending)
     return (
       <Screen maxWidth={520}>
-        <Btn title={t('‹ Back')} variant="ghost" small onPress={() => { setPending(null); setCode(''); setSentAgain(false); act.setError(null); }} style={{ alignSelf: 'flex-start' }} />
-        <Txt variant="h1">{t('Check your email')}</Txt>
-        <Txt variant="muted">{t('We sent a 6-digit code to {email}. Enter it to finish creating your account.', { email: pending.email })}</Txt>
+        <AuthBack onPress={() => { setPending(null); setCode(''); setSentAgain(false); act.setError(null); }} />
+        <View style={{ marginTop: 8 }}>
+          <AuthHeading title={t('Check your email')} subtitle={t('We sent a 6-digit code to {email}. Enter it to finish creating your account.', { email: pending.email })} />
+        </View>
         <ErrorBanner message={act.error} />
         {sentAgain ? <Banner tone="ok">{t('We sent a new code.')}</Banner> : null}
-        <Field label={t('Code')} value={code} onChangeText={setCode} keyboardType="number-pad" autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} onSubmitEditing={confirm} />
-        <Btn title={t('Continue')} onPress={confirm} loading={act.busy} disabled={code.trim().length !== 6} />
-        <Btn title={t('Send the code again')} variant="ghost" onPress={again} disabled={act.busy} />
+        <View style={{ gap: 18 }}>
+          <AuthField label={t('Code')} placeholder={t('6-digit code')} value={code} onChangeText={setCode} keyboardType="number-pad" autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} onSubmitEditing={confirm} />
+          <AuthButton title={t('Continue')} onPress={confirm} loading={act.busy} disabled={code.trim().length !== 6} />
+          <Btn title={t('Send the code again')} variant="ghost" onPress={again} disabled={act.busy} />
+        </View>
         <Txt variant="small">{t('Already have an account with this email? Check your inbox: we sent you a note, and you can log in or reset your password.')}</Txt>
       </Screen>
     );
 
   return (
     <Screen maxWidth={520}>
-      <Btn title={t('‹ Back')} variant="ghost" small onPress={() => router.back()} style={{ alignSelf: 'flex-start' }} />
-      <Txt variant="h1">{t('Create your account')}</Txt>
+      <AuthBack onPress={() => router.back()} />
+      <View style={{ marginTop: 8 }}>
+        <AuthHeading title={t('Create your account')} subtitle={t('Join a space where real sparks happen.')} />
+      </View>
       <ErrorBanner message={act.error} />
-      <Field label={t('Display name')} value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="nickname" />
-      <Field label={t('Email')} value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" />
-      <Field label={t('Password')} hint={t('At least {n} characters', { n: 10 })} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" />
-      <Field label={t('Home city')} hint={t('City only, never an address')} value={f.homeCity} onChangeText={set('homeCity')} maxLength={60} />
-      <CheckRow checked={adult} onChange={setAdult}>
-        <Txt>{t('I confirm that I am 18 or older.')}</Txt>
-      </CheckRow>
-      <Btn title={t('Create account')} onPress={submit} loading={act.busy} disabled={!valid} />
-      <Txt variant="small">
-        {t("We'll email you a code. We never show your documents to anyone.")}
-      </Txt>
-      <Btn title={t('Already have an account? Log in')} variant="ghost" onPress={() => router.replace('/login')} />
+      <View style={{ gap: 18 }}>
+        <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="nickname" />
+        <AuthField label={t('Email')} placeholder={t('Enter your email')} value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" />
+        <AuthField label={t('Password')} placeholder={t('Enter your password')} hint={t('At least {n} characters', { n: 10 })} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" />
+        <AuthField label={t('Home city')} placeholder={t('Enter your city')} hint={t('City only, never an address')} value={f.homeCity} onChangeText={set('homeCity')} maxLength={60} />
+        <AuthCheck checked={adult} onChange={setAdult} label={t('I confirm that I am 18 or older.')} />
+        <AuthButton title={t('Create account')} onPress={submit} loading={act.busy} disabled={!valid} />
+      </View>
+      <Txt variant="small" style={{ textAlign: 'center' }}>{t("We'll email you a code. We never show your documents to anyone.")}</Txt>
+      <AuthSwitch prompt={t('Already have an account?')} action={t('Log in')} onPress={() => router.replace('/login')} />
     </Screen>
   );
 }

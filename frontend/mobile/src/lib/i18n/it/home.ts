@@ -380,4 +380,13 @@ export const home: Record<string, string> = {
   'Saved drafts show up here.': 'Le bozze salvate appaiono qui.',
   'Tap the heart on an activity.': 'Tocca il cuore su un’attività.',
   'Propose or join a trip.': 'Proponi o unisciti a un viaggio.',
+  'Where next? e.g. Japan....': 'Dove andiamo? Es. Giappone....',
+  'Be Here.Go There.': 'Sii qui. Vai là.',
+  'Explore The World Like Never': 'Esplora il mondo come mai prima',
+  'Filter': 'Filtra',
+  'Up to {amount}': 'Fino a {amount}',
+  'Any budget': 'Qualsiasi budget',
+  'Clear search': 'Cancella la ricerca',
+  'DD-MM-YYYY': 'GG-MM-AAAA',
+  'How big should the group be?': 'Quanto grande dev’essere il gruppo?',
 };

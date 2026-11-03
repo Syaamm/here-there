@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Banner, Btn, ErrorBanner, Field, Screen, Txt } from '@/components/ui';
+import { AcctScreen } from '@/components/AccountParts';
+import { AuthButton, AuthField } from '@/components/AuthForm';
+import { Banner, Btn, ErrorBanner, Txt } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
@@ -44,34 +46,34 @@ export default function ChangeEmail() {
 
   if (changedTo)
     return (
-      <Screen hasHeader maxWidth={520}>
+      <AcctScreen title={t('Change email')}>
         <Banner tone="ok">{t('Email changed to {email}.', { email: changedTo })}</Banner>
         <Btn title={t('Done')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/settings'))} />
-      </Screen>
+      </AcctScreen>
     );
 
   return (
-    <Screen hasHeader maxWidth={520}>
+    <AcctScreen title={t('Change email')}>
       {!sent ? (
         <>
           <Txt variant="muted">{t('Current email: {email}', { email: me?.email ?? '' })}</Txt>
           <ErrorBanner message={ask.error} />
-          <Field label={t('New email')} value={newEmail} onChangeText={setNewEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" />
-          <Field label={t('Your password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={send} />
-          <Btn title={t('Send the code')} onPress={send} loading={ask.busy} disabled={!newEmail.trim() || !password} />
+          <AuthField label={t('New email')} placeholder={t('Enter your new email')} value={newEmail} onChangeText={setNewEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" />
+          <AuthField label={t('Your password')} placeholder={t('Enter your password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={send} />
+          <AuthButton title={t('Send the code')} onPress={send} loading={ask.busy} disabled={!newEmail.trim() || !password} />
         </>
       ) : (
         <>
           <Txt variant="muted">{t('Code sent to {to}.', { to: sent.to })}</Txt>
           {sent.devCode ? <Banner tone="warn">{t('Dev mode: your code is {code}.', { code: sent.devCode })}</Banner> : null}
           <ErrorBanner message={confirm.error ?? ask.error} />
-          <Field label={t('6-digit code')} value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" onSubmitEditing={submit} />
+          <AuthField label={t('6-digit code')} placeholder={t('6-digit code')} value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" onSubmitEditing={submit} />
           {sent.devCode ? <Btn title={t('Fill in the code')} variant="secondary" small onPress={() => setCode(sent.devCode!)} /> : null}
-          <Btn title={t('Change my email')} onPress={submit} loading={confirm.busy} disabled={code.length !== 6} />
+          <AuthButton title={t('Change my email')} onPress={submit} loading={confirm.busy} disabled={code.length !== 6} />
           <Btn title={wait > 0 ? t('Send a new code ({wait}s)', { wait }) : t('Send a new code')} variant="secondary" onPress={send} loading={ask.busy} disabled={wait > 0} />
           <Btn title={t('Use a different address')} variant="ghost" onPress={() => { setSent(null); setCode(''); ask.setError(null); confirm.setError(null); }} />
         </>
       )}
-    </Screen>
+    </AcctScreen>
   );
 }

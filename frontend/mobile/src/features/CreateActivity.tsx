@@ -3,16 +3,18 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { DraftBar } from '@/components/DraftBar';
-import { PlaceSearch, type Place } from '@/components/PlaceSearch';
-import { TabHeader } from '@/components/TabHeader';
-import { Banner, Between, Btn, CheckRow, ErrorBanner, Field, Row, Screen, Txt, useGo } from '@/components/ui';
-import { DateRangeSheet, shortDay } from '@/components/DateRangeSheet';
+import { useRouter } from 'expo-router';
+import { AuthButton } from '@/components/AuthForm';
+import { CategoryPill, CountPill, CreateLabel, MonthCalendar, PillArea, PillInput, PlacePick, RoundBtn, SmallPill, WizardTop } from '@/components/CreateParts';
+import { OnboardingHeading } from '@/components/OnboardingParts';
+import { type Place } from '@/components/PlaceSearch';
+import { Banner, Between, CheckRow, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
+import { shortDay } from '@/components/DateRangeSheet';
 import { get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useCity } from '@/lib/city';
 import { catColor, CATS, MILAN_AREAS } from '@/lib/constants';
 import { useAction, useLoad } from '@/lib/hooks';
-import { isoDay, parseDay } from '@/lib/format';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
 import { localeTag, useT } from '@/lib/i18n';
@@ -97,16 +99,14 @@ function AccessRow({ icon, title, text, on, onChange }: { icon: React.ComponentP
   const { c } = useTheme();
   const { t } = useT();
   return (
-    <Between>
-      <Row style={{ flex: 1, gap: 10, paddingRight: 10, alignItems: 'flex-start' }}>
-        <Ionicons name={icon} size={20} color={on ? c.forest : c.muted} style={{ marginTop: 1 }} />
-        <View style={{ flex: 1 }}>
-          <Txt variant="h3">{title}</Txt>
-          <Txt variant="muted">{text}</Txt>
-        </View>
-      </Row>
-      <Switch value={on} onValueChange={onChange} trackColor={{ true: '#2F7D65', false: '#ccc' }} thumbColor="#fff" accessibilityLabel={on ? t('{title}: on', { title }) : t('{title}: off', { title })} />
-    </Between>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, minHeight: 44 }}>
+      <Ionicons name={icon} size={20} color={c.text} style={{ marginTop: 2, width: 24 }} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: c.text, fontSize: 16, lineHeight: 24, fontWeight: '500' }}>{title}</Text>
+        <Text style={{ color: c.muted, fontSize: 14, lineHeight: 22 }}>{text}</Text>
+      </View>
+      <Switch value={on} onValueChange={onChange} trackColor={{ true: '#43A047', false: '#B7DDB9' }} thumbColor="#fff" accessibilityLabel={on ? t('{title}: on', { title }) : t('{title}: off', { title })} />
+    </View>
   );
 }
 
@@ -148,8 +148,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const verified = me?.eligibility === 'verified';
   // how far ahead this city's admin lets people plan (a month unless they set it otherwise)
   const limits = useLoad(() => get<{ here: { months: number; latest: string } }>(`/v1/regions/limits?city=${encodeURIComponent(city.trim())}`), [city.trim()]);
-  const [calendar, setCalendar] = useState(false);
-  const latest = limits.data ? new Date(limits.data.here.latest) : null;
+    const latest = limits.data ? new Date(limits.data.here.latest) : null;
   const days = dayChips(earliest);
   // dayIdx is how many days from today: 0 today, 1 tomorrow, more = a day picked from the calendar
   const later = f.dayIdx >= 2 ? { i: f.dayIdx, d: new Date(new Date().setHours(0, 0, 0, 0) + f.dayIdx * 864e5 + 12 * 3600e3), label: '' } : null;
@@ -226,190 +225,183 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const endsAt = new Date(+startsAt + f.duration * 3600e3);
   const clock = (d: Date) => d.toLocaleTimeString(localeTag(), { hour: 'numeric', minute: '2-digit' });
 
-  const CAT_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
-    coffee: 'cafe-outline',
-    drinks: 'wine-outline',
-    food: 'restaurant-outline',
-    sports: 'basketball-outline',
-    culture: 'color-palette-outline',
+  const [step, setStep] = useState(0);
+  const [month, setMonth] = useState(() => new Date(now));
+  const router = useRouter();
+  const back = () => (step > 0 ? setStep(step - 1) : router.canGoBack() ? router.back() : router.navigate('/' as never));
+  const pickDay = (d: Date) => {
+    const idx = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - new Date().setHours(0, 0, 0, 0)) / 864e5);
+    set('dayIdx', idx);
   };
+  const stepTitles = [t('Activity Type Selection'), t('Activity Time & Date Selection'), t('Activity Spot Selection'), t('Activity Size & Access')];
+  const stepOk = [f.title.trim().length >= 2, !tooSoon, (f.place != null || f.venueName.trim().length >= 2) && publicPlace, valid];
+  const CAT_PHOTOS: Record<string, number> = {
+    drinks: require('../../assets/interests/nightlife.webp'),
+    coffee: require('../../assets/interests/coffee.webp'),
+    sports: require('../../assets/interests/fitness.webp'),
+    food: require('../../assets/interests/food.webp'),
+    culture: require('../../assets/interests/culture.webp'),
+  };
+  const catOrder = ['drinks', 'coffee', 'sports', 'food', 'culture'].filter((k) => CATS[k]);
+  const lastDay = latest ?? new Date(Date.now() + 24 * 3600e3);
 
   return (
     <View style={{ flex: 1 }}>
-    <Screen tabBar header={<TabHeader />}>
-      <Between>
-        <View style={{ flex: 1 }}>
-          <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{t('Create an activity')}</Txt>
-        </View>
-        <Btn title={t('Clear all')} variant="ghost" small onPress={() => void clearAll()} disabled={!hasContent(f)} />
-      </Between>
-
-      {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
-      <ErrorBanner message={act.error} />
-
-      <Section>
-        <Field label={t('Activity name')} placeholder={t('After-work aperitivo')} value={f.title} onChangeText={(v) => set('title', v)} maxLength={80} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {Object.entries(CATS).map(([k, v]) => (
-            <Choice key={k} tile icon={CAT_ICONS[k] ?? 'sparkles-outline'} label={t(v.label)} spoken={t('Category {label}', { label: t(v.label) })} active={f.category === k} onPress={() => set('category', k)} />
-          ))}
-        </View>
-      </Section>
-
-      <Section>
-        <View style={{ flexDirection: 'row', backgroundColor: c.sand, borderRadius: 999, padding: 3 }}>
-          {days.map((d) => (
-            <Pressable
-              key={d.i}
-              accessibilityRole="button"
-              accessibilityLabel={t('Day {label}', { label: t(d.label) })}
-              accessibilityState={{ selected: day.i === d.i }}
-              onPress={() => set('dayIdx', d.i)}
-              style={{ flex: 1, height: 34, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: day.i === d.i ? c.forest : 'transparent' }}
-            >
-              <Txt variant="h3" color={day.i === d.i ? '#fff' : c.text} style={{ fontSize: 12, lineHeight: 16 }}>{t(d.label)}</Txt>
+      <Screen tabBar>
+        <WizardTop
+          step={step}
+          title={stepTitles[step]}
+          onBack={back}
+          right={
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Clear all')} accessibilityState={{ disabled: !hasContent(f) }} disabled={!hasContent(f)} hitSlop={8} onPress={() => void clearAll()} style={{ minHeight: 30, justifyContent: 'center', opacity: hasContent(f) ? 1 : 0.4 }}>
+              <Text style={{ color: c.forest, fontSize: 13, fontWeight: '500' }}>{t('Clear all')}</Text>
             </Pressable>
-          ))}
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={later ? t('Day {label}', { label: shortDay(later.d) }) : t('Pick a later date')}
-          accessibilityState={{ selected: !!later }}
-          onPress={() => setCalendar(true)}
-          style={{ height: 36, borderRadius: 12, borderWidth: 1.5, borderColor: later ? c.forest : c.line, backgroundColor: later ? c.accentSoft : 'transparent', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-        >
-          <Ionicons name="calendar-outline" size={15} color={c.forest} />
-          <Txt variant="h3" style={{ fontSize: 12, lineHeight: 16 }}>{later ? shortDay(later.d) : t('Pick a later date')}</Txt>
-        </Pressable>
-        {latest ? <Txt variant="small">{t('You can plan up to {date}.', { date: shortDay(latest) })}</Txt> : null}
-
-        <View style={{ backgroundColor: c.sand, borderRadius: 16, padding: 10, gap: 8, alignItems: 'center' }}>
-          <Row style={{ gap: 14 }}>
-            <Round icon="remove" label={t('Earlier')} disabled={!canMove(-5)} onPress={() => move(-5)} onLongPress={() => move(-60)} />
-            <Text accessibilityLabel={t('Starts at {time}', { time: clock(startsAt) })} style={{ fontSize: 32, lineHeight: 38, fontWeight: '800', color: c.text, minWidth: 100, textAlign: 'center' }}>
-              {`${hour % 12 || 12}:${String(minute).padStart(2, '0')}`}
-            </Text>
-            <Round icon="add" label={t('Later')} disabled={!canMove(5)} onPress={() => move(5)} onLongPress={() => move(60)} />
-          </Row>
-          <Row style={{ gap: 8 }}>
-            {periods.map((p) => (
-              <Choice key={p} label={p} spoken={t('Start time {p}', { p })} active={period === p} onPress={() => pickPeriod(p)} />
-            ))}
-          </Row>
-        </View>
-        <Txt variant="small">{t('Earliest: {n} min from now.', { n: LEAD_MIN })}</Txt>
-
-        <Txt variant="label">{t('Quick pick')}</Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {quick.map((q) => (
-            <Choice key={q.label} label={q.label} active={startsAt.getTime() === q.at.getTime()} onPress={() => setStart(q.at)} />
-          ))}
-        </View>
-
-        <Between>
-          <Txt variant="label">{t('Duration')}</Txt>
-          <Txt variant="small">{t('Ends {time}', { time: clock(endsAt) })}</Txt>
-        </Between>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {DURATIONS.map((h) => (
-            <Choice key={h} label={`${h}h`} active={f.duration === h} onPress={() => set('duration', h)} />
-          ))}
-        </View>
-      </Section>
-
-      <Section>
-        <Between>
-          <View style={{ flex: 1 }}>
-            <Txt variant="h3">{t('Maximum people')}</Txt>
-            <Txt variant="small">{t('Including you')}</Txt>
-          </View>
-          <Row style={{ gap: 10 }}>
-            <Round icon="remove" label={t('Fewer people')} disabled={f.capacity <= 2} onPress={() => set('capacity', Math.max(2, f.capacity - 1))} />
-            <Txt variant="h2" style={{ fontSize: 18, lineHeight: 24, minWidth: 24, textAlign: 'center' }}>{f.capacity}</Txt>
-            <Round icon="add" label={t('More people')} disabled={f.capacity >= 20} onPress={() => set('capacity', Math.min(20, f.capacity + 1))} />
-          </Row>
-        </Between>
-        <Row style={{ gap: 5, flexWrap: 'wrap' }}>
-          {Array.from({ length: f.capacity }).map((_, i) => (
-            <View key={i} accessibilityElementsHidden importantForAccessibility="no" style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: i === 0 ? c.forest : 'transparent', borderWidth: 1.5, borderColor: i === 0 ? c.forest : c.muted }} />
-          ))}
-          <Txt variant="small" style={{ marginLeft: 6 }}>{tn(f.capacity - 1, 'You + {n} spot', 'You + {n} spots')}</Txt>
-        </Row>
-      </Section>
-
-      <Section>
-        <Field label={t('City')} value={city} onChangeText={setCity} />
-        <PlaceSearch
-          label={t('Public meeting location')}
-          text={f.venueName}
-          onText={(v) => set('venueName', v)}
-          place={f.place}
-          onPlace={(p) => setF((prev) => ({ ...prev, place: p, venueName: p ? p.name : prev.venueName }))}
-          city={city}
+          }
         />
-        {f.place ? null : isMilan ? (
+
+        {step === 0 && (
           <>
-            <Txt variant="label">{t('Neighborhood')}</Txt>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              {Object.keys(MILAN_AREAS).map((a) => (
-                <Choice key={a} label={a} active={f.area === a} onPress={() => set('area', a)} />
+            <OnboardingHeading title={t('What are you planning?')} subtitle={t('Choose a vibe and give your spontaneous plan a catchy name.')} />
+            {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
+            <CreateLabel style={{ marginTop: 6 }}>{t('Select category')}</CreateLabel>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {catOrder.map((k) => (
+                <CategoryPill key={k} label={t(CATS[k].label)} spoken={t('Category {label}', { label: t(CATS[k].label) })} photo={CAT_PHOTOS[k]} selected={f.category === k} onPress={() => set('category', k)} />
+              ))}
+            </View>
+            <CreateLabel style={{ marginTop: 14 }}>{t('Activity name')}</CreateLabel>
+            <PillInput label={t('Activity name')} placeholder={t('After-work aperitivo')} value={f.title} onChangeText={(v) => set('title', v)} maxLength={80} />
+            <CreateLabel style={{ marginTop: 10 }}>{t('Description (optional)')}</CreateLabel>
+            <PillArea label={t('Description')} placeholder={t('Casual drinks and conversation with new people.')} value={f.description} onChangeText={(v) => set('description', v)} maxLength={1000} />
+          </>
+        )}
+
+        {step === 1 && (
+          <>
+            <OnboardingHeading title={t('When are you meeting?')} subtitle={t('HERE is built for right now, today, or tomorrow.')} />
+            <CreateLabel style={{ marginTop: 6 }}>{t('Select a date')}</CreateLabel>
+            <MonthCalendar month={month} onMonth={setMonth} selected={day.d} min={earliest} max={lastDay} onPick={pickDay} />
+            {latest ? <Text style={{ color: c.muted, fontSize: 12 }}>{t('You can plan up to {date}.', { date: shortDay(latest) })}</Text> : null}
+
+            <CreateLabel style={{ marginTop: 10 }}>{t('Select starting time')}</CreateLabel>
+            <View style={{ backgroundColor: c.sand, borderRadius: 32, paddingVertical: 20, paddingHorizontal: 16, gap: 14, alignItems: 'center' }}>
+              <Text accessibilityLabel={t('Starts at {time}', { time: clock(startsAt) })} style={{ fontSize: 32, lineHeight: 40, fontWeight: '700', color: c.text }}>
+                {`${hour % 12 || 12}:${String(minute).padStart(2, '0')}`}
+              </Text>
+              <Row style={{ gap: 12 }}>
+                {periods.map((p) => (
+                  <SmallPill key={p} label={p} spoken={t('Start time {p}', { p })} active={period === p} onPress={() => pickPeriod(p)} />
+                ))}
+              </Row>
+              <Row style={{ gap: 14 }}>
+                <RoundBtn filled icon="remove" label={t('Earlier')} disabled={!canMove(-5)} onPress={() => move(-5)} onLongPress={() => move(-60)} />
+                <Text style={{ color: c.text, fontSize: 14, fontWeight: '500', letterSpacing: 1 }}>{t('Adjust').toUpperCase()}</Text>
+                <RoundBtn filled icon="add" label={t('Later')} disabled={!canMove(5)} onPress={() => move(5)} onLongPress={() => move(60)} />
+              </Row>
+            </View>
+            <Text style={{ color: c.muted, fontSize: 12 }}>{t('Earliest: {n} min from now.', { n: LEAD_MIN })}</Text>
+
+            <CreateLabel style={{ marginTop: 6 }}>{t('Quick pick')}</CreateLabel>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {quick.map((q) => (
+                <SmallPill key={q.label} label={q.label} active={startsAt.getTime() === q.at.getTime()} onPress={() => setStart(q.at)} />
+              ))}
+            </View>
+
+            <Between style={{ marginTop: 6 }}>
+              <CreateLabel>{t('Duration')}</CreateLabel>
+              <Text style={{ color: c.muted, fontSize: 12 }}>{t('Ends {time}', { time: clock(endsAt) })}</Text>
+            </Between>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {DURATIONS.map((h) => (
+                <SmallPill key={h} label={`${h}h`} active={f.duration === h} onPress={() => set('duration', h)} />
               ))}
             </View>
           </>
-        ) : (
-          <Txt variant="small">{t('Pick a place to show it on the map.')}</Txt>
         )}
-        <View style={{ backgroundColor: c.accentSoft, borderRadius: 12, padding: 10 }}>
-          <CheckRow checked={publicPlace} onChange={setPublicPlace}>
-            <Txt>{t('This is a public place. First meetings never happen at a private home.')}</Txt>
-          </CheckRow>
+
+        {step === 2 && (
+          <>
+            <OnboardingHeading title={t("Where's the spot?")} subtitle={t('Choose a public, easily accessible neighborhood spot for everyone to gather.')} />
+            <PillInput label={t('City')} value={city} onChangeText={setCity} placeholder={t('City')} />
+            <PlacePick
+              label={t('Public meeting location')}
+              text={f.venueName}
+              onText={(v) => set('venueName', v)}
+              place={f.place}
+              onPlace={(p) => setF((prev) => ({ ...prev, place: p, venueName: p ? p.name : prev.venueName }))}
+              city={city}
+            />
+            {f.place || !isMilan ? null : (
+              <>
+                <CreateLabel style={{ marginTop: 6 }}>{t('Neighborhood')}</CreateLabel>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {Object.keys(MILAN_AREAS).map((a) => (
+                    <SmallPill key={a} label={a} active={f.area === a} onPress={() => set('area', a)} />
+                  ))}
+                </View>
+              </>
+            )}
+            <View style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 8, paddingHorizontal: 16, marginTop: 6 }}>
+              <CheckRow checked={publicPlace} onChange={setPublicPlace}>
+                <Text style={{ color: c.text, fontSize: 14, lineHeight: 20, paddingVertical: 8 }}>{t('This is a public place. First meetings never happen at a private home.')}</Text>
+              </CheckRow>
+            </View>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <OnboardingHeading title={t('Who can join?')} subtitle={t('Set your party size, privacy, and preview before going live.')} />
+            {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
+            <ErrorBanner message={act.error} />
+            <CreateLabel style={{ marginTop: 14 }}>{t('Maximum people')}</CreateLabel>
+            <CountPill
+              value={f.capacity}
+              minusLabel={t('Fewer people')}
+              plusLabel={t('More people')}
+              canMinus={f.capacity > 2}
+              canPlus={f.capacity < 20}
+              onMinus={() => set('capacity', Math.max(2, f.capacity - 1))}
+              onPlus={() => set('capacity', Math.min(20, f.capacity + 1))}
+            />
+            <Text style={{ color: c.muted, fontSize: 12, textAlign: 'center' }}>{`${t('Including you')} · ${tn(f.capacity - 1, 'You + {n} spot', 'You + {n} spots')}`}</Text>
+
+            <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500', marginTop: 16 }}>{t('Access control')}</Text>
+            {/* exactly one is always on: turning the one that is on off turns the other on */}
+            <AccessRow
+              icon="flash"
+              title={t('Instant join')}
+              text={t('Verified people join at once.')}
+              on={f.joinPolicy === 'instant'}
+              onChange={(on) => set('joinPolicy', on ? 'instant' : 'host_approval')}
+            />
+            <View style={{ height: 1, backgroundColor: c.line }} />
+            <AccessRow
+              icon="hand-left-outline"
+              title={t('Request to join')}
+              text={t('You approve each person.')}
+              on={f.joinPolicy === 'host_approval'}
+              onChange={(on) => set('joinPolicy', on ? 'instant' : 'host_approval')}
+            />
+          </>
+        )}
+
+        <AuthButton
+          title={step < 3 ? t('Continue') : t('Publish activity')}
+          disabled={!stepOk[step]}
+          loading={step === 3 && act.busy}
+          onPress={() => (step < 3 ? setStep(step + 1) : void submit())}
+          style={{ marginTop: 10 }}
+        />
+        {step === 3 ? (
+          <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t("Your activity is public in the feed. Only the venue is shown, never anyone's live location.")}</Text>
+        ) : null}
+        {/* always mounted: opening a saved draft from "My drafts" loads it whichever step is showing; its buttons show on the last step */}
+        <View style={step === 3 ? undefined : { display: 'none' }}>
+          <DraftBar kind="activity" data={f} onLoad={loadDraft} />
         </View>
-      </Section>
-
-      <Section>
-        <Field label={t('Description')} placeholder={t('Casual drinks and conversation with new people.')} multiline value={f.description} onChangeText={(v) => set('description', v)} maxLength={1000} />
-      </Section>
-
-      <Section>
-        <Txt variant="h3">{t('Access control')}</Txt>
-        {/* exactly one is always on: turning the one that is on off turns the other on */}
-        <AccessRow
-          icon="flash-outline"
-          title={t('Instant join')}
-          text={t('Verified people join at once.')}
-          on={f.joinPolicy === 'instant'}
-          onChange={(on) => set('joinPolicy', on ? 'instant' : 'host_approval')}
-        />
-        <View style={{ height: 1, backgroundColor: c.line }} />
-        <AccessRow
-          icon="hand-left-outline"
-          title={t('Request to join')}
-          text={t('You approve each person.')}
-          on={f.joinPolicy === 'host_approval'}
-          onChange={(on) => set('joinPolicy', on ? 'host_approval' : 'instant')}
-        />
-      </Section>
-
-      <Btn title={t('Publish activity')} onPress={submit} loading={act.busy} disabled={!valid} />
-      <DraftBar kind="activity" data={f} onLoad={loadDraft} />
-      <Txt variant="small">{t("Your activity is public in the feed. Only the venue is shown, never anyone's live location.")}</Txt>
-    </Screen>
-    {/* the calendar sits just above the dock, outside the scrolling page */}
-    <DateRangeSheet
-      single
-      visible={calendar}
-      focus="start"
-      start={f.dayIdx >= 2 && later ? isoDay(later.d) : ''}
-      end=""
-      min={new Date(earliest.getFullYear(), earliest.getMonth(), earliest.getDate())}
-      max={latest ?? new Date(Date.now() + 24 * 3600e3)}
-      onClose={() => setCalendar(false)}
-      onDone={(s) => {
-        const picked = parseDay(s);
-        if (picked) set('dayIdx', Math.round((+picked - new Date().setHours(0, 0, 0, 0)) / 864e5));
-        setCalendar(false);
-      }}
-    />
+      </Screen>
     </View>
   );
 }

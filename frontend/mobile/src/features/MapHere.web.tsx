@@ -2,7 +2,6 @@ import L from 'leaflet';
 import { useIsFocused } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
-import { HeaderBar, TabHeader } from '@/components/TabHeader';
 import { Btn, Empty } from '@/components/ui';
 import { CATS } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
@@ -135,9 +134,6 @@ export function MapHere() {
   if (!center)
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <HeaderBar>
-          <TabHeader compact />
-        </HeaderBar>
         <View style={{ flex: 1, padding: 24, justifyContent: 'center' }}>
           {data.findingCity ? <Empty title={t('Finding the city…')}>{t('One moment.')}</Empty> : <Empty title={t('No map for this city yet')}>{t("We couldn't find this city. Check the spelling.")}</Empty>}
           <MapOverlay data={data} />
@@ -147,9 +143,6 @@ export function MapHere() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <HeaderBar>
-        <TabHeader compact />
-      </HeaderBar>
       <View style={{ flex: 1 }}>
       <div ref={box} role="application" aria-label={t('Map of activity venues')} style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
       <MapOverlay data={data} />

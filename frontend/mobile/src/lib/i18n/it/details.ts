@@ -1,5 +1,9 @@
 /** Italian texts: details. English text on the left is the key used in t('...'). */
 export const details: Record<string, string> = {
+  // activity design refresh
+  'Open': 'Libero',
+  'Who came? Attendee roster': 'Chi è venuto? Elenco dei partecipanti',
+  'Requests ({n})': 'Richieste ({n})',
   // activity page: status and header
   'Cancelled': 'Annullata',
   'Ended': 'Conclusa',
@@ -549,4 +553,8 @@ export const details: Record<string, string> = {
   'Too many tries. Please wait a moment and try again.': 'Troppi tentativi. Attendi un momento e riprova.',
   'Thank you. A moderator will look at it within 24 hours.': 'Grazie. Un moderatore lo esaminerà entro 24 ore.',
   'Tell us if the host never came. Only moderators see this.': 'Dicci se l’organizzatore non è mai arrivato. Lo vedono solo i moderatori.',
+  'Your trip': 'Il tuo viaggio',
+  'More': 'Altri',
+  '{d} days / {n} nights': '{d} giorni / {n} notti',
+  'Add something your group might want to do during the trip.': 'Aggiungi qualcosa che il gruppo potrebbe voler fare durante il viaggio.',
 };

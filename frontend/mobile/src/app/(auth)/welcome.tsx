@@ -1,8 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, Image, Pressable, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Image, Pressable, useWindowDimensions, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ErrorBanner } from '@/components/ui';
@@ -11,89 +12,116 @@ import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useTheme, type Mode } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
+import { INTRO_KEY } from './intro';
 
+const FOREST = '#102F29';
+const IVORY = '#E9E5DD';
 
-/** Each product has its own welcome screen: photo that fades into the page colour, big name, two buttons. */
+/**
+ * Each product has its own welcome page, drawn the same way (Figma "iPhone 17 - 2" for HERE, "iPhone 17 - 16" for THERE):
+ * a photo that melts into the page colour, the big name with the other product's name faint beside it, and a white sheet
+ * with the actions. Only the colours, the photo and a few offsets differ.
+ */
 const LOOK = {
   here: {
-    bg: '#0F2F28',
+    bg: FOREST,
     photo: require('../../../assets/welcome/here.webp'),
-    title: 'HERE.',
-    titleColor: '#FFFFFF',
-    line1: 'Be here. Be together.',
-    line1Color: '#FFFFFF',
-    btnBg: '#FFFFFF',
-    btnText: '#0F2F28',
-    footer: '18+ only · Privacy first · Terms apply',
-    footerColor: '#9FB3AC',
-    barStyle: 'light' as const,
+    photoRatio: 1, // height / width of the picture
+    photoW: 1.109, // the picture is a little wider than the screen, nudged up and left (all as a share of the screen width)
+    photoLeft: -0.055,
+    photoTop: -0.047,
+    fadeTop: 0.28, // where the photo starts to melt into the page colour (share of the screen height)
+    fadeH: 0.09,
+    fadeColors: ['rgba(16,47,41,0)', 'rgba(30,89,77,0.59)', FOREST] as const,
+    fadeAt: [0, 0.3, 1] as const,
+    scrim: true, // a soft dark band behind the white status bar
+    name: 'HERE',
+    other: 'THERE',
+    nameColor: '#FFFFFF',
+    otherColor: 'rgba(255,255,255,0.35)',
+    dot: '#67A987',
+    tagline: 'Be here. Go there.',
+    taglineColor: '#FFFFFF',
+    sheetTop: 56,
+    dividerGap: 37,
+    bar: 'light' as const,
   },
   there: {
-    bg: '#E9E5DD',
+    bg: IVORY,
     photo: require('../../../assets/welcome/there.webp'),
-    title: 'THERE.',
-    titleColor: '#143A30',
-    line1: 'Go there. Together.',
-    line1Color: '#16201D',
-    btnBg: '#143A30',
-    btnText: '#FFFFFF',
-    footer: '18+ only · Verified traveler community',
-    footerColor: '#6B726E',
-    barStyle: 'dark' as const,
+    photoRatio: 0.826,
+    photoW: 1.154,
+    photoLeft: -0.077,
+    photoTop: -0.047,
+    fadeTop: 0.264,
+    fadeH: 0.148,
+    fadeColors: ['rgba(233,229,221,0)', 'rgba(233,229,221,0.59)', IVORY] as const,
+    fadeAt: [0, 0.58, 1] as const,
+    scrim: false,
+    name: 'THERE',
+    other: 'HERE',
+    nameColor: '#000000',
+    otherColor: 'rgba(0,0,0,0.27)',
+    dot: FOREST,
+    tagline: 'Be here. Go there.',
+    taglineColor: '#000000',
+    sheetTop: 56, // the same as HERE, so the buttons do not jump when switching (Figma has them 11 px higher here)
+    dividerGap: 37,
+    bar: 'dark' as const,
   },
 };
 
-type Look = (typeof LOOK)[Mode];
-
-/** A faint, out-of-focus name of the other product. Tapping it switches. The blur is a text shadow, so it costs nothing. */
-function OtherName({ label, color, onPress }: { label: string; color: string; onPress: () => void }) {
-  const { t } = useT();
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={t('Switch to {name}', { name: label })} hitSlop={14} onPress={onPress} style={{ paddingBottom: 12 }}>
-      <Text style={{ fontSize: 24, fontWeight: '800', letterSpacing: -0.5, color: `${color}40`, textShadowColor: `${color}40`, textShadowRadius: 3, textShadowOffset: { width: 0, height: 0 } }}>{label}</Text>
-    </Pressable>
-  );
-}
+const FOOTER = '18+ only · Privacy first · Terms apply';
 
 /** One complete welcome page. Both are always mounted; switching only cross-fades their opacity. */
-function Page({ mode, active, onSwitch, onCreate, onSignIn, onExplore, busy, error }: { mode: Mode; active: boolean; onSwitch: () => void; onCreate: () => void; onSignIn: () => void; onExplore: () => void; busy: boolean; error?: string | null }) {
+function Page({ mode, active, onSwitch, onLogin, onSignUp, onExplore, busy, error }: { mode: Mode; active: boolean; onSwitch: () => void; onLogin: () => void; onSignUp: () => void; onExplore: () => void; busy: boolean; error?: string | null }) {
   const { t } = useT();
-  const look: Look = LOOK[mode];
+  const look = LOOK[mode];
   const insets = useSafeAreaInsets();
-  const other = mode === 'here' ? LOOK.there : LOOK.here;
-  const button = (title: string, onPress: () => void) => (
-    <Pressable accessibilityRole="button" onPress={onPress} style={{ height: 52, borderRadius: 14, backgroundColor: look.btnBg, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: look.btnText, fontSize: 16, fontWeight: '700' }}>{title}</Text>
-    </Pressable>
-  );
+  const { width: screenW, height } = useWindowDimensions();
+  const width = Math.min(screenW, 520);
+  const fadeTop = Math.round(height * look.fadeTop);
+  const fadeH = Math.round(height * look.fadeH);
+  const pill = { minHeight: 58, borderRadius: 32, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', alignItems: 'center' as const, justifyContent: 'center' as const };
   return (
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: look.bg }} pointerEvents={active ? 'auto' : 'none'} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!active}>
-      <View style={{ flex: 1, width: '100%', maxWidth: 520 }}>
-        {/* the photo melts into the page colour */}
-        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: look.bg }}>
-          <Image source={look.photo} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' }} accessibilityLabel="" />
-          <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.38)', 'rgba(0,0,0,0)']} locations={[0, 1]} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: insets.top + 90 }} />
-          <LinearGradient pointerEvents="none" colors={[`${look.bg}00`, `${look.bg}00`, `${look.bg}CC`, look.bg]} locations={[0, 0.4, 0.8, 0.97]} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: -2 }} />
+      <View style={{ flex: 1, width: '100%', maxWidth: 520, backgroundColor: look.bg }}>
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, height: fadeTop + fadeH, overflow: 'hidden' }}>
+          <Image source={look.photo} resizeMode="cover" accessibilityLabel="" style={{ position: 'absolute', left: width * look.photoLeft, top: width * look.photoTop, width: width * look.photoW, height: width * look.photoW * look.photoRatio }} />
+          {look.scrim ? <LinearGradient colors={['rgba(0,0,0,0.38)', 'rgba(0,0,0,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: insets.top + 90 }} /> : null}
+          <LinearGradient colors={look.fadeColors} locations={look.fadeAt} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: fadeH }} />
         </View>
-        <View style={{ paddingHorizontal: 24, paddingBottom: insets.bottom + 48, gap: 16 }}>
-          <View style={{ gap: 2 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 14 }}>
-              <Text accessibilityRole="header" style={{ color: look.titleColor, fontSize: 52, lineHeight: 58, fontWeight: '800', letterSpacing: -1.5 }}>{look.title}</Text>
-              <OtherName label={other.title.replace('.', '')} color={look.titleColor} onPress={onSwitch} />
-            </View>
-            <Text style={{ color: look.line1Color, fontSize: 16, fontWeight: '600', marginTop: 6 }}>{t(look.line1)}</Text>
-          </View>
-          <View style={{ gap: 12 }}>
-            <ErrorBanner message={error} />
-            {button(t('Create an account'), onCreate)}
-            {button(busy ? t('One moment…') : t('Explore the demo'), onExplore)}
-          </View>
-          <View style={{ alignItems: 'center', gap: 12 }}>
-            <Pressable accessibilityRole="link" hitSlop={12} onPress={onSignIn} style={{ minHeight: 32, justifyContent: 'center' }}>
-              <Text style={{ color: look.titleColor, fontSize: 14, fontWeight: '700' }}>{t('I already have an account')}</Text>
+        <View style={{ flex: 1 }} />
+        {/* the name, then the line under it */}
+        <View style={{ paddingHorizontal: 20, marginBottom: 50 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+            <Text accessibilityRole="header" style={{ color: look.nameColor, fontSize: 62, lineHeight: 68, fontWeight: '700', letterSpacing: -2.5 }}>{look.name}</Text>
+            <View style={{ width: 13, height: 13, borderRadius: 7, backgroundColor: look.dot, marginLeft: 8, marginRight: 16, marginBottom: 14 }} />
+            {/* the faint name of the other product: tapping it switches */}
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Switch to {name}', { name: look.other })} hitSlop={14} onPress={onSwitch} style={{ marginBottom: 10 }}>
+              <Text style={{ color: look.otherColor, fontSize: 30, lineHeight: 36, fontWeight: '700', letterSpacing: -1.2 }}>{look.other}</Text>
             </Pressable>
-            <Text style={{ color: look.footerColor, fontSize: 12 }}>{t(look.footer)}</Text>
           </View>
+          <Text style={{ color: look.taglineColor, fontSize: 16, fontWeight: '500', marginTop: 10 }}>{t(look.tagline)}</Text>
+        </View>
+        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 54, borderTopRightRadius: 54, paddingTop: look.sheetTop, paddingHorizontal: 22, paddingBottom: insets.bottom + 14, minHeight: height * 0.44 }}>
+          <ErrorBanner message={error} />
+          <Pressable accessibilityRole="button" onPress={onLogin} style={({ pressed: p }) => [pill, { backgroundColor: FOREST }, p && { opacity: 0.88 }]}>
+            <Text style={{ color: '#fff', fontSize: 15.6, fontWeight: '500' }}>{t('Log in')}</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={onExplore} style={({ pressed: p }) => [pill, { marginTop: 10, opacity: busy ? 0.5 : 1 }, p && { opacity: 0.88 }]}>
+            <Text style={{ color: '#000', fontSize: 16.4, fontWeight: '500' }}>{busy ? t('One moment…') : t('Explore the demo')}</Text>
+          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: look.dividerGap }}>
+            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
+            <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12 }}>{t("Don't have an account?")}</Text>
+            <Pressable accessibilityRole="link" hitSlop={12} onPress={onSignUp} style={{ minHeight: 32, justifyContent: 'center' }}>
+              <Text style={{ color: FOREST, fontSize: 12, fontWeight: '500' }}>{t('Sign up')}</Text>
+            </Pressable>
+            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
+          </View>
+          <View style={{ flex: 1 }} />
+          <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12, textAlign: 'center', marginTop: 24 }}>{t(FOOTER)}</Text>
         </View>
       </View>
     </View>
@@ -103,10 +131,16 @@ function Page({ mode, active, onSwitch, onCreate, onSignIn, onExplore, busy, err
 /** First screen: HERE and THERE under one roof, 18+ only. Tap the faint other name to cross-fade to it. */
 export default function Welcome() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { notice, signIn } = useMe();
   const { mode, setMode } = useTheme();
   const demo = useAction();
+  // a first-time visitor sees the intro pictures first (once); until that is known, nothing of this page is drawn
+  const [introSeen, setIntroSeen] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(INTRO_KEY)
+      .then((v) => (v === '1' ? setIntroSeen(true) : router.replace('/intro' as never)))
+      .catch(() => setIntroSeen(true));
+  }, [router]);
   // "Explore the demo": a temporary read-only guest session. No account, no personal data.
   const explore = () => demo.run(async () => signIn(await post<{ token: string }>('/v1/auth/guest')));
   // 0 = HERE, 1 = THERE. Only opacity animates, on the native thread.
@@ -117,11 +151,11 @@ export default function Welcome() {
   // the old page fades away first, then the new one fades in (no ghosting of the two together)
   const hereOpacity = fade.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0], extrapolate: 'clamp' });
   const thereOpacity = fade.interpolate({ inputRange: [0.45, 1], outputRange: [0, 1], extrapolate: 'clamp' });
-  const common = { onCreate: () => router.push('/register'), onSignIn: () => router.push('/login'), onExplore: explore, busy: demo.busy, error: notice ?? demo.error };
-  const look = LOOK[mode];
+  if (!introSeen) return <View style={{ flex: 1, backgroundColor: FOREST }} />;
+  const common = { onLogin: () => router.push('/login'), onSignUp: () => router.push('/register'), onExplore: explore, busy: demo.busy, error: notice ?? demo.error };
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-      <StatusBar style="light" />
+      <StatusBar style={LOOK[mode].bar} />
       {/* needsOffscreenAlphaCompositing: on Android, fading a view with overlapping children fades each child on its own, which let the photo's hard lower edge show through its colour fade. This fades the page as one picture. */}
       <Animated.View needsOffscreenAlphaCompositing pointerEvents={mode === 'here' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: hereOpacity }}>
         <Page mode="here" active={mode === 'here'} onSwitch={() => setMode('there')} {...common} />

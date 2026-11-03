@@ -36,14 +36,14 @@ const base = {
   heroBlock: '#D3EADD',
   /** hint text inside empty fields: far lighter than real text, so it never reads as a value */
   placeholder: '#B9C2BE',
-  // the glass capsule behind the open dock tab: body, rim, glow, bright top edge and the tint gathering at the bottom
-  glassFill: 'rgba(47,125,101,0.05)',
-  glassRim: 'rgba(47,125,101,0.14)',
-  glassGlow: '#2F7D65',
-  glassShine: 'rgba(255,255,255,0.35)',
-  glassEdge: 'rgba(255,255,255,0.55)',
-  glassTint: 'rgba(47,125,101,0)',
-  glassTintEnd: 'rgba(47,125,101,0.09)',
+  // the capsule behind the open dock tab: a solid soft grey-green with a barely-there rim (no glow, shine or tint)
+  glassFill: '#EBEFEE',
+  glassRim: 'rgba(16,47,41,0.04)',
+  glassGlow: '#EBEFEE',
+  glassShine: 'rgba(255,255,255,0)',
+  glassEdge: 'rgba(255,255,255,0)',
+  glassTint: 'rgba(235,239,238,0)',
+  glassTintEnd: 'rgba(235,239,238,0)',
 };
 
 /**
@@ -59,7 +59,7 @@ const there: typeof base & { bg: string; headerBg: string } = {
   text: '#102F29',
   muted: '#56625B',
   line: '#D3CCBD',
-  surface: '#F4F1EA',
+  surface: '#FFFFFF', // the design's cards, search and fields are white on the ivory page
   accent: '#2F6B57', // deep green
   accentSoft: '#DAD2BE', // sand tint: chips, callouts, selected backgrounds
   onAccent: '#F4F1EA',
@@ -73,19 +73,19 @@ const there: typeof base & { bg: string; headerBg: string } = {
   badFg: '#8A2F1E',
   infoBg: '#DDD7C9',
   infoFg: '#2C4A41',
-  dockFill: 'rgba(244,241,234,0.97)',
+  dockFill: '#FFFFFF',
   fadeFrom: 'rgba(233,229,221,0)',
   fadeTo: 'rgba(233,229,221,0.82)',
   heroBlock: '#D8CDB5',
-  placeholder: '#B5B09F',
-  // sand glass with a deep green rim and glow, on ivory
-  glassFill: 'rgba(216,205,181,0.45)',
-  glassRim: 'rgba(36,96,77,0.22)',
-  glassGlow: '#24604D',
-  glassShine: 'rgba(255,255,255,0.45)',
-  glassEdge: 'rgba(255,255,255,0.6)',
-  glassTint: 'rgba(216,205,181,0)',
-  glassTintEnd: 'rgba(190,176,144,0.38)',
+  placeholder: '#9B9A95',
+  // the open dock tab: a soft ivory capsule with a fine rim and a faint shadow, on the white dock
+  glassFill: '#F4F1E9',
+  glassRim: 'rgba(16,47,41,0.07)',
+  glassGlow: '#7A6E4F',
+  glassShine: 'rgba(255,255,255,0.7)',
+  glassEdge: 'rgba(255,255,255,0)',
+  glassTint: 'rgba(238,232,218,0)',
+  glassTintEnd: 'rgba(226,218,198,0.5)',
 };
 
 /** HERE: spontaneous, urban, alive (white and green). THERE: open, calm, adventurous (ivory, forest, sand). */

@@ -15,7 +15,7 @@ import { resyncPush, usePushTaps } from '@/lib/push';
 import { bumpUnread, onUnreadRefresh, refreshUnread, setUnread, useUnread } from '@/lib/unread';
 import { useLayout } from '@/lib/layout';
 import { prefetchApp } from '@/lib/prefetch';
-import { scBase, useTextBoost } from '@/lib/scale';
+import { scBase } from '@/lib/scale';
 import { HomeIcon, MessageIcon, SearchIcon } from '@/components/DockIcons';
 import { Avatar } from '@/components/ui';
 import { useTheme } from '@/lib/theme';
@@ -150,7 +150,6 @@ function DockButton(props: any) {
 function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
   const { c } = useTheme();
   const { t } = useT();
-  const boost = useTextBoost(); // the label under the + is part of the dock: it keeps its own size
   // the open tab, read from the address (the tab bar does not hand this button its selected state reliably)
   const selected = usePathname() === '/create';
   const grow = useRef(new Animated.Value(0)).current; // 0 resting, 1 selected
@@ -168,10 +167,10 @@ function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
       <Animated.View
         renderToHardwareTextureAndroid
         style={{
-          marginTop: -20,
-          width: 52,
-          height: 52,
-          borderRadius: 26,
+          marginTop: -19,
+          width: 59,
+          height: 59,
+          borderRadius: 30,
           backgroundColor: selected ? c.green : c.forest,
           alignItems: 'center',
           justifyContent: 'center',
@@ -186,10 +185,9 @@ function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
         }}
       >
         <Animated.View style={{ transform: [{ rotate: turn }] }}>
-          <Ionicons name="add" size={30} color="#fff" />
+          <Ionicons name="add" size={32} color="#fff" />
         </Animated.View>
       </Animated.View>
-      <Text style={{ marginTop: 3, fontSize: 10 / boost, fontWeight: selected ? '800' : '600', color: selected ? c.green : c.muted }}>{t('Create')}</Text>
     </Pressable>
   );
 }
@@ -205,7 +203,7 @@ export default function TabsLayout() {
   // (on iPhones the home-indicator inset is large, so the dock sits closer to the edge and is a touch taller)
   const ios = Platform.OS === 'ios';
   const dockBottom = ios ? Math.max(insets.bottom - 6, 12) : Math.max(insets.bottom, 12) + 6;
-  const dockH = Math.max(ios ? 58 : 56, scBase(ios ? 58 : 56)); // the dock does not grow with the text size
+  const dockH = Math.max(72, scBase(72)); // the dock does not grow with the text size
   // the dock floats over the pages (phones), so they leave this much room at the bottom
   const dockSpace = isWide ? 0 : dockH + dockBottom;
   // the Message badge: asked of the server every minute (the live connection moves it at once when something arrives), and changed at once by the screens that read things (lib/unread)
@@ -306,6 +304,8 @@ export default function TabsLayout() {
           title: t('Create'),
           tabBarAccessibilityLabel: t('Create'),
           tabBarIcon: icon('add-circle', 'add-circle-outline'),
+          // phones: the round raised "+" in the middle of the dock; the side rail keeps a normal item
+          tabBarButton: (p) => (isWide ? <DockButton {...p} glass={false} /> : <CreateButton onPress={p.onPress as (...args: any[]) => void} />),
         }}
       />
       <Tabs.Screen name="inbox" options={{ title: t('Message'), tabBarAccessibilityLabel: t('Messages'), tabBarIcon: svgIcon(MessageIcon), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />

@@ -1,13 +1,17 @@
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { Avatar, Banner, Btn, ErrorBanner, Field, Pill, PillRow, Row, Screen, Txt } from '@/components/ui';
+import { AuthButton, AuthField } from '@/components/AuthForm';
+import { PageTop, SmallPill, TogglePill } from '@/components/ProfileParts';
+import { Text } from '@/components/ScaledText';
+import { Avatar, Banner, ErrorBanner, Row, Screen, Txt } from '@/components/ui';
 import { del, patch, uploadPhoto } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { INTERESTS, LANGUAGES } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { useTheme } from '@/lib/theme';
 
 const BIO_MAX = 300;
 const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
@@ -16,6 +20,7 @@ const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x
 export default function EditProfile() {
   const { t } = useT();
   const { me, reload } = useMe();
+  const { c } = useTheme();
   const router = useRouter();
   const p = me?.profile;
   const [f, setF] = useState({
@@ -40,38 +45,38 @@ export default function EditProfile() {
 
   return (
     <Screen tabBar>
-      <View style={{ alignItems: 'center', gap: 10 }}>
-        <Avatar name={f.displayName || p.displayName} uri={p.photoUrl} size={112} />
-        <Row style={{ gap: 8 }}>
-          <Btn title={p.photoUrl ? t('Change photo') : t('Add a photo')} small onPress={pick} loading={photo.busy} />
-          {p.photoUrl ? <Btn title={t('Remove')} small variant="secondary" onPress={() => photo.run(() => del('/v1/me/photo'))} disabled={photo.busy} /> : null}
+      <Stack.Screen options={{ headerShown: false }} />
+      <PageTop title={t('Edit profile')} align="left" />
+      <View style={{ alignItems: 'center', gap: 16 }}>
+        <Avatar name={f.displayName || p.displayName} uri={p.photoUrl} size={100} />
+        <Row style={{ gap: 14 }}>
+          <SmallPill filled title={p.photoUrl ? t('Change photo') : t('Add a photo')} onPress={pick} loading={photo.busy} />
+          {p.photoUrl ? <SmallPill title={t('Remove')} onPress={() => photo.run(() => del('/v1/me/photo'))} disabled={photo.busy} /> : null}
         </Row>
         <ErrorBanner message={photo.error} />
         <Txt variant="small" style={{ textAlign: 'center' }}>{t('Your photo is cropped to a square and shown to people on your activities and trips. Never use an ID document.')}</Txt>
       </View>
 
       <ErrorBanner message={save.error} />
-      <Field label={t('Display name')} value={f.displayName} onChangeText={(v) => setF((x) => ({ ...x, displayName: v }))} maxLength={40} />
-      <View style={{ gap: 4 }}>
-        <Field label={t('About you')} hint={`${f.bio.length}/${BIO_MAX}`} placeholder={t('A few words about you')} multiline value={f.bio} onChangeText={(v) => setF((x) => ({ ...x, bio: v.slice(0, BIO_MAX) }))} maxLength={BIO_MAX} />
-      </View>
-      <Field label={t('Home city (city only)')} value={f.homeCity} onChangeText={(v) => setF((x) => ({ ...x, homeCity: v }))} maxLength={60} />
+      <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={(v) => setF((x) => ({ ...x, displayName: v }))} maxLength={40} />
+      <AuthField label={t('About you')} hint={`${f.bio.length}/${BIO_MAX}`} placeholder={t('A few words about you')} multiline value={f.bio} onChangeText={(v) => setF((x) => ({ ...x, bio: v.slice(0, BIO_MAX) }))} maxLength={BIO_MAX} style={{ minHeight: 96, borderRadius: 28, textAlignVertical: 'top', paddingTop: 14 }} />
+      <AuthField label={t('Home city (city only)')} placeholder={t('Your city')} value={f.homeCity} onChangeText={(v) => setF((x) => ({ ...x, homeCity: v }))} maxLength={60} />
 
-      <Txt variant="label">{t('Languages')}</Txt>
-      <PillRow>
+      <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Languages')}</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {LANGUAGES.map((l) => (
-          <Pill key={l} label={t(l)} active={f.languages.includes(l)} onPress={() => setF((x) => ({ ...x, languages: toggle(x.languages, l) }))} />
+          <TogglePill key={l} label={t(l)} on={f.languages.includes(l)} onPress={() => setF((x) => ({ ...x, languages: toggle(x.languages, l) }))} />
         ))}
-      </PillRow>
-      <Txt variant="label">{t('Interests')}</Txt>
-      <PillRow>
+      </View>
+      <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Interests')}</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {INTERESTS.map((i) => (
-          <Pill key={i} label={t(i)} active={f.interests.includes(i)} onPress={() => setF((x) => ({ ...x, interests: toggle(x.interests, i) }))} />
+          <TogglePill key={i} label={t(i)} on={f.interests.includes(i)} onPress={() => setF((x) => ({ ...x, interests: toggle(x.interests, i) }))} />
         ))}
-      </PillRow>
+      </View>
       {f.bio.length >= BIO_MAX - 20 ? <Banner>{t('Keep it short: {n} characters left.', { n: BIO_MAX - f.bio.length })}</Banner> : null}
 
-      <Btn
+      <AuthButton
         title={t('Save changes')}
         loading={save.busy}
         disabled={f.displayName.trim().length < 2}

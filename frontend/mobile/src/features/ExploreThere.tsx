@@ -1,12 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import { TripNextUpCard, TripRow } from '@/components/Cards';
+import { TripBig, TripNextUpCard } from '@/components/Cards';
 import { Reveal } from '@/components/Reveal';
-import { Brand, ModeTabs } from '@/components/TabHeader';
+import { ModeTabs } from '@/components/TabHeader';
+import { ThereHomeHeader, ThereSearchField, TripStyleChips } from '@/components/ThereParts';
 import { VerifyBanner } from '@/components/VerifyBanner';
-import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
+import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type MyTripsPage, type Trip } from '@/lib/api';
+import { useCity } from '@/lib/city';
 import { dateSpan } from '@/lib/format';
 import { useLayout } from '@/lib/layout';
 import { useLoad, useRefresh } from '@/lib/hooks';
@@ -22,7 +24,9 @@ export function ExploreThere() {
   const { t } = useT();
   const go = useGo();
   const { c } = useTheme();
+  const [city, setCity] = useCity();
   const [q, setQ] = useState('');
+  const [style, setStyle] = useState<string | null>(null); // the round travel-style chips under the search
   // the filter button: how far ahead to look
   const [when, setWhen] = useState<When>('any');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -39,9 +43,9 @@ export function ExploreThere() {
   // The API searches by destination only, so free text here filters the loaded trips on the device.
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const all = (feed.data?.items ?? []).filter((x) => +new Date(x.dateStart) > Date.now()).sort((a, b) => +new Date(a.dateStart) - +new Date(b.dateStart));
+    const all = (feed.data?.items ?? []).filter((x) => +new Date(x.dateStart) > Date.now() && (!style || x.tags.includes(style))).sort((a, b) => +new Date(a.dateStart) - +new Date(b.dateStart));
     return needle ? all.filter((x) => `${x.title} ${x.destination} ${x.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
-  }, [feed.data, q]);
+  }, [feed.data, q, style]);
 
   const now = Date.now();
   const inDays = (t: Trip) => (+new Date(t.dateStart) - now) / DAY;
@@ -68,14 +72,15 @@ export function ExploreThere() {
   const MAX = 4;
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<Brand />}>
+    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<ThereHomeHeader city={city} onPickCity={setCity} />} style={{ paddingTop: 20 }}>
 
       <VerifyBanner />
 
       <ModeTabs />
 
-      <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>{t('Where to next?')}</Txt>
-      <SearchBar value={q} onChangeText={setQ} placeholder={t('Search a destination, trip or country')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
+      <Txt variant="h1" accessibilityRole="header" style={{ fontSize: 28, lineHeight: 41, fontWeight: '500', marginTop: 12, maxWidth: 280 }}>{t('Explore The World Like Never')}</Txt>
+      <ThereSearchField value={q} onChangeText={setQ} placeholder={t('Where next? e.g. Japan....')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
+      <TripStyleChips value={style} onChange={setStyle} />
 
       <ErrorBanner message={feed.error?.message} />
       {feed.loading && !feed.data && <Spinner />}
@@ -132,8 +137,8 @@ export function ExploreThere() {
       )}
 
       {/* the feed has nothing to list: said below your own trips, and "No trips yet" only when you have none either */}
-      {feed.data && items.length === 0 && (q || (next.length === 0 && taking.length === 0)) && (
-        <Empty title={q ? t('No trips match') : t('No trips yet')}>{q ? t('Try another search.') : t('Be the first to propose one.')}</Empty>
+      {feed.data && items.length === 0 && (q || style || (next.length === 0 && taking.length === 0)) && (
+        <Empty title={q || style ? t('No trips match') : t('No trips yet')}>{q || style ? t('Try another search.') : t('Be the first to propose one.')}</Empty>
       )}
 
       <ListSection index={1} title={t('Leaving soon')} list={when === 'any' || when === 'month' ? soon : []} max={MAX} onMore={() => go('/trips?section=soon')} />
@@ -203,8 +208,8 @@ function ListSection({ index, title, list, max, onMore }: { index: number; title
   return (
     <Reveal index={index} style={{ gap: 12 }}>
       <SectionHeader title={title} />
-      {list.slice(0, count).map((t) => (
-        <TripRow key={t.id} t={t} />
+      {list.slice(0, count).map((trip) => (
+        <TripBig key={trip.id} t={trip} tag={trip.tags[0] ? t(trip.tags[0][0].toUpperCase() + trip.tags[0].slice(1)) : undefined} />
       ))}
       {hidden > 0 ? (
         <Pressable

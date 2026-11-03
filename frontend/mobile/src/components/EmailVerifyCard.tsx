@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Banner, Btn, Card, ErrorBanner, Field, Txt } from '@/components/ui';
+import { AcctCard } from '@/components/AccountParts';
+import { AuthButton, AuthField } from '@/components/AuthForm';
+import { Banner, Btn, ErrorBanner, Txt } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
@@ -39,7 +41,7 @@ export function EmailVerifyCard({ onVerified }: { onVerified?: () => void }) {
   };
 
   return (
-    <Card style={{ gap: 12 }}>
+    <AcctCard style={{ gap: 14 }}>
       <Txt variant="h3">{t('✉ Confirm your email')}</Txt>
       <Txt variant="small">{t("Code sent to {email}.", { email: me?.email ?? '' })}</Txt>
       {devCode ? (
@@ -48,10 +50,10 @@ export function EmailVerifyCard({ onVerified }: { onVerified?: () => void }) {
         </Banner>
       ) : null}
       <ErrorBanner message={verify.error ?? resend.error} />
-      <Field label={t('6-digit code')} value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" onSubmitEditing={submit} />
+      <AuthField label={t('6-digit code')} value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" onSubmitEditing={submit} />
       {devCode ? <Btn title={t('Fill in the code')} variant="secondary" small onPress={() => setCode(devCode)} /> : null}
-      <Btn title={t('Confirm email')} onPress={submit} loading={verify.busy} disabled={code.length !== 6} />
+      <AuthButton title={t('Confirm email')} onPress={submit} loading={verify.busy} disabled={code.length !== 6} />
       <Btn title={wait > 0 ? t('Send a new code ({s}s)', { s: wait }) : t('Send a new code')} variant="secondary" onPress={send} loading={resend.busy} disabled={wait > 0} />
-    </Card>
+    </AcctCard>
   );
 }

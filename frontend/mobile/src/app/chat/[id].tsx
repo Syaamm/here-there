@@ -125,40 +125,43 @@ export default function ChatRoute() {
 const Bubble = memo(
   function Bubble({ m, mine, showName, newDay, onPick }: { m: Msg; mine: boolean; showName: boolean; newDay: boolean; onPick: (m: Msg) => void }) {
     const { t } = useT();
-    const { c } = useTheme();
+    const { c, mode } = useTheme();
     const go = useGo();
     return (
-      <Pressable
-        accessibilityLabel={`${mine ? t('You') : m.sender.displayName}: ${m.body}, ${hhmm(m.createdAt)}`}
-        accessibilityHint={mine ? undefined : t('Press and hold for report and block options')}
-        accessibilityActions={mine ? undefined : [{ name: 'more', label: t('Report or block') }]}
-        onAccessibilityAction={() => onPick(m)}
-        onLongPress={mine ? undefined : () => onPick(m)}
-        delayLongPress={350}
-        style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '78%', backgroundColor: mine ? c.forest : c.surface, borderWidth: mine ? 0 : 1, borderColor: c.line, borderRadius: 14, borderBottomRightRadius: mine ? 4 : 14, borderBottomLeftRadius: mine ? 14 : 4, paddingHorizontal: 10, paddingVertical: 5, marginTop: showName || newDay ? 5 : 0 }}
-      >
+      <View style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '86%', marginTop: showName || newDay ? 8 : 0, gap: 6 }}>
+        {/* who wrote it: face and name above the bubble, once per run of messages (tap for their profile) */}
         {showName && (
-          <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6}>
-            <Text style={{ color: c.green, fontWeight: '800', fontSize: 11.5, marginBottom: 1 }}>{m.sender.displayName}</Text>
+          <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36 }}>
+            <Avatar name={m.sender.displayName} uri={m.sender.photoUrl} size={34} />
+            <Text style={{ color: c.text, fontWeight: '500', fontSize: 16, lineHeight: 21 }}>{m.sender.displayName}</Text>
           </Pressable>
         )}
-        {/* the time sits small at the end of the last line, like a message in any chat app */}
-        <Text style={{ color: mine ? '#fff' : c.text, fontSize: 14, lineHeight: 19 }}>
-          <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
-          <Text style={{ color: mine ? '#B9CFC8' : c.muted, fontSize: 10 }}>{'\u00A0\u00A0'}{hhmm(m.createdAt)}</Text>
-        </Text>
-        {/* a message with a web address carries its own caution, before anyone taps it */}
-        {/(?:https?:\/\/|www\.)/i.test(m.body) ? (
-          <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>{t('Opens outside the app. We do not check it. Never send money or ID documents.')}</Text>
-        ) : null}
-      </Pressable>
+        <Pressable
+          accessibilityLabel={`${mine ? t('You') : m.sender.displayName}: ${m.body}, ${hhmm(m.createdAt)}`}
+          accessibilityHint={mine ? undefined : t('Press and hold for report and block options')}
+          accessibilityActions={mine ? undefined : [{ name: 'more', label: t('Report or block') }]}
+          onAccessibilityAction={() => onPick(m)}
+          onLongPress={mine ? undefined : () => onPick(m)}
+          delayLongPress={350}
+          style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8, shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: mine ? 0 : 1 }}
+        >
+          <Text style={{ color: mine ? '#fff' : c.text, fontSize: 15, lineHeight: 23 }}>
+            <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
+          </Text>
+          {/* a message with a web address carries its own caution, before anyone taps it */}
+          {/(?:https?:\/\/|www\.)/i.test(m.body) ? (
+            <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>{t('Opens outside the app. We do not check it. Never send money or ID documents.')}</Text>
+          ) : null}
+          <Text style={{ alignSelf: 'flex-end', color: mine ? '#B9CFC8' : c.muted, fontSize: 12, lineHeight: 16, marginTop: 2 }}>{hhmm(m.createdAt)}</Text>
+        </Pressable>
+      </View>
     );
   },
   (a, b) => a.m.id === b.m.id && a.m.body === b.m.body && a.mine === b.mine && a.showName === b.showName && a.newDay === b.newDay,
 );
 
 /** The small gap between two messages. */
-const RowGap = () => <View style={{ height: 3 }} />;
+const RowGap = () => <View style={{ height: 6 }} />;
 
 function Chat({ id }: { id: string }) {
   const { t, tn } = useT();
@@ -446,17 +449,36 @@ function Chat({ id }: { id: string }) {
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: c.bg }}>
     <Animated.View ref={chatBox} onLayout={chatLayout} style={{ flex: 1, width: '100%', maxWidth: 760, backgroundColor: c.bg, paddingBottom: keyboard }}>
       <Stack.Screen options={{ title: conv?.title ?? t('Group chat') }} />
-      {/* the chat's own top row: back, who it is (tap for group info), and the menu */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: statusTop(insets.top) + 8, paddingBottom: 6, paddingHorizontal: 12 }}>
-        <BackArrow />
-        <Pressable accessibilityRole="button" accessibilityLabel={t('{title}. Open group info', { title: conv?.title ?? t('Group') })} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          {info.data?.category ? <CatPhoto category={info.data.category} style={{ width: 38, height: 38, borderRadius: 19 }} /> : <Avatar name={conv?.title} size={38} />}
-          <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={{ color: c.text, fontWeight: '800', fontSize: 16 }}>{conv?.title ?? t('Group chat')}</Text>
-            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{conv?.scope === 'match' ? `${t('Travel match')}${conv.place ? ` · ${conv.place}` : ''}` : info.data ? t('{people} · tap for group info', { people: tn(info.data.members.length, '{n} person', '{n} people') }) : conv?.scope === 'trip' ? t('Trip group') : t('Activity group')}</Text>
+      {/* the chat's own top row: back, who it is (tap for group info), and the menu; a line under it */}
+      <View style={{ paddingTop: statusTop(insets.top) + 8, paddingHorizontal: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', minHeight: 44 }}>
+          <View style={{ width: 44, minHeight: 44, justifyContent: 'center' }}>
+            <BackArrow />
           </View>
-        </Pressable>
-        <Menu items={menu} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('{title}. Open group info', { title: conv?.title ?? t('Group') })} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, alignItems: 'center', gap: 6, minHeight: 44, paddingTop: 4 }}>
+            <Text numberOfLines={1} style={{ color: c.text, fontWeight: '600', fontSize: 18, lineHeight: 24 }}>{conv?.title ?? t('Group chat')}</Text>
+            {info.data && conv?.scope !== 'match' && info.data.members.length > 0 ? (
+              <View accessibilityLabel={tn(info.data.members.length, '{n} person', '{n} people')} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {info.data.members.slice(0, 4).map((mb, k) => (
+                  <View key={mb.id} style={{ marginLeft: k ? -10 : 0, borderRadius: 16, borderWidth: 2, borderColor: c.bg }}>
+                    <Avatar name={mb.displayName} uri={mb.photoUrl} size={28} />
+                  </View>
+                ))}
+                {info.data.members.length > 4 ? (
+                  <View style={{ marginLeft: -10, minWidth: 32, height: 32, borderRadius: 16, paddingHorizontal: 6, backgroundColor: c.forest, borderWidth: 2, borderColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>{info.data.members.length - 4}+</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+              <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{conv?.scope === 'match' ? `${t('Travel match')}${conv.place ? ` · ${conv.place}` : ''}` : conv?.scope === 'trip' ? t('Trip group') : t('Activity group')}</Text>
+            )}
+          </Pressable>
+          <View style={{ width: 44, alignItems: 'flex-end' }}>
+            <Menu items={menu} />
+          </View>
+        </View>
+        <View style={{ height: 1, backgroundColor: c.line, marginTop: 10 }} />
       </View>
       {/* pinned and slim: a note about the last action, and (only while someone still has to confirm) the final dates */}
       {note || (trip.data?.datesState === 'proposed' && trip.data.status !== 'completed' && trip.data.status !== 'cancelled' && (trip.data.datesConfirmedCount ?? 0) < trip.data.members) ? (
@@ -487,7 +509,7 @@ function Chat({ id }: { id: string }) {
         keyExtractor={(m) => m.id}
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 10 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
         onScroll={onScroll}
         scrollEventThrottle={16}
         keyboardShouldPersistTaps="handled"
@@ -567,7 +589,7 @@ function Chat({ id }: { id: string }) {
           <Banner>{closedText}</Banner>
         </View>
       ) : (
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', paddingHorizontal: 12, paddingTop: 6, paddingBottom: bottomGap + 8 }}>
+        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-end', paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottomGap + 8 }}>
           {amHost && conv?.scope === 'trip' ? (
             <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
               <Ionicons name="add" size={22} color={c.forest} />
@@ -580,12 +602,12 @@ function Chat({ id }: { id: string }) {
               setText(v);
               if (send.error) send.setError(null); // the refusal was about the old text
             }}
-            placeholder={t('Write a message…')}
+            placeholder={t('Say something to the group…')}
             placeholderTextColor={c.placeholder}
             maxLength={2000}
             multiline
             numberOfLines={1}
-            style={{ flex: 1, minHeight: 40, maxHeight: 110, borderWidth: 1, borderColor: c.line, borderRadius: 20, backgroundColor: c.surface, color: c.text, paddingHorizontal: 14, paddingVertical: 9, fontSize: 14 }}
+            style={{ flex: 1, minHeight: 52, maxHeight: 120, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 28, backgroundColor: c.surface, color: c.text, paddingHorizontal: 22, paddingVertical: 14, fontSize: mode === 'there' ? 15 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 }}
           />
           <Pressable
             accessibilityRole="button"
@@ -593,9 +615,9 @@ function Chat({ id }: { id: string }) {
             accessibilityState={{ disabled: !text.trim() || send.busy }}
             disabled={!text.trim() || send.busy}
             onPress={submit}
-            style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: !text.trim() || send.busy ? 0.45 : 1 }}
+            style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: !text.trim() || send.busy ? 0.45 : 1 }}
           >
-            <Ionicons name="paper-plane-outline" size={18} color="#fff" />
+            <Ionicons name="send" size={20} color="#fff" />
           </Pressable>
         </View>
       )}

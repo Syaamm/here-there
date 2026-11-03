@@ -1,14 +1,18 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Banner, Btn, ErrorBanner, Field, Screen, Txt } from '@/components/ui';
+import { View } from 'react-native';
+import { AuthBack, AuthButton, AuthField, AuthHeading, AuthSwitch } from '@/components/AuthForm';
+import { Banner, Btn, ErrorBanner, Screen } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { useTheme } from '@/lib/theme';
 
 export default function Login() {
   const router = useRouter();
-  const { t, tn } = useT();
+  const { t } = useT();
+  const { mode } = useTheme();
   const { reset } = useLocalSearchParams<{ reset?: string }>(); // arriving after a password reset
   const { signIn, notice } = useMe();
   const [email, setEmail] = useState('');
@@ -33,27 +37,28 @@ export default function Login() {
 
   return (
     <Screen maxWidth={520}>
-      <Btn title={t('‹ Back')} variant="ghost" small onPress={() => router.back()} style={{ alignSelf: 'flex-start' }} />
-      <Txt variant="h1">{t('Welcome back')}</Txt>
+      <AuthBack onPress={() => router.back()} />
+      <View style={{ marginTop: mode === 'there' ? 64 : 24 }}>
+        <AuthHeading title={t('Welcome back')} subtitle={pass ? t('Enter your 6-digit code or a recovery code.') : t('Join a space where real sparks happen.')} />
+      </View>
       {reset ? <Banner tone="ok">{t('Password changed. Log in.')}</Banner> : null}
       <ErrorBanner message={act.error ?? notice} />
       {pass ? (
-        <>
-          <Txt variant="muted">{t('Enter your 6-digit code or a recovery code.')}</Txt>
-          <Field label={t('Code')} value={code} onChangeText={setCode} autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" onSubmitEditing={submit} />
-          <Btn title={t('Continue')} onPress={submit} loading={act.busy} disabled={code.trim().length < 6} />
+        <View style={{ gap: 18 }}>
+          <AuthField label={t('Code')} placeholder={t('6-digit code')} value={code} onChangeText={setCode} autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" onSubmitEditing={submit} />
+          <AuthButton title={t('Continue')} onPress={submit} loading={act.busy} disabled={code.trim().length < 6} />
           <Btn title={t('Back')} variant="ghost" onPress={() => { setPass(null); setCode(''); act.setError(null); }} />
-        </>
+        </View>
       ) : (
-        <>
-          <Field label={t('Email')} value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" />
-          <Field label={t('Password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={submit} />
-          <Btn title={t('Log in')} onPress={submit} loading={act.busy} disabled={!email || !password} />
-        </>
+        <View style={{ gap: 18 }}>
+          <AuthField label={t('Email')} placeholder={t('Enter your email')} value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" />
+          <AuthField label={t('Password')} placeholder={t('Enter your password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={submit} />
+          <Btn title={t('Forgot password?')} variant="ghost" small onPress={() => router.push('/forgot-password')} style={{ alignSelf: 'flex-end', marginTop: -10 }} />
+          <AuthButton title={t('Log in')} onPress={submit} loading={act.busy} disabled={!email || !password} />
+        </View>
       )}
       {act.error && /suspended/i.test(act.error) ? <Btn title={t('Appeal this suspension')} variant="secondary" onPress={() => router.push('/appeal-suspension')} /> : null}
-      <Btn title={t('Forgot password?')} variant="ghost" onPress={() => router.push('/forgot-password')} />
-      <Btn title={t('New here? Create an account')} variant="ghost" onPress={() => router.replace('/register')} />
+      <AuthSwitch prompt={t("Don't have an account?")} action={t('Sign up')} onPress={() => router.replace('/register')} />
     </Screen>
   );
 }

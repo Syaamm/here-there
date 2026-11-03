@@ -7,7 +7,7 @@ import { useTheme } from '@/lib/theme';
 import { Btn, Field, Sheet, Txt } from './ui';
 
 /** "📍 Milan · Around you ▾". Picking a city manually means location permission is never needed to browse. */
-export function CityPicker({ city, onPick, subtitle, pill }: { city: string; onPick: (c: string) => void; /** drawn as a bordered pill: pin, "Milan · Around you", chevron (home header) */ pill?: boolean; /** when given, the trigger is drawn as a pin with the city in bold and this line under it (map header) */ subtitle?: string }) {
+export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: string; onPick: (c: string) => void; /** drawn as a bordered pill: pin, "Milan · Around you", chevron (home header) */ pill?: boolean; /** when given, the trigger is drawn as a pin with the city in bold and this line under it (map header) */ subtitle?: string; /** a pill for a dark header: a tinted glass pill, green pin, the city in white and a wave */ onDark?: boolean }) {
   const { t } = useT();
   const { c } = useTheme();
   const [open, setOpen] = useState(false);
@@ -15,7 +15,13 @@ export function CityPicker({ city, onPick, subtitle, pill }: { city: string; onP
   return (
     <>
       <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => (setV(city), setOpen(true))} hitSlop={8}>
-        {pill ? (
+        {onDark ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 38, paddingHorizontal: 14, borderRadius: 19, backgroundColor: 'rgba(235,239,238,0.2)' }}>
+            <Ionicons name="location-outline" size={15} color="#43A047" />
+            <Text numberOfLines={1} style={{ color: '#fff', fontWeight: '600', fontSize: 13.5, maxWidth: 110 }}>{city}</Text>
+            <Text accessibilityElementsHidden importantForAccessibility="no" style={{ fontSize: 13 }}>👋</Text>
+          </View>
+        ) : pill ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, height: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface }}>
             <Ionicons name="location-outline" size={15} color={c.green} />
             <Text style={{ color: c.text, fontWeight: '700', fontSize: 12 }}>{city} · {t('Around you')}</Text>

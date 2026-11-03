@@ -1,6 +1,10 @@
 /** Italian texts: inbox, chat, profiles, buddies. English text on the left is the key used in t('...'). */
 export const inbox: Record<string, string> = {
   // ---- Inbox
+  'ago': 'fa',
+  '{n} day': '{n} giorno',
+  '{n} days': '{n} giorni',
+  'Be Here.Go There.': 'Be Here.Go There.',
   'unread': 'non letto',
   'Unread': 'Non letto',
   'Your inbox': 'La tua posta',
@@ -293,4 +297,11 @@ export const inbox: Record<string, string> = {
   'Message from {name}': 'Messaggio di {name}',
   'Report message': 'Segnala messaggio',
   'Report as spam': 'Segnala come spam',
+  'Your Inbox': 'La tua posta',
+  'Join Requests': 'Richieste di partecipazione',
+  'Activity & Spot Updates': 'Attività e posti liberi',
+  'Search chats': 'Cerca nelle chat',
+  'No chats match': 'Nessuna chat corrisponde',
+  'Say something to the group…': 'Scrivi qualcosa al gruppo…',
+  'Hi, {name}': 'Ciao, {name}',
 };

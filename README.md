@@ -77,6 +77,7 @@ When you add or change a route, a field or an error code, update `src/docs/route
 | File | Read it for |
 |---|---|
 | `deployment/FOR_DEPLOYMENT.md` | Everything needed to go live: settings, keys, outside services, limits, what will not survive many users, a final checklist. |
+| `docs/DESIGN.md` | The Figma design in the app: where the design is (a PDF export), which design page is which screen and file, the rules followed, what was left out and what is still unfinished (parts of THERE). |
 | `docs/LOAD_TEST.md` | The load test: how to seed a throw-away database and run thousands of simulated phones against a test server, and the first results (2 Nov 2026). |
 | `docs/POSTGRES_MOVE.md` | The move from SQLite to Postgres: what was done on 2026-11-02, what it found, what is still open, and how to set up your own database. |
 | `handover/PROJECT-HANDOVER.md` | What is built, what is open, how to run and test, the owner's working rules. |

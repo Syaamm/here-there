@@ -1,11 +1,11 @@
-import { useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { CatPhoto } from '@/components/CatPhoto';
 import { View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
-import { Avatar, Banner, Between, Btn, Card, Chip, Empty, ErrorBanner, ProgressBar, Row, Screen, Txt, useGo } from '@/components/ui';
-import { catColor, CATS } from '@/lib/constants';
+import { ActivityHeader, PillButton, VerifiedTick } from '@/components/ActivityParts';
+import { Avatar, Banner, Between, Btn, Chip, Empty, ErrorBanner, Row, Screen, useGo } from '@/components/ui';
 import { get, post, type Reliability, type Activity } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { ago, when } from '@/lib/format';
@@ -13,7 +13,7 @@ import { PagedTail, useCursorList } from '@/lib/paged';
 import { useAction, useLoad } from '@/lib/hooks';
 import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
-import { useEnterMode } from '@/lib/theme';
+import { useEnterMode, useTheme } from '@/lib/theme';
 
 type Req = {
   id: string;
@@ -25,7 +25,9 @@ type Req = {
 
 /** HERE · Host reviews applicants. The server creates membership only on approval. */
 export default function HostReview() {
-  const { t } = useT();
+  const { t, tn } = useT();
+  const { c } = useTheme();
+  const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const go = useGo();
   useEnterMode('here');
@@ -42,11 +44,25 @@ export default function HostReview() {
   });
   const mutate = useAction(refresh);
   const a = act.data;
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
+  const header = (
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <ActivityHeader title={t('Manage join requests')} onBack={back} />
+    </>
+  );
 
-  if (act.loading && !a) return <Screen hasHeader><SkeletonDetail /></Screen>;
+  if (act.loading && !a)
+    return (
+      <Screen>
+        {header}
+        <SkeletonDetail />
+      </Screen>
+    );
   if (reqs.error && !reqs.data)
     return (
-      <Screen hasHeader>
+      <Screen>
+        {header}
         <Empty title={t('Only the host can review requests')}>{reqs.error.message}</Empty>
       </Screen>
     );
@@ -55,54 +71,72 @@ export default function HostReview() {
   const pending = reqs.data?.pending ?? 0;
   const full = !!a && a.going >= a.capacity;
   const decide = (r: Req, decision: 'approve' | 'decline') => mutate.run(() => post(`/v1/activities/${id}/requests/${r.id}/decision`, { decision }));
+  const cardStyle = { backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: c.line, padding: 18, gap: 16, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 } as const;
 
   return (
-    <Screen hasHeader onRefresh={refresh} refreshing={false}>
-      <Txt variant="h1" style={{ fontSize: 34, lineHeight: 40 }}>{t('Your activity')}</Txt>
+    <Screen onRefresh={refresh} refreshing={false}>
+      {header}
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Your activity')}</Text>
       {a && (
-        <Card style={{ borderRadius: 20, gap: 12 }}>
-          <Row style={{ gap: 14 }}>
-            <CatPhoto category={a.category} style={{ width: 68, height: 68, borderRadius: 16 }} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="h3" style={{ fontSize: 18 }}>{a.title}</Txt>
-              <Txt variant="muted">{when(a.startsAt)} · {t('{going} of {capacity} approved', { going: a.going, capacity: a.capacity })}</Txt>
+        <View style={cardStyle}>
+          <Row style={{ gap: 18, alignItems: 'flex-start' }}>
+            <CatPhoto category={a.category} style={{ width: 96, height: 96, borderRadius: 20 }} />
+            <View style={{ flex: 1, gap: 8, paddingTop: 4 }}>
+              <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{a.title}</Text>
+              <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{a.venueName} | {when(a.startsAt)}</Text>
+              <View accessible accessibilityLabel={t('{going} of {capacity} approved', { going: a.going, capacity: a.capacity })} style={{ height: 5, borderRadius: 3, backgroundColor: c.line, overflow: 'hidden' }}>
+                <View style={{ width: `${Math.min(100, Math.round((a.going / Math.max(a.capacity, 1)) * 100))}%`, height: 5, backgroundColor: c.forest }} />
+              </View>
+              <Text style={{ color: full ? c.danger : c.green, fontSize: 12, fontWeight: '500' }}>{full ? t('Full') : tn(Math.max(0, a.capacity - a.going), '{n} spot left', '{n} spots left')}</Text>
             </View>
           </Row>
-          <ProgressBar value={a.going} max={a.capacity} />
-          {a.status !== 'cancelled' && new Date(a.startsAt) <= new Date() ? <Btn title={t('Who came? ›')} variant="secondary" small onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
+          {a.status !== 'cancelled' && new Date(a.startsAt) <= new Date() ? <PillButton outline title={t('Who came? Attendee roster')} onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
           {full && <Banner tone="warn">{t('Full. Reverse an approval to free a place.')}</Banner>}
-        </Card>
+        </View>
       )}
       <ErrorBanner message={mutate.error} />
-      <Txt variant="h2" style={{ fontSize: 22 }}>{t('Pending requests')} · {pending}</Txt>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Requests ({n})', { n: pending })}</Text>
       {reqs.data && items.length === 0 && <Empty title={t('No requests yet')} />}
 
       {items.map((r) => (
-        <Card key={r.id}>
-          <Between>
-            <Row>
-              <Avatar name={r.applicant.displayName} uri={r.applicant.photoUrl} />
-              <View>
-                <Txt variant="h3">{r.applicant.displayName ?? t('Member')} {r.applicant.verifiedAdult ? '✓' : ''}</Txt>
-                <Txt variant="small">{r.applicant.verifiedAdult ? t('Verified adult') : t('Not verified')}{r.applicant.languages.length ? ` · ${r.applicant.languages.join(', ')}` : ''}</Txt>
-                {r.applicant.reliability ? <View style={{ marginTop: 4, alignSelf: 'flex-start' }}><ReliabilityChip r={r.applicant.reliability} /></View> : null}
+        <View key={r.id} style={cardStyle}>
+          <Between style={{ alignItems: 'flex-start' }}>
+            <Row style={{ gap: 14, flex: 1 }}>
+              <Avatar name={r.applicant.displayName} uri={r.applicant.photoUrl} size={44} />
+              <View style={{ flex: 1, gap: 3 }}>
+                <Row style={{ gap: 6 }}>
+                  <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600', flexShrink: 1 }}>{r.applicant.displayName ?? t('Member')}</Text>
+                  {r.applicant.verifiedAdult ? <VerifiedTick size={16} /> : null}
+                </Row>
+                <Text style={{ color: c.muted, fontSize: 14, lineHeight: 18 }}>
+                  {r.applicant.verifiedAdult ? t('Verified adult') : t('Not verified')}
+                  {r.applicant.languages.length ? ` · ${r.applicant.languages.join(', ')}` : ''}
+                </Text>
+                {r.applicant.reliability ? (
+                  <View style={{ marginTop: 2, alignSelf: 'flex-start' }}>
+                    <ReliabilityChip r={r.applicant.reliability} />
+                  </View>
+                ) : null}
               </View>
             </Row>
-            <Txt variant="small">{ago(r.createdAt)}</Txt>
+            <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(r.createdAt)}</Text>
           </Between>
           {r.applicant.interests.length > 0 && (
-            <Row style={{ flexWrap: 'wrap', gap: 6 }}>
+            <Row style={{ flexWrap: 'wrap', gap: 8 }}>
               {r.applicant.interests.slice(0, 5).map((i) => (
-                <Chip key={i} label={i} tone="neutral" />
+                <View key={i} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: c.muted, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 }}>
+                  <Text style={{ color: c.forest, fontSize: 12, lineHeight: 16 }}>{i}</Text>
+                </View>
               ))}
             </Row>
           )}
-          <Txt>{r.intro || t('No introduction.')}</Txt>
+          <Text style={{ color: r.intro ? c.text : c.muted, fontSize: 14, lineHeight: 20 }}>{r.intro || t('No introduction.')}</Text>
+          <View style={{ height: 1, backgroundColor: c.line }} />
 
           {r.state === 'requested' && (
-            <Row>
-              <Btn title={t('Decline')} variant="secondary" disabled={mutate.busy} onPress={() => decide(r, 'decline')} style={{ flex: 1 }} />
-              <Btn title={t('Approve')} disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} style={{ flex: 1 }} />
+            <Row style={{ gap: 12 }}>
+              <PillButton title={t('Accept')} small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} style={{ flex: 1.2 }} />
+              <PillButton outline title={t('Decline')} small disabled={mutate.busy} onPress={() => decide(r, 'decline')} style={{ flex: 1 }} />
             </Row>
           )}
           {r.state === 'approved' && (
@@ -130,7 +164,7 @@ export default function HostReview() {
             </Between>
           )}
           {r.state === 'withdrawn' && <Chip label={t('Withdrawn by the applicant')} tone="neutral" />}
-        </Card>
+        </View>
       ))}
       <PagedTail paged={reqs} />
     </Screen>

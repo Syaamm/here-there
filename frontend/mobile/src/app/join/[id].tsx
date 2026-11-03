@@ -5,7 +5,10 @@ import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { CheckLine } from '@/components/CheckLine';
-import { Banner, Btn, Card, CheckRow, Chip, ErrorBanner, Field, Screen, Sheet, Txt, useGo } from '@/components/ui';
+import { AuthCheck, AuthField } from '@/components/AuthForm';
+import { PillButton } from '@/components/ActivityParts';
+import { Banner, Btn, Chip, ErrorBanner, Screen, Sheet, Txt, useGo } from '@/components/ui';
+import { useTheme } from '@/lib/theme';
 import { del, get, post, type Activity } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { clashesWith, type MyActivitiesData } from '@/lib/myActivities';
@@ -22,6 +25,7 @@ export default function Join() {
   const { me } = useMe();
   const router = useRouter();
   const go = useGo();
+  const { c } = useTheme();
   const { data: a, loading } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
   const [intro, setIntro] = useState('');
   const [agree, setAgree] = useState(false);
@@ -80,9 +84,9 @@ export default function Join() {
   return (
     <Screen hasHeader>
       {/* cover block: a stand-in for the activity photo */}
-      <CatPhoto category={a.category} style={{ height: 190, borderRadius: 24 }} />
+      <CatPhoto category={a.category} style={{ height: 190, borderRadius: 28 }} />
       <View>
-        <Txt variant="h1" style={{ fontSize: 30, lineHeight: 36 }}>{a.title}</Txt>
+        <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{a.title}</Text>
         <Txt variant="muted">{when(a.startsAt)} · {a.venueName} · {t('{going}/{capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
       </View>
 
@@ -93,18 +97,14 @@ export default function Join() {
         </Banner>
       ) : null}
       {a.spotsLeft === 0 ? <Banner tone="warn">{t('This activity is full. You can join the waiting list.')}</Banner> : null}
-      {instant ? null : <Field label={t('Introduce yourself to the host')} placeholder={t('Say hi')} multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length} / 500`} />}
+      {instant ? null : <AuthField label={t('Introduce yourself to the host')} placeholder={t('Say hi')} multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length} / 500`} />}
 
-      <Card style={{ borderRadius: 20, paddingVertical: 6 }}>
-        <Txt variant="h3" style={{ fontSize: 18, paddingTop: 8 }}>{t('Before joining')}</Txt>
+      <View style={{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: c.line, paddingHorizontal: 16, paddingVertical: 8 }}>
+        <Text style={{ color: c.text, fontSize: 16, fontWeight: '600', paddingTop: 8 }}>{t('Before joining')}</Text>
         <CheckLine ok={adult} text={t('I am at least 18 years old')} />
         <CheckLine ok={verified} text={verified ? t('Identity verified') : t('Identity verification required')} action={!verified ? <Btn title={t('Verify now')} small variant="secondary" onPress={() => go('/verify')} style={{ alignSelf: 'flex-start' }} /> : undefined} />
-        <View style={{ paddingVertical: 12 }}>
-          <CheckRow checked={agree} onChange={setAgree}>
-            <Txt>{t('I agree to the group guidelines: be respectful, meet in public, and report anything that feels wrong.')}</Txt>
-          </CheckRow>
-        </View>
-      </Card>
+        <AuthCheck checked={agree} onChange={setAgree} label={t('I agree to the group guidelines: be respectful, meet in public, and report anything that feels wrong.')} />
+      </View>
 
       <Sheet visible={clashOpen && clashes.length > 0} title={t('This overlaps with a plan you already have')} onClose={() => setClashOpen(false)}>
         {clashes.map((x) => (
@@ -120,7 +120,7 @@ export default function Join() {
         <Btn title={t('Keep both')} variant="ghost" small onPress={() => setClashOpen(false)} />
       </Sheet>
 
-      <Btn title={a.spotsLeft === 0 ? t('Join the waiting list') : instant ? t('Join now') : t('Send request')} onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree} />
+      <PillButton title={a.spotsLeft === 0 ? t('Join the waiting list') : instant ? t('Join now') : t('Send request')} onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree} />
     </Screen>
   );
 }

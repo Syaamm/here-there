@@ -1,13 +1,17 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { setStatusBarStyle } from 'expo-status-bar';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import { ActivityRow, NextUpCard } from '@/components/Cards';
+import { ActivityBig, NextUpCard } from '@/components/Cards';
+import { CategoryChips } from '@/components/CategoryChips';
+import { HERE_BAND, HereHeader } from '@/components/HereHeader';
 import { Reveal } from '@/components/Reveal';
-import { CityPicker } from '@/components/CityPicker';
-import { Brand, ModeTabs } from '@/components/TabHeader';
+import { ModeTabs } from '@/components/TabHeader';
 import { VerifyBanner } from '@/components/VerifyBanner';
-import { Between, Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
+import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type Activity } from '@/lib/api';
+import { CATS } from '@/lib/constants';
 import { comingUp, type MyActivitiesData } from '@/lib/myActivities';
 import { useLayout } from '@/lib/layout';
 import { hhmm } from '@/lib/format';
@@ -25,6 +29,14 @@ export function ExploreHere() {
   const { c } = useTheme();
   const [city, setCity] = useCity();
   const [q, setQ] = useState('');
+  const [cat, setCat] = useState<string | null>(null); // the round category chips under the search
+  // the dark green header: the clock and battery on it are light, and go back to dark when another page is in front
+  useFocusEffect(
+    useCallback(() => {
+      setStatusBarStyle('light');
+      return () => setStatusBarStyle('dark');
+    }, []),
+  );
   // the filter button: which part of the day to show
   const [when, setWhen] = useState<'any' | 'soon' | 'tonight' | 'tomorrow' | 'later'>('any');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -52,9 +64,9 @@ export function ExploreHere() {
   // The API has no free-text search yet, so search filters the loaded feed on the device.
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const all = feed.data?.items ?? [];
+    const all = (feed.data?.items ?? []).filter((a) => !cat || a.category === cat);
     return needle ? all.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
-  }, [feed.data, q]);
+  }, [feed.data, q, cat]);
 
   const sections = splitFeed(items);
   const soon = sections[0].items;
@@ -74,14 +86,14 @@ export function ExploreHere() {
   const MAX = 4;
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<Between><Brand /><CityPicker city={city} onPick={setCity} pill /></Between>}>
+    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} style={{ paddingTop: 20 }}>
 
       <VerifyBanner />
 
       <ModeTabs />
 
-      <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>{t('What are you up for?')}</Txt>
       <SearchBar value={q} onChangeText={setQ} placeholder={t('Search activities or neighborhoods')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
+      <CategoryChips value={cat} onChange={setCat} />
 
       <ErrorBanner message={feed.error?.message} />
       {feed.loading && !feed.data && <Spinner />}
@@ -119,9 +131,9 @@ export function ExploreHere() {
       )}
 
       {/* the feed has nothing to list: said below Next up (your own plans come first), and "Nothing planned yet" only when you have no plan either */}
-      {feed.data && items.length === 0 && (q || next.length === 0) && (
-        <Empty title={q ? t('No matches') : t('Nothing planned yet')}>
-          {q ? t('Try another search.') : t('Be the first to host.')}
+      {feed.data && items.length === 0 && (q || cat || next.length === 0) && (
+        <Empty title={q || cat ? t('No matches') : t('Nothing planned yet')}>
+          {q || cat ? t('Try another search.') : t('Be the first to host.')}
         </Empty>
       )}
 
@@ -198,7 +210,7 @@ function ListSection({ index, title, list, max, onMore }: { index: number; title
     <Reveal index={index} style={{ gap: 12 }}>
       <SectionHeader title={title} />
       {list.slice(0, count).map((a) => (
-        <ActivityRow key={a.id} a={a} />
+        <ActivityBig key={a.id} a={a} tag={a.status === 'in_progress' ? t('Happening now') : t(CATS[a.category]?.label ?? a.category)} />
       ))}
       {hidden > 0 ? (
         <Pressable

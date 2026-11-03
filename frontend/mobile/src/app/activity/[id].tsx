@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FloatingButton, Hero } from '@/components/Hero';
+import { GoingGrid, HostCard, InfoRow } from '@/components/ActivityParts';
+import { Text } from '@/components/ScaledText';
 import { Menu } from '@/components/Menu';
 import { HostNoShowSheet, hostNoShowOpen } from '@/components/HostNoShowSheet';
 import { ReportSheet } from '@/components/ReportSheet';
@@ -125,10 +127,6 @@ export default function ActivityDetail() {
   // who is going: up to three faces, open places drawn as dashed rings (one per open place, never more than four circles in all),
   // and a bar with one segment per place
   const going = a.participants ?? [];
-  const faces = going.slice(0, 3);
-  const rings = Math.max(0, Math.min(a.spotsLeft, 4 - faces.length));
-  const segs = Math.min(a.capacity, 12);
-  const filled = Math.min(segs, Math.round((a.going / Math.max(a.capacity, 1)) * segs));
 
   // The one main action sits in a bar fixed to the bottom; the lesser ones stay in the page.
   type Primary = { title: string; onPress?: () => void; variant?: 'secondary'; disabled?: boolean; loading?: boolean; caption?: string };
@@ -177,69 +175,54 @@ export default function ActivityDetail() {
           <Chip label={cat ? t(cat.label) : a.category} tone="ok" />
           <Chip label={soon.text} tone={soon.tone} />
         </Row>
-        <Txt variant="h1" style={{ fontSize: 22, lineHeight: 28 }}>{a.title}</Txt>
+        <View style={{ gap: 10 }}>
+          <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{a.title}</Text>
+          {a.description ? (
+            <View style={{ gap: 4 }}>
+              <Text numberOfLines={expanded ? undefined : 3} style={{ color: c.muted, fontSize: 15, lineHeight: 27 }}>
+                {a.description}
+              </Text>
+              {longText ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={expanded ? t('Read less') : t('Read more')} onPress={() => setExpanded((v) => !v)} hitSlop={8} style={{ minHeight: 32, justifyContent: 'center' }}>
+                  <Text style={{ color: c.green, fontSize: 14, fontWeight: '600' }}>{expanded ? t('read less') : t('read more')}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
 
         {a.status === 'cancelled' && <Banner tone="bad">{t('This activity was cancelled.')}</Banner>}
         {a.canAppealRemoval ? <Btn title={t('Ask for a review')} variant="secondary" onPress={() => go(`/appeal?kind=removal&targetType=activity&targetId=${id}`)} /> : null}
         <ErrorBanner message={act.error} />
 
-        <Pressable accessibilityRole="button" accessibilityLabel={t('{name}, host. Open profile', { name: a.host.displayName })} onPress={() => go(`/user/${a.host.id}`)}>
-          <Row style={{ gap: 14 }}>
-            <Avatar name={a.host.displayName} uri={a.host.photoUrl} size={42} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('Hosted by {name}', { name: a.host.displayName })}</Txt>
-              <Row style={{ gap: 6 }}>
-                {a.host.verifiedAdult ? <Ionicons name="shield-checkmark" size={13} color={c.green} /> : null}
-                <ReliabilityChip r={a.hostReliability} />
-                <Txt variant="small" style={{ flex: 1 }}>
-                  {[a.host.verifiedAdult ? t('Verified adult') : t('Host'), a.activitiesHosted ? tn(a.activitiesHosted, '{n} activity hosted', '{n} activities hosted') : ''].filter(Boolean).join(' · ')}
-                </Txt>
-              </Row>
-            </View>
+        <HostCard
+          name={a.host.displayName}
+          uri={a.host.photoUrl}
+          verified={!!a.host.verifiedAdult}
+          label={t('{name}, host. Open profile', { name: a.host.displayName })}
+          onPress={() => go(`/user/${a.host.id}`)}
+        >
+          <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Hosted by {name}', { name: a.host.displayName })}</Text>
+          <Row style={{ gap: 6, flexWrap: 'wrap' }}>
+            <ReliabilityChip r={a.hostReliability} />
+            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 18 }}>
+              {[a.host.verifiedAdult ? t('Verified adult') : t('Host'), a.activitiesHosted ? tn(a.activitiesHosted, '{n} activity hosted', '{n} activities hosted') : ''].filter(Boolean).join(' · ')}
+            </Text>
           </Row>
-        </Pressable>
+        </HostCard>
 
-        {/* when and where in one card; the venue row opens the map on this activity */}
-        <View style={{ backgroundColor: c.surface, borderRadius: 16, borderWidth: 1, borderColor: c.line, overflow: 'hidden' }}>
-          <Row style={{ gap: 12, padding: 12 }}>
-            <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="time-outline" size={18} color={c.forest} />
-            </View>
-            <View style={{ flex: 1, gap: 1 }}>
-              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{timeText}</Txt>
-              <Txt variant="muted">{length}</Txt>
-            </View>
-          </Row>
-          <View style={{ height: 1, backgroundColor: c.line, marginHorizontal: 16 }} />
-          <Pressable accessibilityRole="button" accessibilityLabel={t('{venue}, {city}. Show on the map', { venue: a.venueName, city: a.city })} onPress={showOnMap} style={({ pressed }) => [{ padding: 12 }, pressed && { backgroundColor: c.accentSoft }]}>
-            <Row style={{ gap: 12 }}>
-              <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="location-outline" size={18} color={c.forest} />
-              </View>
-              <View style={{ flex: 1, gap: 1 }}>
-                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{a.venueName}</Txt>
-                <Txt variant="muted">{a.city} · {t('Public meeting venue')}</Txt>
-              </View>
-              <View style={{ alignItems: 'center', gap: 2 }}>
-                <Ionicons name="map-outline" size={16} color={c.green} />
-                <Txt variant="small" bold color={c.green}>{t('Map')}</Txt>
-              </View>
-            </Row>
-          </Pressable>
+        {/* where and when; the place row opens the map on this activity */}
+        <View style={{ gap: 22, paddingTop: 4 }}>
+          <InfoRow
+            icon="location-outline"
+            title={`${a.venueName}, ${a.city}`}
+            sub={t('Public meeting venue')}
+            label={t('{venue}, {city}. Show on the map', { venue: a.venueName, city: a.city })}
+            onPress={showOnMap}
+            trailing={<Ionicons name="map-outline" size={18} color={c.green} />}
+          />
+          <InfoRow icon="time-outline" title={timeText} sub={length} />
         </View>
-
-        {a.description ? (
-          <View style={{ gap: 4 }}>
-            <Txt variant="muted" numberOfLines={expanded ? undefined : 3} style={{ lineHeight: 20 }}>
-              {a.description}
-            </Txt>
-            {longText ? (
-              <Pressable accessibilityRole="button" accessibilityLabel={expanded ? t('Read less') : t('Read more')} onPress={() => setExpanded((v) => !v)} hitSlop={8}>
-                <Txt bold color={c.green}>{expanded ? t('read less') : t('read more')}</Txt>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
 
         {over ? (
           // finished: only who took part, for everyone (the host included). No requests, chat, join or leave.
@@ -269,33 +252,18 @@ export default function ActivityDetail() {
           </View>
         ) : (
           <>
-            <View style={{ gap: 12 }}>
+            <View style={{ gap: 16 }}>
               <Row style={{ justifyContent: 'space-between' }}>
-                <Txt variant="h2" accessibilityRole="header" style={{ fontSize: 16, lineHeight: 21 }}>{t("Who's going")}</Txt>
-                <Txt variant="h3" style={{ fontSize: 12 }} color={a.spotsLeft === 0 ? c.danger : c.green}>
+                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t("Who's going")}</Text>
+                <Text style={{ color: a.spotsLeft === 0 ? c.danger : c.green, fontSize: 14, fontWeight: '500' }}>
                   {a.spotsLeft === 0 ? t('Full') : tn(a.spotsLeft, '{n} spot left', '{n} spots left')}
-                </Txt>
+                </Text>
               </Row>
-              <Row style={{ gap: 14 }}>
-                <View accessible accessibilityLabel={t('Going: {names}', { names: going.map((p) => p.displayName).join(', ') })} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  {faces.map((p, i) => (
-                    <View key={p.id} style={{ marginLeft: i === 0 ? 0 : -10, borderRadius: 999, borderWidth: 2, borderColor: c.bg }}>
-                      <Avatar name={p.displayName} uri={p.photoUrl} size={30} />
-                    </View>
-                  ))}
-                  {Array.from({ length: rings }).map((_, i) => (
-                    <View key={`r${i}`} accessibilityElementsHidden importantForAccessibility="no" style={{ marginLeft: faces.length + i === 0 ? 0 : -10, width: 34, height: 34, borderRadius: 17, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.muted, backgroundColor: c.bg }} />
-                  ))}
-                </View>
-                <View style={{ flex: 1, gap: 8 }}>
-                  <Txt variant="muted">{t('{going} of {capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
-                  <View accessibilityElementsHidden importantForAccessibility="no" style={{ flexDirection: 'row', gap: 4 }}>
-                    {Array.from({ length: segs }).map((_, i) => (
-                      <View key={i} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: i < filled ? c.green : c.line }} />
-                    ))}
-                  </View>
-                </View>
-              </Row>
+              <GoingGrid
+                capacity={a.capacity}
+                people={going.map((p) => ({ id: p.id, name: p.displayName, uri: p.photoUrl, host: p.role === 'host' }))}
+                a11y={`${t('{going} of {capacity} going', { going: a.going, capacity: a.capacity })}. ${t('Going: {names}', { names: going.map((p) => p.displayName).join(', ') })}`}
+              />
             </View>
 
             {a.needsReconfirm ? (

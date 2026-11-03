@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Banner, Between, Btn, Card, ErrorBanner, Field, Txt } from '@/components/ui';
+import { AcctCard } from '@/components/AccountParts';
+import { AuthButton, AuthField } from '@/components/AuthForm';
+import { Banner, Between, Btn, ErrorBanner, Txt } from '@/components/ui';
 import { del, post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
@@ -29,13 +31,13 @@ export function PhoneVerifyCard({ compact }: { compact?: boolean }) {
 
   if (me?.phoneVerified)
     return (
-      <Card style={{ gap: 8 }}>
+      <AcctCard style={{ gap: 8 }}>
         <Between>
           <Txt variant="h3">{t('📱 Mobile number')}</Txt>
           <Btn title={t('Remove')} variant="ghost" small loading={remove.busy} onPress={() => remove.run(() => del('/v1/me/phone'))} />
         </Between>
         <Banner tone="ok">{t('✓ Confirmed ({phone})', { phone: me.phone ?? '' })}</Banner>
-      </Card>
+      </AcctCard>
     );
 
   const sendCode = async () => {
@@ -56,22 +58,22 @@ export function PhoneVerifyCard({ compact }: { compact?: boolean }) {
   };
 
   return (
-    <Card style={{ gap: 12 }}>
+    <AcctCard style={{ gap: 14 }}>
       <Txt variant="h3">{t('📱 Add your mobile number')} {compact ? t('(optional)') : ''}</Txt>
       <ErrorBanner message={send.error ?? verify.error} />
-      <Field label={t('Mobile number')} placeholder="+39 333 123 4567" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" editable={!sent} />
+      <AuthField label={t('Mobile number')} placeholder="+39 333 123 4567" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" editable={!sent} />
       {!sent ? (
-        <Btn title={t('Send code')} variant="secondary" onPress={sendCode} loading={send.busy} disabled={phone.replace(/\D/g, '').length < 8} />
+        <AuthButton title={t('Send code')} onPress={sendCode} loading={send.busy} disabled={phone.replace(/\D/g, '').length < 8} />
       ) : (
         <>
           {devCode ? <Banner tone="warn">{t('Dev mode: your code is {code}.', { code: devCode })}</Banner> : null}
-          <Field label={t('6-digit code')} value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" />
+          <AuthField label={t('6-digit code')} value={code} onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" textContentType="oneTimeCode" />
           {devCode ? <Btn title={t('Fill in the code')} variant="secondary" small onPress={() => setCode(devCode)} /> : null}
-          <Btn title={t('Confirm number')} onPress={confirm} loading={verify.busy} disabled={code.length !== 6} />
+          <AuthButton title={t('Confirm number')} onPress={confirm} loading={verify.busy} disabled={code.length !== 6} />
           <Btn title={wait > 0 ? t('Send a new code ({s}s)', { s: wait }) : t('Send a new code')} variant="ghost" onPress={sendCode} loading={send.busy} disabled={wait > 0} />
           <Btn title={t('Use a different number')} variant="ghost" small onPress={() => (setSent(false), setCode(''))} />
         </>
       )}
-    </Card>
+    </AcctCard>
   );
 }

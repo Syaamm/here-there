@@ -2,10 +2,16 @@ import { useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { useEffect, useRef, useState } from 'react';
 import * as WebBrowser from 'expo-web-browser';
-import { Linking, Platform, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { Linking, Platform, Pressable, View } from 'react-native';
+import { AcctCard, AcctOutlineButton, AcctScreen, StatusTag } from '@/components/AccountParts';
+import { AuthButton } from '@/components/AuthForm';
+import { Text } from '@/components/ScaledText';
+import { useTheme } from '@/lib/theme';
 import { EmailVerifyCard } from '@/components/EmailVerifyCard';
 import { PhoneVerifyCard } from '@/components/PhoneVerifyCard';
-import { Banner, Between, Btn, Card, CheckRow, Chip, ErrorBanner, Pill, PillRow, Row, Screen, Txt } from '@/components/ui';
+import { Banner, Btn, CheckRow, ErrorBanner, Pill, PillRow, Row, Txt } from '@/components/ui';
+
 import { del, get, post, type Me } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad } from '@/lib/hooks';
@@ -62,6 +68,7 @@ export default function Verify() {
   const { me, reload } = useMe();
   const { t } = useT();
   const router = useRouter();
+  const { c } = useTheme();
   const st = useLoad(() => get<Status>('/v1/me/verification'), [], 8000);
   const [consent, setConsent] = useState(false);
   // face = ID document + live selfie matched to it (biometric); document = the ID document only, no selfie, nothing biometric
@@ -91,7 +98,7 @@ export default function Verify() {
     return () => document.removeEventListener('visibilitychange', back);
   }, []);
 
-  if (st.loading && !st.data && !me) return <Screen hasHeader><SkeletonDetail /></Screen>;
+  if (st.loading && !st.data && !me) return <AcctScreen title={t('Get verified')}><SkeletonDetail /></AcctScreen>;
 
   const e: Eligibility = st.data?.eligibility ?? me?.eligibility ?? 'unverified';
   const mode = st.data?.mode;
@@ -100,6 +107,15 @@ export default function Verify() {
   const needsCheck = ['unverified', 'rejected', 'expired', 'reverification_required'].includes(e);
   const [chipEn, chipTone] = IDENTITY_CHIP[e] ?? IDENTITY_CHIP.unverified;
   const chipLabel = t(chipEn);
+
+  const adultOk = !!(st.data?.adultVerified || me?.adultVerified);
+  const phoneOk = !!(st.data?.phoneVerified || me?.phoneVerified);
+  const statusRows: [React.ComponentProps<typeof Ionicons>['name'], string, string, 'ok' | 'warn' | 'bad' | 'neutral'][] = [
+    ['mail-outline', t('Email'), emailOk ? t('Confirmed') : t('Not confirmed'), emailOk ? 'ok' : 'warn'],
+    ['person-outline', t('Adult (18+)'), adultOk ? t('Confirmed by check') : t('You declared it'), adultOk ? 'ok' : 'neutral'],
+    ['id-card-outline', t('Identity'), chipLabel, chipTone],
+    ['phone-portrait-outline', t('Mobile (optional)'), phoneOk ? t('Confirmed') : t('Not added'), phoneOk ? 'ok' : 'neutral'],
+  ];
 
   const start = async () => {
     // in a browser the check opens in a NEW tab. A tab opened after the request has finished is blocked as a pop-up, so an empty one
@@ -144,28 +160,17 @@ export default function Verify() {
   };
 
   return (
-    <Screen hasHeader>
-      <Txt variant="h1">{t('Get verified')}</Txt>
+    <AcctScreen title={t('Get verified')}>
 
-      <Card style={{ gap: 10 }}>
-        <Txt variant="h3">{t('Your statuses')}</Txt>
-        <Between>
-          <Txt>{t('✉ Email')}</Txt>
-          <Chip label={emailOk ? t('Confirmed') : t('Not confirmed')} tone={emailOk ? 'ok' : 'warn'} />
-        </Between>
-        <Between>
-          <Txt>{t('🔞 Adult (18+)')}</Txt>
-          <Chip label={st.data?.adultVerified || me?.adultVerified ? t('Confirmed by check') : t('You declared it')} tone={st.data?.adultVerified || me?.adultVerified ? 'ok' : 'neutral'} />
-        </Between>
-        <Between>
-          <Txt>{t('🪪 Identity')}</Txt>
-          <Chip label={chipLabel} tone={chipTone} />
-        </Between>
-        <Between>
-          <Txt>{t('📱 Mobile (optional)')}</Txt>
-          <Chip label={st.data?.phoneVerified || me?.phoneVerified ? t('Confirmed') : t('Not added')} tone={st.data?.phoneVerified || me?.phoneVerified ? 'ok' : 'neutral'} />
-        </Between>
-      </Card>
+      <AcctCard style={{ gap: 4, paddingVertical: 12 }}>
+        {statusRows.map(([icon, label, tag, tone]) => (
+          <View key={icon} accessible accessibilityLabel={`${label}: ${tag}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 44 }}>
+            <Ionicons name={icon} size={22} color={c.text} />
+            <Text style={{ flex: 1, color: c.text, fontSize: 15, opacity: 0.85 }}>{label}</Text>
+            <StatusTag label={tag} tone={tone} />
+          </View>
+        ))}
+      </AcctCard>
 
       <ErrorBanner message={act.error} />
 
@@ -174,17 +179,19 @@ export default function Verify() {
           <Banner tone="ok">
             {t("You're a verified adult.")}{st.data?.verifiedUntil ? ' ' + t('Valid until {date}.', { date: date(st.data.verifiedUntil) }) : ''}
           </Banner>
-          <Btn title={t('Back to exploring')} onPress={() => router.back()} />
+          <AuthButton title={t('Back to exploring')} onPress={() => router.back()} />
         </>
       )}
 
       {e === 'pending' && (
         <>
           <Banner tone="warn">{t('Check in progress. We\'ll notify you.')}</Banner>
-          {st.data?.resumeUrl ? <Btn title={t('Continue identity check')} onPress={() => (Platform.OS === 'web' ? openTab(st.data!.resumeUrl!) : void openCheck(st.data!.resumeUrl!))} /> : null}
-          <Btn title={t('Check for an update')} variant="secondary" loading={st.loading} onPress={() => void st.reload()} />
+          {st.data?.resumeUrl ? <AuthButton title={t('Continue identity check')} onPress={() => (Platform.OS === 'web' ? openTab(st.data!.resumeUrl!) : void openCheck(st.data!.resumeUrl!))} /> : null}
+          <AcctOutlineButton title={t('Check for an update')} icon="refresh" loading={st.loading} onPress={() => void st.reload()} />
           {/* closed the provider page, or it got stuck: abandon this attempt and begin again */}
-          <Btn title={t('Cancel and start over')} variant="ghost" loading={act.busy} onPress={() => act.run(() => del('/v1/me/verification'))} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Cancel and start over')} disabled={act.busy} hitSlop={8} onPress={() => act.run(() => del('/v1/me/verification'))} style={{ alignSelf: 'center', minHeight: 44, justifyContent: 'center', opacity: act.busy ? 0.5 : 1 }}>
+            <Text style={{ color: c.danger, fontSize: 15, textDecorationLine: 'underline' }}>{t('Cancel and start over')}</Text>
+          </Pressable>
         </>
       )}
 
@@ -220,11 +227,11 @@ export default function Verify() {
             </Row>
           ))}
 
-          <Card>
+          <AcctCard style={{ gap: 8 }}>
             <Txt variant="h3">{t('🔒 Your data')}</Txt>
             <Txt variant="small">{t('• We keep only the result (verified or not), a reference number and the time you agreed. We never store or show your ID photo, selfie, name or birth date.')}</Txt>
             <Txt variant="small">{method === 'face' ? t('• Matching your face to your ID is biometric data. It is used only for this check, and only with your consent.') : t('• This check uses your ID document only: no selfie and no face matching, so nothing biometric.')}</Txt>
-          </Card>
+          </AcctCard>
 
           {mode === 'manual' && (
             <Banner tone="warn">{t('Test version: a team member approves you manually.')}</Banner>
@@ -247,12 +254,12 @@ export default function Verify() {
                 : t('I am 18 or older. I agree that a specialist provider checks my ID document to confirm I am a real adult. No selfie is taken and nothing biometric is used.')}
             </Txt>
           </CheckRow>
-          <Btn title={e === 'unverified' ? t('Start identity check') : t('Verify again')} onPress={start} loading={act.busy} disabled={!consent || !emailOk} />
+          <AuthButton title={e === 'unverified' ? t('Start identity check') : t('Verify again')} onPress={start} loading={act.busy} disabled={!consent || !emailOk} />
           <Txt variant="small">{t('You can withdraw consent and ask for your data to be deleted at any time.')}</Txt>
         </>
       )}
 
       {!(st.data?.phoneVerified || me?.phoneVerified) && e !== 'pending' && <PhoneVerifyCard compact />}
-    </Screen>
+    </AcctScreen>
   );
 }

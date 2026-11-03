@@ -7,8 +7,9 @@ import { Text } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CatPhoto } from '@/components/CatPhoto';
 import { Reveal } from '@/components/Reveal';
-import { CityPicker } from '@/components/CityPicker';
-import { Banner, Btn, ErrorBanner, Pill, PillRow, Row, Txt, useGo } from '@/components/ui';
+import { Avatar, Banner, Btn, ErrorBanner, Field, Pill, PillRow, Row, Sheet, Txt, useGo } from '@/components/ui';
+import { useMe } from '@/lib/auth';
+import { statusTop } from '@/lib/layout';
 import { get, type Activity } from '@/lib/api';
 import { useCity } from '@/lib/city';
 import { useDockSpace } from '@/lib/dock';
@@ -235,10 +236,52 @@ function RoundTool({ icon, label, onPress }: { icon: React.ComponentProps<typeof
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }, pressed && { opacity: 0.85, transform: [{ scale: 0.94 }] }]}
+      style={({ pressed }) => [{ width: 46, height: 46, borderRadius: 23, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { opacity: 0.85, transform: [{ scale: 0.94 }] }]}
     >
-      <Ionicons name={icon} size={20} color={c.forest} />
+      <Ionicons name={icon} size={22} color={c.text} />
     </Pressable>
+  );
+}
+
+/** The big round button at the top right of the map (search, filters). */
+function TopTool({ icon, label, onPress, on }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void; on?: boolean }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={on === undefined ? undefined : { selected: on }} onPress={onPress} hitSlop={4} style={({ pressed }) => [{ width: 58, height: 58, borderRadius: 29, backgroundColor: on ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { opacity: 0.85 }]}>
+      <Ionicons name={icon} size={26} color={on ? '#fff' : c.text} />
+    </Pressable>
+  );
+}
+
+/** "Hi, Alex / Milan": your face, a greeting and the city; tapping it picks another city. */
+function GreetingPill({ city, onPick }: { city: string; onPick: (c: string) => void }) {
+  const { t } = useT();
+  const { c } = useTheme();
+  const { me } = useMe();
+  const [open, setOpen] = useState(false);
+  const [v, setV] = useState(city);
+  const name = me?.profile?.displayName?.split(' ')[0];
+  return (
+    <>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => (setV(city), setOpen(true))} style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 58, paddingLeft: 6, paddingRight: 22, borderRadius: 32, backgroundColor: c.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
+        <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={46} />
+        <View style={{ flexShrink: 1 }}>
+          {name ? <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Hi, {name}', { name })}</Text> : null}
+          <Text numberOfLines={1} style={{ color: c.muted, fontSize: 14, lineHeight: 18 }}>{city}</Text>
+        </View>
+      </Pressable>
+      <Sheet visible={open} title={t('Choose your city')} onClose={() => setOpen(false)}>
+        <Field label={t('City')} value={v} onChangeText={setV} autoFocus />
+        <Btn
+          title={t('Use this city')}
+          disabled={v.trim().length < 2}
+          onPress={() => {
+            onPick(v.trim());
+            setOpen(false);
+          }}
+        />
+      </Sheet>
+    </>
   );
 }
 
@@ -272,11 +315,12 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const insets = useSafeAreaInsets();
   const dock = useDockSpace();
   const { height: screenH } = useWindowDimensions();
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const { city, setCity, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected, activeId, feed, pins, dist, measure } = data;
 
   // what the pulled-up list shows: the activities at the tapped pin, or every pin's, soonest first
   const rows = selected ? selected.items : [...pins].sort((x, y) => +new Date(x.startsAt) - +new Date(y.startsAt));
-  const ROW = 70; // one row and the gap under it
+  const ROW = 92; // one row and the gap under it
   const listMax = Math.min(rows.length * ROW + 4, Math.round(screenH * 0.42));
 
   // 0 = just the summary, 1 = list showing. Driven by a finger (drag), a tap on the handle, or by tapping a pin.
@@ -338,24 +382,25 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      {/* top: a floating card with the place on the left and search on the right, then the category chips */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', top: 12, left: 12, right: 12, gap: 8, alignItems: 'center' }}>
-        <View style={[s.floatBar, { backgroundColor: c.surface, borderColor: c.line }]}>
-          <CityPicker city={city} onPick={setCity} subtitle={near ? t('Near you') : t('Around you')} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Search activities')} onPress={() => go('/activities?from=map')} hitSlop={8} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="search-outline" size={22} color={c.text} />
-            </Pressable>
+      {/* top: your greeting and the city on the left, search and filters on the right; the category chips open under the filter button */}
+      <View pointerEvents="box-none" style={{ position: 'absolute', top: statusTop(insets.top) + 8, left: 16, right: 16, gap: 10, alignItems: 'center' }}>
+        <View style={{ width: '100%', maxWidth: 560, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <GreetingPill city={city} onPick={setCity} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TopTool icon="search-outline" label={t('Search activities')} onPress={() => go('/activities?from=map')} />
+            <TopTool icon="options-outline" label={cat ? t('Filters, on') : t('Filters')} on={filtersOpen || cat !== ''} onPress={() => setFiltersOpen((v) => !v)} />
           </View>
         </View>
-        <View style={{ width: '100%', maxWidth: 560 }}>
-          <PillRow>
-            <Pill label={t('All')} active={cat === ''} onPress={() => setCat('')} />
-            {Object.entries(CATS).map(([k, v]) => (
-              <Pill key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(k)} />
-            ))}
-          </PillRow>
-        </View>
+        {filtersOpen || cat !== '' ? (
+          <View style={{ width: '100%', maxWidth: 560 }}>
+            <PillRow>
+              <Pill label={t('All')} active={cat === ''} onPress={() => setCat('')} />
+              {Object.entries(CATS).map(([k, v]) => (
+                <Pill key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(k)} />
+              ))}
+            </PillRow>
+          </View>
+        ) : null}
         {geoMsg ? <View style={{ width: '100%', maxWidth: 560 }}><Banner>{geoMsg}</Banner></View> : null}
         {feed.error ? <View style={{ width: '100%', maxWidth: 560 }}><ErrorBanner message={feed.error.message} /></View> : null}
       </View>
@@ -374,20 +419,20 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
       </Animated.View>
 
       {/* bottom sheet */}
-      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, borderColor: c.line, paddingBottom: 12 + dock, // runs down behind the dock, so no strip of map shows between them
-         paddingHorizontal: 16, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 } }}>
+      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingBottom: 12 + dock, // runs down behind the dock, so no strip of map shows between them
+         paddingHorizontal: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 } }}>
         <View onLayout={(e) => setBaseH(e.nativeEvent.layout.height + 12)} style={{ width: '100%', alignItems: 'center' }}>
           {/* the grip and the summary are the part you drag */}
           <View {...pan.panHandlers} accessible accessibilityRole="adjustable" accessibilityLabel={t('Activities list. Swipe up to open, down to close')} style={{ width: '100%', alignItems: 'center', paddingTop: 8 }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.line, marginBottom: 10 }} />
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.line, marginBottom: 14 }} />
           </View>
           <View style={{ width: '100%', maxWidth: 560, gap: 8 }}>
             {selected ? (
               <>
                 <Row style={{ justifyContent: 'space-between', gap: 8 }}>
-                  <Txt variant="h2" accessibilityRole="header" style={{ fontSize: 17, lineHeight: 22, flex: 1 }}>
+                  <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600', flex: 1 }}>
                     {tn(selected.items.length, '{n} activity here', '{n} activities here')}
-                  </Txt>
+                  </Text>
                   <PillButton icon={dist.status === 'done' ? 'refresh' : 'location-outline'} title={dist.status === 'done' ? t('Refresh') : dist.status === 'locating' ? t('Finding…') : dist.status === 'idle' ? t('How far?') : t('Try again')} onPress={measure} disabled={dist.status === 'locating'} />
                 </Row>
                 <Row style={{ gap: 6, alignItems: 'flex-start' }}>
@@ -404,13 +449,14 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
               <Pressable accessibilityRole="button" accessibilityLabel={openAt.current > 0.5 ? t('Hide the list') : t('Show all activities')} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)}>
                 <Row style={{ justifyContent: 'space-between', gap: 10 }}>
                   <View style={{ flex: 1 }}>
-                    <Txt variant="h2" accessibilityRole="header" style={{ fontSize: 17, lineHeight: 22 }}>
+                    <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600' }}>
                       {feed.data ? (todayCount > 0 ? tn(count, '{n} activity today', '{n} activities today') : tn(count, '{n} activity coming up', '{n} activities coming up')) : t('Loading…')}
-                    </Txt>
+                    </Text>
+                    <Text style={{ color: c.muted, fontSize: 15, lineHeight: 22, marginTop: 4 }}>{t('Tap a pin to preview, or pull up for the list')}</Text>
                   </View>
                   {nextStart ? (
-                    <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 }}>
-                      <Txt variant="h3" color={c.forest} style={{ fontSize: 11, lineHeight: 15 }}>{t('Next in {time}', { time: untilStart(nextStart) })}</Txt>
+                    <View style={{ backgroundColor: c.sand, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start' }}>
+                      <Text style={{ color: c.forest, fontSize: 13, lineHeight: 17, fontWeight: '500' }}>{t('Next in {time}', { time: untilStart(nextStart) })}</Text>
                     </View>
                   ) : null}
                 </Row>
@@ -421,24 +467,28 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
 
         {/* the list: its height follows the pull, rows ease in one after another each time the list changes */}
         <Animated.View style={{ width: '100%', maxWidth: 560, height: listH, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
-          <ScrollView style={{ marginTop: 10 }} contentContainerStyle={{ gap: 8, paddingBottom: 4 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ marginTop: 10 }} contentContainerStyle={{ gap: 10, paddingBottom: 4 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
             {rows.map((a, i) => (
               <Reveal key={`${key}:${a.id}`} index={i}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={t('{title}, {when}, {n} spaces. Open activity', { title: a.title, when: when(a.startsAt), n: a.spotsLeft })}
                   onPress={() => go(`/activity/${a.id}`)}
-                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 11, padding: 9, borderRadius: 16, borderWidth: 1, borderColor: activeId === a.id ? c.forest : c.line, backgroundColor: c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 10, borderRadius: 26, borderWidth: 1, borderColor: activeId === a.id ? c.forest : c.line, backgroundColor: c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
                 >
-                  <CatPhoto category={a.category} style={{ width: 44, height: 44, borderRadius: 12 }} />
-                  <View style={{ flex: 1, gap: 1 }}>
-                    <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{a.title}</Txt>
-                    <Txt variant="small" numberOfLines={1} style={{ color: c.text }}>{when(a.startsAt)}</Txt>
-                    <Txt variant="small" numberOfLines={1}>
-                      {t('{going}/{capacity} going · {left} left', { going: a.going, capacity: a.capacity, left: a.spotsLeft })}{dist.me ? t(' · {km} away', { km: fmtKm(kmBetween(dist.me, { lat: a.lat, lng: a.lng })) }) : ''}
-                    </Txt>
+                  <CatPhoto category={a.category} style={{ width: 64, height: 64, borderRadius: 18 }} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{a.title}</Text>
+                    <Row style={{ gap: 6 }}>
+                      <Ionicons name="location-outline" size={14} color={c.muted} />
+                      <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 18, flexShrink: 1 }}>{a.venueName}</Text>
+                      <Text style={{ color: '#2E7D32', fontSize: 13, lineHeight: 18, fontWeight: '500' }}>{t(CATS[a.category]?.label ?? a.category)}</Text>
+                    </Row>
+                    <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 18 }}>
+                      {when(a.startsAt)} · {t('{going}/{capacity} going · {left} left', { going: a.going, capacity: a.capacity, left: a.spotsLeft })}{dist.me ? t(' · {km} away', { km: fmtKm(kmBetween(dist.me, { lat: a.lat, lng: a.lng })) }) : ''}
+                    </Text>
                   </View>
-                  <Txt variant="h3" color={c.forest} style={{ fontSize: 12 }}>{t('Open ›')}</Txt>
+                  <Ionicons name="chevron-forward" size={18} color={c.muted} />
                 </Pressable>
               </Reveal>
             ))}

@@ -33,8 +33,11 @@ export function useOnScrollEnd(fn: () => void) {
   }, []);
 }
 
+/** How far the white sheet rises over a coloured header band (see Screen's headerBg). */
+const SHEET_OVERLAP = 30;
+
 export function Screen({
-  header, children,
+  header, headerBg, children,
   hasHeader = false,
   scroll = true,
   tabBar = false,
@@ -54,6 +57,8 @@ export function Screen({
   stickyHero?: { scrolling: ReactNode; pinned: ReactNode };
   /** stays put at the top while the content scrolls beneath it (the HERE/THERE header on the main tabs) */
   header?: ReactNode;
+  /** a coloured band behind the header (HERE's dark green): the page then rises over it as a white sheet with rounded top corners */
+  headerBg?: string;
   /** true when a native header already sits above the content */
   hasHeader?: boolean;
   scroll?: boolean;
@@ -151,11 +156,18 @@ export function Screen({
   return (
     <Animated.View ref={pageBox} onLayout={pageLayout} style={{ flex: 1, backgroundColor: c.bg, paddingBottom: keyboard }}>
       {header ? (
-        <View style={{ paddingTop: top + headerGap, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
+        <View style={{ paddingTop: top + headerGap, paddingBottom: headerBg ? SHEET_OVERLAP + 6 : 6, paddingHorizontal: gutter + 6, backgroundColor: headerBg ?? c.bg, zIndex: headerBg ? 0 : 2 }}>
           <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{header}</View>
         </View>
       ) : null}
-      <PageTransition>{body}</PageTransition>
+      {header && headerBg ? (
+        // the page rises over the coloured band as a sheet; it is clipped to its rounded top corners
+        <View style={{ flex: 1, marginTop: -SHEET_OVERLAP, zIndex: 1, borderTopLeftRadius: 40, borderTopRightRadius: 40, overflow: 'hidden', backgroundColor: c.bg }}>
+          <PageTransition>{body}</PageTransition>
+        </View>
+      ) : (
+        <PageTransition>{body}</PageTransition>
+      )}
     </Animated.View>
   );
 }
@@ -323,21 +335,25 @@ export function SearchBar({ value, onChangeText, placeholder, onFilter, filterAc
   const { c } = useTheme();
   const { t } = useT();
   return (
-    <View style={[s.search, { minHeight: sc(42), backgroundColor: c.surface, borderColor: c.line }]}>
-      <Ionicons name="search-outline" size={17} color={c.muted} />
-      <TextInput
-        accessibilityLabel={placeholder}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={c.placeholder}
-        returnKeyType="search"
-        clearButtonMode="while-editing"
-        style={{ flex: 1, fontSize: 14, color: c.text, paddingVertical: 0, minHeight: 24 }}
-      />
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <View style={[s.search, { flex: 1, minHeight: sc(49), borderRadius: 25, paddingHorizontal: 16, backgroundColor: c.surface, borderColor: c.line }]}>
+        <Ionicons name="search-outline" size={18} color={c.muted} />
+        <TextInput
+          accessibilityLabel={placeholder}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={c.placeholder}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+          style={{ flex: 1, fontSize: 15, color: c.text, paddingVertical: 0, minHeight: 24 }}
+        />
+      </View>
+      {/* the filter button sits outside the field: a dark round button; a small dot says a filter is on */}
       {onFilter ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} onPress={onFilter} hitSlop={6} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: filterActive ? c.forest : c.sand, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="options-outline" size={18} color={filterActive ? '#fff' : c.forest} />
+        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} onPress={onFilter} hitSlop={4} style={({ pressed: p }) => [{ width: 45, height: 45, borderRadius: 23, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>
+          <Ionicons name="options-outline" size={21} color="#fff" />
+          {filterActive ? <View style={{ position: 'absolute', top: 1, right: 1, width: 12, height: 12, borderRadius: 6, backgroundColor: c.accent, borderWidth: 2, borderColor: c.surface }} /> : null}
         </Pressable>
       ) : null}
     </View>

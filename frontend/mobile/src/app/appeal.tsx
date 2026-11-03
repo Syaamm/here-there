@@ -1,6 +1,11 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Btn, Card, Chip, ErrorBanner, Field, Row, Screen, Spinner, Txt } from '@/components/ui';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { View } from 'react-native';
+import { AcctCard, AcctScreen, StatusTag } from '@/components/AccountParts';
+import { Text } from '@/components/ScaledText';
+import { Btn, ErrorBanner, Field, Spinner, Txt } from '@/components/ui';
+import { useTheme } from '@/lib/theme';
 import { post, type MyAppeal } from '@/lib/api';
 import { useAction, useRefresh } from '@/lib/hooks';
 import { PagedTail, useCursorList } from '@/lib/paged';
@@ -18,6 +23,7 @@ const STATE: Record<MyAppeal['state'], { label: string; tone: 'warn' | 'ok' | 'b
 /** Asking staff to look at a decision again, and what became of earlier requests. One request per decision. */
 export default function Appeal() {
   const { t } = useT();
+  const { c } = useTheme();
   const { kind, targetType, targetId } = useLocalSearchParams<{ kind?: string; targetType?: string; targetId?: string }>();
   const mine = useCursorList<MyAppeal>('/v1/me/appeals', {}, 'me:appeals');
   const { refreshing, onRefresh } = useRefresh(() => mine.reload());
@@ -31,10 +37,10 @@ export default function Appeal() {
   const hasOpen = items.some((a) => a.state === 'open');
 
   return (
-    <Screen hasHeader onRefresh={onRefresh} refreshing={refreshing}>
+    <AcctScreen title={t('Ask for a review')} onRefresh={onRefresh} refreshing={refreshing}>
       <ErrorBanner message={mine.error?.message} />
       {ask && !hasOpen ? (
-        <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
+        <AcctCard style={{ gap: 10 }}>
           <Txt variant="h3">{t(ask.title)}</Txt>
           <Txt variant="muted">{t(ask.hint)}</Txt>
           <ErrorBanner message={send.error} />
@@ -45,22 +51,27 @@ export default function Appeal() {
             disabled={text.trim().length < 10}
             onPress={() => void send.run(() => post('/v1/me/appeals', kind === 'removal' ? { kind, targetType, targetId, message: text.trim() } : kind === 'verification' ? { kind, message: text.trim() } : { kind, targetId, message: text.trim() }))}
           />
-        </Card>
+        </AcctCard>
       ) : null}
       {mine.loading && !mine.data && <Spinner />}
       {items.length > 0 ? <Txt variant="h3">{t('Your requests')}</Txt> : null}
       {items.map((a) => (
-        <Card key={a.id} style={{ padding: 14, borderRadius: 18, gap: 6 }}>
-          <Row style={{ gap: 8, alignItems: 'center' }}>
-            <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20, flex: 1 }}>{t(a.what.charAt(0).toUpperCase() + a.what.slice(1))}</Txt>
-            <Chip label={t(STATE[a.state].label)} tone={STATE[a.state].tone} />
-          </Row>
-          <Txt variant="small">{t('Sent {date}', { date: new Date(a.createdAt).toLocaleDateString(localeTag()) })}</Txt>
-          {a.decision ? <Txt>{a.decision}</Txt> : null}
-        </Card>
+        <AcctCard key={a.id} style={{ gap: 6 }}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+            <Ionicons name={a.what.toLowerCase().includes('warn') ? 'warning-outline' : a.what.toLowerCase().includes('message') ? 'chatbubble-ellipses-outline' : 'document-text-outline'} size={20} color={c.text} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <Text style={{ color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', flex: 1 }}>{t(a.what.charAt(0).toUpperCase() + a.what.slice(1))}</Text>
+                <StatusTag label={t(STATE[a.state].label)} tone={STATE[a.state].tone} />
+              </View>
+              <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Sent {date}', { date: new Date(a.createdAt).toLocaleDateString(localeTag()) })}</Text>
+              {a.decision ? <Text style={{ color: c.muted, fontSize: 13, lineHeight: 20, marginTop: 6 }}>{a.decision}</Text> : null}
+            </View>
+          </View>
+        </AcctCard>
       ))}
       <PagedTail paged={mine} />
       {!ask && !mine.loading && items.length === 0 ? <Txt variant="muted">{t('You have not asked for any reviews.')}</Txt> : null}
-    </Screen>
+    </AcctScreen>
   );
 }

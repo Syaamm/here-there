@@ -1,8 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Stack } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
-import { Card, Empty, ErrorBanner, Screen, Spinner, Txt } from '@/components/ui';
+import { AccountRow, PageTop, RoundCard } from '@/components/ProfileParts';
+import { Empty, ErrorBanner, Screen, Spinner, Txt } from '@/components/ui';
 import { get, put } from '@/lib/api';
 import { errMsg, useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
@@ -43,7 +45,7 @@ function TimeStep({ label, value, disabled, onChange }: { label: string; value: 
       disabled={disabled}
       hitSlop={4}
       onPress={() => onChange(fromMin(toMin(value) + delta))}
-      style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: c.accentSoft, opacity: disabled ? 0.45 : 1 }}
+      style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: c.sand, opacity: disabled ? 0.45 : 1 }}
     >
       <Ionicons name={name} size={18} color={c.forest} />
     </Pressable>
@@ -59,6 +61,8 @@ function TimeStep({ label, value, disabled, onChange }: { label: string; value: 
     </View>
   );
 }
+
+const ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = { messages: 'chatbubble-ellipses-outline', requests: 'person-add-outline', reminders: 'alarm-outline', saved: 'bookmark-outline', people: 'people-outline' };
 
 /** Which kinds of alert also arrive as a push on this phone, and quiet hours. Every change is saved at once. */
 export default function NotificationSettings() {
@@ -104,55 +108,46 @@ export default function NotificationSettings() {
   };
 
   return (
-    <Screen hasHeader onRefresh={onRefresh} refreshing={refreshing}>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <PageTop title={t('Notifications')} align="left" />
       <ErrorBanner message={load.error && !s ? load.error.message : null} />
       {load.loading && !s && <Spinner />}
       {!load.loading && !s && load.error ? <Empty title={t('Could not load your settings')} /> : null}
       {s ? (
         <>
-          <Txt variant="small">{t('Choose which alerts also reach you as a notification on this phone.')}</Txt>
-          <Card style={{ padding: 12, borderRadius: 18, gap: 0 }}>
+          <Txt variant="muted" style={{ paddingHorizontal: 2 }}>{t('Choose which alerts also reach you as a notification on this phone.')}</Txt>
+          <RoundCard>
             {s.groups.map((g) => {
               const [label, text] = textOf(g.key) ?? [g.label, g.text];
               return (
-                <View key={g.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.line }}>
-                  <View style={{ flex: 1 }}>
-                    <Txt variant="h3" style={{ fontSize: 14, lineHeight: 19 }}>{label}</Txt>
-                    <Txt variant="small" numberOfLines={2}>{text}</Txt>
-                  </View>
-                  <Switch
-                    accessibilityLabel={label}
-                    accessibilityHint={text}
-                    value={g.push}
-                    onValueChange={(v) => toggle(g, v)}
-                    trackColor={{ true: c.green, false: c.line }}
-                  />
-                </View>
+                <AccountRow
+                  key={g.key}
+                  icon={ICONS[g.key] ?? 'notifications-outline'}
+                  title={label}
+                  subtitle={text}
+                  right={<Switch accessibilityLabel={label} accessibilityHint={text} value={g.push} onValueChange={(v) => toggle(g, v)} trackColor={{ true: c.green, false: c.line }} thumbColor="#fff" />}
+                />
               );
             })}
-            <View accessible accessibilityLabel={`${t('Important alerts')}. ${t('These always reach you')}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 8 }}>
-              <Ionicons name="lock-closed-outline" size={18} color={c.forest} />
-              <View style={{ flex: 1 }}>
-                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 19 }}>{t('Important alerts')}</Txt>
-                <Txt variant="small" numberOfLines={2}>{t('Safety, decisions about you and plan cancellations. These always reach you.')}</Txt>
-              </View>
+            <View accessible accessibilityLabel={`${t('Important alerts')}. ${t('These always reach you')}`}>
+              <AccountRow icon="lock-closed-outline" title={t('Important alerts')} subtitle={t('Safety, decisions about you and plan cancellations. These always reach you.')} last />
             </View>
-          </Card>
+          </RoundCard>
 
-          <Text accessibilityRole="header" style={{ color: c.muted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.9, marginTop: 4 }}>{t('Quiet hours').toUpperCase()}</Text>
-          <Card style={{ padding: 12, borderRadius: 18, gap: 10 }}>
+          <RoundCard style={{ gap: 10, paddingVertical: 18 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 }}>
               <View style={{ flex: 1 }}>
-                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 19 }}>{t('Quiet hours')}</Txt>
-                <Txt variant="small" numberOfLines={2}>{t('No notifications between these times, except important alerts')}</Txt>
+                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{t('Quiet hours')}</Text>
+                <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t('No notifications between these times, except important alerts')}</Text>
               </View>
-              <Switch accessibilityLabel={t('Quiet hours')} value={s.quietHours.enabled} onValueChange={(v) => quiet({ enabled: v })} trackColor={{ true: c.green, false: c.line }} />
+              <Switch accessibilityLabel={t('Quiet hours')} value={s.quietHours.enabled} onValueChange={(v) => quiet({ enabled: v })} trackColor={{ true: c.green, false: c.line }} thumbColor="#fff" />
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TimeStep label={t('From')} value={s.quietHours.start} disabled={!s.quietHours.enabled} onChange={(v) => quiet({ start: v })} />
               <TimeStep label={t('Until')} value={s.quietHours.end} disabled={!s.quietHours.enabled} onChange={(v) => quiet({ end: v })} />
             </View>
-          </Card>
+          </RoundCard>
 
           <Txt variant="small" color={c.muted}>{t('Every alert is always kept in your Alerts list. These settings only decide which ones also reach you as a notification.')}</Txt>
         </>

@@ -1,10 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { TripCalendar } from '@/components/TripCalendar';
-import { Banner, Btn, Card, Chip, Empty, ErrorBanner, Field, Row, Screen, Sheet, Spinner, Txt } from '@/components/ui';
+import { AuthBack } from '@/components/AuthForm';
+import { softShadow, WHITE } from '@/components/TripParts';
+import { Avatar, Banner, Btn, Card, Chip, Empty, ErrorBanner, Field, Row, Screen, Sheet, Spinner, Txt } from '@/components/ui';
 import { DayStrip, Segmented } from '@/components/DayStrip';
 import { Swap } from '@/components/Pop';
 import { ApiError, del, get, patch, post, type Trip } from '@/lib/api';
@@ -41,6 +43,7 @@ export default function TripPlan() {
   const { t, tn } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { c } = useTheme();
+  const router = useRouter();
   // someone in the group changed the plan (or the trip's dates): it loads at once; the poll is only a rare safety net while the live connection is up
   const plan = useLoad(() => get<Plan>(`/v1/trips/${id}/plan`), [id], 30_000, 'trip:plan:v2', { live: true });
   const trip = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip:plan:trip');
@@ -146,6 +149,8 @@ export default function TripPlan() {
   const allDays = [...new Set([...tripDays, ...planned.keys()])].sort();
   const today = isoDay(new Date());
   const nights = tripDays.length > 0 ? tripDays.length - 1 : 0;
+  // the design's white cards on the ivory page
+  const white = { backgroundColor: WHITE, borderWidth: 0, ...softShadow } as const;
   // once the trip has started, a day before today is a record of what happened: its plan can no longer be changed
   const started = tripDays.length > 0 && today >= tripDays[0];
   const isPast = (k: string) => started && k < today;
@@ -168,11 +173,11 @@ export default function TripPlan() {
   /** One stop: its time on the left, then the stop on a line that runs down the day. */
   const stop = (l: Line) => (
     <View key={l.id} style={{ flexDirection: 'row', gap: 10 }}>
-      <Text style={{ width: 52, color: l.time ? c.text : c.muted, fontSize: 12, fontWeight: '800', paddingTop: 1 }}>{l.time ?? t('Any time')}</Text>
-      <View style={{ flex: 1, borderLeftWidth: 2, borderColor: c.line, paddingLeft: 12, paddingBottom: 12, gap: 2 }}>
-        <View style={{ position: 'absolute', left: -6, top: 4, width: 10, height: 10, borderRadius: 5, backgroundColor: l.time ? c.forest : c.surface, borderWidth: 2, borderColor: c.forest }} />
-        <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20 }}>{l.title}</Txt>
-        {l.note ? <Txt>{l.note}</Txt> : null}
+      <Text style={{ width: 56, color: l.time ? c.text : c.muted, fontSize: l.time ? 15 : 12, fontWeight: '500', paddingTop: l.time ? 0 : 3 }}>{l.time ?? t('Any time')}</Text>
+      <View style={{ flex: 1, borderLeftWidth: 2, borderColor: c.line, paddingLeft: 12, paddingBottom: 14, gap: 2 }}>
+        <View style={{ position: 'absolute', left: -6, top: 4, width: 10, height: 10, borderRadius: 5, backgroundColor: l.time ? c.forest : WHITE, borderWidth: 2, borderColor: c.forest }} />
+        <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600' }}>{l.title}</Text>
+        {l.note ? <Text style={{ color: c.muted, fontSize: 14, lineHeight: 19 }}>{l.note}</Text> : null}
         <Row style={{ gap: 12, alignItems: 'center' }}>
           <Txt variant="small" style={{ flex: 1 }}>{t('Added by {name}', { name: l.addedBy })}</Txt>
           {actions(l)}
@@ -195,15 +200,11 @@ export default function TripPlan() {
       people.length ? t('by {names}', { names: people.join(', ') }) : null,
     ].filter(Boolean) as string[];
     return (
-      <Card key={k} style={{ padding: 12, borderRadius: 18, gap: 10, borderColor: isToday ? c.forest : c.line }}>
+      <Card key={k} style={{ ...white, padding: 16, borderRadius: 28, gap: 12 }}>
         <Row style={{ gap: 12, alignItems: 'center' }}>
-          <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 44, height: 48, borderRadius: 12, backgroundColor: isToday ? c.forest : c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: isToday ? '#fff' : c.muted, fontSize: 9, fontWeight: '800', letterSpacing: 0.6 }}>{fmt(k, { month: 'short' }).toUpperCase()}</Text>
-            <Text style={{ color: isToday ? '#fff' : c.text, fontSize: 18, fontWeight: '800', lineHeight: 22 }}>{Number(k.slice(8))}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20 }}>{dayNumber(k)} · {fmt(k, { weekday: 'long' })}</Txt>
-            <Txt variant="small">{isToday ? t('Today') : fmt(k, { day: 'numeric', month: 'long', year: 'numeric' })}</Txt>
+          <View style={{ flex: 1, alignItems: 'center', gap: 2, paddingLeft: p?.editable && !isPast(k) ? 64 : 0 }}>
+            <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600', textAlign: 'center' }}>{dayNumber(k)} · {fmt(k, { weekday: 'long' })}</Text>
+            <Text style={{ color: c.muted, fontSize: 12, textAlign: 'center' }}>{isToday ? t('Today') : fmt(k, { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
           </View>
           {p?.editable && !isPast(k) ? <Btn title={t('Add')} small variant="secondary" onPress={() => open('itinerary', undefined, k)} /> : null}
         </Row>
@@ -266,29 +267,50 @@ export default function TripPlan() {
   const parts = PARTS.map(([l, v, i, h]) => [t(l), v, i, t(h)] as const);
 
   return (
-    <Screen hasHeader onRefresh={onRefresh} refreshing={refreshing}>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <AuthBack onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
+        <Text accessibilityRole="header" style={{ flex: 1, color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t('Trip Plan')}</Text>
+      </View>
       {plan.loading && !p && <Spinner />}
       {forbidden ? <Empty title={t('The plan is for the group')} /> : <ErrorBanner message={plan.error?.message} />}
       {p ? (
         <>
           {/* the trip this plan belongs to */}
           {tr ? (
-            <Card style={{ padding: 14, borderRadius: 18, gap: 4 }}>
-              <Row style={{ gap: 8, alignItems: 'center' }}>
-                <Ionicons name="airplane-outline" size={18} color={c.forest} />
-                <Txt variant="h2" style={{ fontSize: 18, lineHeight: 24, flex: 1 }} numberOfLines={1}>{tr.destination}</Txt>
-                {status ? <Chip label={status} tone={finished ? 'neutral' : 'ok'} /> : null}
+            <Card style={{ ...white, padding: 16, borderRadius: 28, gap: 12 }}>
+              <Row style={{ gap: 16, alignItems: 'center' }}>
+                {/* a stand-in for the trip photo */}
+                <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 86, height: 86, borderRadius: 20, backgroundColor: c.heroBlock, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="airplane" size={30} color={c.forest} />
+                </View>
+                <View style={{ flex: 1, gap: 6 }}>
+                  <Text numberOfLines={2} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{tr.title}</Text>
+                  <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{dateSpan(tr.dateStart, tr.dateEnd)}</Text>
+                  <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t('{d} days / {n} nights', { d: tripDays.length, n: nights })}</Text>
+                </View>
               </Row>
-              <Txt>{dateSpan(tr.dateStart, tr.dateEnd)} · {tn(nights, '{n} night', '{n} nights')}</Txt>
-              <Txt variant="small">{t('{going} of {capacity} going', { going: tr.members, capacity: tr.maxCapacity })}</Txt>
+              <Row style={{ gap: 10, alignItems: 'center' }}>
+                <View accessibilityElementsHidden importantForAccessibility="no" style={{ flexDirection: 'row' }}>
+                  {(tr.participants ?? []).slice(0, 4).map((x, i) => (
+                    <View key={x.id} style={{ marginLeft: i === 0 ? 0 : -8, borderRadius: 999, borderWidth: 2, borderColor: WHITE }}>
+                      <Avatar name={x.displayName} uri={x.photoUrl} size={28} />
+                    </View>
+                  ))}
+                </View>
+                <Text style={{ flex: 1, color: c.text, fontSize: 12 }}>{t('{going} of {capacity} going', { going: tr.members, capacity: tr.maxCapacity })}</Text>
+                {status ? <Chip label={status} tone={finished ? 'neutral' : 'ok'} /> : null}
+                <Text style={{ color: tr.spotsLeft === 0 ? c.danger : c.green, fontSize: 12, fontWeight: '500' }}>{tr.spotsLeft === 0 ? t('Full') : tn(tr.spotsLeft, '{n} place left', '{n} places left')}</Text>
+              </Row>
             </Card>
           ) : null}
 
-          <Txt variant="h2" style={{ fontSize: 20 }}>{t('Itinerary')}</Txt>
+          <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600', paddingLeft: 6 }}>{t('Itinerary')}</Text>
 
           {/* the trip as a calendar: days with something planned are marked; tap a day to see its plan below */}
           {active ? (
-            <Card style={{ padding: 12, borderRadius: 18 }}>
+            <Card style={{ ...white, padding: 16, borderRadius: 32 }}>
               <TripCalendar tripDays={tripDays} planned={counts} selected={active} today={today} onSelect={setSel} dayNumber={dayNumber} />
             </Card>
           ) : null}
@@ -296,7 +318,7 @@ export default function TripPlan() {
 
           {/* ideas have no day, so they sit outside the calendar */}
           {ideas.length ? (
-            <Card style={{ padding: 12, borderRadius: 18, gap: 10 }}>
+            <Card style={{ ...white, padding: 16, borderRadius: 28, gap: 10 }}>
               <Row style={{ gap: 12, alignItems: 'center' }}>
                 <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 44, height: 48, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
                   <Ionicons name="bulb-outline" size={22} color={c.forest} />
@@ -318,7 +340,7 @@ export default function TripPlan() {
             </View>
             {p.editable ? <Btn title={t('Add')} small onPress={() => open('budget')} /> : null}
           </Row>
-          <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
+          <Card style={{ ...white, padding: 16, borderRadius: 28, gap: 10 }}>
             <Row style={{ gap: 8, alignItems: 'center' }}>
               <View style={{ flex: 1 }}>
                 <Txt variant="small">{t('Trip budget, per person')}</Txt>
@@ -362,6 +384,7 @@ export default function TripPlan() {
       </Sheet>
 
       <Sheet visible={!!form} title={form?.kind === 'budget' ? (form?.edit ? t('Change a cost') : t('Add a cost')) : form?.edit ? t('Change a stop or idea') : t('Add a stop or idea')} onClose={() => setForm(null)}>
+        {form?.kind === 'budget' ? null : <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>{t('Add something your group might want to do during the trip.')}</Text>}
         <ErrorBanner message={act.error} />
         <Field label={form?.kind === 'budget' ? t('What is it for? (hostel, food, local transport)') : t('What is the plan?')} value={title} onChangeText={setTitle} maxLength={100} />
         {form?.kind === 'budget' ? (

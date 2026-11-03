@@ -3,7 +3,12 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
-import { Avatar, Banner, Btn, Card, Chip, Empty, ErrorBanner, Field, Row, Screen, Spinner, Txt } from '@/components/ui';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { AcctCard, AcctScreen, StatusTag } from '@/components/AccountParts';
+import { AuthButton, AuthField } from '@/components/AuthForm';
+import { Text } from '@/components/ScaledText';
+import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Spinner, Txt } from '@/components/ui';
+import { sc } from '@/lib/scale';
 import { del, get, post, put } from '@/lib/api';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { parseDay } from '@/lib/format';
@@ -35,7 +40,7 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSt
 export default function TravelMatch() {
   const { t, tn } = useT();
   const r = useRouter();
-  const { c } = useTheme();
+  const { c, mode } = useTheme();
   const o = useLoad(() => get<Overview>('/v1/me/travel-match'), [], undefined, 'me:travelmatch');
   const { refreshing, onRefresh } = useRefresh(() => o.reload());
   const [dest, setDest] = useState('');
@@ -74,8 +79,8 @@ export default function TravelMatch() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Screen hasHeader onRefresh={onRefresh} refreshing={refreshing}>
-        <Txt variant="muted">{t('You appear to others only while this is on.')}</Txt>
+      <AcctScreen title={t('Travel buddies')} onRefresh={onRefresh} refreshing={refreshing}>
+        <Text style={{ color: c.muted, fontSize: 14, lineHeight: 27 }}>{t('Connect with verified locals and travelers when you explore new cities. You appear to others only while this mode is active.')}</Text>
         <ErrorBanner message={o.error?.message ?? act.error} />
         {o.loading && !o.data && <Spinner />}
 
@@ -87,27 +92,31 @@ export default function TravelMatch() {
         ) : null}
 
         {showForm ? (
-          <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
-            <Txt variant="h3">{t('Where and when?')}</Txt>
+          <View style={{ gap: 18 }}>
             <ErrorBanner message={save.error} />
-            <Field label={t('Destination')} placeholder={t('Lisbon')} value={dest} onChangeText={setDest} maxLength={100} />
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Choose your travel dates')} onPress={() => setCalendar(true)} style={{ borderWidth: 1.5, borderColor: c.line, borderRadius: 12, padding: 12, backgroundColor: c.surface }}>
-              <Txt variant="label">{t('Dates')}</Txt>
-              <Txt>{s && e ? range(s.toISOString(), e.toISOString()) : t('Choose your dates')}</Txt>
-            </Pressable>
-            <Txt variant="small">{t('We only show your first name, photo, home city and short bio, never your email, phone or exact location.')}</Txt>
-            <Btn
+            <AuthField label={t('Where?')} placeholder={t('Lisbon')} value={dest} onChangeText={setDest} maxLength={100} />
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('When would you like to go?')}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Choose your travel dates')} onPress={() => setCalendar(true)} style={{ minHeight: sc(54), borderWidth: 1, borderColor: c.line, borderRadius: 32, backgroundColor: mode === 'there' ? '#fff' : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 22, paddingRight: 8, paddingVertical: 6 }}>
+                <Text style={{ flex: 1, color: s && e ? c.text : c.placeholder, fontSize: 14 }}>{s && e ? range(s.toISOString(), e.toISOString()) : t('Choose your dates')}</Text>
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="calendar-outline" size={20} color="#fff" />
+                </View>
+              </Pressable>
+            </View>
+            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 27 }}>{t('We only show your first name, photo, home city and short bio, never your email, phone or exact location.')}</Text>
+            <AuthButton
               title={pref ? t('Save') : t('Turn on travel buddies')}
               loading={save.busy}
               disabled={!ready}
               onPress={() => void save.run(() => put('/v1/me/travel-match', { destination: dest.trim(), dateStart: s!.toISOString(), dateEnd: e!.toISOString() }))}
             />
             {editing ? <Btn title={t('Cancel')} variant="ghost" onPress={() => setEditing(false)} /> : null}
-          </Card>
+          </View>
         ) : pref ? (
-          <Card style={{ padding: 14, borderRadius: 18, gap: 6 }}>
+          <AcctCard style={{ padding: 18, gap: 8 }}>
             <Row style={{ gap: 8, alignItems: 'center' }}>
-              <Chip label={t('On')} tone="ok" />
+              <StatusTag label={t('On')} tone="ok" />
               <Txt variant="h3" style={{ flex: 1 }}>{pref.destination}</Txt>
             </Row>
             <Txt>{range(pref.dateStart, pref.dateEnd)}</Txt>
@@ -115,7 +124,7 @@ export default function TravelMatch() {
               <Btn title={t('Change')} variant="secondary" small onPress={startEdit} style={{ flex: 1 }} />
               <Btn title={t('Turn off')} variant="ghost" small onPress={() => void act.run(() => del('/v1/me/travel-match'))} />
             </Row>
-          </Card>
+          </AcctCard>
         ) : null}
 
         {pref && !editing ? (
@@ -123,7 +132,7 @@ export default function TravelMatch() {
             <Txt variant="h2" style={{ fontSize: 20 }}>{t('Travelers going there')}</Txt>
             {o.data && o.data.suggestions.length === 0 ? <Empty title={t('No one yet')} /> : null}
             {(o.data?.suggestions ?? []).map((p) => (
-              <Card key={p.userId} style={{ padding: 14, borderRadius: 18, gap: 8 }}>
+              <AcctCard key={p.userId} style={{ padding: 18, gap: 10 }}>
                 <Row style={{ gap: 10, alignItems: 'center' }}>
                   <Avatar name={p.displayName} uri={p.photoUrl ?? undefined} size={44} />
                   <View style={{ flex: 1 }}>
@@ -143,12 +152,12 @@ export default function TravelMatch() {
                   <Btn title={t('I would like to chat')} small loading={act.busy} onPress={() => void answer(p, 'yes')} style={{ flex: 2 }} />
                   <Btn title={t('Not now')} variant="secondary" small onPress={() => void answer(p, 'pass')} style={{ flex: 1 }} />
                 </Row>
-              </Card>
+              </AcctCard>
             ))}
             <Banner>{t('They are told nothing when you say yes. If they say yes to you as well, you both get a message and a private chat opens. Never send money or ID documents to someone you met here.')}</Banner>
           </>
         ) : null}
-      </Screen>
+      </AcctScreen>
       <DateRangeSheet
         visible={calendar}
         focus="start"

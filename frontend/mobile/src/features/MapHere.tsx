@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, type Region } from 'react-native-maps';
-import { HeaderBar, TabHeader } from '@/components/TabHeader';
 import { Empty } from '@/components/ui';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
@@ -89,9 +88,6 @@ export function MapHere() {
   if (!center)
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <HeaderBar>
-          <TabHeader compact />
-        </HeaderBar>
         <View style={{ flex: 1, padding: 24, justifyContent: 'center' }}>
           {data.findingCity ? <Empty title={t('Finding the city…')}>{t('One moment.')}</Empty> : <Empty title={t('No map for this city yet')}>{t("We couldn't find this city. Check the spelling.")}</Empty>}
           <MapOverlay data={data} />
@@ -101,9 +97,6 @@ export function MapHere() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <HeaderBar>
-        <TabHeader compact />
-      </HeaderBar>
       <View style={{ flex: 1 }}>
       <MapView
         ref={map}

@@ -43,7 +43,7 @@ export const REPORT_CATEGORIES: [string, string][] = [
 ];
 
 export const LANGUAGES = ['English', 'Italian', 'French', 'Spanish', 'German', 'Portuguese', 'Dutch', 'Arabic'];
-export const INTERESTS = ['coffee', 'culture', 'travel', 'running', 'food', 'music', 'art', 'hiking', 'photography', 'nightlife', 'sports', 'books'];
+export const INTERESTS = ['coffee', 'culture', 'travel', 'running', 'food', 'music', 'art', 'hiking', 'photography', 'nightlife', 'sports', 'books', 'fitness', 'adventure'];
 
 export const TRIP_TAGS = ['culture', 'food', 'adventure', 'nature', 'city', 'beach', 'relax', 'hiking', 'photography', 'art'];
 export const GROUP_SIZES: [string, string][] = [

@@ -240,4 +240,5 @@ export const account: Record<string, string> = {
   'Every alert is always kept in your Alerts list. These settings only decide which ones also reach you as a notification.': 'Ogni avviso resta sempre nella tua lista Avvisi. Queste impostazioni decidono solo quali ti arrivano anche come notifica.',
   'What reaches you': 'Cosa ti arriva',
   'Choose alerts and quiet hours': 'Scegli gli avvisi e le ore di silenzio',
+  'Account & Security': 'Account e sicurezza',
 };

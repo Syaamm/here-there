@@ -1,12 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useIsFocused } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
-import { TabHeader } from '@/components/TabHeader';
+import { TabHeader, ModeSwitch, Wordmark } from '@/components/TabHeader';
 import { Reveal } from '@/components/Reveal';
 import { CatPhoto } from '@/components/CatPhoto';
-import { Avatar, Btn, Card, Empty, ErrorBanner, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
+import { Avatar, Between, Btn, Card, Empty, ErrorBanner, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, post, type ConversationRef, type Notif } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
@@ -58,15 +58,31 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   report_update: 'flag-outline',
   report_decision: 'document-text-outline',
 };
+const SOFT = { shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 3 } as const;
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
 
-/** Small caps label with an optional count on the right: "NEEDS YOUR ATTENTION   2". */
-function SectionLabel({ title, count }: { title: string; count?: number }) {
+/** THERE's top of the page: the wordmark with "Be Here.Go There." under it, and the HERE | THERE switch (kept: it is how you change product). */
+function ThereHeader() {
   const { c } = useTheme();
+  const { t } = useT();
   return (
-    <Row style={{ justifyContent: 'space-between' }}>
-      <Txt variant="label" color={c.muted} style={{ fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase' }}>{title}</Txt>
-      {count ? <Txt variant="label" color={c.muted} style={{ fontSize: 11 }}>{count}</Txt> : null}
+    <Between>
+      <View style={{ gap: 3 }}>
+        <Wordmark size={24} />
+        <Text style={{ color: c.muted, fontSize: 12, lineHeight: 15 }}>{t('Be Here.Go There.')}</Text>
+      </View>
+      <ModeSwitch />
+    </Between>
+  );
+}
+
+/** Section title ("Join Requests"), with an optional count on the right. */
+function SectionLabel({ title, count }: { title: string; count?: number }) {
+  const { c, mode } = useTheme();
+  return (
+    <Row style={{ justifyContent: 'space-between', marginTop: 6 }}>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 22, fontWeight: '600' }}>{title}</Text>
+      {count ? <Txt variant="label" color={c.muted} style={{ fontSize: 12 }}>{count}</Txt> : null}
     </Row>
   );
 }
@@ -81,6 +97,7 @@ export function Inbox() {
   const { c, mode, switchMode } = useTheme();
   const { me } = useMe();
   const [tab, setTab] = useState<Tab>('alerts');
+  const [q, setQ] = useState(''); // search box on the Chats tab: narrows the chats already loaded
   // each product has its own alerts and chats: HERE shows activity ones, THERE shows trip ones (follows, warnings and the like show in both)
   const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number; unreadByProduct?: { here: number; there: number } }>(`/v1/notifications?product=${mode}`), [mode], 60_000, 'inbox:notifs', { animate: true, live: true }); // new alerts arrive by the live connection; this is only the slow fallback
   // the alert rows themselves: the server sends them a few at a time, newest first (chat messages are on the Chats tab)
@@ -124,7 +141,7 @@ export function Inbox() {
   // Chats are in the order of their LAST MESSAGE, newest first, whoever wrote it (you included). Reading a chat, or
   // another chat having unread messages, never moves it: it only moves when a newer message appears somewhere. Chats
   // nobody has written in yet follow, in the order the server gives.
-  const chatRows = [...convs.items].sort((x, y) => (y.lastMessage ? +new Date(y.lastMessage.at) : 0) - (x.lastMessage ? +new Date(x.lastMessage.at) : 0));
+  const chatRows = [...convs.items].filter((cv) => !q.trim() || cv.title.toLowerCase().includes(q.trim().toLowerCase())).sort((x, y) => (y.lastMessage ? +new Date(y.lastMessage.at) : 0) - (x.lastMessage ? +new Date(x.lastMessage.at) : 0));
 
 
   const refreshAll = () => Promise.all([notifs.reload(), alertList.reload(), convs.reload(), waiting.reload()]);
@@ -180,35 +197,36 @@ export function Inbox() {
     const to = alertRoute(n);
     if (to) go(to); // the page it opens flips to its own product if needed
   };
+  // when the newest join-request alert for this activity arrived (shown as "5m ago" in THERE)
+  const joinedAt = (activityId: string) => alerts.find((n) => n.type === 'join_request' && n.data?.activityId === activityId)?.createdAt;
   const decide = (activityId: string, r: PendingReq, decision: 'approve' | 'decline') => act.run(() => post(`/v1/activities/${activityId}/requests/${r.id}/decision`, { decision }));
 
   // a plain function that returns the card, NOT a component: a component declared here would be a new type on every
   // refresh, so React would rebuild every row and each one would play its entrance animation again
   const notifRows = (rows: Notif[]) => (
-    <Card style={{ padding: 0, borderRadius: 18, overflow: 'hidden' }}>
+    <View>
       {rows.map((n, i) => (
-        <View key={n.id}>
         <Pressable
+          key={n.id}
           accessibilityRole="button"
           accessibilityLabel={`${n.title}. ${n.body}. ${ago(n.createdAt)}${n.readAt ? '' : `, ${t('unread')}`}`}
           onPress={() => open(n)}
-          style={({ pressed }) => [{ flexDirection: 'row', gap: 12, padding: 12, borderTopWidth: i ? 1 : 0, borderTopColor: c.line, alignItems: 'flex-start' }, pressed && { backgroundColor: c.accentSoft, transform: [{ scale: 0.99 }] }]}
+          style={({ pressed }) => [{ flexDirection: 'row', gap: 12, paddingVertical: 14, borderTopWidth: i ? 1 : 0, borderTopColor: c.line, alignItems: 'flex-start' }, pressed && { opacity: 0.7 }]}
         >
-          <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name={ICON[n.type] ?? 'notifications-outline'} size={18} color={c.forest} />
+          <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: mode === 'there' ? 34 : 40, height: mode === 'there' ? 34 : 40, borderRadius: 20, backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name={ICON[n.type] ?? 'notifications-outline'} size={mode === 'there' ? 17 : 19} color={c.forest} />
           </View>
-          <View style={{ flex: 1, gap: 1 }}>
-            <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{n.title}</Txt>
-            <Txt variant="small" numberOfLines={3} style={{ lineHeight: 17 }}>{n.body}</Txt>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '600' }}>{n.title}</Text>
+            <Text numberOfLines={3} style={{ color: c.muted, fontSize: mode === 'there' ? 13 : 14, lineHeight: 19 }}>{n.body}</Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 6 }}>
-            <Txt variant="small">{ago(n.createdAt)}</Txt>
+            <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(n.createdAt)}</Text>
             {!n.readAt ? <View accessibilityLabel={t('Unread')} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
           </View>
         </Pressable>
-        </View>
       ))}
-    </Card>
+    </View>
   );
 
   // 6 alerts at first, more as you scroll (newest first, so Today comes before Earlier)
@@ -217,11 +235,11 @@ export function Inbox() {
   const earlier = rest.filter((n) => !isToday(n.createdAt));
 
   return (
-    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={<TabHeader />}>
+    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={mode === 'there' ? <ThereHeader /> : <TabHeader />}>
       <Row style={{ justifyContent: 'space-between' }}>
-        <Txt variant="h1" style={{ fontSize: 26, lineHeight: 32 }}>{t('Your inbox')}</Txt>
+        <Text accessibilityRole="header" style={{ color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '600' }}>{t('Your Inbox')}</Text>
         {tab === 'alerts' && alertsUnread > 0 ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Mark all read')} hitSlop={10} onPress={() => {
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Mark all read')} hitSlop={12} style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => {
               bumpUnread(-alertsUnread); // the Message badge drops by the alerts cleared; chats keep theirs
               void act.run(() => post(`/v1/notifications/read-all?scope=alerts&product=${mode}`)).then(refreshUnread);
             }}>
@@ -231,7 +249,7 @@ export function Inbox() {
       </Row>
 
       {/* two parts: alerts, and chats on their own */}
-      <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 14, borderWidth: 1, borderColor: c.line, padding: 3 }}>
+      <View accessibilityRole="tablist" style={[{ flexDirection: 'row', borderRadius: 30, backgroundColor: c.surface, padding: 5 }, SOFT]}>
         {(
           [
             ['alerts', t('Alerts'), alertsUnread],
@@ -240,8 +258,8 @@ export function Inbox() {
         ).map(([k, label, n]) => {
           const on = tab === k;
           return (
-            <Pressable key={k} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}${n ? `, ${t('{n} new', { n })}` : ''}`} onPress={() => setTab(k)} style={{ flex: 1, minHeight: 40, borderRadius: 11, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.accentSoft : 'transparent' }}>
-              <Txt variant="h3" color={on ? c.forest : c.muted} style={{ fontSize: 13 }}>{label}</Txt>
+            <Pressable key={k} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}${n ? `, ${t('{n} new', { n })}` : ''}`} onPress={() => setTab(k)} style={{ flex: 1, minHeight: 44, borderRadius: 25, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.sand : 'transparent' }}>
+              <Text style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, fontWeight: '600' }}>{label}</Text>
               {n > 0 ? (
                 <View style={{ minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{n}</Text>
@@ -290,8 +308,13 @@ export function Inbox() {
         <Reveal key={`chats-${visit}`} from={10} style={{ gap: 16 }}>
           {convs.loading && !convs.data && <Spinner />}
           {convs.data && convs.items.length === 0 && <Empty title={t('No group chats yet')} />}
+          <View style={{ minHeight: 48, borderRadius: 27, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 }}>
+            <Ionicons name="search-outline" size={18} color={c.muted} />
+            <TextInput accessibilityLabel={t('Search chats')} value={q} onChangeText={setQ} placeholder={t('Search chats')} placeholderTextColor={c.placeholder} returnKeyType="search" clearButtonMode="while-editing" style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: 24 }} />
+          </View>
+          {q.trim() && convs.data && chatRows.length === 0 ? <Empty title={t('No chats match')} /> : null}
           {chatRows.length > 0 ? (
-            <Card style={{ padding: 0, borderRadius: 18, overflow: 'hidden' }}>
+            <View>
               {chatRows.map((cv, i) => (
                 <View key={cv.conversationId}>
                   <Pressable
@@ -301,24 +324,24 @@ export function Inbox() {
                       if (unreadChats.has(cv.conversationId)) bumpUnread(-1); // opening a chat reads its alert
                       go(`/chat/${cv.conversationId}`);
                     }}
-                    style={({ pressed }) => [{ flexDirection: 'row', gap: 12, padding: 12, alignItems: 'center', borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, pressed && { backgroundColor: c.accentSoft }]}
+                    style={({ pressed }) => [{ flexDirection: 'row', gap: 12, paddingVertical: 16, alignItems: 'center', borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, pressed && { opacity: 0.7 }]}
                   >
-                    {cv.category ? <CatPhoto category={cv.category} style={{ width: 42, height: 42, borderRadius: 21 }} /> : <Avatar name={cv.title} size={42} />}
-                    <View style={{ flex: 1, gap: 1 }}>
-                      <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{cv.title}</Txt>
-                      <Txt variant="small" numberOfLines={1} style={unreadChats.has(cv.conversationId) ? { color: c.text, fontWeight: '700' } : undefined}>
+                    {cv.category ? <CatPhoto category={cv.category} style={{ width: 40, height: 40, borderRadius: 20 }} /> : <Avatar name={cv.title} size={40} />}
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text numberOfLines={1} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '600' }}>{cv.title}</Text>
+                      <Text numberOfLines={1} style={[{ color: c.muted, fontSize: mode === 'there' ? 14 : 15, lineHeight: 20 }, unreadChats.has(cv.conversationId) ? { color: c.text, fontWeight: '700' } : null]}>
                         {cv.lastMessage ? `${cv.lastMessage.from ? `${cv.lastMessage.from === 'You' ? t('You') : cv.lastMessage.from}: ` : ''}${cv.lastMessage.body}` : `${t('No messages yet')}${cv.startsAt ? ` · ${when(cv.startsAt)}` : ''}`}
-                      </Txt>
+                      </Text>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                      {cv.lastMessage ? <Txt variant="small">{ago(cv.lastMessage.at)}</Txt> : null}
+                      {cv.lastMessage ? <Text style={{ color: c.muted, fontSize: mode === 'there' ? 11 : 12, lineHeight: 16 }}>{mode === 'there' ? `${ago(cv.lastMessage.at)} ${t('ago')}` : ago(cv.lastMessage.at)}</Text> : null}
                       {cv.endsAt && +new Date(cv.endsAt) < Date.now() ? <Txt variant="small" bold style={{ fontSize: 10 }}>{t('Ended')}</Txt> : null}
                       {unreadChats.has(cv.conversationId) ? <View accessibilityLabel={t('New messages')} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
                     </View>
                   </Pressable>
                 </View>
               ))}
-            </Card>
+            </View>
           ) : null}
           <PagedTail paged={chatPage} />
         </Reveal>
@@ -328,35 +351,42 @@ export function Inbox() {
 
           {needs > 0 && (
             <>
-              <SectionLabel title={t('Needs your attention')} count={needs} />
+              <SectionLabel title={t('Join Requests')} count={needs > 1 ? needs : undefined} />
               {(waiting.data ?? []).map((w, wi) => {
                 const r = w.pending[0];
                 const name = r.applicant.displayName ?? t('Someone');
                 return (
                   <Reveal key={w.id} index={wi}>
-                    <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
-                      <Row style={{ gap: 12, alignItems: 'flex-start' }}>
-                        <Avatar name={name} uri={r.applicant.photoUrl} size={42} />
-                        <View style={{ flex: 1, gap: 1 }}>
-                          <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('New join request')}</Txt>
-                          <Txt variant="small" style={{ lineHeight: 17, color: c.text }}>
-                            <Text style={{ fontWeight: '800' }}>{name}</Text> {t('wants to join')} <Text style={{ fontWeight: '800' }}>{w.title || t('your activity')}</Text>
+                    <View style={{ paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: c.line }}>
+                      <Row style={{ gap: mode === 'there' ? 14 : 12, alignItems: 'flex-start' }}>
+                        <Avatar name={name} uri={r.applicant.photoUrl} size={40} />
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <Text style={{ color: c.text, fontSize: mode === 'there' ? 16.5 : 17, lineHeight: 22, fontWeight: '600' }}>{name}</Text>
+                            {mode === 'there' && joinedAt(w.id) ? <Text style={{ color: c.muted, fontSize: 11, lineHeight: 22 }}>{`${ago(joinedAt(w.id)!)} ${t('ago')}`}</Text> : null}
+                          </Row>
+                          <Text style={{ color: c.muted, fontSize: mode === 'there' ? 14.5 : 15, lineHeight: 21 }}>
+                            {t('wants to join')} <Text style={{ color: c.text, fontWeight: '600' }}>{w.title || t('your activity')}</Text>
                             {w.pending.length > 1 ? ` ${t('(+{n} more waiting)', { n: w.pending.length - 1 })}` : ''}
-                          </Txt>
+                          </Text>
                         </View>
                       </Row>
-                      <Row style={{ gap: 10 }}>
-                        <Btn title={t('Decline')} variant="secondary" disabled={act.busy} onPress={() => decide(w.id, r, 'decline')} style={{ flex: 1 }} />
-                        <Btn title={t('Approve')} disabled={act.busy} onPress={() => decide(w.id, r, 'approve')} style={{ flex: 1 }} />
+                      <Row style={{ gap: mode === 'there' ? 14 : 12, paddingLeft: mode === 'there' ? 47 : 52 }}>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Accept')}: ${name}`} accessibilityState={{ disabled: act.busy }} disabled={act.busy} hitSlop={4} onPress={() => decide(w.id, r, 'approve')} style={({ pressed }) => [{ minHeight: 44, minWidth: mode === 'there' ? 78 : 80, paddingHorizontal: 22, borderRadius: 22, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: act.busy ? 0.5 : 1 }, pressed && { opacity: 0.8 }]}>
+                          <Text style={{ color: '#fff', fontSize: mode === 'there' ? 13 : 15, fontWeight: '500' }}>{t('Accept')}</Text>
+                        </Pressable>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Decline')}: ${name}`} accessibilityState={{ disabled: act.busy }} disabled={act.busy} hitSlop={4} onPress={() => decide(w.id, r, 'decline')} style={({ pressed }) => [{ minHeight: 44, minWidth: mode === 'there' ? 76 : 80, paddingHorizontal: 22, borderRadius: 22, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: act.busy ? 0.5 : 1 }, pressed && { opacity: 0.8 }]}>
+                          <Text style={{ color: c.text, fontSize: mode === 'there' ? 13 : 15, fontWeight: '500' }}>{t('Decline')}</Text>
+                        </Pressable>
                       </Row>
                       {w.pending.length > 1 ? <Btn title={t('Review all {n} requests ›', { n: w.pending.length })} variant="ghost" small onPress={() => go(`/host/${w.id}`)} /> : null}
-                    </Card>
+                    </View>
                   </Reveal>
                 );
               })}
               {stale ? (
                 <Reveal index={(waiting.data?.length ?? 0) + 0}>
-                  <View style={{ backgroundColor: c.sand, borderRadius: 18, padding: 14, gap: 10 }}>
+                  <View style={{ backgroundColor: c.sand, borderRadius: 24, padding: 16, gap: 10 }}>
                     <Row style={{ gap: 12, alignItems: 'flex-start' }}>
                       <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 42, height: 42, borderRadius: 13, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }}>
                         <Ionicons name="shield-outline" size={20} color={c.forest} />
@@ -377,7 +407,7 @@ export function Inbox() {
 
           {today.length > 0 && (
             <>
-              <SectionLabel title={t('Today')} />
+              <SectionLabel title={t('Activity & Spot Updates')} />
               {notifRows(today)}
             </>
           )}

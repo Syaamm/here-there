@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import { memo } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text } from './ScaledText';
@@ -72,97 +73,105 @@ function startsIn(iso: string) {
 
 
 /**
- * Who is going, at a glance, and it always agrees with "3 of 4 going · 1 spot left": the real faces of the people going (the
- * host first, then in the order they joined; the server sends the first three in `faces`), then a dashed ring for each open
- * place. Never more than four circles in all, and at most three people. If a face is missing (an older answer from the server)
- * the host's own face and a plain person circle stand in.
+ * Who is going, at a glance: the real faces of the people going (the host first, then in the order they joined; the server
+ * sends the first three in `faces`), then a dark "+n" circle when more are going. If a face is missing (an older answer from
+ * the server) the host's own face and a plain person circle stand in.
  */
 function Faces({ a }: { a: Activity }) {
   const { c } = useTheme();
   const people = Math.min(Math.max(1, a.going), 3);
-  const rings = Math.max(0, Math.min(a.spotsLeft, 4 - people));
+  const extra = a.going - people;
   const faces = Array.from({ length: people }, (_, i) => a.faces?.[i] ?? (i === 0 ? { id: a.host.id, displayName: a.host.displayName, photoUrl: a.host.photoUrl } : null));
+  const ring = { borderRadius: 999, borderWidth: 1.5, borderColor: c.surface };
   return (
     <View accessibilityElementsHidden importantForAccessibility="no" style={{ flexDirection: 'row', alignItems: 'center' }}>
       {faces.map((f, i) =>
         f ? (
-          <View key={f.id} style={{ marginLeft: i === 0 ? 0 : -7, borderRadius: 999, borderWidth: 2, borderColor: c.surface }}>
-            <Avatar name={f.displayName} uri={f.photoUrl} size={28} />
+          <View key={f.id} style={[ring, { marginLeft: i === 0 ? 0 : -7 }]}>
+            <Avatar name={f.displayName} uri={f.photoUrl} size={29} />
           </View>
         ) : (
-          <View key={`p${i}`} style={{ marginLeft: -7, width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: c.surface, backgroundColor: c.line, alignItems: 'center', justifyContent: 'center' }}>
+          <View key={`p${i}`} style={[ring, { marginLeft: -7, width: 32, height: 32, backgroundColor: c.line, alignItems: 'center', justifyContent: 'center' }]}>
             <Ionicons name="person" size={15} color={c.muted} />
           </View>
         ),
       )}
-      {Array.from({ length: rings }).map((_, i) => (
-        <View key={i} style={{ marginLeft: -7, width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.muted, backgroundColor: c.surface }} />
-      ))}
+      {extra > 0 ? (
+        <View style={[ring, { marginLeft: -7, width: 32, height: 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }]}>
+          <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '600' }}>{extra > 99 ? '99+' : `+${extra}`}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-/** The one activity that starts next: a big card with a "Starts in" pill on the photo, the facts, and a See details button. */
-export function NextUpCard({ a, status }: { a: Activity; /** your part in it: "You host this", "Going", "Request pending" */ status?: { label: string; tone: 'ok' | 'warn' | 'bad' } }) {
+/** Green for "N spots left": a shade darker than the drawing's, so the small text stays readable on white. */
+const SPOTS_GREEN = '#2E7D32';
+
+/**
+ * The big activity card of HERE's Home (Figma "HOME"): a rounded photo with a small tag on it, the title and the spots left,
+ * the time and place, who is going, and a See details button. `tag` is the small label on the photo; `status` is your part
+ * in it ("You host this"), shown at the photo's right.
+ */
+export function ActivityBigCard({ a, tag, status, accessibilityLabel }: { a: Activity; tag?: string; status?: { label: string; tone: 'ok' | 'warn' | 'bad' }; accessibilityLabel?: string }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
   const full = a.spotsLeft === 0;
+  const open = () => go(`/activity/${a.id}`);
   return (
-    <Card style={{ padding: 0, gap: 0, borderRadius: 20, overflow: 'hidden' }}>
+    <View style={{ backgroundColor: c.surface, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 13, gap: 12 }}>
       {/* the picture and the facts open the activity; the button below is its own control (a button cannot sit inside another) */}
+      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? goingLine(a)} onPress={open} style={{ gap: 12 }}>
+        <CatPhoto category={a.category} style={{ height: sc(173), borderRadius: 24 }}>
+          {tag ? (
+            <View style={{ position: 'absolute', left: 14, top: 14, backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 }}>
+              <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '500' }}>{tag}</Text>
+            </View>
+          ) : null}
+          {status ? (
+            <View style={{ position: 'absolute', right: 12, top: 12 }}>
+              <Chip label={status.label} tone={status.tone} />
+            </View>
+          ) : null}
+        </CatPhoto>
+        <View style={{ paddingHorizontal: 5, gap: 8 }}>
+          <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{a.title}</Txt>
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 26, fontWeight: '600' }}>{full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+          </Row>
+          <Row style={{ gap: 5 }}>
+            <Ionicons name="location-outline" size={16} color={c.muted} />
+            <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 14, lineHeight: 19 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
+          </Row>
+          <Row style={{ gap: 10 }}>
+            <Faces a={a} />
+            <Txt variant="small" numberOfLines={1} style={{ flex: 1 }}>{tr('{going} of {capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
+          </Row>
+        </View>
+      </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={tr('Next up: {title}, {when}, starts {time}, {venue}, {going} of {capacity} going', { title: a.title, when: when(a.startsAt), time: startsIn(a.startsAt), venue: a.venueName, going: a.going, capacity: a.capacity })}
-        onPress={() => go(`/activity/${a.id}`)}
+        accessibilityLabel={tr('See details: {title}', { title: a.title })}
+        onPress={open}
+        style={({ pressed }) => [{ height: 42, borderRadius: 21, borderWidth: 1, borderColor: 'rgba(0,0,0,0.16)', backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
       >
-      <View>
-        <CatPhoto category={a.category} style={{ height: 120 }} />
-        <View style={{ position: 'absolute', left: 10, top: 10, backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-          <Text style={{ color: c.text, fontWeight: '700', fontSize: 11 }}>{+new Date(a.startsAt) <= Date.now() ? tr('Happening now') : tr('Starts {time}', { time: startsIn(a.startsAt) })}</Text>
-        </View>
-        {status ? (
-          <View style={{ position: 'absolute', right: 10, top: 10 }}>
-            <Chip label={status.label} tone={status.tone} />
-          </View>
-        ) : null}
-      </View>
-      <View style={{ padding: 12, paddingBottom: 0, gap: 9 }}>
-        <Row style={{ justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-          <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 17, lineHeight: 22 }}>{a.title}</Txt>
-          <Chip label={catLabel(a.category)} tone="ok" />
-        </Row>
-        <Row style={{ gap: 16, flexWrap: 'wrap' }}>
-          <Row style={{ gap: 6 }}>
-            <Ionicons name="time-outline" size={16} color={c.muted} />
-            <Txt variant="muted">{clock(a.startsAt)}</Txt>
-          </Row>
-          <Row style={{ gap: 6, flexShrink: 1 }}>
-            <Ionicons name="location-outline" size={16} color={c.muted} />
-            <Txt variant="muted" numberOfLines={1} style={{ flexShrink: 1 }}>{place(a.venueName)}</Txt>
-          </Row>
-        </Row>
-        <Row style={{ gap: 10 }}>
-          <Faces a={a} />
-          <Txt variant="small" style={{ flex: 1 }}>
-            {tr('{going} of {capacity} going', { going: a.going, capacity: a.capacity })} ·{' '}
-            <Text style={{ color: full ? c.danger : c.text, fontWeight: '700' }}>{full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
-          </Txt>
-        </Row>
-      </View>
+        <Txt variant="h3" color={c.text} style={{ fontSize: 13, fontWeight: '500' }}>{tr('See details')}</Txt>
       </Pressable>
-      <View style={{ padding: 12 }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={tr('See details: {title}', { title: a.title })}
-          onPress={() => go(`/activity/${a.id}`)}
-          style={({ pressed }) => [{ height: 40, borderRadius: 999, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
-        >
-          <Txt variant="h3" color={c.forest} style={{ fontSize: 13 }}>{tr('See details')}</Txt>
-          <Ionicons name="chevron-forward" size={16} color={c.forest} />
-        </Pressable>
-      </View>
-    </Card>
+    </View>
+  );
+}
+
+/** The one activity that starts next: the big card with a "Starts in" tag on the photo. */
+export function NextUpCard({ a, status }: { a: Activity; /** your part in it: "You host this", "Going", "Request pending" */ status?: { label: string; tone: 'ok' | 'warn' | 'bad' } }) {
+  useT();
+  return (
+    <ActivityBigCard
+      a={a}
+      status={status}
+      tag={+new Date(a.startsAt) <= Date.now() ? tr('Happening now') : tr('Starts {time}', { time: startsIn(a.startsAt) })}
+      accessibilityLabel={tr('Next up: {title}, {when}, starts {time}, {venue}, {going} of {capacity} going', { title: a.title, when: when(a.startsAt), time: startsIn(a.startsAt), venue: a.venueName, going: a.going, capacity: a.capacity })}
+    />
   );
 }
 
@@ -319,100 +328,155 @@ function tripStartsIn(iso: string) {
   return tr('in {n} months', { n: Math.round(days / 30) });
 }
 
-/** The trip's stand-in picture (until real photos exist): a soft green tile with a plane. */
-function TripThumb({ style, size }: { style: object; size: number }) {
+/**
+ * The trips have no photos of their own yet, so a trip shows the picture of its travel style (adventure, nature, beach,
+ * photography), as the category chips do. A trip with none of those styles gets a soft sand tile with a plane. The style
+ * is always also named in text.
+ */
+export const TRIP_PHOTOS: Record<string, number> = {
+  adventure: require('../../assets/there/adventure.webp'),
+  nature: require('../../assets/there/nature.webp'),
+  beach: require('../../assets/there/beach.webp'),
+  photography: require('../../assets/there/photography.webp'),
+};
+/** The travel style whose picture the trip shows (the first of its tags that has one). */
+export const tripStyle = (t: Trip) => t.tags.find((x) => TRIP_PHOTOS[x]) ?? null;
+
+function TripThumb({ t, style, size, children }: { t: Trip; style: object; size: number; children?: React.ReactNode }) {
   const { c } = useTheme();
+  const st = tripStyle(t);
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no" style={[{ backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }, style]}>
-      <Ionicons name="airplane" size={size} color={c.forest} />
+    <View accessibilityElementsHidden importantForAccessibility="no" style={[{ backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, style]}>
+      {st ? <Image source={TRIP_PHOTOS[st]} contentFit="cover" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : <Ionicons name="airplane" size={size} color={c.forest} />}
+      {children}
     </View>
   );
 }
 
-/** THERE's version of ActivityRow: a compact row for one trip proposal. */
+/** Who is going: the organiser's face, then a dark "+n" circle for the others (the server sends no other faces for trips). */
+function TripFaces({ t }: { t: Trip }) {
+  const { c } = useTheme();
+  const extra = Math.max(0, t.members - 1);
+  const ring = { borderRadius: 999, borderWidth: 1.5, borderColor: c.surface };
+  return (
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <View style={ring}>
+        <Avatar name={t.host.displayName} uri={t.host.photoUrl} size={29} />
+      </View>
+      {extra > 0 ? (
+        <View style={[ring, { marginLeft: -7, width: 32, height: 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }]}>
+          <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '600' }}>{extra > 99 ? '99+' : `+${extra}`}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** "12 Mar - 20 Mar · From Milan": when and from where, for the line under a trip's name. */
+const tripWhen = (t: Trip) => `${dateSpan(t.dateStart, t.dateEnd)}${t.dateFlexibility !== 'exact' ? tr(' (flexible)') : ''} · ${tr('From {city}', { city: t.originCity })}`;
+
+/**
+ * The big trip card of THERE's Home (Figma): a rounded picture with a small tag on it, the destination and the places left,
+ * when and from where, who is going, and a See details button. `tag` is the small label on the picture; `status` is your part
+ * in the trip ("You organise this"), shown at the picture's right.
+ */
+export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; tag?: string; status?: { label: string; tone: 'ok' | 'warn' | 'bad' }; accessibilityLabel?: string }) {
+  useT();
+  const go = useGo();
+  const { c } = useTheme();
+  const full = t.spotsLeft === 0 || t.status === 'full';
+  const open = () => go(`/trip/${t.id}`);
+  const circle = circleLine(t.buddiesGoing, t.followingGoing);
+  return (
+    <View style={{ backgroundColor: c.surface, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 13, gap: 12 }}>
+      {/* the picture and the facts open the trip; the button below is its own control (a button cannot sit inside another) */}
+      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} place open', ', {n} places open'))} onPress={open} style={{ gap: 12 }}>
+        <TripThumb t={t} size={44} style={{ height: sc(173), borderRadius: 24 }}>
+          {tag ? (
+            <View style={{ position: 'absolute', left: 14, top: 14, backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 }}>
+              <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '500' }}>{tag}</Text>
+            </View>
+          ) : null}
+          {status ? (
+            <View style={{ position: 'absolute', right: 12, top: 12 }}>
+              <Chip label={status.label} tone={status.tone} />
+            </View>
+          ) : null}
+        </TripThumb>
+        <View style={{ paddingHorizontal: 5, gap: 8 }}>
+          <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t.destination}</Txt>
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 26, fontWeight: '600' }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+          </Row>
+          <Row style={{ gap: 5 }}>
+            <Ionicons name="location-outline" size={16} color={c.muted} />
+            <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 14, lineHeight: 19 }}>{tripWhen(t)}</Txt>
+          </Row>
+          <Row style={{ gap: 10 }}>
+            <TripFaces t={t} />
+            <Txt variant="small" numberOfLines={1} style={{ flex: 1 }}>{tr('{members} of {capacity} going', { members: t.members, capacity: t.maxCapacity })}</Txt>
+          </Row>
+          {t.match?.dates === 'approximate' ? <Txt variant="small" bold color={c.warnFg}>{tr('Approximate dates')}</Txt> : null}
+          {circle ? <Txt variant="small" bold color={c.green}>{circle}</Txt> : null}
+        </View>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={tr('See details: {title}', { title: t.destination })}
+        onPress={open}
+        style={({ pressed }) => [{ height: 42, borderRadius: 21, borderWidth: 1, borderColor: 'rgba(0,0,0,0.16)', backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+      >
+        <Txt variant="h3" color={c.text} style={{ fontSize: 13, fontWeight: '500' }}>{tr('See details')}</Txt>
+      </Pressable>
+    </View>
+  );
+}
+
+/** THERE's compact row card for one trip (Figma): its picture, the destination, when and from where, the places left, and who is going. */
 function TripRowBase({ t }: { t: Trip }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
   const full = t.spotsLeft === 0 || t.status === 'full';
+  const circle = circleLine(t.buddiesGoing, t.followingGoing);
   return (
-    <Card
+    <Pressable
+      accessibilityRole="button"
       onPress={() => go(`/trip/${t.id}`)}
       accessibilityLabel={tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} place open', ', {n} places open'))}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 11, padding: 9, borderRadius: 16 }}
+      style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 13, gap: 12 }, pressed && { opacity: 0.92 }]}
     >
-      <TripThumb size={22} style={{ width: 52, height: 52, borderRadius: 12 }} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{t.destination}</Txt>
-        <Txt variant="small" numberOfLines={1} style={{ fontSize: 12, lineHeight: 16 }}>
-          {dateSpan(t.dateStart, t.dateEnd)}
-          {t.dateFlexibility !== 'exact' ? tr(' (flexible)') : ''}
-        </Txt>
-        <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
-          {t.match?.dates === 'approximate' ? <Text style={{ color: c.warnFg, fontWeight: '800' }}>{tr('Approximate dates')} · </Text> : null}
-          {money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)} · {tr('{members} of {capacity} going', { members: t.members, capacity: t.maxCapacity })}
-          {full ? <Text style={{ color: c.danger, fontWeight: '800' }}> · {tr('Full')}</Text> : null}
-        </Txt>
-        {circleLine(t.buddiesGoing, t.followingGoing) ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>{circleLine(t.buddiesGoing, t.followingGoing)}</Txt> : null}
-      </View>
-      <Ionicons name="chevron-forward" size={16} color={c.muted} />
-    </Card>
+      <Row style={{ gap: 16, alignItems: 'flex-start' }}>
+        <TripThumb t={t} size={30} style={{ width: sc(86), height: sc(86), borderRadius: 22 }} />
+        <View style={{ flex: 1, gap: 5, paddingTop: 2 }}>
+          <Txt variant="h3" numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{t.destination}</Txt>
+          <Row style={{ gap: 4 }}>
+            <Ionicons name="location-outline" size={14} color={c.muted} />
+            <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 13, lineHeight: 17 }}>{tripWhen(t)}</Txt>
+          </Row>
+          <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 16, fontWeight: '600' }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+        </View>
+      </Row>
+      <Row style={{ gap: 10 }}>
+        <TripFaces t={t} />
+        <Txt variant="small" numberOfLines={1} style={{ flex: 1 }}>{tr('{members} of {capacity} going', { members: t.members, capacity: t.maxCapacity })}</Txt>
+      </Row>
+      {t.match?.dates === 'approximate' ? <Txt variant="small" bold color={c.warnFg}>{tr('Approximate dates')}</Txt> : null}
+      {circle ? <Txt variant="small" bold color={c.green}>{circle}</Txt> : null}
+    </Pressable>
   );
 }
 
-/** THERE's version of NextUpCard: the soonest trip that is yours (organising, going or applied to). */
+/** THERE's version of NextUpCard: the soonest trip that is yours (organising, going or applied to), as the big trip card. */
 export function TripNextUpCard({ t, status }: { t: Trip; status?: { label: string; tone: 'ok' | 'warn' | 'bad' } }) {
   useT();
-  const go = useGo();
-  const { c } = useTheme();
-  const full = t.spotsLeft === 0 || t.status === 'full';
   return (
-    <Card style={{ padding: 0, gap: 0, borderRadius: 20, overflow: 'hidden' }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={tr('Next up: {destination}, {dates}, leaves {time}, {members} of {capacity} travelers', { destination: t.destination, dates: dateSpan(t.dateStart, t.dateEnd), time: tripStartsIn(t.dateStart), members: t.members, capacity: t.maxCapacity })} onPress={() => go(`/trip/${t.id}`)}>
-        <View>
-          <TripThumb size={44} style={{ height: 120 }} />
-          <View style={{ position: 'absolute', left: 10, top: 10, backgroundColor: c.surface, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-            <Text style={{ color: c.text, fontWeight: '700', fontSize: 11 }}>{+new Date(t.dateStart) <= Date.now() ? tr('Under way') : tr('Leaves {time}', { time: tripStartsIn(t.dateStart) })}</Text>
-          </View>
-          {status ? (
-            <View style={{ position: 'absolute', right: 10, top: 10 }}>
-              <Chip label={status.label} tone={status.tone} />
-            </View>
-          ) : null}
-        </View>
-        <View style={{ padding: 12, paddingBottom: 0, gap: 9 }}>
-          <Row style={{ justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-            <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 17, lineHeight: 22 }}>{t.destination}</Txt>
-            <Chip label={tr('Trip')} tone="ok" />
-          </Row>
-          <Row style={{ gap: 16, flexWrap: 'wrap' }}>
-            <Row style={{ gap: 6 }}>
-              <Ionicons name="calendar-outline" size={16} color={c.muted} />
-              <Txt variant="muted">{dateSpan(t.dateStart, t.dateEnd)}</Txt>
-            </Row>
-            <Row style={{ gap: 6, flexShrink: 1 }}>
-              <Ionicons name="location-outline" size={16} color={c.muted} />
-              <Txt variant="muted" numberOfLines={1} style={{ flexShrink: 1 }}>{tr('From {city}', { city: t.originCity })}</Txt>
-            </Row>
-          </Row>
-          <Txt variant="small">
-            {tr('{members} of {capacity} going', { members: t.members, capacity: t.maxCapacity })} ·{' '}
-            <Text style={{ color: full ? c.danger : c.text, fontWeight: '700' }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} place open', '{n} places open')}</Text>
-          </Txt>
-        </View>
-      </Pressable>
-      <View style={{ padding: 12 }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={tr('See details: {title}', { title: t.destination })}
-          onPress={() => go(`/trip/${t.id}`)}
-          style={({ pressed }) => [{ height: 40, borderRadius: 999, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
-        >
-          <Txt variant="h3" color={c.forest} style={{ fontSize: 13 }}>{tr('See details')}</Txt>
-          <Ionicons name="chevron-forward" size={16} color={c.forest} />
-        </Pressable>
-      </View>
-    </Card>
+    <TripBigCard
+      t={t}
+      status={status}
+      tag={+new Date(t.dateStart) <= Date.now() ? tr('Under way') : tr('Leaves {time}', { time: tripStartsIn(t.dateStart) })}
+      accessibilityLabel={tr('Next up: {destination}, {dates}, leaves {time}, {members} of {capacity} travelers', { destination: t.destination, dates: dateSpan(t.dateStart, t.dateEnd), time: tripStartsIn(t.dateStart), members: t.members, capacity: t.maxCapacity })}
+    />
   );
 }
 
@@ -435,7 +499,9 @@ function sameCard(prev: Record<string, unknown>, next: Record<string, unknown>) 
 }
 export const FeatureCard = memo(FeatureCardBase, sameCard);
 export const ActivityRow = memo(ActivityRowBase, sameCard);
+export const ActivityBig = memo(ActivityBigCard, sameCard);
 export const ActivityCard = memo(ActivityCardBase, sameCard);
 export const TripFeatureCard = memo(TripFeatureCardBase, sameCard);
 export const TripCard = memo(TripCardBase, sameCard);
 export const TripRow = memo(TripRowBase, sameCard);
+export const TripBig = memo(TripBigCard, sameCard);
