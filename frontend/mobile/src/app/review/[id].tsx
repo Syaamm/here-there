@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { View } from 'react-native';
-import { ActivityHeader, PillButton, VerifiedTick } from '@/components/ActivityParts';
+import { PillButton, VerifiedTick } from '@/components/ActivityParts';
 import { Text } from '@/components/ScaledText';
+import { TripThumb } from '@/components/Cards';
 import { softShadow, WHITE } from '@/components/TripParts';
 import { Avatar, Banner, Between, Btn, Chip, Empty, ErrorBanner, Row, Screen, useGo } from '@/components/ui';
 import { get, post, type Trip, type Reliability } from '@/lib/api';
@@ -46,25 +47,16 @@ export default function ReviewTrip() {
   });
   const mutate = useAction(refresh);
   const tp = trip.data;
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
-  const header = (
-    <>
-      <Stack.Screen options={{ headerShown: false }} />
-      <ActivityHeader title={t('Manage join requests')} onBack={back} />
-    </>
-  );
 
   if (trip.loading && !tp)
     return (
       <Screen>
-        {header}
         <SkeletonDetail />
       </Screen>
     );
   if (apps.error && !apps.data)
     return (
       <Screen>
-        {header}
         <Empty title={t('Only the organizer can review applications')}>{apps.error.message}</Empty>
       </Screen>
     );
@@ -78,15 +70,11 @@ export default function ReviewTrip() {
 
   return (
     <Screen onRefresh={refresh} refreshing={false}>
-      {header}
       <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Your trip')}</Text>
       {tp && (
         <View style={cardStyle}>
           <Row style={{ gap: 18, alignItems: 'flex-start' }}>
-            {/* a stand-in for the trip photo */}
-            <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 96, height: 96, borderRadius: 20, backgroundColor: c.heroBlock, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="airplane" size={34} color={c.forest} />
-            </View>
+            <TripThumb t={tp} size={34} style={{ width: 96, height: 96, borderRadius: 20 }} />
             <View style={{ flex: 1, gap: 8, paddingTop: 4 }}>
               <View accessible accessibilityLabel={`${tp.originCity} - ${tp.destination}`} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500', flexShrink: 1 }}>{tp.originCity}</Text>

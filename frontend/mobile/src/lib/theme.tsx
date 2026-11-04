@@ -18,6 +18,32 @@ const base = {
   accent: '#4DAA84',
   accentSoft: '#DDEFE4',
   onAccent: '#0B2620',
+  /** the band every page's static header sits on (the page rises over it as a rounded sheet): deep forest in HERE, sand in THERE */
+  band: '#102F29',
+  /** true when the band is dark (light text and status bar on it), false when it is light (forest text, dark status bar) */
+  bandIsDark: true as boolean,
+  /** text and icons on the band: titles, wordmark, city, back chevron, "Step n/4" */
+  onBand: '#FFFFFF',
+  /** taglines and secondary lines on the band */
+  onBandMuted: 'rgba(255,255,255,0.8)',
+  /** small labels on the band ("Step n/4", the wizard's kicker) */
+  onBandDim: 'rgba(255,255,255,0.7)',
+  /** the switch's idle label on the band */
+  onBandFaint: 'rgba(255,255,255,0.62)',
+  /** the HERE | THERE switch's rim and its open segment on the band */
+  bandLine: 'rgba(255,255,255,0.45)',
+  bandSel: 'rgba(255,255,255,0.22)',
+  /** the city pill on the band */
+  bandChip: 'rgba(235,239,238,0.2)',
+  /** the round back button's disc */
+  bandBack: 'rgba(255,255,255,0.16)',
+  /** the wizard's four step bars: the empty track and the filled part */
+  bandTrack: 'rgba(255,255,255,0.22)',
+  bandFill: '#FFFFFF',
+  /** the accent dot of the wordmark (two greens as drawn), and the city pin, on the band */
+  bandDot: '#67A987',
+  bandDotAlt: '#5FC29F',
+  bandPin: '#43A047',
   sand: '#EBF4EE',
   green: '#2F7D65',
   okBg: '#DFF0E8',
@@ -77,6 +103,22 @@ const there: typeof base & { bg: string; headerBg: string } = {
   fadeFrom: 'rgba(233,229,221,0)',
   fadeTo: 'rgba(233,229,221,0.82)',
   heroBlock: '#D8CDB5',
+  // THERE's band is sand (not green) with deep-forest text; the page stays ivory and rises over it
+  band: '#D8CDB5',
+  bandIsDark: false,
+  onBand: '#102F29',
+  onBandMuted: 'rgba(16,47,41,0.8)',
+  onBandDim: 'rgba(16,47,41,0.72)',
+  onBandFaint: 'rgba(16,47,41,0.6)',
+  bandLine: 'rgba(16,47,41,0.45)',
+  bandSel: 'rgba(16,47,41,0.14)',
+  bandChip: 'rgba(255,255,255,0.55)',
+  bandBack: 'rgba(255,255,255,0.6)',
+  bandTrack: 'rgba(16,47,41,0.15)',
+  bandFill: '#102F29',
+  bandDot: '#2F6B57',
+  bandDotAlt: '#2F6B57',
+  bandPin: '#2F6B57',
   placeholder: '#9B9A95',
   // the open dock tab: a soft ivory capsule with a fine rim and a faint shadow, on the white dock
   glassFill: '#F4F1E9',

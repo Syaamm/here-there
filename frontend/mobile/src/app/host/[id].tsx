@@ -1,10 +1,10 @@
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { CatPhoto } from '@/components/CatPhoto';
 import { View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
-import { ActivityHeader, PillButton, VerifiedTick } from '@/components/ActivityParts';
+import { PillButton, VerifiedTick } from '@/components/ActivityParts';
 import { Avatar, Banner, Between, Btn, Chip, Empty, ErrorBanner, Row, Screen, useGo } from '@/components/ui';
 import { get, post, type Reliability, type Activity } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
@@ -44,25 +44,16 @@ export default function HostReview() {
   });
   const mutate = useAction(refresh);
   const a = act.data;
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
-  const header = (
-    <>
-      <Stack.Screen options={{ headerShown: false }} />
-      <ActivityHeader title={t('Manage join requests')} onBack={back} />
-    </>
-  );
 
   if (act.loading && !a)
     return (
       <Screen>
-        {header}
         <SkeletonDetail />
       </Screen>
     );
   if (reqs.error && !reqs.data)
     return (
       <Screen>
-        {header}
         <Empty title={t('Only the host can review requests')}>{reqs.error.message}</Empty>
       </Screen>
     );
@@ -75,7 +66,6 @@ export default function HostReview() {
 
   return (
     <Screen onRefresh={refresh} refreshing={false}>
-      {header}
       <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Your activity')}</Text>
       {a && (
         <View style={cardStyle}>

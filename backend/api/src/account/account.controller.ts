@@ -133,7 +133,7 @@ export class AccountService {
         identityValidUntil: user.verifiedUntil,
         passwordChangedAt: user.passwordChangedAt,
       },
-      profile: profile && { displayName: profile.displayName, homeCity: profile.homeCity, languages: profile.languages ? profile.languages.split(',') : [], interests: profile.interests ? profile.interests.split(',') : [], bio: profile.bio, hasPhoto: !!profile.photoUrl },
+      profile: profile && { displayName: profile.displayName, homeCity: profile.homeCity, languages: profile.languages ? profile.languages.split(',') : [], interests: profile.interests ? profile.interests.split(',') : [], bio: profile.bio, travelWishlist: profile.travelWishlist ? profile.travelWishlist.split(',') : [], travelWindow: profile.travelWindow, travelCompanions: profile.travelCompanions, hasPhoto: !!profile.photoUrl },
       activities: {
         hosted: hosted.map((a) => ({ id: a.id, title: a.title, category: a.category, city: a.city, venue: a.venueName, startsAt: a.startsAt, endsAt: a.endsAt, capacity: a.capacity, status: a.status, description: a.description })),
         joined: memberships.map((m) => ({ activityId: m.activityId, title: m.activity.title, startsAt: m.activity.startsAt, role: m.role, state: m.state, attendance: m.attendance, since: m.createdAt })),
@@ -244,7 +244,7 @@ export class AccountService {
       this.prisma.socialIdentity.deleteMany({ where: { userId: id } }),
       this.prisma.message.deleteMany({ where: { senderId: id, id: { notIn: reported } } }),
       this.prisma.verificationCheck.deleteMany({ where: { userId: id } }),
-      this.prisma.profile.updateMany({ where: { userId: id }, data: { displayName: 'Deleted user', homeCity: null, homeCityKey: null, languages: '', interests: '', bio: null, photoUrl: null } }),
+      this.prisma.profile.updateMany({ where: { userId: id }, data: { displayName: 'Deleted user', homeCity: null, homeCityKey: null, languages: '', interests: '', travelWishlist: '', travelWindow: null, travelCompanions: null, bio: null, photoUrl: null } }),
       this.prisma.user.update({
         where: { id },
         data: {

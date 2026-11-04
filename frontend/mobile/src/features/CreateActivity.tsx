@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Pressable, Switch, View } from 'react-native';
+import { Platform, Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { DraftBar } from '@/components/DraftBar';
 import { useRouter } from 'expo-router';
 import { AuthButton } from '@/components/AuthForm';
+import { StepTransition } from '@/components/StepMotion';
 import { CategoryPill, CountPill, CreateLabel, MonthCalendar, PillArea, PillInput, PlacePick, RoundBtn, SmallPill, WizardTop } from '@/components/CreateParts';
 import { OnboardingHeading } from '@/components/OnboardingParts';
 import { type Place } from '@/components/PlaceSearch';
@@ -105,7 +106,7 @@ function AccessRow({ icon, title, text, on, onChange }: { icon: React.ComponentP
         <Text style={{ color: c.text, fontSize: 16, lineHeight: 24, fontWeight: '500' }}>{title}</Text>
         <Text style={{ color: c.muted, fontSize: 14, lineHeight: 22 }}>{text}</Text>
       </View>
-      <Switch value={on} onValueChange={onChange} trackColor={{ true: '#43A047', false: '#B7DDB9' }} thumbColor="#fff" accessibilityLabel={on ? t('{title}: on', { title }) : t('{title}: off', { title })} />
+      <Switch value={on} onValueChange={onChange} trackColor={{ true: c.green, false: c.line }} thumbColor={Platform.OS === 'android' && !on ? c.muted : '#fff'} ios_backgroundColor={c.line} accessibilityLabel={on ? t('{title}: on', { title }) : t('{title}: off', { title })} />
     </View>
   );
 }
@@ -247,18 +248,20 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <Screen tabBar>
-        <WizardTop
-          step={step}
-          title={stepTitles[step]}
-          onBack={back}
-          right={
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Clear all')} accessibilityState={{ disabled: !hasContent(f) }} disabled={!hasContent(f)} hitSlop={8} onPress={() => void clearAll()} style={{ minHeight: 30, justifyContent: 'center', opacity: hasContent(f) ? 1 : 0.4 }}>
-              <Text style={{ color: c.forest, fontSize: 13, fontWeight: '500' }}>{t('Clear all')}</Text>
-            </Pressable>
-          }
-        />
+      <Screen tabBar plain header={
+    <WizardTop
+      step={step}
+      title={stepTitles[step]}
+      onBack={back}
+      right={
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Clear all')} accessibilityState={{ disabled: !hasContent(f) }} disabled={!hasContent(f)} hitSlop={8} onPress={() => void clearAll()} style={{ minHeight: 30, justifyContent: 'center', opacity: hasContent(f) ? 1 : 0.4 }}>
+          <Text style={{ color: c.text, fontSize: 13, fontWeight: '500' }}>{t('Clear all')}</Text>
+        </Pressable>
+      }
+    />
+      }>
 
+        <StepTransition step={step} style={{ gap: 16 }}>
         {step === 0 && (
           <>
             <OnboardingHeading title={t('What are you planning?')} subtitle={t('Choose a vibe and give your spontaneous plan a catchy name.')} />
@@ -323,7 +326,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         {step === 2 && (
           <>
             <OnboardingHeading title={t("Where's the spot?")} subtitle={t('Choose a public, easily accessible neighborhood spot for everyone to gather.')} />
-            <PillInput label={t('City')} value={city} onChangeText={setCity} placeholder={t('City')} />
+            <PillInput label={t('City')} autoCapitalize="words" value={city} onChangeText={setCity} placeholder={t('City')} />
             <PlacePick
               label={t('Public meeting location')}
               text={f.venueName}
@@ -382,10 +385,11 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
               title={t('Request to join')}
               text={t('You approve each person.')}
               on={f.joinPolicy === 'host_approval'}
-              onChange={(on) => set('joinPolicy', on ? 'instant' : 'host_approval')}
+              onChange={(on) => set('joinPolicy', on ? 'host_approval' : 'instant')}
             />
           </>
         )}
+        </StepTransition>
 
         <AuthButton
           title={step < 3 ? t('Continue') : t('Publish activity')}

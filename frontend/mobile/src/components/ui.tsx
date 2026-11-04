@@ -1,11 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useIsFocused, useRouter } from 'expo-router';
-import { Children, createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useFocusEffect, useIsFocused, useRoute, useRouter } from 'expo-router';
+import { setStatusBarStyle } from 'expo-status-bar';
+import { Children, createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Modal, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Path } from 'react-native-svg';
 import { Text, TextInput } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { photoSrc } from '@/lib/api';
+import { tap } from '@/lib/haptics';
 import { headerGap, statusTop, useLayout } from '@/lib/layout';
 import { sc, useScale } from '@/lib/scale';
 import { PageTransition } from './PageTransition';
@@ -14,6 +18,7 @@ import { useDockSpace } from '@/lib/dock';
 import { formatDay, useKeyboardOverlap, useKeyboardShown, useScrollFieldIntoView } from '@/lib/keyboard';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
+import { PAGE_TITLES, PLAIN_PAGES } from '@/lib/pageTitles';
 
 // ---------------------------------------------------------------- layout
 /** Shared press feedback: a crisp 3% shrink and a light dim. Transform and opacity only, so it never reflows. */
@@ -34,10 +39,98 @@ export function useOnScrollEnd(fn: () => void) {
 }
 
 /** How far the white sheet rises over a coloured header band (see Screen's headerBg). */
-const SHEET_OVERLAP = 30;
+export const SHEET_OVERLAP = 30;
+/** Radius of the sheet's rounded top corners. */
+const SHEET_RADIUS = 40;
+/** Extra band of the home screens, in points: the Figma band is about 50 taller than a title band (22 above the wordmark, 28 under the switch). */
+const BAND_TALL_TOP = 22;
+const BAND_TALL_BOTTOM = 28;
+
+// Pages that sit on the dark band need light clock and battery. Counted, so whichever page opens or closes first the bar ends right.
+let bandPages = 0;
+/** Light status-bar text while a page with the dark band is in front; dark again when none is. */
+export function useLightStatusBar(on = true, bandDark?: boolean) {
+  const { c } = useTheme();
+  const dark = bandDark ?? c.bandIsDark; // the band follows the mode: dark green in HERE (light clock), sand in THERE (dark clock)
+  useFocusEffect(
+    useCallback(() => {
+      if (!on) return;
+      bandPages += 1;
+      setStatusBarStyle(dark ? 'light' : 'dark');
+      return () => {
+        bandPages -= 1;
+        if (bandPages <= 0) setStatusBarStyle('dark');
+      };
+    }, [on, dark]),
+  );
+}
+
+/** The round back button of the band: a soft disc with a chevron, both from the band's tokens (44px target). */
+export function BandBack({ onBack }: { onBack?: () => void }) {
+  const router = useRouter();
+  const { t } = useT();
+  const { c } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t('Go back')}
+      hitSlop={6}
+      onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/' as never)))}
+      style={({ pressed: p }) => [{ width: 44, height: 44, borderRadius: 22, backgroundColor: c.bandBack, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
+    >
+      <Ionicons name="chevron-back" size={22} color={c.onBand} />
+    </Pressable>
+  );
+}
+
+/** The static title row of every inner page, for the band: round back button, centred white title, optional action on the right. */
+export function BandTitle({ title, onBack, right, custom }: { title?: string; onBack?: () => void; right?: ReactNode; custom?: ReactNode }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: 8 }}>
+      <BandBack onBack={onBack} />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        {custom ?? <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.onBand, fontSize: 18, lineHeight: 24, fontWeight: '600', textAlign: 'center' }}>{title}</Text>}
+      </View>
+      <View style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}>{right}</View>
+    </View>
+  );
+}
+
+/** The plain back button of the Figma pages (Settings and what lives inside it, the create wizards): a white disc, a very faint rim, a dark chevron. 44px target. */
+export function PlainBack({ onBack }: { onBack?: () => void }) {
+  const router = useRouter();
+  const { t } = useT();
+  const { c } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t('Go back')}
+      hitSlop={6}
+      onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/' as never)))}
+      style={({ pressed: p }) => [{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', borderWidth: 1, borderColor: 'rgba(0,0,0,0.09)', alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
+    >
+      <Ionicons name="chevron-back" size={22} color={c.text} />
+    </Pressable>
+  );
+}
+
+/** The plain static header on the page's own background: round back button, centred title in the text colour, optional action at the right. */
+export function PlainTitle({ title, onBack, right, custom }: { title?: string; onBack?: () => void; right?: ReactNode; custom?: ReactNode }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: 8 }}>
+      <PlainBack onBack={onBack} />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        {custom ?? <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 18, lineHeight: 24, fontWeight: '600', textAlign: 'center' }}>{title}</Text>}
+      </View>
+      <View style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}>{right}</View>
+    </View>
+  );
+}
 
 export function Screen({
-  header, headerBg, children,
+  header, headerBg, plain, bandFade, bandDark, bandTall, title, onBack, right, children,
   hasHeader = false,
   scroll = true,
   tabBar = false,
@@ -48,6 +141,7 @@ export function Screen({
   onRefresh,
   refreshing = false,
   onScrollY,
+  bottomRoom,
   style,
 }: {
   children: ReactNode;
@@ -57,8 +151,22 @@ export function Screen({
   stickyHero?: { scrolling: ReactNode; pinned: ReactNode };
   /** stays put at the top while the content scrolls beneath it (the HERE/THERE header on the main tabs) */
   header?: ReactNode;
+  /** a plain header on the page's own background (no band, no sheet; dark status bar). Pages listed in PLAIN_PAGES get it without passing this. */
+  plain?: boolean;
   /** a coloured band behind the header (HERE's dark green): the page then rises over it as a white sheet with rounded top corners */
   headerBg?: string;
+  /** the taller band of the home screens (Figma): more air above the wordmark and more band under the switch */
+  bandTall?: boolean;
+  /** the band fades from this colour at the top into headerBg at the bottom (white to mint in the profile design) */
+  bandFade?: string;
+  /** whether the band is dark (light clock and battery on it); by default it follows the mode */
+  bandDark?: boolean;
+  /** an inner page's title: draws the shared band (round back button + white title) as the static header. Pages listed in lib/pageTitles get it without passing this. */
+  title?: string;
+  /** where the band's back button goes (default: back) */
+  onBack?: () => void;
+  /** an action at the right end of the band's title row */
+  right?: ReactNode;
   /** true when a native header already sits above the content */
   hasHeader?: boolean;
   scroll?: boolean;
@@ -70,6 +178,8 @@ export function Screen({
   maxWidth?: number;
   /** reports how far the page has scrolled (px), for effects that follow the scroll */
   onScrollY?: (y: number) => void;
+  /** height of a fixed bottom bar (BottomBar, safe area included): the content ends just above it instead of the usual bottom padding */
+  bottomRoom?: number;
   onRefresh?: () => void;
   refreshing?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -77,6 +187,15 @@ export function Screen({
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
+  const { t } = useT();
+  const routeName = useRoute().name;
+  // a page listed in PAGE_TITLES gets the band by itself (its stack header is hidden in the layout)
+  const listed = !header && !hero && !stickyHero ? PAGE_TITLES[routeName] : undefined;
+  const bandTitle = !header ? (title ?? (listed ? t(listed) : undefined)) : undefined;
+  const isPlain = plain ?? PLAIN_PAGES.has(routeName);
+  const bandHeader = header ?? (bandTitle !== undefined ? (isPlain ? <PlainTitle title={bandTitle} onBack={onBack} right={right} /> : <BandTitle title={bandTitle} onBack={onBack} right={right} />) : undefined);
+  const bg = bandHeader && !isPlain ? (headerBg ?? c.band) : undefined; // every static header sits on the mode's band (forest in HERE, sand in THERE)
+  useLightStatusBar(!!bg, bandDark);
   // never closer to the top than a phone's status bar needs (a browser reports no inset, a real phone does)
   const top = statusTop(insets.top);
   const typing = useKeyboardShown();
@@ -98,7 +217,7 @@ export function Screen({
   }, [onScreen]); // and the field being typed in is scrolled above it
   const dockRoom = useDockSpace();
   const dock = typing ? 0 : dockRoom; // the floating dock covers the bottom of the page, so leave room under the content (it hides while typing)
-  const pad = { paddingTop: hasHeader ? 12 : header ? 8 : top + 8, paddingBottom: (tabBar ? 24 : insets.bottom + 24) + dock, paddingHorizontal: gutter };
+  const pad = { paddingTop: bandHeader ? (bg ? 20 : 8) : hasHeader ? 12 : top + 8, paddingBottom: bottomRoom !== undefined ? bottomRoom + 16 : (tabBar ? 24 : insets.bottom + 24) + dock, paddingHorizontal: gutter };
   // The content sits in a centred column: full width on phones, a comfortable measure on tablets and desktops.
   const columnWidth = maxWidth ?? (wide ? 1180 : 760);
   const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 16 };
@@ -116,6 +235,9 @@ export function Screen({
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       stickyHeaderIndices={stickyHero ? [1] : undefined}
+      // a picture page starts at the very top edge: iOS must not push the content down by a navigation bar's height (it did, leaving a white band above the photo)
+      // a picture page does not stretch when pulled down at the top (no bounce on iPhone, no glow on Android): the picture stays put and only scrolls up
+      {...(hero || stickyHero ? { bounces: false, overScrollMode: 'never' as const, contentInsetAdjustmentBehavior: 'never' as const, automaticallyAdjustContentInsets: false, automaticallyAdjustsScrollIndicatorInsets: false, contentInset: { top: 0, left: 0, bottom: 0, right: 0 }, contentOffset: { x: 0, y: 0 } } : null)}
       scrollEventThrottle={16}
       onScroll={(e) => {
         scrolled.current = e.nativeEvent.contentOffset.y;
@@ -131,7 +253,9 @@ export function Screen({
     >
       {/* an array, not a fragment: the ScrollView counts its direct children to find the sticky one */}
       {stickyHero ? [
-        <View key="scrolling" style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{stickyHero.scrolling}</View>,
+        <View key="scrolling" style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>
+          {stickyHero.scrolling}
+        </View>,
         <View key="pinned" style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{stickyHero.pinned}</View>,
       ] : hero ? (
         <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{hero}</View>
@@ -155,15 +279,30 @@ export function Screen({
   );
   return (
     <Animated.View ref={pageBox} onLayout={pageLayout} style={{ flex: 1, backgroundColor: c.bg, paddingBottom: keyboard }}>
-      {header ? (
-        <View style={{ paddingTop: top + headerGap, paddingBottom: headerBg ? SHEET_OVERLAP + 6 : 6, paddingHorizontal: gutter + 6, backgroundColor: headerBg ?? c.bg, zIndex: headerBg ? 0 : 2 }}>
-          <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{header}</View>
+      {bandHeader ? (
+        <View style={{ paddingTop: top + headerGap + (bandTall && bg ? BAND_TALL_TOP : 0), paddingBottom: (bg ? SHEET_OVERLAP + 6 : 6) + (bandTall && bg ? BAND_TALL_BOTTOM : 0), paddingHorizontal: gutter + 6, backgroundColor: bg ?? c.bg, zIndex: bg ? 0 : 2 }}>
+          {/* the fade ends where the sheet's corners start, so the corner pieces (flat `bg`) sit on exactly the same colour */}
+          {bg && bandFade ? <LinearGradient pointerEvents="none" colors={[bandFade, bg]} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: SHEET_OVERLAP }} /> : null}
+          <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{bandHeader}</View>
         </View>
       ) : null}
-      {header && headerBg ? (
-        // the page rises over the coloured band as a sheet; it is clipped to its rounded top corners
-        <View style={{ flex: 1, marginTop: -SHEET_OVERLAP, zIndex: 1, borderTopLeftRadius: 40, borderTopRightRadius: 40, overflow: 'hidden', backgroundColor: c.bg }}>
+      {bandHeader && bg ? (
+        // the page rises over the coloured band as a sheet. It is a plain rectangle (no clip, which left a faint fringe along the curve):
+        // the rounded top corners are two band-coloured corner pieces drawn over it, so the curve joins the band exactly.
+        <View style={{ flex: 1, marginTop: -SHEET_OVERLAP, zIndex: 1, backgroundColor: c.bg }}>
           <PageTransition>{body}</PageTransition>
+          {/* content melts away as it passes under the header: a static overlay (no scroll work), the page colour fading to nothing */}
+          <LinearGradient pointerEvents="none" colors={[c.bg, c.fadeFrom]} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 26 }} />
+          <View pointerEvents="none" style={{ position: 'absolute', top: -1, left: 0, width: SHEET_RADIUS, height: SHEET_RADIUS + 1 }}>
+            <Svg width={SHEET_RADIUS} height={SHEET_RADIUS + 1} viewBox={`0 -1 ${SHEET_RADIUS} ${SHEET_RADIUS + 1}`}>
+              <Path d={`M0 -1 H${SHEET_RADIUS} V0 A${SHEET_RADIUS} ${SHEET_RADIUS} 0 0 0 0 ${SHEET_RADIUS} Z`} fill={bg} />
+            </Svg>
+          </View>
+          <View pointerEvents="none" style={{ position: 'absolute', top: -1, right: 0, width: SHEET_RADIUS, height: SHEET_RADIUS + 1 }}>
+            <Svg width={SHEET_RADIUS} height={SHEET_RADIUS + 1} viewBox={`0 -1 ${SHEET_RADIUS} ${SHEET_RADIUS + 1}`}>
+              <Path d={`M0 -1 H${SHEET_RADIUS} V${SHEET_RADIUS} A${SHEET_RADIUS} ${SHEET_RADIUS} 0 0 0 0 0 Z`} fill={bg} />
+            </Svg>
+          </View>
         </View>
       ) : (
         <PageTransition>{body}</PageTransition>
@@ -233,6 +372,23 @@ const textStyles: Record<Variant, TextStyle> = {
 };
 
 // ---------------------------------------------------------------- buttons & inputs
+/**
+ * The fixed action bar at the bottom of a detail page: one opaque block down to the screen's edge (the safe-area inset is inside it),
+ * with a soft fade above it so the scrolling page melts away instead of being cut. It reports its own height (`onHeight`) for
+ * Screen's `bottomRoom`, so the last item can scroll fully clear of it.
+ */
+export function BottomBar({ children, onHeight }: { children: ReactNode; onHeight: (h: number) => void }) {
+  const { c } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { gutter } = useLayout();
+  return (
+    <View onLayout={(e) => onHeight(Math.round(e.nativeEvent.layout.height))} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: c.bg, paddingTop: 8, paddingBottom: insets.bottom + 8, paddingHorizontal: gutter, alignItems: 'center' }}>
+      <LinearGradient pointerEvents="none" colors={[c.fadeFrom, c.bg]} style={{ position: 'absolute', left: 0, right: 0, bottom: '100%', height: 26 }} />
+      <View style={{ width: '100%', maxWidth: 760, gap: 6 }}>{children}</View>
+    </View>
+  );
+}
+
 type BtnVariant = 'primary' | 'accent' | 'secondary' | 'danger' | 'ghost' | 'light' | 'mint' | 'outlineLight' | 'ghostLight';
 export function Btn({ title, onPress, variant = 'primary', disabled, loading, small, style }: { title: string; onPress?: () => void; variant?: BtnVariant; disabled?: boolean; loading?: boolean; small?: boolean; style?: StyleProp<ViewStyle> }) {
   const { c } = useTheme();
@@ -255,7 +411,10 @@ export function Btn({ title, onPress, variant = 'primary', disabled, loading, sm
       accessibilityState={{ disabled: !!off, busy: !!loading }}
       disabled={off}
       hitSlop={3}
-      onPress={onPress}
+      onPress={() => {
+        tap(variant === 'primary' || variant === 'accent' || variant === 'light' || variant === 'mint' ? 'Medium' : 'Light');
+        onPress?.();
+      }}
       style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { minHeight: sc(small ? 34 : 42) }, { backgroundColor: v.bg, borderColor: v.border, opacity: off ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
     >
       {loading ? <ActivityIndicator color={v.fg} /> : <Text style={{ color: v.fg, fontWeight: '700', fontSize: small ? 13 : 14 }}>{title}</Text>}
@@ -324,7 +483,7 @@ export function ListRow({ icon, title, subtitle, right, onPress, last }: { icon:
 export function ProgressBar({ value, max }: { value: number; max: number }) {
   const { c } = useTheme();
   return (
-    <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max, now: value }} style={{ height: 8, borderRadius: 4, backgroundColor: c.accentSoft, overflow: 'hidden' }}>
+    <View accessible accessibilityRole="progressbar" accessibilityValue={{ min: 0, max, now: value }} style={{ height: 8, borderRadius: 4, backgroundColor: c.accentSoft, overflow: 'hidden' }}>
       <View style={{ width: `${Math.min(100, (value / Math.max(1, max)) * 100)}%`, height: 8, backgroundColor: c.green }} />
     </View>
   );
@@ -392,7 +551,7 @@ export function PillRow({ children }: { children: ReactNode }) {
 export function CheckRow({ checked, onChange, children, disabled }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode; disabled?: boolean }) {
   const { c } = useTheme();
   return (
-    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start', opacity: disabled ? 0.6 : 1 }}>
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start', opacity: disabled ? 0.6 : 1 }}>
       <View style={[s.check, { borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : 'transparent' }]}>{checked ? <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>✓</Text> : null}</View>
       <View style={{ flex: 1 }}>{children}</View>
     </Pressable>
@@ -407,9 +566,9 @@ export function Stepper({ value, onChange, min, max, label }: { value: number; o
     <View style={{ gap: 4 }}>
       <Txt variant="label">{label}</Txt>
       <View style={[s.row, { gap: 14 }]}>
-        <Pressable accessibilityLabel={t('Decrease {label}', { label })} onPress={() => bump(-1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>−</Text></Pressable>
+        <Pressable accessibilityRole="button" hitSlop={6} accessibilityLabel={t('Decrease {label}', { label })} onPress={() => bump(-1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>−</Text></Pressable>
         <Txt variant="h2">{value}</Txt>
-        <Pressable accessibilityLabel={t('Increase {label}', { label })} onPress={() => bump(1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>+</Text></Pressable>
+        <Pressable accessibilityRole="button" hitSlop={6} accessibilityLabel={t('Increase {label}', { label })} onPress={() => bump(1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>+</Text></Pressable>
       </View>
     </View>
   );
@@ -486,7 +645,7 @@ export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: n
 }
 
 /** Bottom sheet. Closes on backdrop tap, the Android back button, a tap on its top edge, or by dragging that edge down. */
-export function Sheet({ visible, title, onClose, children }: { visible: boolean; title: string; onClose: () => void; children: ReactNode }) {
+export function Sheet({ visible, title, onClose, children, bg }: { /** the sheet's own colour (the THERE design's ivory sheet with white fields); the card colour when left out */ bg?: string; visible: boolean; title: string; onClose: () => void; children: ReactNode }) {
   const { c } = useTheme();
   const { t: tr } = useT();
   const insets = useSafeAreaInsets();
@@ -553,16 +712,17 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
   if (!mounted) return null;
   const rise = isTablet ? slide.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) : slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] });
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <Animated.View ref={sheetBox} onLayout={sheetLayout} style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end', paddingBottom: keyboard }}>
         <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)', opacity: shade }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={tr('Close')} />
         </Animated.View>
         {/* a bottom sheet on phones; a centred dialog on tablets and desktops */}
         <Animated.View
+          accessibilityViewIsModal
           style={[
             s.sheet,
-            { backgroundColor: c.surface, paddingBottom: typing ? 16 : insets.bottom + 16, transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
+            { backgroundColor: bg ?? c.surface, paddingBottom: typing ? 16 : insets.bottom + 16, transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
             isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 22, paddingBottom: 18, opacity: slide },
           ]}
         >

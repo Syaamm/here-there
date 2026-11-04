@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useT } from '@/lib/i18n';
+import { tap } from '@/lib/haptics';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { AuthBack } from './AuthForm';
@@ -35,7 +36,10 @@ export function PillButton({ title, onPress, outline, disabled, loading, small, 
       accessibilityLabel={label ?? title}
       accessibilityState={{ disabled: !!off, busy: !!loading }}
       disabled={off}
-      onPress={onPress}
+      onPress={() => {
+        tap(outline ? 'Light' : 'Medium');
+        onPress();
+      }}
       style={({ pressed: p }) => [
         { minHeight: Math.max(44, sc(small ? 46 : 54)), borderRadius: 32, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, backgroundColor: outline ? c.surface : c.forest, borderWidth: 1, borderColor: outline ? c.line : c.forest, opacity: off ? 0.5 : 1 },
         style,

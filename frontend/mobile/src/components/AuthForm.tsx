@@ -1,10 +1,16 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useState, type Ref } from 'react';
 import { Pressable, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useT } from '@/lib/i18n';
+import { tap } from '@/lib/haptics';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { pressed } from './ui';
 import { Text, TextInput } from './ScaledText';
+
+/** What a form needs from an input: to move the cursor into it. */
+export type InputHandle = { focus: () => void };
 
 /** The sign-in and sign-up pages: round back button, centred title, pill fields, pill button (from the Figma design). */
 
@@ -35,17 +41,36 @@ export function AuthHeading({ title, subtitle }: { title: string; subtitle?: str
 }
 
 /** A labelled pill-shaped field. The label sits above it; a hint or an error sits below. */
-export function AuthField({ label, hint, error, style, ...rest }: TextInputProps & { label: string; hint?: string; error?: string | null }) {
+export function AuthField({ label, hint, error, style, inputRef, ...rest }: TextInputProps & { label: string; hint?: string; error?: string | null; /** lets a form move on to the next field from the keyboard's Next key */ inputRef?: Ref<InputHandle> }) {
   const { c, mode } = useTheme();
+  const { t } = useT();
+  const [shown, setShown] = useState(false); // a password can be shown while it is typed
+  const secret = !!rest.secureTextEntry;
+  const multi = !!rest.multiline;
   return (
     <View style={{ gap: 8 }}>
       <Text style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{label}</Text>
-      <TextInput
-        accessibilityLabel={label}
-        placeholderTextColor={c.placeholder}
-        {...rest}
-        style={[{ minHeight: sc(52), borderWidth: mode === 'there' && !error ? 0 : 1, borderRadius: 32, borderColor: error ? c.danger : c.line, backgroundColor: mode === 'there' ? '#fff' : c.surface, color: c.text, fontSize: 14, paddingHorizontal: 18, paddingVertical: 10 }, style]}
-      />
+      <View>
+        <TextInput
+          ref={inputRef}
+          accessibilityLabel={label}
+          placeholderTextColor={c.placeholder}
+          selectionColor={c.forest}
+          cursorColor={c.forest}
+          underlineColorAndroid="transparent"
+          returnKeyType={multi ? undefined : 'done'}
+          autoCorrect={secret || rest.autoCapitalize === 'none' ? false : undefined}
+          {...rest}
+          secureTextEntry={secret && !shown}
+          textAlignVertical={multi ? 'top' : 'center'}
+          style={[{ minHeight: sc(52), borderWidth: mode === 'there' && !error ? 0 : 1, borderRadius: 32, borderColor: error ? c.danger : c.line, backgroundColor: mode === 'there' ? '#fff' : c.surface, color: c.text, fontSize: 14, paddingHorizontal: 18, paddingVertical: 10, includeFontPadding: false }, secret ? { paddingRight: 52 } : null, style]}
+        />
+        {secret ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={shown ? t('Hide password') : t('Show password')} onPress={() => setShown((v) => !v)} hitSlop={4} style={{ position: 'absolute', right: 4, top: 0, bottom: 0, width: 44, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name={shown ? 'eye-off-outline' : 'eye-outline'} size={20} color={c.muted} />
+          </Pressable>
+        ) : null}
+      </View>
       {hint && !error ? <Text style={{ color: c.muted, fontSize: 11, lineHeight: 15, paddingLeft: 4 }}>{hint}</Text> : null}
       {error ? <Text style={{ color: c.danger, fontSize: 11, lineHeight: 15, paddingLeft: 4 }}>{error}</Text> : null}
     </View>
@@ -61,10 +86,13 @@ export function AuthButton({ title, onPress, loading, disabled, style }: { title
       accessibilityRole="button"
       accessibilityState={{ disabled: !!off, busy: !!loading }}
       disabled={off}
-      onPress={onPress}
+      onPress={() => {
+        tap('Medium');
+        onPress();
+      }}
       style={({ pressed: p }) => [{ minHeight: sc(54), borderRadius: 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, opacity: off ? 0.5 : 1 }, style, !off && pressed(p)]}
     >
-      <Text style={{ color: '#fff', fontSize: 15, fontWeight: '500' }}>{loading ? '…' : title}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: '#fff', fontSize: 15, fontWeight: '500' }}>{loading ? '…' : title}</Text>
     </Pressable>
   );
 }
@@ -75,7 +103,7 @@ export function AuthSwitch({ prompt, action, onPress }: { prompt: string; action
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <View style={{ flex: 1, height: 1, backgroundColor: c.line }} />
-      <Text style={{ color: c.muted, fontSize: 13 }}>{prompt}</Text>
+      <Text style={{ color: c.muted, fontSize: 13, flexShrink: 1, textAlign: 'center' }}>{prompt}</Text>
       <Pressable accessibilityRole="link" hitSlop={10} onPress={onPress} style={{ minHeight: 32, justifyContent: 'center' }}>
         <Text style={{ color: c.forest, fontSize: 14, fontWeight: '600' }}>{action}</Text>
       </Pressable>

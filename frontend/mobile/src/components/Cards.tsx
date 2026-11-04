@@ -12,6 +12,9 @@ import { CatPhoto } from './CatPhoto';
 import { sc } from '@/lib/scale';
 import { Avatar, Btn, Card, Chip, Row, Txt, useGo } from './ui';
 
+/** Android adds invisible space above and below text; off, text sits centred in pills and badges like on iPhone. */
+const FLAT = { includeFontPadding: false } as const;
+
 const clock = (iso: string) => new Date(iso).toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' });
 /** The category's name for display; the server's own value stays untouched. */
 const catLabel = (category: string) => tr(CATS[category]?.label ?? category);
@@ -29,7 +32,7 @@ function Pill({ text }: { text: string }) {
   const { c } = useTheme();
   return (
     <View style={{ position: 'absolute', left: 8, bottom: 8, backgroundColor: c.forest, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, maxWidth: '90%' }}>
-      <Text numberOfLines={1} style={{ color: '#fff', fontWeight: '700', fontSize: 10.5 }}>
+      <Text numberOfLines={1} style={{ color: '#fff', fontWeight: '700', fontSize: 10.5, lineHeight: 14, ...FLAT }}>
         {text}
       </Text>
     </View>
@@ -55,7 +58,7 @@ function FeatureCardBase({ a, width }: { a: Activity; width?: number }) {
         <Txt variant="small" numberOfLines={1} color={c.forest} bold style={{ fontSize: 11, lineHeight: 15 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
         <Row style={{ justifyContent: 'space-between', gap: 4 }}>
           <Txt variant="small" numberOfLines={1} style={{ flexShrink: 1 }}>{tr('{going} of {capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
-          {full ? <Chip label={tr('Full')} tone="warn" /> : <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 1 }}><Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 10 }}>{catLabel(a.category)}</Text></View>}
+          {full ? <Chip label={tr('Full')} tone="warn" /> : <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 1 }}><Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 10, lineHeight: 14, ...FLAT }}>{catLabel(a.category)}</Text></View>}
         </Row>
       </View>
     </Card>
@@ -98,7 +101,7 @@ function Faces({ a }: { a: Activity }) {
       )}
       {extra > 0 ? (
         <View style={[ring, { marginLeft: -7, width: 32, height: 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }]}>
-          <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '600' }}>{extra > 99 ? '99+' : `+${extra}`}</Text>
+          <Text style={{ color: '#fff', fontSize: 11.5, lineHeight: 16, fontWeight: '600', textAlign: 'center', ...FLAT }}>{extra > 99 ? '99+' : `+${extra}`}</Text>
         </View>
       ) : null}
     </View>
@@ -126,7 +129,7 @@ export function ActivityBigCard({ a, tag, status, accessibilityLabel }: { a: Act
         <CatPhoto category={a.category} style={{ height: sc(173), borderRadius: 24 }}>
           {tag ? (
             <View style={{ position: 'absolute', left: 14, top: 14, backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 }}>
-              <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '500' }}>{tag}</Text>
+              <Text style={{ color: '#fff', fontSize: 11.5, lineHeight: 16, fontWeight: '500', ...FLAT }}>{tag}</Text>
             </View>
           ) : null}
           {status ? (
@@ -138,7 +141,7 @@ export function ActivityBigCard({ a, tag, status, accessibilityLabel }: { a: Act
         <View style={{ paddingHorizontal: 5, gap: 8 }}>
           <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
             <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{a.title}</Txt>
-            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 26, fontWeight: '600' }}>{full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 26, fontWeight: '600', ...FLAT }}>{full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
           </Row>
           <Row style={{ gap: 5 }}>
             <Ionicons name="location-outline" size={16} color={c.muted} />
@@ -154,6 +157,7 @@ export function ActivityBigCard({ a, tag, status, accessibilityLabel }: { a: Act
         accessibilityRole="button"
         accessibilityLabel={tr('See details: {title}', { title: a.title })}
         onPress={open}
+        hitSlop={{ top: 2, bottom: 2 }}
         style={({ pressed }) => [{ height: 42, borderRadius: 21, borderWidth: 1, borderColor: 'rgba(0,0,0,0.16)', backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
       >
         <Txt variant="h3" color={c.text} style={{ fontSize: 13, fontWeight: '500' }}>{tr('See details')}</Txt>
@@ -175,30 +179,40 @@ export function NextUpCard({ a, status }: { a: Activity; /** your part in it: "Y
   );
 }
 
-/** One activity as a list row: category tile, title, time and place, who is going, and an arrow. */
+/** HERE's compact row card for one activity (same style as TripRow): its picture, title, time and place, the spots left, and who is going. */
 function ActivityRowBase({ a }: { a: Activity }) {
   useT();
   const go = useGo();
   const { c } = useTheme();
+  const full = a.spotsLeft === 0;
+  const circle = circleLine(a.buddiesGoing, a.followingGoing);
   return (
-    <Card
+    <Pressable
+      accessibilityRole="button"
       onPress={() => go(`/activity/${a.id}`)}
       accessibilityLabel={goingLine(a)}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 11, padding: 9, borderRadius: 16 }}
+      style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 11, gap: 10, minHeight: 44 }, pressed && { opacity: 0.92 }]}
     >
-      {/* the category's own picture, as everywhere else */}
-      <CatPhoto category={a.category} style={{ width: 52, height: 52, borderRadius: 12 }} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{a.title}</Txt>
-        <Txt variant="small" numberOfLines={1} style={{ fontSize: 12, lineHeight: 16 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
-        <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
-          {a.status === 'in_progress' ? <Text style={{ color: c.green, fontWeight: '800' }}>{tr('Happening now')} · </Text> : null}
-          {tr('{going} of {capacity} going', { going: a.going, capacity: a.capacity })} · {catLabel(a.category)}
-        </Txt>
-        {circleLine(a.buddiesGoing, a.followingGoing) ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>{circleLine(a.buddiesGoing, a.followingGoing)}</Txt> : null}
-      </View>
-      <Ionicons name="chevron-forward" size={16} color={c.muted} />
-    </Card>
+      <Row style={{ gap: 14, alignItems: 'flex-start' }}>
+        <CatPhoto category={a.category} style={{ width: sc(72), height: sc(72), borderRadius: 18 }} />
+        <View style={{ flex: 1, gap: 4, paddingTop: 1 }}>
+          <Txt variant="h3" numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{a.title}</Txt>
+          <Row style={{ gap: 4 }}>
+            <Ionicons name="location-outline" size={14} color={c.muted} />
+            <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 13, lineHeight: 17 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
+          </Row>
+          <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 16, fontWeight: '600', ...FLAT }}>
+            {a.status === 'in_progress' ? `${tr('Happening now')} · ` : ''}
+            {full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}
+          </Text>
+        </View>
+      </Row>
+      <Row style={{ gap: 10 }}>
+        <Faces a={a} />
+        <Txt variant="small" numberOfLines={1} style={{ flex: 1 }}>{tr('{going} of {capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
+      </Row>
+      {circle ? <Txt variant="small" bold color={c.green}>{circle}</Txt> : null}
+    </Pressable>
   );
 }
 
@@ -275,7 +289,7 @@ function TripFeatureCardBase({ t, width }: { t: Trip; width?: number }) {
         </Txt>
         <Row style={{ justifyContent: 'space-between' }}>
           <Txt variant="muted">{tr('{members} of {capacity} travelers', { members: t.members, capacity: t.maxCapacity })}</Txt>
-          {full ? <Chip label={tr('Full')} tone="warn" /> : <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2 }}><Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 11 }}>{tr('{n} open', { n: t.spotsLeft })}</Text></View>}
+          {full ? <Chip label={tr('Full')} tone="warn" /> : <View style={{ backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2 }}><Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 11, lineHeight: 15, ...FLAT }}>{tr('{n} open', { n: t.spotsLeft })}</Text></View>}
         </Row>
       </View>
     </Card>
@@ -342,7 +356,7 @@ export const TRIP_PHOTOS: Record<string, number> = {
 /** The travel style whose picture the trip shows (the first of its tags that has one). */
 export const tripStyle = (t: Trip) => t.tags.find((x) => TRIP_PHOTOS[x]) ?? null;
 
-function TripThumb({ t, style, size, children }: { t: Trip; style: object; size: number; children?: React.ReactNode }) {
+export function TripThumb({ t, style, size, children }: { t: Trip; style: object; size: number; children?: React.ReactNode }) {
   const { c } = useTheme();
   const st = tripStyle(t);
   return (
@@ -365,7 +379,7 @@ function TripFaces({ t }: { t: Trip }) {
       </View>
       {extra > 0 ? (
         <View style={[ring, { marginLeft: -7, width: 32, height: 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }]}>
-          <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '600' }}>{extra > 99 ? '99+' : `+${extra}`}</Text>
+          <Text style={{ color: '#fff', fontSize: 11.5, lineHeight: 16, fontWeight: '600', textAlign: 'center', ...FLAT }}>{extra > 99 ? '99+' : `+${extra}`}</Text>
         </View>
       ) : null}
     </View>
@@ -394,7 +408,7 @@ export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; t
         <TripThumb t={t} size={44} style={{ height: sc(173), borderRadius: 24 }}>
           {tag ? (
             <View style={{ position: 'absolute', left: 14, top: 14, backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 }}>
-              <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '500' }}>{tag}</Text>
+              <Text style={{ color: '#fff', fontSize: 11.5, lineHeight: 16, fontWeight: '500', ...FLAT }}>{tag}</Text>
             </View>
           ) : null}
           {status ? (
@@ -406,7 +420,7 @@ export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; t
         <View style={{ paddingHorizontal: 5, gap: 8 }}>
           <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
             <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t.destination}</Txt>
-            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 26, fontWeight: '600' }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 26, fontWeight: '600', ...FLAT }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
           </Row>
           <Row style={{ gap: 5 }}>
             <Ionicons name="location-outline" size={16} color={c.muted} />
@@ -424,6 +438,7 @@ export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; t
         accessibilityRole="button"
         accessibilityLabel={tr('See details: {title}', { title: t.destination })}
         onPress={open}
+        hitSlop={{ top: 2, bottom: 2 }}
         style={({ pressed }) => [{ height: 42, borderRadius: 21, borderWidth: 1, borderColor: 'rgba(0,0,0,0.16)', backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
       >
         <Txt variant="h3" color={c.text} style={{ fontSize: 13, fontWeight: '500' }}>{tr('See details')}</Txt>
@@ -444,17 +459,17 @@ function TripRowBase({ t }: { t: Trip }) {
       accessibilityRole="button"
       onPress={() => go(`/trip/${t.id}`)}
       accessibilityLabel={tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} place open', ', {n} places open'))}
-      style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 13, gap: 12 }, pressed && { opacity: 0.92 }]}
+      style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 11, gap: 10, minHeight: 44 }, pressed && { opacity: 0.92 }]}
     >
-      <Row style={{ gap: 16, alignItems: 'flex-start' }}>
-        <TripThumb t={t} size={30} style={{ width: sc(86), height: sc(86), borderRadius: 22 }} />
+      <Row style={{ gap: 14, alignItems: 'flex-start' }}>
+        <TripThumb t={t} size={26} style={{ width: sc(72), height: sc(72), borderRadius: 18 }} />
         <View style={{ flex: 1, gap: 5, paddingTop: 2 }}>
           <Txt variant="h3" numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{t.destination}</Txt>
           <Row style={{ gap: 4 }}>
             <Ionicons name="location-outline" size={14} color={c.muted} />
             <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 13, lineHeight: 17 }}>{tripWhen(t)}</Txt>
           </Row>
-          <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 16, fontWeight: '600' }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+          <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 16, fontWeight: '600', ...FLAT }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
         </View>
       </Row>
       <Row style={{ gap: 10 }}>

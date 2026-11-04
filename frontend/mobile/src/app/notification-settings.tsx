@@ -1,9 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Switch, View } from 'react-native';
+import { Platform, Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
-import { AccountRow, PageTop, RoundCard } from '@/components/ProfileParts';
+import { AccountRow, RoundCard } from '@/components/ProfileParts';
 import { Empty, ErrorBanner, Screen, Spinner, Txt } from '@/components/ui';
 import { get, put } from '@/lib/api';
 import { errMsg, useLoad, useRefresh } from '@/lib/hooks';
@@ -109,8 +108,6 @@ export default function NotificationSettings() {
 
   return (
     <Screen onRefresh={onRefresh} refreshing={refreshing}>
-      <Stack.Screen options={{ headerShown: false }} />
-      <PageTop title={t('Notifications')} align="left" />
       <ErrorBanner message={load.error && !s ? load.error.message : null} />
       {load.loading && !s && <Spinner />}
       {!load.loading && !s && load.error ? <Empty title={t('Could not load your settings')} /> : null}
@@ -126,7 +123,7 @@ export default function NotificationSettings() {
                   icon={ICONS[g.key] ?? 'notifications-outline'}
                   title={label}
                   subtitle={text}
-                  right={<Switch accessibilityLabel={label} accessibilityHint={text} value={g.push} onValueChange={(v) => toggle(g, v)} trackColor={{ true: c.green, false: c.line }} thumbColor="#fff" />}
+                  right={<Switch accessibilityLabel={label} accessibilityHint={text} value={g.push} onValueChange={(v) => toggle(g, v)} trackColor={{ true: c.green, false: c.line }} thumbColor={Platform.OS === 'android' && !g.push ? c.muted : '#fff'} ios_backgroundColor={c.line} />}
                 />
               );
             })}
@@ -141,7 +138,7 @@ export default function NotificationSettings() {
                 <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{t('Quiet hours')}</Text>
                 <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t('No notifications between these times, except important alerts')}</Text>
               </View>
-              <Switch accessibilityLabel={t('Quiet hours')} value={s.quietHours.enabled} onValueChange={(v) => quiet({ enabled: v })} trackColor={{ true: c.green, false: c.line }} thumbColor="#fff" />
+              <Switch accessibilityLabel={t('Quiet hours')} value={s.quietHours.enabled} onValueChange={(v) => quiet({ enabled: v })} trackColor={{ true: c.green, false: c.line }} thumbColor={Platform.OS === 'android' && !s.quietHours.enabled ? c.muted : '#fff'} ios_backgroundColor={c.line} />
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TimeStep label={t('From')} value={s.quietHours.start} disabled={!s.quietHours.enabled} onChange={(v) => quiet({ start: v })} />

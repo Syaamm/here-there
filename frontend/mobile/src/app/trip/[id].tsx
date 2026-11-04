@@ -12,10 +12,11 @@ import { ReportSheet } from '@/components/ReportSheet';
 import { InfoRow } from '@/components/ActivityParts';
 import { Text } from '@/components/ScaledText';
 import { TripGoingGrid, TripHostCard } from '@/components/TripParts';
-import { Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
+import { Banner, BottomBar, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
 import { del, get, post, type Trip } from '@/lib/api';
 import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
+import { TRIP_PHOTOS, tripStyle } from '@/components/Cards';
 import { FLEX } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, money } from '@/lib/format';
@@ -37,6 +38,7 @@ export default function TripDetail() {
   const HERO = c.heroBlock;
   const { gutter } = useLayout();
   const [expanded, setExpanded] = useState(false);
+  const [barH, setBarH] = useState(0); // the fixed bottom bar's measured height
   const { data: trip, error, loading, reload } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'trip' | 'user'; id: string } | null>(null);
@@ -66,6 +68,8 @@ export default function TripDetail() {
   const full = trip.status === 'full' || trip.spotsLeft === 0;
   // a cancelled trip, or one that has started, cannot be saved or shared (a saved one can still be taken out)
   const ahead = !closed && +new Date(trip.dateStart) > Date.now();
+  // leaving is for a trip that has not started or is under way (its last day included), never one that is finished or called off
+  const canLeave = !closed && +new Date(trip.dateEnd) + 864e5 > Date.now();
   const fav = favNow ?? !!trip.favorited;
 
   const menu = trip.isHost || isGuest
@@ -94,6 +98,8 @@ export default function TripDetail() {
   const PHOTO = 250 + top; // the picture's full height
   const STRIP = top + 84; // what is left of it once collapsed: the button row plus the sheet's rounded edge
 
+  const style = tripStyle(trip);
+  const photo = style ? TRIP_PHOTOS[style] : undefined; // the picture of the trip's travel style (trips have no photos of their own)
   const going = trip.participants ?? [];
 
   // The one main action sits in a bar fixed to the bottom; the lesser ones stay in the page.
@@ -113,16 +119,17 @@ export default function TripDetail() {
   return (
     <View style={{ flex: 1 }}>
       <Screen
+        bottomRoom={primary ? barH : undefined}
         stickyHero={{
           scrolling: (
             <View style={{ height: PHOTO - STRIP, overflow: 'hidden' }}>
-              <Hero plain round height={PHOTO} color={HERO} emoji="✈️" />
+              <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} />
             </View>
           ),
           pinned: (
             <View style={{ height: STRIP, overflow: 'hidden', backgroundColor: c.bg }}>
               <View style={{ marginTop: -(PHOTO - STRIP) }}>
-                <Hero plain round height={PHOTO} color={HERO} emoji="✈️" />
+                <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} />
               </View>
               <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 28, backgroundColor: c.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28 }} />
             </View>
@@ -228,7 +235,7 @@ export default function TripDetail() {
             <Banner tone="ok">{t("You're in the group.")}</Banner>
             <Btn title={t('Trip Plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
             {trip.isMember && !trip.isHost && trip.status !== 'cancelled' && hostNoShowOpen(trip.dateStart, trip.dateEnd) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
-            <Btn title={t('Leave trip')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this trip?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/trips/${id}/leave`))} />
+            {canLeave ? <Btn title={t('Leave trip')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this trip?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/trips/${id}/leave`))} /> : null}
           </View>
         ) : app && app.state === 'pending' ? (
           <Banner tone="warn">{app.message}</Banner>
@@ -238,20 +245,15 @@ export default function TripDetail() {
             {app.canAppeal ? <AskAgain path={`/v1/trips/${id}`} who="organizer" onDone={reload} /> : null}
           </View>
         ) : null}
-
-        {/* room under the content for the fixed bar */}
-        {primary ? <View style={{ height: 64 + insets.bottom }} /> : null}
         <ReportSheet target={report} onClose={() => setReport(null)} />
         <HostNoShowSheet kind="trip" id={id} visible={noShow === 'open' || noShow === 'confirm'} onClose={() => setNoShow((v) => (v === 'confirm' || v === 'sent' ? 'sent' : 'closed'))} onSent={() => setNoShow('confirm')} />
       </Screen>
 
       {primary ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: c.bg, borderTopWidth: 1, borderTopColor: c.line, paddingTop: 8, paddingBottom: insets.bottom + 8, paddingHorizontal: gutter, alignItems: 'center' }}>
-          <View style={{ width: '100%', maxWidth: 760, gap: 6 }}>
-            <Btn title={primary.title} variant={primary.variant} disabled={primary.disabled} loading={primary.loading} onPress={primary.onPress} />
-            {primary.caption ? <Txt variant="small" style={{ textAlign: 'center' }}>{primary.caption}</Txt> : null}
-          </View>
-        </View>
+        <BottomBar onHeight={setBarH}>
+          <Btn title={primary.title} variant={primary.variant} disabled={primary.disabled} loading={primary.loading} onPress={primary.onPress} />
+          {primary.caption ? <Txt variant="small" style={{ textAlign: 'center' }}>{primary.caption}</Txt> : null}
+        </BottomBar>
       ) : null}
 
       {/* fixed over the page: back on the left; share and more on the right */}

@@ -12,7 +12,7 @@ import { Text } from '@/components/ScaledText';
 import { Menu } from '@/components/Menu';
 import { HostNoShowSheet, hostNoShowOpen } from '@/components/HostNoShowSheet';
 import { ReportSheet } from '@/components/ReportSheet';
-import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Sheet, Txt, useGo } from '@/components/ui';
+import { Avatar, Banner, BottomBar, Btn, Chip, Empty, ErrorBanner, Row, Screen, Sheet, Txt, useGo } from '@/components/ui';
 import { del, get, post, type Activity } from '@/lib/api';
 import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
@@ -49,6 +49,7 @@ export default function ActivityDetail() {
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   const [expanded, setExpanded] = useState(false);
+  const [barH, setBarH] = useState(0); // the fixed bottom bar's measured height
   const [handing, setHanding] = useState(false); // the host's "hand over hosting" list of members
   // the heart answers at once; the server confirms a moment later (a failed save puts it back)
   const [favNow, setFavNow] = useState<boolean | null>(null);
@@ -81,6 +82,8 @@ export default function ActivityDetail() {
   const over = a.status === 'completed' || a.status === 'archived';
   // a cancelled plan, or one that has started, cannot be saved or shared (a saved one can still be taken out)
   const ahead = !closed && +new Date(a.startsAt) > Date.now();
+  // leaving is for a plan that has not started or is going on now, never one that is finished, called off or past its end
+  const canLeave = !over && a.status !== 'cancelled' && !(a.endsAt && +new Date(a.endsAt) < Date.now());
 
   const canHandOver = a.isHost && !over && a.status !== 'cancelled' && !a.handover && (a.participants ?? []).some((p) => p.role !== 'host' && p.verifiedAdult);
   const menu = [
@@ -153,6 +156,7 @@ export default function ActivityDetail() {
           edge) scrolls up to the top and then stays there while the white section slides under it. The system's own sticky
           header does the pinning, so there is no scroll code running to lag behind. */}
       <Screen
+        bottomRoom={primary ? barH : undefined}
         stickyHero={{
           scrolling: (
             <View style={{ height: PHOTO - STRIP, overflow: 'hidden' }}>
@@ -309,7 +313,7 @@ export default function ActivityDetail() {
               <View style={{ gap: 10 }}>
                 <Banner tone="ok">{t("You're going. See you there!")}</Banner>
                 {a.isMember && !a.isHost && a.status !== 'cancelled' && hostNoShowOpen(a.startsAt, a.endsAt) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
-                <Btn title={t('Leave activity')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this activity?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/activities/${id}/leave`))} />
+                {canLeave ? <Btn title={t('Leave activity')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this activity?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/activities/${id}/leave`))} /> : null}
               </View>
             ) : req === 'requested' ? (
               <Banner tone="warn">{t('Request sent. Waiting for the host.')}</Banner>
@@ -323,9 +327,6 @@ export default function ActivityDetail() {
             ) : null}
           </>
         )}
-
-        {/* room under the content for the fixed bar */}
-        {primary ? <View style={{ height: 64 + insets.bottom }} /> : null}
         <ReportSheet target={report} onClose={() => setReport(null)} />
         <HostNoShowSheet kind="activity" id={id} visible={noShow === 'open' || noShow === 'confirm'} onClose={() => setNoShow((v) => (v === 'confirm' || v === 'sent' ? 'sent' : 'closed'))} onSent={() => setNoShow('confirm')} />
         <Sheet visible={handing} title={t('Hand over hosting')} onClose={() => setHanding(false)}>
@@ -353,12 +354,10 @@ export default function ActivityDetail() {
 
 
       {primary ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: c.bg, borderTopWidth: 1, borderTopColor: c.line, paddingTop: 8, paddingBottom: insets.bottom + 8, paddingHorizontal: gutter, alignItems: 'center' }}>
-          <View style={{ width: '100%', maxWidth: 760, gap: 6 }}>
-            <Btn title={primary.title} variant={primary.variant} disabled={primary.disabled} loading={primary.loading} onPress={primary.onPress} />
-            {primary.caption ? <Txt variant="small" style={{ textAlign: 'center' }}>{primary.caption}</Txt> : null}
-          </View>
-        </View>
+        <BottomBar onHeight={setBarH}>
+          <Btn title={primary.title} variant={primary.variant} disabled={primary.disabled} loading={primary.loading} onPress={primary.onPress} />
+          {primary.caption ? <Txt variant="small" style={{ textAlign: 'center' }}>{primary.caption}</Txt> : null}
+        </BottomBar>
       ) : null}
 
       {/* fixed over the page: back on the left; favourite, share and more on the right */}

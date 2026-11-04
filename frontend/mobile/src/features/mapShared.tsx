@@ -236,6 +236,7 @@ function RoundTool({ icon, label, onPress }: { icon: React.ComponentProps<typeof
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
+      hitSlop={4}
       style={({ pressed }) => [{ width: 46, height: 46, borderRadius: 23, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { opacity: 0.85, transform: [{ scale: 0.94 }] }]}
     >
       <Ionicons name={icon} size={22} color={c.text} />
@@ -298,7 +299,7 @@ function PillButton({ icon, title, onPress, disabled }: { icon: React.ComponentP
       style={({ pressed }) => [{ height: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: disabled ? 0.6 : 1 }, pressed && { opacity: 0.85 }]}
     >
       <Ionicons name={icon} size={15} color={c.forest} />
-      <Txt variant="h3" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>{title}</Txt>
+      <Txt variant="h3" color={c.forest} numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, includeFontPadding: false }}>{title}</Txt>
     </Pressable>
   );
 }
@@ -455,8 +456,8 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
                     <Text style={{ color: c.muted, fontSize: 15, lineHeight: 22, marginTop: 4 }}>{t('Tap a pin to preview, or pull up for the list')}</Text>
                   </View>
                   {nextStart ? (
-                    <View style={{ backgroundColor: c.sand, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start' }}>
-                      <Text style={{ color: c.forest, fontSize: 13, lineHeight: 17, fontWeight: '500' }}>{t('Next in {time}', { time: untilStart(nextStart) })}</Text>
+                    <View style={{ backgroundColor: c.sand, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start', flexShrink: 0 }}>
+                      <Text style={{ color: c.forest, fontSize: 13, lineHeight: 17, fontWeight: '500', includeFontPadding: false }}>{t('Next in {time}', { time: untilStart(nextStart) })}</Text>
                     </View>
                   ) : null}
                 </Row>

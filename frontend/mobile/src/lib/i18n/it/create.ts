@@ -187,8 +187,7 @@ export const create: Record<string, string> = {
   'Nothing planned further ahead yet.': 'Ancora niente in programma più avanti.',
   // create wizard (Host activity, 4 steps)
   'Host activity': 'Organizza un’attività',
-  'Step {n}/4': 'Passo {n}/4',
-  'Activity Type Selection': 'Scelta del tipo di attività',
+  'Step {n}/4': 'Passo {n}/4',  'Activity Type Selection': 'Scelta del tipo di attività',
   'Activity Time & Date Selection': 'Scelta di data e ora',
   'Activity Spot Selection': 'Scelta del luogo',
   'Activity Size & Access': 'Dimensione e accesso',

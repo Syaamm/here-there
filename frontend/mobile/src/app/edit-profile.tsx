@@ -1,9 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { AuthButton, AuthField } from '@/components/AuthForm';
-import { PageTop, SmallPill, TogglePill } from '@/components/ProfileParts';
+import { SmallPill, TogglePill } from '@/components/ProfileParts';
 import { Text } from '@/components/ScaledText';
 import { Avatar, Banner, ErrorBanner, Row, Screen, Txt } from '@/components/ui';
 import { del, patch, uploadPhoto } from '@/lib/api';
@@ -45,8 +45,6 @@ export default function EditProfile() {
 
   return (
     <Screen tabBar>
-      <Stack.Screen options={{ headerShown: false }} />
-      <PageTop title={t('Edit profile')} align="left" />
       <View style={{ alignItems: 'center', gap: 16 }}>
         <Avatar name={f.displayName || p.displayName} uri={p.photoUrl} size={100} />
         <Row style={{ gap: 14 }}>
@@ -58,7 +56,7 @@ export default function EditProfile() {
       </View>
 
       <ErrorBanner message={save.error} />
-      <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={(v) => setF((x) => ({ ...x, displayName: v }))} maxLength={40} />
+      <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={(v) => setF((x) => ({ ...x, displayName: v }))} maxLength={40} autoComplete="name" textContentType="name" autoCapitalize="words" />
       <AuthField label={t('About you')} hint={`${f.bio.length}/${BIO_MAX}`} placeholder={t('A few words about you')} multiline value={f.bio} onChangeText={(v) => setF((x) => ({ ...x, bio: v.slice(0, BIO_MAX) }))} maxLength={BIO_MAX} style={{ minHeight: 96, borderRadius: 28, textAlignVertical: 'top', paddingTop: 14 }} />
       <AuthField label={t('Home city (city only)')} placeholder={t('Your city')} value={f.homeCity} onChangeText={(v) => setF((x) => ({ ...x, homeCity: v }))} maxLength={60} />
 

@@ -1,13 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import { ActivityCard, TripCard } from '@/components/Cards';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { Text } from '@/components/ScaledText';
+import { StatsCard } from '@/components/StatsCard';
 import { ModeSwitch } from '@/components/TabHeader';
-import { useLayout } from '@/lib/layout';
 import { Avatar, Between, Btn, Card, Chip, Empty, ErrorBanner, Field, Grid, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, patch, type Activity, type MyActivitiesPage, type MyReliability, type MyTripRow, type MyTripsPage } from '@/lib/api';
 import { myActivityItems } from '@/lib/myActivities';
@@ -17,26 +16,8 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
 
+const HERE_MINT = '#B7DBCF';
 const csv = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
-
-/** THERE's HERE | THERE switch in the profile design: a white pill with the open side filled deep forest (it does what the header switch does). */
-function ThereSwitch() {
-  const { switchMode, c } = useTheme();
-  const { t } = useT();
-  const opts: ['here' | 'there', string][] = [['here', 'HERE'], ['there', 'THERE']];
-  return (
-    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 999, backgroundColor: '#fff', padding: 3, shadowColor: '#102F29', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-      {opts.map(([m, label]) => {
-        const on = m === 'there';
-        return (
-          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}', { name: label })} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }} onPress={() => (on ? undefined : switchMode(m))} style={{ minHeight: 26, paddingHorizontal: 11, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.forest : 'transparent' }}>
-            <Text style={{ color: on ? '#fff' : c.forest, fontWeight: on ? '700' : '500', fontSize: 11, letterSpacing: 0.5 }}>{label}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
 
 /** Shared profile across HERE and THERE: one identity, one verification, one block list. */
 export function Profile() {
@@ -44,9 +25,8 @@ export function Profile() {
   const { me, reload } = useMe();
   const { mode, switchMode, c } = useTheme();
   const go = useGo();
-  const { gutter } = useLayout();
   const [tab, setTab] = useState<'activities' | 'trips' | 'favourites'>(mode === 'here' ? 'activities' : 'trips');
-  const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number } }>(`/v1/users/${me!.id}`), [me?.id], undefined, 'me:stats');
+  const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number; tripsDone: number } }>(`/v1/users/${me!.id}`), [me?.id], undefined, 'me:stats');
   // only the 3 newest of each list are fetched (the full lists are their own pages), with how many there are in all
   const acts = useLoad(() => get<MyActivitiesPage>('/v1/me/activities/page?tab=all&limit=3'), [], undefined, 'me:acts:recent');
   const trips = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?limit=2'), [], undefined, 'me:trips');
@@ -77,11 +57,6 @@ export function Profile() {
   const surf = there ? '#fff' : c.surface;
   const soft = { shadowColor: '#102F29', shadowOpacity: 0.1, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 3, backgroundColor: surf } as const;
   const rowCard = { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 64, paddingHorizontal: 20, borderRadius: 24 } as const;
-  const stat = [
-    [stats.data?.stats.activitiesHosted, t('Hosted')],
-    [stats.data?.stats.activitiesJoined, t('Joined')],
-    [trips.data?.counts.joined, t('Trips')],
-  ] as const;
 
   const buddiesRow = (
           <Pressable accessibilityRole="button" accessibilityLabel={t('Buddies and followers: {buddies} Buddies, {following} following, {followers} followers', { buddies: conns.data?.counts.buddies ?? 0, following: conns.data?.counts.following ?? 0, followers: conns.data?.counts.followers ?? 0 })} onPress={() => go('/connections')} style={[rowCard, soft]}>
@@ -110,39 +85,33 @@ export function Profile() {
           ) : null
   );
 
-  return (
-    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing}>
-      <>
-          {/* a soft mint wash behind the top of the page, then the switch and the settings gear (Figma "Profile") */}
-          <LinearGradient pointerEvents="none" colors={there ? [c.bg, c.sand, c.bg] : ['#B7DBCF', '#FFFFFF']} locations={there ? [0, 0.65, 1] : undefined} style={{ position: 'absolute', top: -80, left: -gutter, right: -gutter, height: 400 }} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            {there ? <ThereSwitch /> : <ModeSwitch />}
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} hitSlop={6} onPress={() => go('/settings')} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: there ? c.forest : 'rgba(16,47,41,0.14)', alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="settings-outline" size={22} color={there ? '#fff' : c.forest} />
-            </Pressable>
-          </View>
-          <View style={{ alignItems: 'center', gap: 6, marginTop: -28 }}>
-            <View>
-              <Avatar name={p.displayName} uri={p.photoUrl} size={100} />
-              <Pressable accessibilityRole="button" accessibilityLabel={t('Edit profile and photo')} hitSlop={8} onPress={() => go('/edit-profile')} style={{ position: 'absolute', right: -4, bottom: -2, width: 30, height: 30, borderRadius: 15, backgroundColor: c.forest, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="pencil" size={13} color="#fff" />
-              </Pressable>
-            </View>
-            <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600', marginTop: 6 }}>
-              {p.displayName}
-              {v === 'verified' ? <Text style={{ color: '#2F80ED' }}>{'  '}<Ionicons name="checkmark-circle" size={20} color="#2F80ED" /></Text> : null}
-            </Text>
-            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>{p.homeCity ?? t('No city set')} · {verifyText}</Text>
-          </View>
+  // the top stays put (the card system of the home page): the switch and the gear, then the picture and name. Only the card below scrolls.
+  const band = (
+    <View style={{ alignItems: 'center', gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', alignSelf: 'stretch' }}>
+        <ModeSwitch />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} hitSlop={6} onPress={() => go('/settings')} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: there ? c.forest : 'rgba(16,47,41,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="settings-outline" size={22} color={there ? '#fff' : c.forest} />
+        </Pressable>
+      </View>
+      <View style={{ marginTop: 8 }}>
+        <Avatar name={p.displayName} uri={p.photoUrl} size={100} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Edit profile and photo')} hitSlop={8} onPress={() => go('/edit-profile')} style={{ position: 'absolute', right: -4, bottom: -2, width: 30, height: 30, borderRadius: 15, backgroundColor: c.forest, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="pencil" size={13} color="#fff" />
+        </Pressable>
+      </View>
+      <Text accessibilityRole="header" numberOfLines={2} style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600', marginTop: 6, textAlign: 'center' }}>
+        {p.displayName}
+        {v === 'verified' ? <Text style={{ color: '#2F80ED' }}>{'  '}<Ionicons name="checkmark-circle" size={20} color="#2F80ED" /></Text> : null}
+      </Text>
+      <Text numberOfLines={2} style={{ color: c.muted, fontSize: 14, lineHeight: 20, textAlign: 'center' }}>{p.homeCity ?? t('No city set')} · {verifyText}</Text>
+    </View>
+  );
 
-          <View style={[{ flexDirection: 'row', borderRadius: 32, paddingVertical: 18, marginTop: 14 }, soft]}>
-            {stat.map(([n, l], i) => (
-              <View key={l} style={{ flex: 1, alignItems: 'center', gap: 2, borderLeftWidth: i ? 1 : 0, borderLeftColor: c.line }}>
-                <Text style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{n ?? '–'}</Text>
-                <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{l}</Text>
-              </View>
-            ))}
-          </View>
+  return (
+    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={band} headerBg={there ? c.sand : HERE_MINT} bandFade="#FFFFFF" bandDark={false} style={{ paddingTop: 20 }}>
+      <>
+          <StatsCard hosted={stats.data?.stats.activitiesHosted} joined={stats.data?.stats.activitiesJoined} trips={stats.data?.stats.tripsDone} />
           <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17, textAlign: 'center' }}>{t('No reviews yet.')}</Text>
           {there ? <>{reliabilityRow}{travelRow}{buddiesRow}</> : <>{buddiesRow}{reliabilityRow}{travelRow}</>}
           {!me.emailVerified ? (

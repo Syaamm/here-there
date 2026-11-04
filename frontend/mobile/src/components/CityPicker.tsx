@@ -16,15 +16,15 @@ export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: str
     <>
       <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => (setV(city), setOpen(true))} hitSlop={8}>
         {onDark ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 38, paddingHorizontal: 14, borderRadius: 19, backgroundColor: 'rgba(235,239,238,0.2)' }}>
-            <Ionicons name="location-outline" size={15} color="#43A047" />
-            <Text numberOfLines={1} style={{ color: '#fff', fontWeight: '600', fontSize: 13.5, maxWidth: 110 }}>{city}</Text>
-            <Text accessibilityElementsHidden importantForAccessibility="no" style={{ fontSize: 13 }}>👋</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 38, paddingHorizontal: 14, borderRadius: 19, backgroundColor: c.bandChip }}>
+            <Ionicons name="location-outline" size={15} color={c.bandPin} />
+            <Text numberOfLines={1} style={{ color: c.onBand, fontWeight: '600', fontSize: 13.5, lineHeight: 18, includeFontPadding: false, maxWidth: 110 }}>{city}</Text>
+            <Text accessibilityElementsHidden importantForAccessibility="no" style={{ fontSize: 13, lineHeight: 18, includeFontPadding: false }}>👋</Text>
           </View>
         ) : pill ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, height: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface }}>
             <Ionicons name="location-outline" size={15} color={c.green} />
-            <Text style={{ color: c.text, fontWeight: '700', fontSize: 12 }}>{city} · {t('Around you')}</Text>
+            <Text style={{ color: c.text, fontWeight: '700', fontSize: 12, lineHeight: 16, includeFontPadding: false }}>{city} · {t('Around you')}</Text>
             <Ionicons name="chevron-down" size={14} color={c.muted} />
           </View>
         ) : subtitle ? (

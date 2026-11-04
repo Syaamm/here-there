@@ -38,6 +38,8 @@ export default function RootLayout() {
 /** Signed-out people only ever see the (auth) screens; signed-in people never do. */
 /** Options of a page with the app header (wordmark, HERE | THERE, back arrow) and its own title under it. */
 const inner = (title: string) => ({ title, header: ({ options }: { options: any }) => <InnerHeader options={options} /> });
+/** Pages listed in lib/pageTitles draw the curved band themselves (Screen), so their stack header is off. */
+const banded = { headerShown: false };
 
 function Gate() {
   const { t } = useT();
@@ -71,9 +73,11 @@ function Gate() {
   if (!ready || (me && remembered !== me.id))
     return (
       <WebFrame>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.forest, gap: 16 }}>
+        {/* the splash sits on the mode's band: light clock on HERE's dark green, dark on THERE's sand */}
+        <StatusBar style={c.bandIsDark ? 'light' : 'dark'} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.band, gap: 16 }}>
           <Logo size={40} light />
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={c.onBand} />
         </View>
       </WebFrame>
     );
@@ -100,39 +104,39 @@ function Gate() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           {/* Every page opened from another page is a screen of its own above the tabs, like in any iPhone app: dragging it
               away from the left edge shows the page it came from underneath, already there, and going back never reloads it. */}
-          <Stack.Screen name="activity/[id]" options={inner('Activity')} />
-          <Stack.Screen name="trip/[id]" options={inner('Trip')} />
-          <Stack.Screen name="join/[id]" options={inner('Request to join')} />
-          <Stack.Screen name="apply/[id]" options={inner('Apply to join')} />
-          <Stack.Screen name="host/[id]" options={inner('Manage join requests')} />
-          <Stack.Screen name="review/[id]" options={inner('Review travelers')} />
+          <Stack.Screen name="activity/[id]" options={banded} />
+          <Stack.Screen name="trip/[id]" options={banded} />
+          <Stack.Screen name="join/[id]" options={banded} />
+          <Stack.Screen name="apply/[id]" options={banded} />
+          <Stack.Screen name="host/[id]" options={banded} />
+          <Stack.Screen name="review/[id]" options={banded} />
           <Stack.Screen name="group/[id]" options={inner('Group info')} />
-          <Stack.Screen name="user/[id]" options={inner('Profile')} />
-          <Stack.Screen name="safety" options={inner('Safety & privacy')} />
-          <Stack.Screen name="settings" options={inner('Settings')} />
-          <Stack.Screen name="activities" options={inner('All activities')} />
-          <Stack.Screen name="trips" options={inner('All trips')} />
-          <Stack.Screen name="edit-profile" options={inner('Edit profile')} />
-          <Stack.Screen name="change-password" options={inner('Change password')} />
-          <Stack.Screen name="my-data" options={inner('Your data')} />
-          <Stack.Screen name="retention" options={inner('How long we keep things')} />
-          <Stack.Screen name="reliability" options={inner('Your reliability')} />
-          <Stack.Screen name="no-shows/[kind]/[id]" options={inner('Who came?')} />
-          <Stack.Screen name="change-email" options={inner('Change email')} />
-          <Stack.Screen name="delete-account" options={inner('Delete account')} />
-          <Stack.Screen name="my-activities" options={inner('My activities')} />
-          <Stack.Screen name="my-trips" options={inner('My trips')} />
-          <Stack.Screen name="drafts" options={inner('My drafts')} />
-          <Stack.Screen name="notification-settings" options={inner('Notifications')} />
-          <Stack.Screen name="reports-blocked" options={inner('Reports & blocked')} />
-          <Stack.Screen name="travel-match" options={inner('Travel buddies')} />
-          <Stack.Screen name="trip-plan/[id]" options={inner('Trip plan')} />
-          <Stack.Screen name="appeal" options={inner('Ask for a review')} />
-          <Stack.Screen name="favourites" options={inner('Favourites')} />
-          <Stack.Screen name="connections" options={inner('Buddies')} />
+          <Stack.Screen name="user/[id]" options={banded} />
+          <Stack.Screen name="safety" options={banded} />
+          <Stack.Screen name="settings" options={banded} />
+          <Stack.Screen name="activities" options={banded} />
+          <Stack.Screen name="trips" options={banded} />
+          <Stack.Screen name="edit-profile" options={banded} />
+          <Stack.Screen name="change-password" options={banded} />
+          <Stack.Screen name="my-data" options={banded} />
+          <Stack.Screen name="retention" options={banded} />
+          <Stack.Screen name="reliability" options={banded} />
+          <Stack.Screen name="no-shows/[kind]/[id]" options={banded} />
+          <Stack.Screen name="change-email" options={banded} />
+          <Stack.Screen name="delete-account" options={banded} />
+          <Stack.Screen name="my-activities" options={banded} />
+          <Stack.Screen name="my-trips" options={banded} />
+          <Stack.Screen name="drafts" options={banded} />
+          <Stack.Screen name="notification-settings" options={banded} />
+          <Stack.Screen name="reports-blocked" options={banded} />
+          <Stack.Screen name="travel-match" options={banded} />
+          <Stack.Screen name="trip-plan/[id]" options={banded} />
+          <Stack.Screen name="appeal" options={banded} />
+          <Stack.Screen name="favourites" options={banded} />
+          <Stack.Screen name="connections" options={banded} />
           {/* a chat is its own screen above the tabs, like a chat in any messaging app: the iPhone's own swipe-back shows the inbox underneath as you drag */}
           <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
-          <Stack.Screen name="verify" options={{ title: 'Verify your identity', header: ({ options }) => <InnerHeader options={options} /> }} />
+          <Stack.Screen name="verify" options={banded} />
           <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!me}>

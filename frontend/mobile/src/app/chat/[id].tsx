@@ -50,10 +50,11 @@ function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolea
         accessibilityState={{ selected: on, disabled: !open || busy }}
         disabled={!open || busy}
         onPress={() => onVote(v)}
+        hitSlop={{ top: 3, bottom: 3 }}
         style={({ pressed }) => [{ flex: 1, height: 38, borderRadius: 999, borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: open ? 1 : 0.6 }, pressed && { opacity: 0.85 }]}
       >
         <Ionicons name={icon} size={16} color={on ? '#fff' : c.text} />
-        <Text style={{ color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 13 }}>{label} · {v === 'accept' ? p.accept : p.reject}</Text>
+        <Text numberOfLines={1} style={{ flexShrink: 1, color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 13, includeFontPadding: false }}>{label} · {v === 'accept' ? p.accept : p.reject}</Text>
       </Pressable>
     );
   };
@@ -133,7 +134,7 @@ const Bubble = memo(
         {showName && (
           <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36 }}>
             <Avatar name={m.sender.displayName} uri={m.sender.photoUrl} size={34} />
-            <Text style={{ color: c.text, fontWeight: '500', fontSize: 16, lineHeight: 21 }}>{m.sender.displayName}</Text>
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontWeight: '500', fontSize: 16, lineHeight: 21 }}>{m.sender.displayName}</Text>
           </Pressable>
         )}
         <Pressable
@@ -145,7 +146,7 @@ const Bubble = memo(
           delayLongPress={350}
           style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8, shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: mine ? 0 : 1 }}
         >
-          <Text style={{ color: mine ? '#fff' : c.text, fontSize: 15, lineHeight: 23 }}>
+          <Text selectable={mine} style={{ color: mine ? '#fff' : c.text, fontSize: 15, lineHeight: 23 }}>
             <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
           </Text>
           {/* a message with a web address carries its own caution, before anyone taps it */}
@@ -466,7 +467,7 @@ function Chat({ id }: { id: string }) {
                 ))}
                 {info.data.members.length > 4 ? (
                   <View style={{ marginLeft: -10, minWidth: 32, height: 32, borderRadius: 16, paddingHorizontal: 6, backgroundColor: c.forest, borderWidth: 2, borderColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>{info.data.members.length - 4}+</Text>
+                    <Text style={{ color: '#fff', fontSize: 12, lineHeight: 16, fontWeight: '600', includeFontPadding: false }}>{info.data.members.length - 4}+</Text>
                   </View>
                 ) : null}
               </View>
@@ -475,7 +476,7 @@ function Chat({ id }: { id: string }) {
             )}
           </Pressable>
           <View style={{ width: 44, alignItems: 'flex-end' }}>
-            <Menu items={menu} />
+            <Menu popover items={menu} />
           </View>
         </View>
         <View style={{ height: 1, backgroundColor: c.line, marginTop: 10 }} />
@@ -491,8 +492,8 @@ function Chat({ id }: { id: string }) {
                 <Text style={{ fontWeight: '800' }}>{t('Final dates {dates}', { dates: dateSpan(trip.data.dateStart, trip.data.dateEnd) })}</Text> · {t('{done} of {total} confirmed', { done: trip.data.datesConfirmedCount ?? 0, total: trip.data.members })}{trip.data.myDatesConfirmed ? ' ✓' : ''}
               </Text>
               {trip.data.isMember && !trip.data.myDatesConfirmed ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={t('Confirm you can travel on these dates')} disabled={plan.busy} onPress={confirmDates} hitSlop={6} style={({ pressed }) => [{ height: 28, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85 }]}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{t('Confirm')}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('Confirm you can travel on these dates')} disabled={plan.busy} onPress={confirmDates} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }} style={({ pressed }) => [{ height: 28, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85 }]}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12, includeFontPadding: false }}>{t('Confirm')}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -591,7 +592,7 @@ function Chat({ id }: { id: string }) {
       ) : (
         <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-end', paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottomGap + 8 }}>
           {amHost && conv?.scope === 'trip' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
               <Ionicons name="add" size={22} color={c.forest} />
             </Pressable>
           ) : null}
@@ -607,7 +608,7 @@ function Chat({ id }: { id: string }) {
             maxLength={2000}
             multiline
             numberOfLines={1}
-            style={{ flex: 1, minHeight: 52, maxHeight: 120, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 28, backgroundColor: c.surface, color: c.text, paddingHorizontal: 22, paddingVertical: 14, fontSize: mode === 'there' ? 15 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 }}
+            style={{ flex: 1, minHeight: 52, maxHeight: 120, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 28, backgroundColor: c.surface, color: c.text, paddingHorizontal: 22, paddingVertical: 14, textAlignVertical: 'center', fontSize: mode === 'there' ? 15 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 }}
           />
           <Pressable
             accessibilityRole="button"

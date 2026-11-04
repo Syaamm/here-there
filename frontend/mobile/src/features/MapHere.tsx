@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import MapView, { Marker, type Region } from 'react-native-maps';
 import { Empty } from '@/components/ui';
 import { useT } from '@/lib/i18n';
@@ -17,28 +17,12 @@ const GREY_MAP = [
   { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#e4ecdf' }] },
 ];
 
-// TEMPORARY: development-only counters, to find out what redraws when the sheet is closed. Remove once found.
-const dbg = { map: 0, pins: 0, loads: 0 };
-function DebugCounts() {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 300);
-    return () => clearInterval(t);
-  }, []);
-  return (
-    <View pointerEvents="none" style={{ position: 'absolute', top: 118, left: 12, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
-      <Text style={{ color: '#fff', fontSize: 11 }}>map renders {dbg.map} · pin renders {dbg.pins} · data loads {dbg.loads}</Text>
-    </View>
-  );
-}
-
 /**
  * One pin. It is redrawn (the green fill playing) only when ITS OWN selection changes, for just long enough for the
  * change to show, and then goes back to being a still picture. Selecting or deselecting one pin never touches the others.
  */
 const MapPin = memo(function MapPin({ g, active, onSelect }: { g: Group; active: boolean; onSelect: (g: Group) => void }) {
   const { tn } = useT();
-  if (__DEV__) dbg.pins++;
   const [track, setTrack] = useState(true); // drawn live while it first appears, and again for a moment after it is (de)selected
   useEffect(() => {
     setTrack(true);
@@ -63,10 +47,6 @@ export function MapHere() {
   const data = useMapData();
   const { center, groups, selected, setSelected, target, zoomCmd } = data;
   const map = useRef<MapView>(null);
-  if (__DEV__) dbg.map++;
-  useEffect(() => {
-    if (__DEV__) dbg.loads++;
-  }, [data.feed.data]);
   // a pin taps through this one stable function, so the pins themselves never need to be rebuilt
   const pick = useRef(setSelected);
   pick.current = setSelected;
@@ -114,7 +94,6 @@ export function MapHere() {
         ))}
       </MapView>
       <MapOverlay data={data} />
-      {__DEV__ ? <DebugCounts /> : null}
       </View>
     </View>
   );

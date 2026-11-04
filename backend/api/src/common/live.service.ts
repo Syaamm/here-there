@@ -75,6 +75,8 @@ export class LiveService implements OnModuleDestroy {
         try {
           const m = JSON.parse(raw.toString()) as { type?: string; visible?: unknown; city?: unknown; id?: unknown };
           // which chat is open in front right now (null = none): what lets a message skip the alert for someone already reading it
+          // the app asks for a sign of life now and then: a phone that slept can hold a socket that looks open but is dead
+          if (m.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
           if (m.type === 'chat') (ws as WebSocket & { chat?: string }).chat = typeof m.id === 'string' && m.id.length <= 64 ? m.id : undefined;
           if (m.type === 'presence') (ws as WebSocket & { visible?: boolean }).visible = m.visible === true;
           if (m.type === 'scope') this.setCity(ws, typeof m.city === 'string' ? m.city : '');

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { clearLoadCache } from './hooks';
 import { ApiError, get, getRefreshToken, loadRefreshToken, loadToken, post, saveRefreshToken, saveToken, setRefreshToken, setToken, setUnauthorizedHandler, type Me } from './api';
@@ -60,18 +60,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(null);
     setOnboarding(false);
     setDevCode(null);
-    setNotice(typeof why === 'string' ? why : null);
+    // development only: say which code signed the person out (names of the calling functions), so a mystery sign-out can be traced
+    const caller = __DEV__ ? new Error().stack?.split('\n').slice(2, 6).map((l) => l.trim().replace(/^at /, '').replace(/\s*\(.*$/, '')).filter(Boolean).join(' < ') : '';
+    setNotice(typeof why === 'string' ? why + (caller ? ` {by ${caller}}` : '') : caller ? `Signed out {by ${caller}}` : null);
   }, []);
 
-  const reload = useCallback(async () => {
+  const lastFail = useRef('');
+  /** 'ok': the account is loaded. 'ended': the server says this sign-in is over (already handled). 'offline': no answer, nothing is known. */
+  const load = useCallback(async (): Promise<'ok' | 'ended' | 'offline'> => {
     try {
       setMe(await get<Me>('/v1/me'));
+      return 'ok';
     } catch (e) {
       // End the session only when the server rejects it. A dropped connection keeps the last known account.
-      if (e instanceof ApiError && e.code === 'ACCOUNT_SUSPENDED') logout('Your account has been suspended. If you think this is a mistake, please contact support.');
-      else if (e instanceof ApiError && e.status === 403) logout();
+      if (e instanceof ApiError && e.code === 'ACCOUNT_SUSPENDED') {
+        logout('Your account has been suspended. If you think this is a mistake, please contact support.');
+        return 'ended';
+      }
+      if (e instanceof ApiError && e.status === 403) {
+        logout(__DEV__ ? `Signed out: the server answered 403 ${e.code} to /v1/me` : undefined);
+        return 'ended';
+      }
+      lastFail.current = e instanceof ApiError ? `${e.status || 'no answer'} ${e.code}: ${e.message}` : String(e);
+      return e instanceof ApiError && e.status === 401 ? 'ended' : 'offline';
     }
   }, [logout]);
+  const reload = useCallback(async () => {
+    await load();
+  }, [load]);
 
   const signIn = useCallback(
     async (tokens: Tokens | string, opts?: SignInOptions) => {
@@ -82,26 +98,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(token);
       setRefreshToken(refreshToken ?? null);
       await Promise.all([saveToken(token), saveRefreshToken(refreshToken ?? null)]);
-      await reload();
+      // signed in on the server, but the account could not be read: say why on the login page instead of staying silent
+      if ((await load()) === 'offline') throw new Error(`Signed in, but your account could not be loaded (${lastFail.current}). Trying again...`);
     },
-    [reload],
+    [load],
   );
 
   const finishOnboarding = useCallback(() => setOnboarding(false), []);
 
   // restore a saved session on launch
   useEffect(() => {
-    setUnauthorizedHandler(() => logout('Your session expired. Please log in again.'));
+    setUnauthorizedHandler((detail) => logout('Your session expired. Please log in again.' + (detail ? ` [${detail}]` : '')));
     (async () => {
       const [t, r] = await Promise.all([loadToken(), loadRefreshToken()]);
       if (t) {
         setToken(t);
         setRefreshToken(r);
-        await reload();
+        // A phone that has just opened (or woken up) often has no network for a moment. That is not a sign-out: ask again a few times
+        // before showing anything, so a good sign-in is never answered with the login page.
+        for (let i = 0; i < 4 && (await load()) === 'offline'; i++) await new Promise((done) => setTimeout(done, 1500 * (i + 1)));
       }
       setReady(true);
     })();
-  }, [logout, reload]);
+  }, [logout, load]);
+
+  // still holding a saved sign-in but the account could not be loaded (no network yet): keep asking until it can, so the person is signed in as soon as the connection is back
+  useEffect(() => {
+    if (!ready || me || !getRefreshToken()) return;
+    const t = setInterval(() => void load(), 5000);
+    return () => clearInterval(t);
+  }, [ready, me, load]);
 
   // identity verification, roles and suspension change on the server, so re-read when the app returns to the foreground
   const signedIn = !!me;

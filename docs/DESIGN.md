@@ -1,6 +1,6 @@
 # The Figma design in the app
 
-Status: 3 November 2026. The mobile app is being rebuilt to match the finished Figma design. **HERE is finished** (design pages 1 to 38). **THERE is partly done** (pages 40 to 77). Everything here is uncommitted until the owner commits, and none of it has been tried on a phone yet (only in a browser).
+Status: 3 November 2026. The mobile app is being rebuilt to match the finished Figma design. **HERE is finished** (design pages 1 to 38). **THERE is built** (pages 40 to 77, none checked by eye against the PDF yet). Everything here is uncommitted until the owner commits, and none of it has been tried on a phone yet (only in a browser).
 
 ## Where the design is
 
@@ -43,12 +43,11 @@ Status: 3 November 2026. The mobile app is being rebuilt to match the finished F
 | 25 | Notifications | `app/notification-settings.tsx` |
 | 26 to 32 | Change password, change email, safety, blocked and reports, review of decisions, get verified, travel buddies | `app/change-password.tsx`, `change-email.tsx`, `safety.tsx`, `reports-blocked.tsx`, `appeal.tsx`, `verify.tsx`, `travel-match.tsx`, `components/AccountParts.tsx` |
 | 33 to 36 | First-launch intro (4 photos, slide to continue) | `app/(auth)/intro.tsx` |
-| 37 | HERE / THERE chooser | `app/(auth)/choose.tsx` |
 | 47, 53 to 56 | THERE Home, search, filter | `features/ExploreThere.tsx`, `SearchThere.tsx`, `components/ThereParts.tsx`, `Cards.tsx` (`TripBigCard`, `TripRow`) |
 | 57 to 61 | Create trip, 4 steps | `features/CreateTrip.tsx`, `components/TripCreateParts.tsx` |
 | 52, 69 to 77 | THERE settings and account pages | the same files as pages 22 to 32, with THERE colours |
 
-**First launch (new):** a first-time visitor sees the intro, then the chooser, then Welcome in the product they picked. It is shown once per phone (`AsyncStorage` key `ht_intro`). Welcome draws a plain screen until it knows whether the intro was seen.
+**First launch (new):** a first-time visitor sees the intro, then goes straight to Welcome (which has its own HERE / THERE switch). The design's chooser pages (37 and 38) were removed on request: there is no chooser screen. It is shown once per phone (`AsyncStorage` key `ht_intro`). Welcome draws a plain screen until it knows whether the intro was seen.
 
 ## Left out on purpose (no data or feature behind it)
 
@@ -59,19 +58,17 @@ Status: 3 November 2026. The mobile app is being rebuilt to match the finished F
 - Get verified: the illustration (no asset).
 - Create trip: the second budget handle, the Food and Stay toggles, the review photo and price breakdown. The budget slider on the search filter has one handle because the server takes only a ceiling.
 - Trips have no photos in the API. THERE cards show the picture of the trip's first travel style (adventure, nature, beach, photography) or a plain sand tile, never a named place.
-- THERE onboarding pages 43 to 45 (destination wishlist, travel dates, travel companions): the profile has no fields to save them (it has `homeCity`, `languages`, `interests`, `bio`, `displayName`). Decide whether to add backend fields.
-- Page 38 (a collapsed variant of the chooser) and page 15 (a menu list) were not built.
 
 ## Design mistakes worked around
 
 Email and Home City placeholders copy "Enter your name" / "Enter your password" (the app says "Enter your email" / "Enter your city"). Create activity step 4 reuses the step 1 title (the app says "Activity Size & Access"). Create trip review says "Step 2/4" (the app says 4/4). The chooser's "Find People and activites happen." has a typo and is the same under HERE and THERE (the app says "Find people and activities happen. Nearby. Soon."). Two labels in the activity detail rows look swapped; the real data is used.
 
-## What is NOT finished (THERE)
+## Added 4 November 2026
 
-- **Trip detail, manage trip join requests, trip plan, add a stop** (pages 62 to 67): started, **not finished or reviewed**. Files with partial edits: `app/trip/[id].tsx`, `app/trip-plan/[id].tsx`, `components/TripCalendar.tsx`, `components/TripParts.tsx`, `app/review/[id].tsx`.
-- **THERE inbox, chat and trip group info** (pages 48 to 51): started, **not finished or reviewed** (`features/Inbox.tsx`, `app/chat/[id].tsx`, `app/group/[id].tsx` carry partial changes; HERE versions were not broken in the checks that were made).
-- The THERE home filter button still opens the old time-window sheet; the full filter sheet is on the search tab.
-- Nothing was seen on a real phone. Please check in Expo Go: the cards, the dock, the status-bar colour on HERE's dark header, the first-run intro and its slide control, and the keyboard on the new fields.
+- Trip detail, manage trip requests, trip plan, add a stop (62 to 67) and THERE inbox, chat, group info (48 to 51) are built. Left out: the destination selector and the Where? field in the add-a-stop sheet, and the Includes label (no data).
+- THERE onboarding pages 43 to 45 (wishlist, when, who with) are built, saved in three new private profile fields (travelWishlist, travelWindow, travelCompanions; owner-only, in the data export, erased on deletion). **A db:push is needed.** The design's progress bars repeat values, so the THERE bar fills evenly across six steps.
+- Page 15 is the chat header popover menu; pages 37 and 38 (the chooser) are not built, by the owner's decision; the THERE home filter button opens the full filter sheet shared with search (`features/ThereFilters.tsx`).
+- Still open: nothing has been seen on a real phone or compared with the PDF page by page; the design then needs tweaking and optimising.
 
 ## Shared building blocks (for the next person)
 

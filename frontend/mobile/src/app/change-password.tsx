@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { AcctScreen } from '@/components/AccountParts';
-import { AuthButton, AuthField } from '@/components/AuthForm';
+import { AuthButton, AuthField, type InputHandle } from '@/components/AuthForm';
 import { Banner, Btn, ErrorBanner } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -18,6 +18,8 @@ export default function ChangePassword() {
   const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [again, setAgain] = useState('');
+  const newRef = useRef<InputHandle>(null);
+  const againRef = useRef<InputHandle>(null);
   const [done, setDone] = useState(false);
   const act = useAction();
 
@@ -48,9 +50,9 @@ export default function ChangePassword() {
       ) : (
         <>
           <ErrorBanner message={act.error} />
-          <AuthField label={t('Current password')} placeholder={t('Enter your current password')} value={current} onChangeText={setCurrent} secureTextEntry autoComplete="current-password" textContentType="password" />
-          <AuthField label={t('New password')} placeholder={t('Enter your new password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" hint={t('At least {min} characters', { min: MIN })} error={tooShort ? t('Use at least {min} characters', { min: MIN }) : same ? t('Choose a password you are not using now') : null} />
-          <AuthField label={t('New password again')} placeholder={t('Enter your new password')} value={again} onChangeText={setAgain} secureTextEntry autoComplete="new-password" textContentType="newPassword" error={mismatch ? t('The two passwords are not the same') : null} onSubmitEditing={submit} />
+          <AuthField label={t('Current password')} placeholder={t('Enter your current password')} value={current} onChangeText={setCurrent} secureTextEntry autoComplete="current-password" textContentType="password" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => newRef.current?.focus()} />
+          <AuthField label={t('New password')} placeholder={t('Enter your new password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" inputRef={newRef} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => againRef.current?.focus()} hint={t('At least {min} characters', { min: MIN })} error={tooShort ? t('Use at least {min} characters', { min: MIN }) : same ? t('Choose a password you are not using now') : null} />
+          <AuthField label={t('New password again')} placeholder={t('Enter your new password')} value={again} onChangeText={setAgain} secureTextEntry autoComplete="new-password" textContentType="newPassword" inputRef={againRef} returnKeyType="go" error={mismatch ? t('The two passwords are not the same') : null} onSubmitEditing={submit} />
           <AuthButton title={t('Change password')} onPress={submit} loading={act.busy} disabled={!ready} />
         </>
       )}

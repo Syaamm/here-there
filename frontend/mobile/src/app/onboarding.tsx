@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { AuthButton } from '@/components/AuthForm';
 import { EmailVerifyCard } from '@/components/EmailVerifyCard';
-import { ChoiceRow, CitySearch, InterestTile, OnboardingHeading, OnboardingTop } from '@/components/OnboardingParts';
+import { ChoiceRow, CitySearch, InterestTile, OnboardingHeading, OnboardingTop, RadioRow } from '@/components/OnboardingParts';
 import { Btn, ErrorBanner, Screen, Txt } from '@/components/ui';
 import { patch } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -11,7 +11,7 @@ import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
-type Step = 'email' | 'interests' | 'city' | 'languages';
+type Step = 'email' | 'wishlist' | 'window' | 'companions' | 'interests' | 'city' | 'languages';
 
 /** The activity choices: what is saved on the profile, what the person reads, and the photo (Figma "onboarding 1"). */
 const TILES = [
@@ -31,10 +31,34 @@ const THERE_TILES = [
   { key: 'outdoor', label: 'Outdoor', photo: require('../../assets/there-onboarding/outdoor.webp') },
   { key: 'nightlife', label: 'Nightlife', photo: require('../../assets/there-onboarding/nightlife.webp') },
 ];
+/** THERE's first questions (Figma pages 43 to 45): where, when and with whom. Saved on the profile as private preferences. */
+const WISHLIST = [
+  { key: 'mountains', label: 'Mountains', photo: require('../../assets/there-wishlist/mountains.webp') },
+  { key: 'beaches', label: 'Beaches', photo: require('../../assets/there-wishlist/beaches.webp') },
+  { key: 'cities', label: 'Cities', photo: require('../../assets/there-wishlist/cities.webp') },
+  { key: 'nature', label: 'Nature', photo: require('../../assets/there-wishlist/nature.webp') },
+  { key: 'international', label: 'International', photo: require('../../assets/there-wishlist/international.webp') },
+  { key: 'anywhere', label: 'Anywhere', photo: undefined },
+];
+const WINDOWS = [
+  { key: 'month', label: 'Within a month' },
+  { key: 'one_to_three', label: 'Next 1–3 months' },
+  { key: 'three_to_six', label: 'Next 3–6 months' },
+  { key: 'flexible', label: "I'm flexible" },
+  { key: 'exploring', label: 'Just exploring for now' },
+];
+const COMPANIONS = [
+  { key: 'one', label: 'One travel companion' },
+  { key: 'small_group', label: 'A small group (3–5 people)' },
+  { key: 'large_group', label: 'A larger group (6+ people)' },
+  { key: 'open', label: "I'm open to anything" },
+];
 const LANGS = ['English', 'Italian', 'German', 'Spanish', 'Arabic', 'Other'];
 /** How full the progress bar is on each question (as drawn in the design). */
 const PROGRESS = { interests: 0.19, city: 0.52, languages: 0.81 } as const;
 const ORDER: Step[] = ['interests', 'city', 'languages'];
+/** THERE asks three more questions first, in the design's order; the bar then fills evenly. */
+const ORDER_THERE: Step[] = ['wishlist', 'window', 'companions', 'interests', 'city', 'languages'];
 
 /**
  * Sign-up onboarding: confirm the email address when it is not confirmed yet, then three questions (interests, city,
@@ -46,9 +70,14 @@ export default function Onboarding() {
   const router = useRouter();
   const there = useTheme().mode === 'there';
   const tiles = there ? THERE_TILES : TILES;
-  const [step, setStep] = useState<Step>(me?.emailVerified ? 'interests' : 'email');
+  const order = there ? ORDER_THERE : ORDER;
+  const first = order[0];
+  const [step, setStep] = useState<Step>(me?.emailVerified ? first : 'email');
   const [interests, setInterests] = useState<string[]>(me?.profile?.interests ?? []);
   const [city, setCity] = useState(me?.profile?.homeCity ?? '');
+  const [wishlist, setWishlist] = useState<string[]>(me?.profile?.travelWishlist ?? []);
+  const [window, setWindow] = useState<string | null>(me?.profile?.travelWindow ?? null);
+  const [companions, setCompanions] = useState<string | null>(me?.profile?.travelCompanions ?? null);
   const [languages, setLanguages] = useState<string[]>(me?.profile?.languages ?? []);
   const act = useAction();
 
@@ -63,6 +92,11 @@ export default function Onboarding() {
     const body: Record<string, unknown> = {};
     if (interests.length) body.interests = interests;
     if (languages.length) body.languages = languages;
+    if (there) {
+      if (wishlist.length) body.travelWishlist = wishlist;
+      if (window) body.travelWindow = window;
+      if (companions) body.travelCompanions = companions;
+    }
     if (city.trim().length >= 2) body.homeCity = city.trim();
     if (!Object.keys(body).length) return done();
     const r = await act.run(() => patch('/v1/me/profile', body));
@@ -76,20 +110,52 @@ export default function Onboarding() {
     return (
       <Screen maxWidth={600}>
         <Txt variant="h1">{t('Welcome, {name} 👋', { name: me?.profile?.displayName ?? t('there') })}</Txt>
-        <EmailVerifyCard onVerified={() => setStep('interests')} />
-        <Btn title={t('Skip for now')} variant="ghost" onPress={() => setStep('interests')} />
+        <EmailVerifyCard onVerified={() => setStep(first)} />
+        <Btn title={t('Skip for now')} variant="ghost" onPress={() => setStep(first)} />
       </Screen>
     );
 
-  const at = ORDER.indexOf(step);
-  const last = at === ORDER.length - 1;
-  const next = () => (last ? save() : setStep(ORDER[at + 1]));
-  const ready = step === 'interests' ? interests.length > 0 : step === 'city' ? city.trim().length >= 2 : languages.length > 0;
+  const at = order.indexOf(step);
+  const last = at === order.length - 1;
+  const next = () => (last ? save() : setStep(order[at + 1]));
+  const ready =
+    step === 'wishlist' ? wishlist.length > 0 : step === 'window' ? !!window : step === 'companions' ? !!companions : step === 'interests' ? interests.length > 0 : step === 'city' ? city.trim().length >= 2 : languages.length > 0;
+  const progress = there ? 0.19 + (at * 0.62) / (order.length - 1) : PROGRESS[step as keyof typeof PROGRESS];
 
   return (
     <Screen scroll={false} maxWidth={600}>
-      <OnboardingTop progress={PROGRESS[step]} onBack={at > 0 ? () => setStep(ORDER[at - 1]) : undefined} onSkip={next} />
+      <OnboardingTop progress={progress} onBack={at > 0 ? () => setStep(order[at - 1]) : undefined} onSkip={next} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24, paddingBottom: 12 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {step === 'wishlist' && (
+          <>
+            <OnboardingHeading title={t('Where would you love to go?')} subtitle={t('Choose a few destinations on your travel wishlist.')} />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 14, rowGap: 12 }}>
+              {WISHLIST.map((x) => (
+                <InterestTile key={x.key} label={t(x.label)} photo={x.photo} selected={wishlist.includes(x.key)} onPress={() => toggle(wishlist, setWishlist, x.key)} />
+              ))}
+            </View>
+          </>
+        )}
+        {step === 'window' && (
+          <>
+            <OnboardingHeading title={t('When are you planning to travel?')} subtitle={t("We'll help you discover trips that fit your schedule.")} />
+            <View accessibilityRole="radiogroup">
+              {WINDOWS.map((x) => (
+                <RadioRow key={x.key} label={t(x.label)} selected={window === x.key} onPress={() => setWindow(x.key)} />
+              ))}
+            </View>
+          </>
+        )}
+        {step === 'companions' && (
+          <>
+            <OnboardingHeading title={t('Who would you like to travel with?')} subtitle={t('Tell us what kind of travel group feels right for you.')} />
+            <View accessibilityRole="radiogroup">
+              {COMPANIONS.map((x) => (
+                <RadioRow key={x.key} label={t(x.label)} selected={companions === x.key} onPress={() => setCompanions(x.key)} />
+              ))}
+            </View>
+          </>
+        )}
         {step === 'interests' && (
           <>
             <OnboardingHeading title={there ? t("What's your travel vibe?") : t('What kinds of activities interest you?')} subtitle={t('Select your interests to discover activities and connect with like-minded people.')} />

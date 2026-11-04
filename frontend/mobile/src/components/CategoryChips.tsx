@@ -16,7 +16,7 @@ export function CategoryChips({ value, onChange }: { value: string | null; onCha
   const { c } = useTheme();
   const { gutter } = useLayout();
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 14, paddingVertical: 3 }}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 10, paddingVertical: 3 }}>
       {ORDER.map((k) => {
         const on = value === k;
         return (
@@ -26,10 +26,10 @@ export function CategoryChips({ value, onChange }: { value: string | null; onCha
             accessibilityState={{ selected: on }}
             accessibilityLabel={t(CATS[k].label)}
             onPress={() => onChange(on ? null : k)}
-            style={({ pressed: p }) => [{ minHeight: sc(54), borderRadius: 27, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 4, paddingRight: 20 }, pressed(p)]}
+            style={({ pressed: p }) => [{ minHeight: sc(44), borderRadius: 22, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 14 }, pressed(p)]}
           >
-            <Image source={CAT_IMAGES[k]} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ width: 46, height: 46, borderRadius: 23, borderWidth: on ? 2 : 0, borderColor: '#fff' }} />
-            <Text style={{ color: on ? '#fff' : c.forest, fontSize: 16 }}>{t(CATS[k].label)}</Text>
+            <Image source={CAT_IMAGES[k]} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ width: 36, height: 36, borderRadius: 18, borderWidth: on ? 1.5 : 0, borderColor: '#fff' }} />
+            <Text style={{ color: on ? '#fff' : c.forest, fontSize: 14 }}>{t(CATS[k].label)}</Text>
           </Pressable>
         );
       })}

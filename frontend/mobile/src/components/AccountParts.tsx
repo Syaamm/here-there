@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { type ReactNode } from 'react';
 import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -14,39 +14,13 @@ import { Screen, pressed } from './ui';
  * small status tags. Colours come from the theme tokens; in THERE the cards and pill buttons are white on the ivory page.
  */
 
-/** The page: the default header is hidden and the design's own title row is drawn instead. */
+/** The page: the shared band with the back button and the title, the content on the rounded sheet below it. */
 export function AcctScreen({ title, children, onRefresh, refreshing, maxWidth }: { title: string; children: ReactNode; onRefresh?: () => void; refreshing?: boolean; maxWidth?: number }) {
-  // both products draw the design's own title row (back chevron + title), so the stack header is hidden in both
-  return (
-    <>
-      <Stack.Screen options={{ headerShown: false }} />
-      <Screen hasHeader={false} onRefresh={onRefresh} refreshing={refreshing} maxWidth={maxWidth ?? 520}>
-        <AcctTitle title={title} />
-        {children}
-      </Screen>
-    </>
-  );
-}
-
-function AcctTitle({ title }: { title: string }) {
-  const { t } = useT();
-  const { c } = useTheme();
   const router = useRouter();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, marginBottom: 4 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t('Back')}
-        hitSlop={8}
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/settings' as never))}
-        style={({ pressed: p }) => [{ width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center', paddingLeft: 4 }, pressed(p)]}
-      >
-        <Svg width={10} height={16} viewBox="0 0 10 16" fill="none">
-          <Path d="M8.5 1.5L2 8l6.5 6.5" stroke={c.text} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
-        </Svg>
-      </Pressable>
-      <Text accessibilityRole="header" style={{ flex: 1, color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600', marginLeft: 8 }}>{title}</Text>
-    </View>
+    <Screen title={title} onBack={() => (router.canGoBack() ? router.back() : router.replace('/settings' as never))} onRefresh={onRefresh} refreshing={refreshing} maxWidth={maxWidth ?? 520}>
+      {children}
+    </Screen>
   );
 }
 

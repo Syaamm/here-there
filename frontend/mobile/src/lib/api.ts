@@ -60,9 +60,13 @@ export class ApiError extends Error {
   }
 }
 
-let token: string | null = null;
+// Kept on the global object too: while developing, a hot update of this file runs it again and would forget the sign-in (every request then went out
+// without a token and the app said "session expired"). A phone app that is really closed starts from the secure storage as always.
+const kept = globalThis as { __htSignIn?: { token: string | null; refresh: string | null } };
+let token: string | null = kept.__htSignIn?.token ?? null;
 // The long-lived half of a sign-in. It is sent only to /v1/auth/refresh, to get a new short-lived token when the old one ends.
-let refreshToken: string | null = null;
+let refreshToken: string | null = kept.__htSignIn?.refresh ?? null;
+const remember = () => (kept.__htSignIn = { token, refresh: refreshToken });
 
 // A random id made once for this install (never anything about the phone itself). The server keeps only a keyed fingerprint
 // of it, to limit how many accounts one device can create and to stop a banned person starting over.
@@ -91,15 +95,19 @@ async function deviceId() {
 // list that has not changed then costs almost nothing.
 const etags = new Map<string, { tag: string; data: unknown }>();
 const MAX_TAGS = 150;
-let onUnauthorized: () => void = () => {};
+let onUnauthorized: (detail?: string) => void = () => {};
 export const setToken = (t: string | null) => {
   if (t !== token) etags.clear(); // one person's answers are never reused for another
   token = t;
+  remember();
 };
 export const getToken = () => token;
-export const setRefreshToken = (t: string | null) => (refreshToken = t);
+export const setRefreshToken = (t: string | null) => {
+  refreshToken = t;
+  remember();
+};
 export const getRefreshToken = () => refreshToken;
-export const setUnauthorizedHandler = (fn: () => void) => (onUnauthorized = fn);
+export const setUnauthorizedHandler = (fn: (detail?: string) => void) => (onUnauthorized = fn);
 
 // how many changes (anything but a read) this person has made: screens use it to know whether what they show can be stale
 let writes = 0;
@@ -110,7 +118,24 @@ function tokenExpiry(t: string | null): number {
   try {
     const body = t?.split('.')[1];
     if (!body) return 0;
-    const json = JSON.parse(globalThis.atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+    // a token's parts have no '=' padding, and some phone runtimes refuse to decode without it (the expiry then read as 0 and every call refreshed)
+    // decoded by hand: an `atob` that is missing or strict on a phone made every token read as already ended
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    let bits = 0;
+    let acc = 0;
+    let text = '';
+    for (const ch of body) {
+      const v = chars.indexOf(ch);
+      if (v < 0) continue;
+      acc = (acc << 6) | v;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        text += String.fromCharCode((acc >> bits) & 0xff);
+        acc &= (1 << bits) - 1;
+      }
+    }
+    const json = JSON.parse(text);
     return typeof json.exp === 'number' ? json.exp * 1000 : 0;
   } catch {
     return 0;
@@ -128,13 +153,22 @@ function refreshSession(): Promise<boolean> {
   const sent = refreshToken;
   return (refreshing ??= (async () => {
     try {
-      const res = await fetch(API_URL + '/v1/auth/refresh', { method: 'POST', headers: { 'content-type': 'application/json', 'x-device-id': await deviceId() }, body: JSON.stringify({ refreshToken: sent }) });
+      // a time limit: a refresh that never answers (a phone that just woke up, a dropped tunnel) must not hold every other request and the live connection waiting for ever
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20_000);
+      let res: Response;
+      try {
+        res = await fetch(API_URL + '/v1/auth/refresh', { method: 'POST', signal: ctrl.signal, headers: { 'content-type': 'application/json', 'x-device-id': await deviceId() }, body: JSON.stringify({ refreshToken: sent }) });
+      } finally {
+        clearTimeout(timer);
+      }
       if (res.ok) {
         const d = await res.json();
         // somebody (a sign-out) may have changed the session while this was in flight: only keep the answer if it is still the same one
         if (refreshToken !== sent) return !!token;
         setToken(d.token);
         refreshToken = d.refreshToken;
+        remember();
         await Promise.all([saveToken(d.token), saveRefreshToken(d.refreshToken)]);
         return true;
       }
@@ -184,7 +218,10 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   const sig = method !== 'GET' && token && !path.startsWith('/v1/auth/') ? `${method} ${path} ${bodyText ?? ''}` : null;
   let res: Response;
   let data: any = null;
+  let tokenEnded = false;
+  let refused = false;
   for (let tries = 0; ; tries++) {
+    const used = token; // the token this attempt goes out with
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20_000);
     try {
@@ -208,12 +245,23 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
     } catch {
       /* non-JSON error page */
     }
-    // the short-lived token ended: get a new one and ask again, once, without the person noticing
-    if (res.status === 401 && tries === 0 && refreshToken && !path.startsWith('/v1/auth/') && (await refreshSession())) continue;
+    // Only the server saying the TOKEN is no good means the sign-in is over. Other 401s are answers to the question asked
+    // (a wrong password on "change password", a wrong two-step code) and must never sign the person out.
+    // (a request that went out with no token at all, because the person has just signed out, ends nothing)
+    tokenEnded = !!used && res.status === 401 && !path.startsWith('/v1/auth/') && (data?.code === 'INVALID_TOKEN' || data?.code === 'UNAUTHENTICATED');
+    // the short-lived token ended: get a new one and ask again, once, without the person noticing. If another request already
+    // swapped it while this one was on its way, just ask again with the new one instead of swapping a second time.
+    if (tokenEnded && refreshToken && tries < 3) {
+      if (token && token !== used) continue; // another request already swapped it
+      if (await refreshSession()) continue;
+      refused = true; // the server itself said this sign-in is over
+    }
     break;
   }
   if (!res.ok) {
-    if (res.status === 401 && !path.startsWith('/v1/auth/')) onUnauthorized();
+    // Sign out only when the server refused the refresh token (or there never was one: a guest). A token that still looks ended after a
+    // successful swap, a slow answer, two requests crossing: none of those end a sign-in, so they are an error to try again, not a logout.
+    if (tokenEnded && (refused || !refreshToken)) onUnauthorized(__DEV__ ? `${method} ${path} (${data?.code}, ${refreshToken ? 'had' : 'no'} refresh token, refused ${refused})` : undefined);
     const detail = Array.isArray(data?.details) ? ': ' + data.details.map((d: any) => t(d.message)).join(', ') : '';
     throw new ApiError(res.status, data?.code ?? 'ERROR', t(data?.message ?? res.statusText) + detail, data?.details);
   }
@@ -316,7 +364,7 @@ export type Me = {
   // optional mobile number (masked), gates nothing
   phoneVerified: boolean;
   phone: string | null;
-  profile: { displayName: string; homeCity: string | null; languages: string[]; interests: string[]; bio: string | null; photoUrl: string | null } | null;
+  profile: { displayName: string; homeCity: string | null; languages: string[]; interests: string[]; bio: string | null; photoUrl: string | null; travelWishlist?: string[]; travelWindow?: string | null; travelCompanions?: string | null } | null;
 };
 
 type HostInfo = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean };

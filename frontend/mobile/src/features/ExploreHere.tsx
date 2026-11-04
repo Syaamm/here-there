@@ -1,9 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useFocusEffect } from 'expo-router';
-import { setStatusBarStyle } from 'expo-status-bar';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import { ActivityBig, NextUpCard } from '@/components/Cards';
+import { ActivityBig, ActivityRow, NextUpCard } from '@/components/Cards';
 import { CategoryChips } from '@/components/CategoryChips';
 import { HERE_BAND, HereHeader } from '@/components/HereHeader';
 import { Reveal } from '@/components/Reveal';
@@ -30,13 +28,7 @@ export function ExploreHere() {
   const [city, setCity] = useCity();
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<string | null>(null); // the round category chips under the search
-  // the dark green header: the clock and battery on it are light, and go back to dark when another page is in front
-  useFocusEffect(
-    useCallback(() => {
-      setStatusBarStyle('light');
-      return () => setStatusBarStyle('dark');
-    }, []),
-  );
+  // (the dark band's light clock and battery are handled by Screen)
   // the filter button: which part of the day to show
   const [when, setWhen] = useState<'any' | 'soon' | 'tonight' | 'tomorrow' | 'later'>('any');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -45,9 +37,11 @@ export function ExploreHere() {
     () => {
       const [from, to] = feedRange();
       const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
+      // a chosen category is asked of the server, so the ranking (top picks first) and the paging work inside that category
+      if (cat) p.set('category', cat);
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
-    [city],
+    [city, cat],
     60_000, // changes arrive by the live connection (below); this is only the slow fallback
     'feed:here',
     { keep: true, live: true },
@@ -78,15 +72,24 @@ export function ExploreHere() {
   }, []);
   const soonAll = comingUp(mine.data, now, 3);
   // the cards show the two soonest; "+N more" appears only when there are more than two, and lists just the others
-  const next = soonAll.slice(0, 2);
-  const more = soonAll.slice(2);
+  // with a category chosen the page is about that kind of activity: Next up (your own plans of every kind) steps aside
+  const next = cat ? [] : soonAll.slice(0, 2);
+  const more = cat ? [] : soonAll.slice(2);
   const [soonOpen, setSoonOpen] = useState(false);
   const { width, gutter } = useLayout();
   const cardW = Math.min(480, width - gutter * 2 - 28); // a bit of the next card peeks in, so it is clear you can swipe
   const MAX = 4;
+  // only the first section on the page has big cards: Next up when shown, else the first list that has any
+  const lists = [
+    when === 'any' || when === 'soon' ? soon : [],
+    when === 'any' || when === 'tonight' ? sections[1].items : [],
+    when === 'any' || when === 'tomorrow' ? sections[2].items : [],
+    when === 'any' || when === 'later' ? sections[3].items : [],
+  ];
+  const bigAt = next.length > 0 ? -1 : lists.findIndex((l) => l.length > 0);
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} style={{ paddingTop: 20 }}>
+    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} bandTall style={{ paddingTop: 20 }}>
 
       <VerifyBanner />
 
@@ -137,10 +140,10 @@ export function ExploreHere() {
         </Empty>
       )}
 
-      <ListSection index={1} title={t('Happening soon')} list={when === 'any' || when === 'soon' ? soon : []} max={MAX} onMore={() => go('/activities?section=soon')} />
-      <ListSection index={2} title={t('Tonight')} list={when === 'any' || when === 'tonight' ? sections[1].items : []} max={MAX} onMore={() => go('/activities?section=tonight')} />
-      <ListSection index={3} title={t('Tomorrow')} list={when === 'any' || when === 'tomorrow' ? sections[2].items : []} max={MAX} onMore={() => go('/activities?section=tomorrow')} />
-      <ListSection index={3} title={t('Later')} list={when === 'any' || when === 'later' ? sections[3].items : []} max={MAX} onMore={() => go('/activities?section=later')} />
+      <ListSection index={1} big={bigAt === 0} title={t('Happening soon')} list={lists[0]} max={MAX} onMore={() => go(`/activities?section=soon${cat ? `&category=${cat}` : ''}`)} />
+      <ListSection index={2} big={bigAt === 1} title={t('Tonight')} list={lists[1]} max={MAX} onMore={() => go(`/activities?section=tonight${cat ? `&category=${cat}` : ''}`)} />
+      <ListSection index={3} big={bigAt === 2} title={t('Tomorrow')} list={lists[2]} max={MAX} onMore={() => go(`/activities?section=tomorrow${cat ? `&category=${cat}` : ''}`)} />
+      <ListSection index={3} big={bigAt === 3} title={t('Later')} list={lists[3]} max={MAX} onMore={() => go(`/activities?section=later${cat ? `&category=${cat}` : ''}`)} />
 
       <Reveal index={4}>
         <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.sand, borderWidth: 0, borderRadius: 20, padding: 16 }}>
@@ -198,7 +201,7 @@ export function ExploreHere() {
 }
 
 /** A titled list of rows (up to `max`), with "See all" on the right. Nothing is drawn when the list is empty. */
-function ListSection({ index, title, list, max, onMore }: { index: number; title: string; list: Activity[]; max: number; onMore: () => void }) {
+function ListSection({ index, big, title, list, max, onMore }: { index: number; /** the first section on the page keeps the big cards; the others are compact rows */ big: boolean; title: string; list: Activity[]; max: number; onMore: () => void }) {
   const { c } = useTheme();
   const { t } = useT();
   if (list.length === 0) return null;
@@ -209,9 +212,9 @@ function ListSection({ index, title, list, max, onMore }: { index: number; title
   return (
     <Reveal index={index} style={{ gap: 12 }}>
       <SectionHeader title={title} />
-      {list.slice(0, count).map((a) => (
-        <ActivityBig key={a.id} a={a} tag={a.status === 'in_progress' ? t('Happening now') : t(CATS[a.category]?.label ?? a.category)} />
-      ))}
+      {list.slice(0, count).map((a) =>
+        big ? <ActivityBig key={a.id} a={a} tag={a.status === 'in_progress' ? t('Happening now') : t(CATS[a.category]?.label ?? a.category)} /> : <ActivityRow key={a.id} a={a} />,
+      )}
       {hidden > 0 ? (
         <Pressable
           accessibilityRole="button"

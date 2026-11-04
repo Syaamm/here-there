@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { E } from '../common/errors';
+import { authSecret } from '../common/secret';
 import { log } from '../common/observability';
 import { PrismaService } from '../common/prisma.service';
 import { tokenVersions } from '../common/auth';
@@ -84,7 +85,11 @@ export class SessionService {
       await this.prisma.session.deleteMany({ where: { id: s.id } });
       throw bad('password changed or signed out everywhere');
     }
-    const refreshToken = 'rt_' + randomBytes(32).toString('base64url');
+    // The same old token always gives the same new one. A phone that asks twice with the old token (two copies of the app's code
+    // running after a reload, a retry after a slow answer) then holds a token that still works, whichever answer it keeps.
+    // Before, the second ask replaced the first answer's token and the phone was signed out at its next refresh, 15 minutes on.
+    const refreshToken = 'rt_' + createHmac('sha256', authSecret()).update('rotate:' + h).digest('base64url');
+    if (fromGrace && s.refreshHash === hash(refreshToken)) return { token: await this.access(u, s.id), refreshToken, expiresIn: accessMinutes() * 60 };
     // rotate only if nobody else did in the meantime (two refreshes at once: the loser is told to try again)
     const moved = await this.prisma.session.updateMany({
       where: { id: s.id, refreshHash: s.refreshHash },

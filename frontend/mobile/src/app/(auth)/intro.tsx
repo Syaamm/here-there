@@ -17,7 +17,7 @@ const KNOB_W = 116;
 const TRACK_PAD = 5;
 
 /**
- * First launch (Figma "Journeys Made Simple"): full-screen photos that change by themselves, a progress bar on top, the
+ * First launch (Figma "Journeys Made Simple"): full-screen photos that change by themselves, the
  * line, and a "slide to continue" control. Tapping the white Continue button does the same as sliding it, so it works for
  * people who cannot drag.
  */
@@ -40,7 +40,7 @@ export default function Intro() {
     if (going.current) return;
     going.current = true;
     AsyncStorage.setItem(INTRO_KEY, '1').catch(() => {});
-    router.replace('/choose' as never);
+    router.replace('/welcome' as never);
   };
   const finishRef = useRef(finish);
   finishRef.current = finish;
@@ -65,6 +65,7 @@ export default function Intro() {
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
+      onPanResponderTerminationRequest: () => false, // a scroll or the system must not steal the slide halfway
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
       onPanResponderMove: (_, g) => drag.setValue(Math.min(maxRef.current, Math.max(0, g.dx))),
       onPanResponderRelease: (_, g) => {
@@ -88,13 +89,6 @@ export default function Intro() {
         ))}
         <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: insets.top + 110 }} />
         <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']} locations={[0, 1]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: height * 0.5 }} />
-
-        {/* which picture, as a row of bars */}
-        <View accessibilityRole="progressbar" accessibilityValue={{ min: 1, max: PHOTOS.length, now: at + 1 }} style={{ position: 'absolute', left: 16, right: 16, top: insets.top + 18, flexDirection: 'row', gap: 8 }}>
-          {PHOTOS.map((_, i) => (
-            <View key={i} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: i <= at ? '#fff' : 'rgba(255,255,255,0.3)' }} />
-          ))}
-        </View>
 
         <View style={{ position: 'absolute', left: 14, right: 14, bottom: insets.bottom + 40 + 62 + 24 }}>
           <Text accessibilityRole="header" style={{ color: '#fff', fontSize: 48, lineHeight: 56, fontWeight: '400' }}>{t('Journeys')}{'\n'}{t('Made Simple')}</Text>

@@ -74,9 +74,13 @@ export const profileSchema = z.object({
   languages: z.array(z.string().trim().min(2).max(20)).max(8).optional(),
   interests: z.array(z.string().trim().min(2).max(24)).max(15).optional(),
   bio: z.string().trim().max(300).nullable().optional(),
+  // THERE sign-up answers (private preferences, only ever returned to their owner)
+  travelWishlist: z.array(z.enum(['mountains', 'beaches', 'cities', 'nature', 'international', 'anywhere'])).max(6).optional(),
+  travelWindow: z.enum(['month', 'one_to_three', 'three_to_six', 'flexible', 'exploring']).nullable().optional(),
+  travelCompanions: z.enum(['one', 'small_group', 'large_group', 'open']).nullable().optional(),
 });
 
-type UserWithProfile = User & { profile: { displayName: string; homeCity: string | null; languages: string; interests: string; bio: string | null; photoUrl: string | null } | null };
+type UserWithProfile = User & { profile: { displayName: string; homeCity: string | null; languages: string; interests: string; bio: string | null; photoUrl: string | null; travelWishlist: string; travelWindow: string | null; travelCompanions: string | null } | null };
 
 function me(u: UserWithProfile) {
   return {
@@ -99,6 +103,9 @@ function me(u: UserWithProfile) {
       interests: list(u.profile.interests),
       bio: u.profile.bio,
       photoUrl: u.profile.photoUrl,
+      travelWishlist: list(u.profile.travelWishlist),
+      travelWindow: u.profile.travelWindow,
+      travelCompanions: u.profile.travelCompanions,
     },
   };
 }
@@ -107,7 +114,7 @@ let dummy: Promise<string> | undefined;
 /** A real password hash of nothing in particular, so a sign-in for an unknown address costs the same as one for a known address. */
 const dummyHash = () => (dummy ??= hashPassword(randomBytes(16).toString('hex')));
 
-const profileStats = new TtlCache<[number, number]>(Number(process.env.PROFILE_STATS_CACHE_SECONDS ?? 30) * 1000);
+const profileStats = new TtlCache<[number, number, number]>(Number(process.env.PROFILE_STATS_CACHE_SECONDS ?? 30) * 1000);
 
 @Controller('v1')
 export class AuthController {
@@ -473,6 +480,9 @@ export class AuthController {
         ...(dto.languages && { languages: csv(dto.languages) }),
         ...(dto.interests && { interests: csv(dto.interests) }),
         ...(dto.bio !== undefined && { bio: dto.bio }),
+        ...(dto.travelWishlist && { travelWishlist: csv([...new Set(dto.travelWishlist)]) }),
+        ...(dto.travelWindow !== undefined && { travelWindow: dto.travelWindow }),
+        ...(dto.travelCompanions !== undefined && { travelCompanions: dto.travelCompanions }),
       },
     });
     return this.getMe(u);
@@ -534,11 +544,12 @@ export class AuthController {
   async publicProfile(@CurrentUser() me: User, @Param('id') id: string) {
     const u = await this.prisma.user.findUnique({ where: { id }, include: { profile: true } });
     if (!u || u.state !== 'active' || !u.profile) throw E.notFound('User');
-    // the two counts are the costly part of a profile and may be half a minute old; everything else is read fresh
-    const [hosted, joined] = await profileStats.get(id, () =>
+    // the counts are the costly part of a profile and may be half a minute old; everything else is read fresh
+    const [hosted, joined, trips] = await profileStats.get(id, () =>
       Promise.all([
         this.prisma.activity.count({ where: { hostId: id, status: { notIn: ['cancelled', 'draft'] }, endsAt: { lt: new Date() } } }),
         this.prisma.activityMembership.count({ where: { userId: id, role: 'attendee', state: 'approved', activity: { endsAt: { lt: new Date() } } } }),
+        this.prisma.tripMembership.count({ where: { userId: id, state: 'approved', trip: { dateEnd: { lt: new Date() } } } }),
       ]),
     );
     const [iFollow, followsMe] = await Promise.all([
@@ -557,7 +568,7 @@ export class AuthController {
       verifiedAdult: u.eligibility === 'verified',
       // verified members see each other's level; anyone else sees nothing
       reliability: (await this.reliability.forViewer(me, [id])).get(id) ?? null,
-      stats: { activitiesHosted: hosted, activitiesJoined: joined },
+      stats: { activitiesHosted: hosted, activitiesJoined: joined, tripsDone: trips },
     };
   }
 }

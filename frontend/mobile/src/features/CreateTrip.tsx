@@ -5,6 +5,7 @@ import { AuthButton } from '@/components/AuthForm';
 import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
 import { DraftBar } from '@/components/DraftBar';
 import { Text, TextInput } from '@/components/ScaledText';
+import { StepTransition } from '@/components/StepMotion';
 import { TRIP_WHITE, TripAmount, TripCard, TripField, TripHeading, TripInput, TripLabel, TripPill, TripRoundDark, TripTop, TripValue } from '@/components/TripCreateParts';
 import { Banner, CheckRow, Chip, ErrorBanner, Screen, Txt, useGo } from '@/components/ui';
 import { get, post, type Trip } from '@/lib/api';
@@ -166,18 +167,20 @@ function TripForm({ onReset }: { onReset: () => void }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <Screen tabBar>
-        <TripTop
-          step={step}
-          title={stepNames[step]}
-          onBack={back}
-          right={
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Clear all')} accessibilityState={{ disabled: !hasContent(f) }} disabled={!hasContent(f)} hitSlop={8} onPress={() => void clearAll()} style={{ minHeight: 30, justifyContent: 'center', opacity: hasContent(f) ? 1 : 0.4 }}>
-              <Text style={{ color: c.forest, fontSize: 13, fontWeight: '500' }}>{t('Clear all')}</Text>
-            </Pressable>
-          }
-        />
+      <Screen tabBar plain header={
+    <TripTop
+      step={step}
+      title={stepNames[step]}
+      onBack={back}
+      right={
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Clear all')} accessibilityState={{ disabled: !hasContent(f) }} disabled={!hasContent(f)} hitSlop={8} onPress={() => void clearAll()} style={{ minHeight: 30, justifyContent: 'center', opacity: hasContent(f) ? 1 : 0.4 }}>
+          <Text style={{ color: c.text, fontSize: 13, fontWeight: '500' }}>{t('Clear all')}</Text>
+        </Pressable>
+      }
+    />
+      }>
 
+        <StepTransition step={step} style={{ gap: 16 }}>
         {step === 0 && (
           <>
             <TripHeading title={t('Where do you want to go?')} subtitle={t('Choose where you leave from and where you are heading, then the dates.')} />
@@ -185,10 +188,10 @@ function TripForm({ onReset }: { onReset: () => void }) {
             <TripLabel style={{ marginTop: 8 }}>{t('Route')}</TripLabel>
             <View style={{ gap: 4 }}>
               <TripField label={t('Departing from')}>
-                <TripInput label={t('Departing from')} placeholder={t('Milan, Italy')} value={f.originCity} onChangeText={(v) => set('originCity', v)} maxLength={60} />
+                <TripInput label={t('Departing from')} autoCapitalize="words" placeholder={t('Milan, Italy')} value={f.originCity} onChangeText={(v) => set('originCity', v)} maxLength={60} />
               </TripField>
               <TripField label={t('Destination')} invalid={tried && step === 0 && f.destination.trim().length < 2}>
-                <TripInput label={t('Destination')} placeholder={t('Tokyo & Kyoto, Japan')} value={f.destination} onChangeText={(v) => set('destination', v)} maxLength={100} />
+                <TripInput label={t('Destination')} autoCapitalize="words" placeholder={t('Tokyo & Kyoto, Japan')} value={f.destination} onChangeText={(v) => set('destination', v)} maxLength={100} />
               </TripField>
               <View style={{ position: 'absolute', right: 12, top: '50%', marginTop: -22 }}>
                 <TripRoundDark icon="swap-vertical" label={t('Swap departure and destination')} onPress={() => setF((p) => ({ ...p, originCity: p.destination, destination: p.originCity }))} />
@@ -257,11 +260,14 @@ function TripForm({ onReset }: { onReset: () => void }) {
                 accessibilityLabel={t('About the trip')}
                 placeholder={t('Culture, food, city walks and local experiences.')}
                 placeholderTextColor={c.placeholder}
+                selectionColor={c.forest}
+                cursorColor={c.forest}
+                underlineColorAndroid="transparent"
                 multiline
                 value={f.description}
                 onChangeText={(v) => set('description', v)}
                 maxLength={2000}
-                style={{ minHeight: 76, color: c.text, fontSize: 14, lineHeight: 20, textAlignVertical: 'top', paddingVertical: 0 }}
+                style={{ minHeight: 76, color: c.text, fontSize: 14, lineHeight: 20, textAlignVertical: 'top', paddingVertical: 0, includeFontPadding: false }}
               />
               <Text style={{ color: c.muted, fontSize: 12, textAlign: 'right' }}>{f.description.length} / 2000</Text>
             </View>
@@ -343,6 +349,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
             </TripCard>
           </>
         )}
+        </StepTransition>
 
         {tried && step === 0 && routeProblems.length ? <Banner tone="bad">{t('Still needed: {list}.', { list: routeProblems.join(', ') })}</Banner> : null}
         {tried && step === 1 && budgetProblems.length ? <Banner tone="bad">{t('Still needed: {list}.', { list: budgetProblems.join(', ') })}</Banner> : null}

@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SkeletonDetail } from '@/components/Skeleton';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Menu } from '@/components/Menu';
@@ -12,6 +12,7 @@ import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { useAction, useLoad } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { StatsCard } from '@/components/StatsCard';
 import { useTheme } from '@/lib/theme';
 
 type PublicProfile = {
@@ -24,7 +25,7 @@ type PublicProfile = {
   photoUrl: string | null;
   verifiedAdult: boolean;
   reliability?: Reliability | null;
-  stats: { activitiesHosted: number; activitiesJoined: number };
+  stats: { activitiesHosted: number; activitiesJoined: number; tripsDone: number };
   relation: { following: boolean; followsYou: boolean; buddy: boolean };
 };
 
@@ -78,10 +79,7 @@ export default function UserProfile() {
   };
 
   return (
-    <Screen tabBar>
-      {!mine && !blocked ? (
-        <Stack.Screen options={{ headerRight: () => <Menu items={[{ label: t('Report this person'), onSelect: () => setReport(true) }, { label: t('Block {name}', { name: p.displayName }), danger: true, onSelect: block }]} /> }} />
-      ) : null}
+    <Screen tabBar right={!mine && !blocked ? <Menu popover onDark items={[{ label: t('Report this person'), onSelect: () => setReport(true) }, { label: t('Block {name}', { name: p.displayName }), danger: true, onSelect: block }]} /> : undefined}>
       <View style={{ alignItems: 'center', gap: 6 }}>
         <Avatar name={p.displayName} uri={p.photoUrl} size={104} />
         <Txt variant="h2" style={{ fontSize: 22 }}>{p.displayName} {p.verifiedAdult ? <Ionicons name="checkmark" size={18} color={c.green} /> : null}</Txt>
@@ -89,17 +87,7 @@ export default function UserProfile() {
         <ReliabilityChip r={p.reliability} />
       </View>
 
-      <View style={{ flexDirection: 'row', paddingVertical: 8 }}>
-        {[
-          [p.stats.activitiesHosted, t('Hosted')],
-          [p.stats.activitiesJoined, t('Joined')],
-        ].map(([n, l], i) => (
-          <View key={String(l)} style={{ flex: 1, alignItems: 'center', borderLeftWidth: i ? 1 : 0, borderLeftColor: c.line }}>
-            <Txt variant="h2" style={{ fontSize: 24, lineHeight: 30 }}>{n}</Txt>
-            <Txt variant="muted">{l}</Txt>
-          </View>
-        ))}
-      </View>
+      <StatsCard hosted={p.stats.activitiesHosted} joined={p.stats.activitiesJoined} trips={p.stats.tripsDone} />
 
       <ErrorBanner message={act.error} />
       <Txt variant="h3">{t('About')}</Txt>

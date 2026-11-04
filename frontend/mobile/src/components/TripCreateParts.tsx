@@ -4,9 +4,9 @@ import { Pressable, View, type StyleProp, type TextInputProps, type ViewStyle } 
 import { useT } from '@/lib/i18n';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
-import { AuthBack } from './AuthForm';
 import { Text, TextInput } from './ScaledText';
-import { pressed } from './ui';
+import { StepBars, StepLabel } from './StepMotion';
+import { PlainTitle, pressed } from './ui';
 
 /** Building blocks of the THERE "Create a Trip" wizard: the HERE wizard's look on the ivory page, with white pills. */
 
@@ -15,27 +15,23 @@ const WHITE = '#FFFFFF';
 /** Back button, "Create a Trip" and the step's name in the middle, "Step n/4" and four bars under them. */
 export function TripTop({ step, title, onBack, right }: { step: number; title: string; onBack: () => void; right?: ReactNode }) {
   const { t } = useT();
-  const { c } = useTheme();
+  const { c, mode } = useTheme();
   return (
     <View style={{ gap: 10 }}>
-      <View style={{ minHeight: 48, justifyContent: 'center' }}>
-        <View style={{ position: 'absolute', left: 0, top: 0, zIndex: 1 }}>
-          <AuthBack onPress={onBack} />
-        </View>
-        <View style={{ alignItems: 'center', gap: 6, paddingHorizontal: 52 }}>
-          <Text style={{ color: c.text, fontSize: 13, lineHeight: 16 }}>{t('Create a Trip')}</Text>
-          <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 19, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
-        </View>
-      </View>
+      <PlainTitle
+        onBack={onBack}
+        custom={
+          <View style={{ alignItems: 'center', gap: 2 }}>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{t('Create a Trip')}</Text>
+            <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 15, lineHeight: 19, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
+          </View>
+        }
+      />
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 30 }}>
-        <Text style={{ color: c.muted, fontSize: 12.7, lineHeight: 16 }}>{t('Step {n}/4', { n: step + 1 })}</Text>
+        <StepLabel step={step} style={{ color: c.muted, fontSize: 12.7, lineHeight: 16 }} />
         {right}
       </View>
-      <View accessibilityRole="progressbar" accessibilityLabel={t('Step {n}/4', { n: step + 1 })} accessibilityValue={{ min: 1, max: 4, now: step + 1 }} style={{ flexDirection: 'row', gap: 7 }}>
-        {[0, 1, 2, 3].map((i) => (
-          <View key={i} style={{ flex: 1, height: 5, borderRadius: 65, backgroundColor: i <= step ? c.forest : WHITE }} />
-        ))}
-      </View>
+      <StepBars step={step} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} />
     </View>
   );
 }
@@ -88,7 +84,7 @@ export function TripValue({ children, placeholder }: { children?: string; placeh
 /** The text input inside a TripField. */
 export function TripInput({ label, style, ...rest }: TextInputProps & { label: string }) {
   const { c } = useTheme();
-  return <TextInput accessibilityLabel={label} placeholderTextColor={c.placeholder} {...rest} style={[{ color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', paddingVertical: 0, minHeight: 22, minWidth: 0 }, style]} />;
+  return <TextInput accessibilityLabel={label} placeholderTextColor={c.placeholder} selectionColor={c.forest} cursorColor={c.forest} underlineColorAndroid="transparent" returnKeyType="done" {...rest} style={[{ includeFontPadding: false, color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', paddingVertical: 0, minHeight: 22, minWidth: 0 }, style]} />;
 }
 
 /** The dark round button between two stacked pills (swap, calendar). Sits on the right edge, half over each pill. */

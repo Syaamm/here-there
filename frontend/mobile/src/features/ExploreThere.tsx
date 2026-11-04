@@ -1,12 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import { TripBig, TripNextUpCard } from '@/components/Cards';
+import { TripBig, TripNextUpCard, TripRow } from '@/components/Cards';
 import { Reveal } from '@/components/Reveal';
 import { ModeTabs } from '@/components/TabHeader';
-import { ThereHomeHeader, ThereSearchField, TripStyleChips } from '@/components/ThereParts';
+import { ThereChip, ThereHomeHeader, ThereLabel, ThereSearchField, TripStyleChips } from '@/components/ThereParts';
 import { VerifyBanner } from '@/components/VerifyBanner';
-import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
+import { Btn, Card, Chip, Empty, ErrorBanner, Screen, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type MyTripsPage, type Trip } from '@/lib/api';
 import { useCity } from '@/lib/city';
 import { dateSpan } from '@/lib/format';
@@ -15,6 +15,7 @@ import { useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
+import { ThereFiltersSheet, useThereFilters } from './ThereFilters';
 
 type When = 'any' | 'month' | 'quarter' | 'later';
 const DAY = 864e5;
@@ -30,8 +31,11 @@ export function ExploreThere() {
   // the filter button: how far ahead to look
   const [when, setWhen] = useState<When>('any');
   const [filterOpen, setFilterOpen] = useState(false);
+  // the same full filter sheet as the Search tab; its destination is the search field above. Search applies it to the feed.
+  const f = useThereFilters({ destination: q, setDestination: setQ });
+  const [applied, setApplied] = useState('');
 
-  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?limit=50`), [], 60_000, 'feed:there', { keep: true, live: true });
+  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?limit=50${applied}`), [applied], 60_000, 'feed:there', { keep: true, live: true });
   // a trip was proposed, filled or cancelled somewhere: ask again at once
   useLiveEvents((e) => {
     if (e.type === 'feed-changed') void feed.reload();
@@ -70,16 +74,19 @@ export function ExploreThere() {
   const { width, gutter } = useLayout();
   const cardW = Math.min(480, width - gutter * 2 - 28); // a bit of the next card peeks in, so it is clear you can swipe
   const MAX = 4;
+  // only the first section on the page has big cards: Taking part / Next up when shown, else the first trip list that has any
+  const lists = [when === 'any' || when === 'month' ? soon : [], when === 'any' || when === 'quarter' ? season : [], when === 'any' || when === 'later' ? later : []];
+  const bigAt = taking.length > 0 || next.length > 0 ? -1 : lists.findIndex((l) => l.length > 0);
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<ThereHomeHeader city={city} onPickCity={setCity} />} style={{ paddingTop: 20 }}>
+    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<ThereHomeHeader city={city} onPickCity={setCity} />} bandTall style={{ paddingTop: 20 }}>
 
       <VerifyBanner />
 
       <ModeTabs />
 
       <Txt variant="h1" accessibilityRole="header" style={{ fontSize: 28, lineHeight: 41, fontWeight: '500', marginTop: 12, maxWidth: 280 }}>{t('Explore The World Like Never')}</Txt>
-      <ThereSearchField value={q} onChangeText={setQ} placeholder={t('Where next? e.g. Japan....')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
+      <ThereSearchField value={q} onChangeText={setQ} placeholder={t('Where next? e.g. Japan....')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || f.active} />
       <TripStyleChips value={style} onChange={setStyle} />
 
       <ErrorBanner message={feed.error?.message} />
@@ -141,9 +148,9 @@ export function ExploreThere() {
         <Empty title={q || style ? t('No trips match') : t('No trips yet')}>{q || style ? t('Try another search.') : t('Be the first to propose one.')}</Empty>
       )}
 
-      <ListSection index={1} title={t('Leaving soon')} list={when === 'any' || when === 'month' ? soon : []} max={MAX} onMore={() => go('/trips?section=soon')} />
-      <ListSection index={2} title={t('In the next few months')} list={when === 'any' || when === 'quarter' ? season : []} max={MAX} onMore={() => go('/trips?section=season')} />
-      <ListSection index={3} title={t('Later')} list={when === 'any' || when === 'later' ? later : []} max={MAX} onMore={() => go('/trips?section=later')} />
+      <ListSection index={1} big={bigAt === 0} title={t('Leaving soon')} list={lists[0]} max={MAX} onMore={() => go('/trips?section=soon')} />
+      <ListSection index={2} big={bigAt === 1} title={t('In the next few months')} list={lists[1]} max={MAX} onMore={() => go('/trips?section=season')} />
+      <ListSection index={3} big={bigAt === 2} title={t('Later')} list={lists[2]} max={MAX} onMore={() => go('/trips?section=later')} />
 
 
       <Reveal index={4}>
@@ -177,27 +184,37 @@ export function ExploreThere() {
         ))}
       </Sheet>
 
-      <Sheet visible={filterOpen} title={t('Show')} onClose={() => setFilterOpen(false)}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {(
-            [
-              ['any', 'Everything'],
-              ['month', 'Next 30 days'],
-              ['quarter', '1 to 3 months'],
-              ['later', 'Later than that'],
-            ] as const
-          ).map(([k, label]) => (
-            <Pill key={k} label={t(label)} active={when === k} onPress={() => setWhen(k)} />
-          ))}
-        </View>
-        <Btn title={t('Done')} onPress={() => setFilterOpen(false)} />
-      </Sheet>
+      <ThereFiltersSheet
+        f={f}
+        visible={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        searching={feed.loading && !feed.data}
+        // the destination is already the search field (filtered on the device), so only the other choices go to the server
+        onSearch={() => setApplied(f.active ? `&${new URLSearchParams(f.build('')).toString()}` : '')}
+        extra={
+          <View style={{ gap: 12 }}>
+            <ThereLabel>{t('Show')}</ThereLabel>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {(
+                [
+                  ['any', 'Everything'],
+                  ['month', 'Next 30 days'],
+                  ['quarter', '1 to 3 months'],
+                  ['later', 'Later than that'],
+                ] as const
+              ).map(([k, label]) => (
+                <ThereChip key={k} label={t(label)} active={when === k} onPress={() => setWhen(k)} />
+              ))}
+            </View>
+          </View>
+        }
+      />
     </Screen>
   );
 }
 
 /** A titled list of trip rows (up to `max`), with "See all" on the right. Nothing is drawn when the list is empty. */
-function ListSection({ index, title, list, max, onMore }: { index: number; title: string; list: Trip[]; max: number; onMore: () => void }) {
+function ListSection({ index, big, title, list, max, onMore }: { index: number; /** the first section on the page keeps the big cards; the others are compact rows */ big: boolean; title: string; list: Trip[]; max: number; onMore: () => void }) {
   const { c } = useTheme();
   const { t } = useT();
   if (list.length === 0) return null;
@@ -208,9 +225,9 @@ function ListSection({ index, title, list, max, onMore }: { index: number; title
   return (
     <Reveal index={index} style={{ gap: 12 }}>
       <SectionHeader title={title} />
-      {list.slice(0, count).map((trip) => (
-        <TripBig key={trip.id} t={trip} tag={trip.tags[0] ? t(trip.tags[0][0].toUpperCase() + trip.tags[0].slice(1)) : undefined} />
-      ))}
+      {list.slice(0, count).map((trip) =>
+        big ? <TripBig key={trip.id} t={trip} tag={trip.tags[0] ? t(trip.tags[0][0].toUpperCase() + trip.tags[0].slice(1)) : undefined} /> : <TripRow key={trip.id} t={trip} />,
+      )}
       {hidden > 0 ? (
         <Pressable
           accessibilityRole="button"

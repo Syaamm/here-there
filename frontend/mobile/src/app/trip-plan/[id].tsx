@@ -1,10 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { TripCalendar } from '@/components/TripCalendar';
-import { AuthBack } from '@/components/AuthForm';
+import { TripThumb } from '@/components/Cards';
 import { softShadow, WHITE } from '@/components/TripParts';
 import { Avatar, Banner, Btn, Card, Chip, Empty, ErrorBanner, Field, Row, Screen, Sheet, Spinner, Txt } from '@/components/ui';
 import { DayStrip, Segmented } from '@/components/DayStrip';
@@ -263,16 +263,13 @@ export default function TripPlan() {
           </Row>
         </View>
   );
+  // the design's round white fields in the add form
+  const pill = { borderRadius: 999, paddingHorizontal: 20, minHeight: 50 } as const;
   const cats = [t('Stay'), t('Food'), t('Local transport'), t('Activities'), ...(B?.includesTransport ? [t('Flights and travel')] : [])];
   const parts = PARTS.map(([l, v, i, h]) => [t(l), v, i, t(h)] as const);
 
   return (
     <Screen onRefresh={onRefresh} refreshing={refreshing}>
-      <Stack.Screen options={{ headerShown: false }} />
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-        <AuthBack onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
-        <Text accessibilityRole="header" style={{ flex: 1, color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t('Trip Plan')}</Text>
-      </View>
       {plan.loading && !p && <Spinner />}
       {forbidden ? <Empty title={t('The plan is for the group')} /> : <ErrorBanner message={plan.error?.message} />}
       {p ? (
@@ -281,10 +278,7 @@ export default function TripPlan() {
           {tr ? (
             <Card style={{ ...white, padding: 16, borderRadius: 28, gap: 12 }}>
               <Row style={{ gap: 16, alignItems: 'center' }}>
-                {/* a stand-in for the trip photo */}
-                <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 86, height: 86, borderRadius: 20, backgroundColor: c.heroBlock, alignItems: 'center', justifyContent: 'center' }}>
-                  <Ionicons name="airplane" size={30} color={c.forest} />
-                </View>
+                <TripThumb t={tr} size={30} style={{ width: 86, height: 86, borderRadius: 20 }} />
                 <View style={{ flex: 1, gap: 6 }}>
                   <Text numberOfLines={2} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{tr.title}</Text>
                   <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{dateSpan(tr.dateStart, tr.dateEnd)}</Text>
@@ -383,15 +377,15 @@ export default function TripPlan() {
         {allNext ? <Btn title={t('Show more')} variant="secondary" loading={allBusy} onPress={() => void loadAll(all!, allNext)} /> : null}
       </Sheet>
 
-      <Sheet visible={!!form} title={form?.kind === 'budget' ? (form?.edit ? t('Change a cost') : t('Add a cost')) : form?.edit ? t('Change a stop or idea') : t('Add a stop or idea')} onClose={() => setForm(null)}>
+      <Sheet bg={c.bg} visible={!!form} title={form?.kind === 'budget' ? (form?.edit ? t('Change a cost') : t('Add a cost')) : form?.edit ? t('Change a stop or idea') : t('Add a stop or idea')} onClose={() => setForm(null)}>
         {form?.kind === 'budget' ? null : <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>{t('Add something your group might want to do during the trip.')}</Text>}
         <ErrorBanner message={act.error} />
-        <Field label={form?.kind === 'budget' ? t('What is it for? (hostel, food, local transport)') : t('What is the plan?')} value={title} onChangeText={setTitle} maxLength={100} />
+        <Field label={form?.kind === 'budget' ? t('What is it for? (hostel, food, local transport)') : t('What is the plan?')} value={title} onChangeText={setTitle} maxLength={100} style={pill} />
         {form?.kind === 'budget' ? (
           <>
             <Row style={{ flexWrap: 'wrap', gap: 6 }}>
               {cats.map((x) => (
-                <Pressable key={x} accessibilityRole="button" accessibilityLabel={t('Use {name}', { name: x })} onPress={() => setTitle(x)} style={{ paddingHorizontal: 12, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: title === x ? c.forest : c.line, backgroundColor: title === x ? c.forest : c.surface, justifyContent: 'center' }}>
+                <Pressable key={x} accessibilityRole="button" accessibilityLabel={t('Use {name}', { name: x })} onPress={() => setTitle(x)} hitSlop={6} style={{ paddingHorizontal: 12, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: title === x ? c.forest : c.line, backgroundColor: title === x ? c.forest : c.surface, justifyContent: 'center' }}>
                   <Txt variant="small" style={{ color: title === x ? '#fff' : c.text, fontWeight: '800' }}>{x}</Txt>
                 </Pressable>
               ))}
@@ -405,9 +399,13 @@ export default function TripPlan() {
                   keyboardType="number-pad"
                   placeholder="0"
                   placeholderTextColor={c.placeholder}
+                  selectionColor={c.forest}
+                  cursorColor={c.forest}
+                  underlineColorAndroid="transparent"
+                  returnKeyType="done"
                   value={amount ? Number(amount).toLocaleString(localeTag()) : ''}
                   onChangeText={(v) => setAmount(v.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 6))}
-                  style={{ flex: 1, marginLeft: 8, color: c.text, fontSize: 30, fontWeight: '800', paddingVertical: 8, minWidth: 0 }}
+                  style={{ flex: 1, marginLeft: 8, color: c.text, fontSize: 30, fontWeight: '800', paddingVertical: 8, minWidth: 0, includeFontPadding: false }}
                 />
                 <Text style={{ color: c.muted, fontSize: 12, fontWeight: '700' }}>{unit === 'night' ? t('each night') : unit === 'day' ? t('each day') : t('per person')}</Text>
               </View>
@@ -452,10 +450,10 @@ export default function TripPlan() {
               <Txt variant="label">{t('What time of day?')}</Txt>
               <Segmented options={parts} value={time} onChange={setTime} />
             </View>
-            <Field label={t('Exact time (optional)')} value={time} onChangeText={(v) => setTime(v.replace(/[^0-9:]/g, '').slice(0, 5))} keyboardType="numbers-and-punctuation" maxLength={5} placeholder={t('Like 14:30')} error={timeOk ? null : t('Use 24-hour time like 09:30')} />
+            <Field label={t('Exact time (optional)')} value={time} onChangeText={(v) => setTime(v.replace(/[^0-9:]/g, '').slice(0, 5))} keyboardType="numbers-and-punctuation" maxLength={5} placeholder={t('Like 14:30')} style={pill} error={timeOk ? null : t('Use 24-hour time like 09:30')} />
           </>
         )}
-        <Field label={t('Note (optional)')} value={note} onChangeText={setNote} multiline maxLength={500} />
+        <Field label={t('Note (optional)')} value={note} onChangeText={setNote} multiline maxLength={500} style={{ borderRadius: 24, paddingHorizontal: 20 }} />
         <Btn title={t('Save')} loading={act.busy} disabled={title.trim().length < 2 || !timeOk || priceTooBig} onPress={save} />
       </Sheet>
     </Screen>

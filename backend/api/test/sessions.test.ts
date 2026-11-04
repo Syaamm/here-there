@@ -45,6 +45,15 @@ describe('sign-ins that can be ended', () => {
     assert.equal((await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken })).status, 201, 'inside the grace period');
   });
 
+  it('asking twice with the same refresh token gives the same new one, so whichever answer the phone keeps still works', async () => {
+    const u = await h.verified('TwiceSame');
+    const first = await login(u.email);
+    const a = (await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken })).body;
+    const b = (await h.post('/v1/auth/refresh', undefined, { refreshToken: first.refreshToken })).body;
+    assert.equal(a.refreshToken, b.refreshToken);
+    assert.equal((await h.post('/v1/auth/refresh', undefined, { refreshToken: a.refreshToken })).status, 201, 'the answer that arrived first is not killed by the second ask');
+  });
+
   it('a refresh answer that never reached the phone does not sign the person out when they come back later', async () => {
     const u = await h.verified('LostAnswer');
     const first = await login(u.email);

@@ -1,10 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
-import { Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { AuthButton } from '@/components/AuthForm';
-import { AccountRow, GroupLabel, PageTop, PillChoice, RoundCard } from '@/components/ProfileParts';
+import { AccountRow, GroupLabel, PillChoice, RoundCard } from '@/components/ProfileParts';
 import { Text } from '@/components/ScaledText';
 import { Avatar, Btn, ErrorBanner, Screen, useGo } from '@/components/ui';
 import { post } from '@/lib/api';
@@ -61,8 +60,6 @@ export default function Settings() {
 
   return (
     <Screen>
-      <Stack.Screen options={{ headerShown: false }} />
-      <PageTop title={t('Settings')} />
       <ErrorBanner message={act.error} />
 
       <GroupLabel>{t('Account')}</GroupLabel>

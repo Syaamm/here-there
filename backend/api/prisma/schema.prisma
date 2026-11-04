@@ -151,6 +151,9 @@ model Profile {
   homeCityKey String? // homeCity lowercased and trimmed, so staff of a region can find the people in it
   languages   String  @default("") // comma separated
   interests   String  @default("") // comma separated
+  travelWishlist   String  @default("") // THERE sign-up answer, comma separated: mountains|beaches|cities|nature|international|anywhere. Private: never shown to others
+  travelWindow     String? // month|one_to_three|three_to_six|flexible|exploring. Private
+  travelCompanions String? // one|small_group|large_group|open. Private
   bio         String?
   photoUrl    String?
 }

@@ -10872,7 +10872,7 @@
         "tags": [
           "Profile and photo"
         ],
-        "summary": "Edit my profile (name, city, languages, interests, bio)",
+        "summary": "Edit my profile (name, city, languages, interests, bio, and the private THERE sign-up answers travelWishlist, travelWindow, travelCompanions; only returned to their owner)",
         "operationId": "Auth_updateProfile",
         "requestBody": {
           "required": true,
@@ -10920,6 +10920,54 @@
                       {
                         "type": "string",
                         "maxLength": 300
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "travelWishlist": {
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "mountains",
+                        "beaches",
+                        "cities",
+                        "nature",
+                        "international",
+                        "anywhere"
+                      ]
+                    }
+                  },
+                  "travelWindow": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "month",
+                          "one_to_three",
+                          "three_to_six",
+                          "flexible",
+                          "exploring"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "travelCompanions": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "one",
+                          "small_group",
+                          "large_group",
+                          "open"
+                        ]
                       },
                       {
                         "type": "null"

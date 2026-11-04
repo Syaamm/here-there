@@ -91,13 +91,13 @@ export default function GroupInfoScreen() {
       hero={
         <View>
           <Stack.Screen options={{ headerShown: false }} />
-          <LinearGradient colors={[c.accentSoft, c.bg]} style={{ paddingTop: statusTop(insets.top) + 8, paddingBottom: 36, paddingHorizontal: 16, alignItems: 'center', gap: 8 }}>
+          <LinearGradient colors={['#FFFFFF', mode === 'there' ? c.sand : '#B7DBCF']} style={{ paddingTop: statusTop(insets.top) + 8, paddingBottom: 36, paddingHorizontal: 16, alignItems: 'center', gap: 8 }}>
             <View style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
               <BackArrow />
               <ModeSwitch />
             </View>
             {g.category ? <CatPhoto category={g.category} style={{ width: 100, height: 100, borderRadius: 50 }} /> : <Avatar name={g.title} size={100} />}
-            <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600', textAlign: 'center', marginTop: 6 }}>{g.title}</Text>
+            <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600', textAlign: 'center', marginTop: 6 }} numberOfLines={3}>{g.title}</Text>
             <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>{trip ? t('Trip group') : t('Activity group')} · {tn(g.members.length, '{n} person', '{n} people')}</Text>
           </LinearGradient>
           <View style={{ height: 30, marginTop: -30, borderTopLeftRadius: 40, borderTopRightRadius: 40, backgroundColor: c.bg }} />
@@ -108,7 +108,7 @@ export default function GroupInfoScreen() {
         {actions.map((a, k) => (
           <Pressable key={a.label} accessibilityRole="button" accessibilityLabel={a.label} disabled={a.danger && act.busy} onPress={a.onPress} style={({ pressed }) => [{ flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 4, borderLeftWidth: k ? 1 : 0, borderLeftColor: c.line }, pressed && { opacity: 0.7 }]}>
             <Ionicons name={a.icon} size={22} color={a.danger ? c.danger : c.text} />
-            <Text style={{ color: a.danger ? c.danger : c.muted, fontSize: 12, lineHeight: 16 }}>{a.label}</Text>
+            <Text numberOfLines={2} style={{ color: a.danger ? c.danger : c.muted, fontSize: 12, lineHeight: 16, textAlign: 'center', paddingHorizontal: 4 }}>{a.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -152,8 +152,8 @@ export default function GroupInfoScreen() {
               <Text style={{ color: c.muted, fontSize: 14, lineHeight: 19 }}>{m.verifiedAdult ? t('Verified adult') : t('Not verified')}</Text>
             </View>
             {m.role === 'host' ? (
-              <View style={{ backgroundColor: c.sand, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 }}>
-                <Text style={{ color: c.forest, fontSize: 12, lineHeight: 16, fontWeight: '500' }}>{hostRole}</Text>
+              <View style={{ backgroundColor: mode === 'there' ? '#EBEFEE' : c.sand, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, flexShrink: 0 }}>
+                <Text style={{ color: c.forest, fontSize: 12, lineHeight: 16, fontWeight: '500', includeFontPadding: false }}>{hostRole}</Text>
               </View>
             ) : null}
             <Ionicons name="chevron-forward" size={18} color={c.muted} />

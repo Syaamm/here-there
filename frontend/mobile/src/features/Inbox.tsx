@@ -217,11 +217,11 @@ export function Inbox() {
             <Ionicons name={ICON[n.type] ?? 'notifications-outline'} size={mode === 'there' ? 17 : 19} color={c.forest} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
-            <Text style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '600' }}>{n.title}</Text>
+            <Text numberOfLines={2} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '600' }}>{n.title}</Text>
             <Text numberOfLines={3} style={{ color: c.muted, fontSize: mode === 'there' ? 13 : 14, lineHeight: 19 }}>{n.body}</Text>
           </View>
-          <View style={{ alignItems: 'flex-end', gap: 6 }}>
-            <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(n.createdAt)}</Text>
+          <View style={{ alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(n.createdAt)}</Text>
             {!n.readAt ? <View accessibilityLabel={t('Unread')} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
           </View>
         </Pressable>
@@ -235,7 +235,7 @@ export function Inbox() {
   const earlier = rest.filter((n) => !isToday(n.createdAt));
 
   return (
-    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={mode === 'there' ? <ThereHeader /> : <TabHeader />}>
+    <Screen tabBar plain onRefresh={onRefresh} refreshing={refreshing} header={mode === 'there' ? <ThereHeader /> : <TabHeader plain />}>
       <Row style={{ justifyContent: 'space-between' }}>
         <Text accessibilityRole="header" style={{ color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '600' }}>{t('Your Inbox')}</Text>
         {tab === 'alerts' && alertsUnread > 0 ? (
@@ -262,7 +262,7 @@ export function Inbox() {
               <Text style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, fontWeight: '600' }}>{label}</Text>
               {n > 0 ? (
                 <View style={{ minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{n}</Text>
+                  <Text style={{ color: '#fff', fontSize: 10, lineHeight: 13, fontWeight: '800', textAlign: 'center', includeFontPadding: false }}>{n}</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -310,7 +310,7 @@ export function Inbox() {
           {convs.data && convs.items.length === 0 && <Empty title={t('No group chats yet')} />}
           <View style={{ minHeight: 48, borderRadius: 27, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 }}>
             <Ionicons name="search-outline" size={18} color={c.muted} />
-            <TextInput accessibilityLabel={t('Search chats')} value={q} onChangeText={setQ} placeholder={t('Search chats')} placeholderTextColor={c.placeholder} returnKeyType="search" clearButtonMode="while-editing" style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: 24 }} />
+            <TextInput accessibilityLabel={t('Search chats')} value={q} onChangeText={setQ} placeholder={t('Search chats')} placeholderTextColor={c.placeholder} returnKeyType="search" clearButtonMode="while-editing" style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center' }} />
           </View>
           {q.trim() && convs.data && chatRows.length === 0 ? <Empty title={t('No chats match')} /> : null}
           {chatRows.length > 0 ? (

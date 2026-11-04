@@ -6,37 +6,33 @@ import { get } from '@/lib/api';
 import { localeTag, useT } from '@/lib/i18n';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
-import { AuthBack } from './AuthForm';
 import { Text, TextInput } from './ScaledText';
 import type { Place } from './PlaceSearch';
-import { pressed } from './ui';
+import { StepBars, StepLabel } from './StepMotion';
+import { PlainTitle, pressed } from './ui';
 
 /** The four "Host activity" steps (Figma "Host activity 1/4 to 4/4"): back button, title, progress, then the step's content. */
 
 /** The top of every step: round back button, "Host activity" and the step's name in the middle, "Step n/4" and four bars under them. */
 export function WizardTop({ step, title, onBack, right }: { step: number; title: string; onBack: () => void; right?: ReactNode }) {
   const { t } = useT();
-  const { c } = useTheme();
+  const { c, mode } = useTheme();
   return (
     <View style={{ gap: 10 }}>
-      <View style={{ minHeight: 48, justifyContent: 'center' }}>
-        <View style={{ position: 'absolute', left: 0, top: 0, zIndex: 1 }}>
-          <AuthBack onPress={onBack} />
-        </View>
-        <View style={{ alignItems: 'center', gap: 6, paddingHorizontal: 52 }}>
-          <Text style={{ color: c.text, fontSize: 13, lineHeight: 16 }}>{t('Host activity')}</Text>
-          <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 19, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
-        </View>
-      </View>
+      <PlainTitle
+        onBack={onBack}
+        custom={
+          <View style={{ alignItems: 'center', gap: 2 }}>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{t('Host activity')}</Text>
+            <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 15, lineHeight: 19, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
+          </View>
+        }
+      />
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 30 }}>
-        <Text style={{ color: c.muted, fontSize: 12.7, lineHeight: 16 }}>{t('Step {n}/4', { n: step + 1 })}</Text>
+        <StepLabel step={step} style={{ color: c.muted, fontSize: 12.7, lineHeight: 16 }} />
         {right}
       </View>
-      <View accessibilityRole="progressbar" accessibilityLabel={t('Step {n}/4', { n: step + 1 })} accessibilityValue={{ min: 1, max: 4, now: step + 1 }} style={{ flexDirection: 'row', gap: 7 }}>
-        {[0, 1, 2, 3].map((i) => (
-          <View key={i} style={{ flex: 1, height: 5, borderRadius: 65, backgroundColor: i <= step ? c.forest : c.sand }} />
-        ))}
-      </View>
+      <StepBars step={step} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} />
     </View>
   );
 }
@@ -58,8 +54,12 @@ export function PillInput({ label, style, ...rest }: TextInputProps & { label: s
     <TextInput
       accessibilityLabel={label}
       placeholderTextColor={c.placeholder}
+      selectionColor={c.forest}
+      cursorColor={c.forest}
+      underlineColorAndroid="transparent"
+      returnKeyType="done"
       {...rest}
-      style={[{ minHeight: sc(54), borderWidth: 1, borderRadius: 32, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, paddingHorizontal: 20, paddingVertical: 10 }, style]}
+      style={[{ includeFontPadding: false, minHeight: sc(54), borderWidth: 1, borderRadius: 32, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, paddingHorizontal: 20, paddingVertical: 10 }, style]}
     />
   );
 }
@@ -73,6 +73,9 @@ export function PillArea({ label, style, ...rest }: TextInputProps & { label: st
       placeholderTextColor={c.placeholder}
       multiline
       textAlignVertical="top"
+      selectionColor={c.forest}
+      cursorColor={c.forest}
+      underlineColorAndroid="transparent"
       {...rest}
       style={[{ minHeight: sc(100), borderWidth: 1, borderRadius: 32, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, lineHeight: 20, paddingHorizontal: 22, paddingTop: 16, paddingBottom: 16 }, style]}
     />
@@ -88,10 +91,11 @@ export function CategoryPill({ label, spoken, photo, selected, onPress }: { labe
       accessibilityLabel={spoken}
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={({ pressed: p }) => [{ width: '31.5%', minHeight: sc(48), borderRadius: 32, borderWidth: 1.2, borderColor: selected ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: selected ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 8 }, pressed(p)]}
+      hitSlop={{ top: 2, bottom: 2 }}
+      style={({ pressed: p }) => [{ width: '31.5%', minHeight: sc(40), borderRadius: 26, borderWidth: 1.2, borderColor: selected ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: selected ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 8 }, pressed(p)]}
     >
-      <Image source={photo} contentFit="cover" style={{ width: 41, height: 41, borderRadius: 21, borderWidth: selected ? 1.5 : 0, borderColor: '#fff' }} accessibilityLabel="" />
-      <Text numberOfLines={1} style={{ flex: 1, textAlign: 'center', color: selected ? '#fff' : c.forest, fontSize: 14 }}>{label}</Text>
+      <Image source={photo} contentFit="cover" style={{ width: 32, height: 32, borderRadius: 16, borderWidth: selected ? 1.5 : 0, borderColor: '#fff' }} accessibilityLabel="" />
+      <Text numberOfLines={1} style={{ flex: 1, textAlign: 'center', color: selected ? '#fff' : c.forest, fontSize: 13 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -270,11 +274,15 @@ export function PlacePick({ label, text, onText, place, onPlace, city }: { label
           accessibilityLabel={label}
           placeholder={t('Search a place')}
           placeholderTextColor={c.placeholder}
+          selectionColor={c.forest}
+          cursorColor={c.forest}
+          underlineColorAndroid="transparent"
+          returnKeyType="search"
           value={text}
           onChangeText={onText}
           maxLength={100}
           autoCorrect={false}
-          style={{ flex: 1, color: c.forest, fontSize: 14, paddingVertical: 12 }}
+          style={{ flex: 1, color: c.forest, fontSize: 14, paddingVertical: 12, includeFontPadding: false }}
         />
       </View>
       {state === 'searching' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{t('Searching…')}</Text> : null}

@@ -2972,7 +2972,7 @@ Responses
 
 ### `PATCH /v1/me/profile`
 
-**Edit my profile (name, city, languages, interests, bio)**
+**Edit my profile (name, city, languages, interests, bio, and the private THERE sign-up answers travelWishlist, travelWindow, travelCompanions; only returned to their owner)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -2985,6 +2985,9 @@ Request body (JSON)
 | `languages` | array of string (2 to 20 characters) | no |  |
 | `interests` | array of string (2 to 24 characters) | no |  |
 | `bio` | string (0 to 300 characters) or null | no |  |
+| `travelWishlist` | array of one of: `mountains`, `beaches`, `cities`, `nature`, `international`, `anywhere` | no |  |
+| `travelWindow` | one of: `month`, `one_to_three`, `three_to_six`, `flexible`, `exploring` or null | no |  |
+| `travelCompanions` | one of: `one`, `small_group`, `large_group`, `open` or null | no |  |
 
 Responses
 

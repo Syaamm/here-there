@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { View } from 'react-native';
-import { AuthBack, AuthButton, AuthCheck, AuthField, AuthHeading, AuthSwitch } from '@/components/AuthForm';
+import { AuthBack, AuthButton, AuthCheck, AuthField, AuthHeading, AuthSwitch, type InputHandle } from '@/components/AuthForm';
 import { Banner, Btn, ErrorBanner, Screen, Txt } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -15,6 +15,9 @@ export default function Register() {
   const { signIn } = useMe();
   const [f, setF] = useState({ displayName: '', email: '', password: '', homeCity: 'Milan' });
   const [adult, setAdult] = useState(false);
+  const emailRef = useRef<InputHandle>(null);
+  const pwRef = useRef<InputHandle>(null);
+  const cityRef = useRef<InputHandle>(null);
   // step 2: the code from the email. `ticket` proves it is the same person who filled the form.
   const [pending, setPending] = useState<{ email: string; ticket: string } | null>(null);
   const [code, setCode] = useState('');
@@ -62,7 +65,7 @@ export default function Register() {
         <ErrorBanner message={act.error} />
         {sentAgain ? <Banner tone="ok">{t('We sent a new code.')}</Banner> : null}
         <View style={{ gap: 18 }}>
-          <AuthField label={t('Code')} placeholder={t('6-digit code')} value={code} onChangeText={setCode} keyboardType="number-pad" autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} onSubmitEditing={confirm} />
+          <AuthField label={t('Code')} placeholder={t('6-digit code')} value={code} onChangeText={setCode} keyboardType="number-pad" autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} returnKeyType="go" onSubmitEditing={confirm} />
           <AuthButton title={t('Continue')} onPress={confirm} loading={act.busy} disabled={code.trim().length !== 6} />
           <Btn title={t('Send the code again')} variant="ghost" onPress={again} disabled={act.busy} />
         </View>
@@ -78,10 +81,10 @@ export default function Register() {
       </View>
       <ErrorBanner message={act.error} />
       <View style={{ gap: 18 }}>
-        <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="nickname" />
-        <AuthField label={t('Email')} placeholder={t('Enter your email')} value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" />
-        <AuthField label={t('Password')} placeholder={t('Enter your password')} hint={t('At least {n} characters', { n: 10 })} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" />
-        <AuthField label={t('Home city')} placeholder={t('Enter your city')} hint={t('City only, never an address')} value={f.homeCity} onChangeText={set('homeCity')} maxLength={60} />
+        <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="name" textContentType="name" autoCapitalize="words" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => emailRef.current?.focus()} />
+        <AuthField label={t('Email')} placeholder={t('Enter your email')} value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" inputRef={emailRef} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => pwRef.current?.focus()} />
+        <AuthField label={t('Password')} placeholder={t('Enter your password')} hint={t('At least {n} characters', { n: 10 })} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" inputRef={pwRef} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => cityRef.current?.focus()} />
+        <AuthField label={t('Home city')} placeholder={t('Enter your city')} hint={t('City only, never an address')} value={f.homeCity} onChangeText={set('homeCity')} maxLength={60} autoCapitalize="words" inputRef={cityRef} returnKeyType="done" />
         <AuthCheck checked={adult} onChange={setAdult} label={t('I confirm that I am 18 or older.')} />
         <AuthButton title={t('Create account')} onPress={submit} loading={act.busy} disabled={!valid} />
       </View>

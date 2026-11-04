@@ -155,6 +155,19 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
           ))}
         </View>
         <View onLayout={(e) => setGridW(e.nativeEvent.layout.width)}>
+        {/* the days of the trip run as one soft band behind the numbers (it breaks at the week's ends); the chosen-day circle glides over it */}
+        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, right: 0, top: 0 }}>
+          {Array.from({ length: cells.length / 7 }, (_, row) => (
+            <View key={row} style={{ flexDirection: 'row' }}>
+              {cells.slice(row * 7, row * 7 + 7).map((d, i) => {
+                const on = d !== null && inTrip.has(keyOf(d));
+                const startsHere = on && (i === 0 || !inTrip.has(keyOf(d! - 1)));
+                const endsHere = on && (i === 6 || !inTrip.has(keyOf(d! + 1)));
+                return <View key={i} style={{ flex: 1, height: CELL, justifyContent: 'center' }}>{on ? <View style={{ height: 38, backgroundColor: `${c.accentSoft}66`, borderTopLeftRadius: startsHere ? 19 : 0, borderBottomLeftRadius: startsHere ? 19 : 0, borderTopRightRadius: endsHere ? 19 : 0, borderBottomRightRadius: endsHere ? 19 : 0 }} /> : null}</View>;
+              })}
+            </View>
+          ))}
+        </View>
         {gridW ? (
           <Animated.View
             pointerEvents="none"
@@ -182,7 +195,7 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
                     onPress={() => onSelect(k)}
                     number={String(d)}
                     dots={Math.min(stops, 3)}
-                    base={trip && !on ? { backgroundColor: c.surface } : null}
+                    base={null}
                     ring={k === today && !on ? { borderWidth: 1.5, borderColor: c.green } : null}
                     look={{ dot: c.green, numberColor: on ? '#fff' : open ? c.text : c.line, weight: on ? '600' : '500' }}
                   />

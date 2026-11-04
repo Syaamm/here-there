@@ -90,7 +90,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         },
       ],
     ],
-    ['expo-build-properties', { android: { usesCleartextTraffic: !isProd } }],
+    // Release builds only: R8 code shrinking + unused-resource removal (smaller APK/AAB, less memory for dex). Revert by deleting the two flags if a release build crashes on a missing class.
+    ['expo-build-properties', { android: { usesCleartextTraffic: !isProd, ...(isProd ? { enableMinifyInReleaseBuilds: true, enableShrinkResourcesInReleaseBuilds: true } : {}) } }],
     ...(hasMapKeys ? ([['react-native-maps', mapKeys]] as NonNullable<ExpoConfig['plugins']>) : []),
   ],
   extra: {

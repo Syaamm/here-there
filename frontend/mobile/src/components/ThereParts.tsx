@@ -1,9 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Animated, Easing, Modal, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DockSpace } from '@/lib/dock';
+import { useMe } from '@/lib/auth';
 import { useKeyboardOverlap } from '@/lib/keyboard';
 import { useLayout } from '@/lib/layout';
 import { useT } from '@/lib/i18n';
@@ -11,7 +13,7 @@ import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { TRIP_PHOTOS } from './Cards';
 import { Text, TextInput } from './ScaledText';
-import { Btn, pressed, Sheet, Field } from './ui';
+import { Avatar, Btn, pressed, Sheet, Field } from './ui';
 
 /** THERE's pieces from the Figma pages (home, search and the filter sheet), shared by ExploreThere and SearchThere. */
 
@@ -23,10 +25,10 @@ export function ThereBrand() {
   const { t } = useT();
   return (
     <View style={{ gap: 3 }}>
-      <Text accessibilityRole="header" accessibilityLabel="THERE" style={{ color: '#000', fontSize: 24, lineHeight: 30, fontWeight: '700', letterSpacing: -1 }}>
-        THERE<Text style={{ color: '#67A987' }}>.</Text>
+      <Text accessibilityRole="header" accessibilityLabel="THERE" style={{ color: c.onBand, fontSize: 24, lineHeight: 30, fontWeight: '700', letterSpacing: -1 }}>
+        THERE<Text style={{ color: c.bandDot }}>.</Text>
       </Text>
-      <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t('Be Here.Go There.')}</Text>
+      <Text style={{ color: c.onBandMuted, fontSize: 12, lineHeight: 16 }}>{t('Be Here.Go There.')}</Text>
     </View>
   );
 }
@@ -37,14 +39,21 @@ export function ThereHomeHeader({ city, onPickCity }: { city: string; onPickCity
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const [v, setV] = useState(city);
+  const router = useRouter();
+  const { me } = useMe();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <ThereBrand />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} hitSlop={8} onPress={() => (setV(city), setOpen(true))} style={({ pressed: p }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44 }, p && { opacity: 0.8 }]}>
-        <Ionicons name="location-outline" size={15} color="#43A047" />
-        <Text numberOfLines={1} style={{ color: '#000', fontWeight: '600', fontSize: 16, maxWidth: 130 }}>{city}</Text>
-        <Text accessibilityElementsHidden importantForAccessibility="no" style={{ fontSize: 16 }}>{WAVE}</Text>
+        <Ionicons name="location-outline" size={15} color={c.bandPin} />
+        <Text numberOfLines={1} style={{ color: c.onBand, fontWeight: '600', fontSize: 16, lineHeight: 20, includeFontPadding: false, maxWidth: 130 }}>{city}</Text>
+        <Text accessibilityElementsHidden importantForAccessibility="no" style={{ fontSize: 16, lineHeight: 20, includeFontPadding: false }}>{WAVE}</Text>
       </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('Profile')} hitSlop={6} onPress={() => router.navigate('/profile' as never)}>
+        <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={36} />
+      </Pressable>
+      </View>
       <Sheet visible={open} title={t('Choose your city')} onClose={() => setOpen(false)}>
         <Field label={t('City')} value={v} onChangeText={setV} autoFocus />
         <Btn
@@ -80,7 +89,7 @@ export function ThereSearchField({ value, onChangeText, placeholder, onSubmit, o
           placeholder={placeholder}
           placeholderTextColor={c.placeholder}
           returnKeyType="search"
-          style={{ flex: 1, fontSize: inline ? 15 : 15.5, color: c.forest, paddingVertical: 0, minHeight: 24 }}
+          style={{ flex: 1, fontSize: inline ? 15 : 15.5, color: c.forest, paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center' }}
         />
         {inline ? (
           <>
@@ -119,7 +128,7 @@ export function TripStyleChips({ value, onChange }: { value: string | null; onCh
   const { c } = useTheme();
   const { gutter } = useLayout();
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 14, paddingVertical: 3 }}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 10, paddingVertical: 3 }}>
       {TRIP_STYLES.map((k) => {
         const on = value === k;
         return (
@@ -129,10 +138,10 @@ export function TripStyleChips({ value, onChange }: { value: string | null; onCh
             accessibilityState={{ selected: on }}
             accessibilityLabel={t(styleLabel(k))}
             onPress={() => onChange(on ? null : k)}
-            style={({ pressed: p }) => [{ minHeight: sc(54), borderRadius: 27, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 4, paddingRight: 20 }, pressed(p)]}
+            style={({ pressed: p }) => [{ minHeight: sc(44), borderRadius: 22, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 14 }, pressed(p)]}
           >
-            <Image source={TRIP_PHOTOS[k]} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ width: 46, height: 46, borderRadius: 23, borderWidth: on ? 2 : 0, borderColor: '#fff' }} />
-            <Text style={{ color: on ? '#fff' : c.forest, fontSize: 16 }}>{t(styleLabel(k))}</Text>
+            <Image source={TRIP_PHOTOS[k]} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ width: 36, height: 36, borderRadius: 18, borderWidth: on ? 1.5 : 0, borderColor: '#fff' }} />
+            <Text numberOfLines={1} style={{ color: on ? '#fff' : c.forest, fontSize: 14, includeFontPadding: false }}>{t(styleLabel(k))}</Text>
           </Pressable>
         );
       })}
@@ -153,7 +162,7 @@ export function ThereChip({ label, active, onPress, spoken }: { label: string; a
       onPress={onPress}
       style={({ pressed: p }) => [{ minHeight: 44, paddingHorizontal: 20, borderRadius: 22, borderWidth: 1, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
     >
-      <Text style={{ color: active ? '#fff' : c.forest, fontSize: 15 }}>{label}</Text>
+      <Text style={{ color: active ? '#fff' : c.forest, fontSize: 15, lineHeight: 20, includeFontPadding: false, textAlign: 'center' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -170,7 +179,7 @@ export function ThereInput({ label, value, onChangeText, placeholder, ...rest }:
   return (
     <View style={{ flex: 1, gap: 12 }}>
       <ThereLabel>{label}</ThereLabel>
-      <TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={c.placeholder} {...rest} style={{ minHeight: sc(55), borderRadius: 28, backgroundColor: c.surface, paddingHorizontal: 17, fontSize: 16, color: c.text }} />
+      <TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={c.placeholder} {...rest} style={{ minHeight: sc(55), borderRadius: 28, backgroundColor: c.surface, paddingHorizontal: 17, paddingVertical: 0, fontSize: 16, color: c.text, includeFontPadding: false, textAlignVertical: 'center' }} />
     </View>
   );
 }

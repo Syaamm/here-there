@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ErrorBanner } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
+import { tap } from '@/lib/haptics';
 import { useAction } from '@/lib/hooks';
 import { useTheme, type Mode } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
@@ -73,8 +74,8 @@ const LOOK = {
 
 const FOOTER = '18+ only · Privacy first · Terms apply';
 
-/** One complete welcome page. Both are always mounted; switching only cross-fades their opacity. */
-function Page({ mode, active, onSwitch, onLogin, onSignUp, onExplore, busy, error }: { mode: Mode; active: boolean; onSwitch: () => void; onLogin: () => void; onSignUp: () => void; onExplore: () => void; busy: boolean; error?: string | null }) {
+/** The coloured half of a welcome page: the photo, the page colour and the name. Both are always mounted; switching only cross-fades their opacity. The white sheet below is not part of it. */
+function Page({ mode, active, onSwitch, sheetH }: { mode: Mode; active: boolean; onSwitch: () => void; sheetH: number }) {
   const { t } = useT();
   const look = LOOK[mode];
   const insets = useSafeAreaInsets();
@@ -82,7 +83,6 @@ function Page({ mode, active, onSwitch, onLogin, onSignUp, onExplore, busy, erro
   const width = Math.min(screenW, 520);
   const fadeTop = Math.round(height * look.fadeTop);
   const fadeH = Math.round(height * look.fadeH);
-  const pill = { minHeight: 58, borderRadius: 32, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', alignItems: 'center' as const, justifyContent: 'center' as const };
   return (
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: look.bg }} pointerEvents={active ? 'auto' : 'none'} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!active}>
       <View style={{ flex: 1, width: '100%', maxWidth: 520, backgroundColor: look.bg }}>
@@ -104,18 +104,34 @@ function Page({ mode, active, onSwitch, onLogin, onSignUp, onExplore, busy, erro
           </View>
           <Text style={{ color: look.taglineColor, fontSize: 16, fontWeight: '500', marginTop: 10 }}>{t(look.tagline)}</Text>
         </View>
-        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 54, borderTopRightRadius: 54, paddingTop: look.sheetTop, paddingHorizontal: 22, paddingBottom: insets.bottom + 14, minHeight: height * 0.44 }}>
+        {/* the white sheet is drawn once by Welcome and never animates: this only keeps its room */}
+        <View style={{ height: sheetH }} />
+      </View>
+    </View>
+  );
+}
+
+/** The white sheet with the actions. Drawn once and shared by both products, so it stays still while the photo and colour above it change. */
+function Sheet({ onLogin, onSignUp, onExplore, busy, error, onHeight }: { onLogin: () => void; onSignUp: () => void; onExplore: () => void; busy: boolean; error?: string | null; onHeight: (h: number) => void }) {
+  const { t } = useT();
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const pill = { minHeight: 58, borderRadius: 32, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', alignItems: 'center' as const, justifyContent: 'center' as const };
+  return (
+    <View onLayout={(e) => onHeight(e.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' }}>
+      <View style={{ width: '100%', maxWidth: 520 }}>
+        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 54, borderTopRightRadius: 54, paddingTop: 56, paddingHorizontal: 22, paddingBottom: insets.bottom + 14, minHeight: height * 0.44 }}>
           <ErrorBanner message={error} />
-          <Pressable accessibilityRole="button" onPress={onLogin} style={({ pressed: p }) => [pill, { backgroundColor: FOREST }, p && { opacity: 0.88 }]}>
+          <Pressable accessibilityRole="button" onPress={() => { tap('Medium'); onLogin(); }} style={({ pressed: p }) => [pill, { backgroundColor: FOREST }, p && { opacity: 0.88 }]}>
             <Text style={{ color: '#fff', fontSize: 15.6, fontWeight: '500' }}>{t('Log in')}</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={onExplore} style={({ pressed: p }) => [pill, { marginTop: 10, opacity: busy ? 0.5 : 1 }, p && { opacity: 0.88 }]}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => { tap('Light'); onExplore(); }} style={({ pressed: p }) => [pill, { marginTop: 10, opacity: busy ? 0.5 : 1 }, p && { opacity: 0.88 }]}>
             <Text style={{ color: '#000', fontSize: 16.4, fontWeight: '500' }}>{busy ? t('One moment…') : t('Explore the demo')}</Text>
           </Pressable>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: look.dividerGap }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 37 }}>
             <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
             <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12 }}>{t("Don't have an account?")}</Text>
-            <Pressable accessibilityRole="link" hitSlop={12} onPress={onSignUp} style={{ minHeight: 32, justifyContent: 'center' }}>
+            <Pressable accessibilityRole="link" hitSlop={12} onPress={() => { tap('Light'); onSignUp(); }} style={{ minHeight: 32, justifyContent: 'center' }}>
               <Text style={{ color: FOREST, fontSize: 12, fontWeight: '500' }}>{t('Sign up')}</Text>
             </Pressable>
             <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
@@ -134,6 +150,8 @@ export default function Welcome() {
   const { notice, signIn } = useMe();
   const { mode, setMode } = useTheme();
   const demo = useAction();
+  const { height: screenH } = useWindowDimensions();
+  const [sheetH, setSheetH] = useState(Math.round(screenH * 0.44)); // measured once the sheet is drawn (an error line makes it taller)
   // a first-time visitor sees the intro pictures first (once); until that is known, nothing of this page is drawn
   const [introSeen, setIntroSeen] = useState(false);
   useEffect(() => {
@@ -158,11 +176,12 @@ export default function Welcome() {
       <StatusBar style={LOOK[mode].bar} />
       {/* needsOffscreenAlphaCompositing: on Android, fading a view with overlapping children fades each child on its own, which let the photo's hard lower edge show through its colour fade. This fades the page as one picture. */}
       <Animated.View needsOffscreenAlphaCompositing pointerEvents={mode === 'here' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: hereOpacity }}>
-        <Page mode="here" active={mode === 'here'} onSwitch={() => setMode('there')} {...common} />
+        <Page mode="here" active={mode === 'here'} onSwitch={() => setMode('there')} sheetH={sheetH} />
       </Animated.View>
       <Animated.View needsOffscreenAlphaCompositing pointerEvents={mode === 'there' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: thereOpacity }}>
-        <Page mode="there" active={mode === 'there'} onSwitch={() => setMode('here')} {...common} />
+        <Page mode="there" active={mode === 'there'} onSwitch={() => setMode('here')} sheetH={sheetH} />
       </Animated.View>
+      <Sheet {...common} onHeight={setSheetH} />
     </View>
   );
 }

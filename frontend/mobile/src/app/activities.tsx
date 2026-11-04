@@ -21,7 +21,7 @@ const EMPTY: Record<string, string> = {
 export default function AllActivities() {
   const { t } = useT();
   // Opened from the map's "List" button: picking an activity goes back to the map and selects it there.
-  const { from, section } = useLocalSearchParams<{ from?: string; section?: string }>();
+  const { from, section, category } = useLocalSearchParams<{ from?: string; section?: string; category?: string }>();
   const router = useRouter();
   const toMap = from === 'map';
   const [city] = useCity();
@@ -29,16 +29,17 @@ export default function AllActivities() {
     () => {
       const [from, to] = feedRange();
       const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
+      if (category) p.set('category', category); // opened from Home with a category chosen
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
-    [city],
+    [city, category],
     60_000,
   );
   const { refreshing, onRefresh } = useRefresh(feed.reload);
   // opened from a Home section's "See all": only that section; otherwise everything, section after section
   const sections = splitFeed(feed.data?.items ?? []).filter((s) => !section || s.id === section);
   // only the first few are drawn; the rest as you scroll. The sections fill one after the other.
-  const paged = usePaged(sections.flatMap((s) => s.items), city + (section ?? ''));
+  const paged = usePaged(sections.flatMap((s) => s.items), city + (section ?? '') + (category ?? ''));
   let left = paged.count;
   const visible = sections.map((s) => {
     const items = s.items.slice(0, left);

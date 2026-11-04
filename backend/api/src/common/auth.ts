@@ -1,4 +1,4 @@
-import { setRequestUser } from './observability';
+import { log, setRequestUser } from './observability';
 import {
   CanActivate,
   ExecutionContext,
@@ -88,14 +88,16 @@ export class AuthGuard implements CanActivate {
       sub = payload.sub;
       versions = payload;
       req.sessionId = payload.sid; // which sign-in this request belongs to (for "log out of this device")
-    } catch {
+    } catch (e) {
       if (isPublic) return true;
+      log('warn', 'token refused', { why: e instanceof Error ? e.message : 'invalid', path: req.path });
       throw E.unauthorized('INVALID_TOKEN', 'Invalid or expired token');
     }
 
     const row = await this.prisma.user.findUnique({ where: { id: sub } });
     if (!row || row.state === 'deleted' || tokenRevoked(versions, row)) {
       if (isPublic) return true;
+      log('warn', 'token refused', { why: !row ? 'no such user' : row.state === 'deleted' ? 'account deleted' : 'password changed or signed out everywhere', path: req.path });
       throw E.unauthorized('INVALID_TOKEN', 'Invalid or expired token');
     }
     if (row.state === 'suspended') {
