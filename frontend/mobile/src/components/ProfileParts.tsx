@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
@@ -120,5 +121,16 @@ export function SmallPill({ title, onPress, filled, disabled, loading }: { title
     <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!off, busy: !!loading }} disabled={off} hitSlop={4} onPress={onPress} style={{ minHeight: 44, minWidth: 119, paddingHorizontal: 20, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: filled ? c.forest : mode === 'there' ? '#fff' : c.surface, borderWidth: 1, borderColor: filled ? c.forest : c.line, opacity: off ? 0.5 : 1 }}>
       <Text style={{ color: filled ? '#fff' : c.text, fontSize: 13, fontWeight: '500' }}>{loading ? '…' : title}</Text>
     </Pressable>
+  );
+}
+
+/** The Reliability row's icon from the design: an outlined shield with a small location pin inside it. */
+export function ReliabilityIcon({ size = 22, color }: { size?: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" accessibilityElementsHidden importantForAccessibility="no">
+      <Path d="M12 2.8 19.4 5.4V11.4C19.4 15.9 16.4 19.6 12 21.2 7.6 19.6 4.6 15.9 4.6 11.4V5.4Z" stroke={color} strokeWidth={1.7} strokeLinejoin="round" />
+      <Circle cx="12" cy="9.6" r="2.1" stroke={color} strokeWidth={1.6} />
+      <Path d="M12 11.8V15" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
+    </Svg>
   );
 }

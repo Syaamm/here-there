@@ -11,7 +11,7 @@ import { Avatar, Banner, Btn, ErrorBanner, Field, Pill, PillRow, Row, Sheet, Txt
 import { useMe } from '@/lib/auth';
 import { statusTop } from '@/lib/layout';
 import { get, type Activity } from '@/lib/api';
-import { useCity } from '@/lib/city';
+import { useCity, useNear } from '@/lib/city';
 import { useDockSpace } from '@/lib/dock';
 import { catColor, CATS, CITY_CENTERS } from '@/lib/constants';
 import { feedRange } from '@/lib/feed';
@@ -89,7 +89,7 @@ function useCityCenter(city: string): { at: [number, number] | null; looking: bo
 export function useMapData() {
   const { t } = useT();
   const [city, setCity] = useCity();
-  const [near, setNear] = useState<{ lat: number; lng: number } | null>(null);
+  const [near, setNear] = useNear(); // kept across screens and app restarts until the person picks a city or taps "Whole city"
   const [cat, setCat] = useState(''); // '' = every category
   // zoom buttons: each press is a new command the map screen carries out (+1 in, -1 out)
   const [zoomCmd, setZoomCmd] = useState<{ d: 1 | -1; n: number } | null>(null);
@@ -170,17 +170,25 @@ export function useMapData() {
     router.setParams({ focus: undefined, t: undefined });
   }, [focus, stamp, pins]);
 
-  // Leaving the map puts it back to the default view: whole city, every activity, nothing selected.
+  // "Whole city" (or picking a city) drops "Near me": the map flies back out to the city
+  const hadNear = useRef(!!near);
+  useEffect(() => {
+    if (hadNear.current && !near && cityCenterRef.current) setTarget({ lat: cityCenterRef.current[0], lng: cityCenterRef.current[1], zoom: 'city' });
+    hadNear.current = !!near;
+  }, [near]);
+
+  // Leaving the map clears what was selected on it. The city and "Near me" are the person's own choice and stay as they are.
+  const nearRef = useRef(near);
+  nearRef.current = near;
   useFocusEffect(
     useCallback(
       () => () => {
         setSelectedKey(null);
         setActiveId(null);
         setDist({ status: 'idle' });
-        setNear(null);
         setCat('');
-        const home = cityCenterRef.current;
-        setTarget(home ? { lat: home[0], lng: home[1], zoom: 'city' } : null);
+        const home = nearRef.current ? ([nearRef.current.lat, nearRef.current.lng] as [number, number]) : cityCenterRef.current;
+        setTarget(home ? { lat: home[0], lng: home[1], zoom: nearRef.current ? 'near' : 'city' } : null);
       },
       [],
     ),
@@ -325,18 +333,19 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const listMax = Math.min(rows.length * ROW + 4, Math.round(screenH * 0.42));
 
   // 0 = just the summary, 1 = list showing. Driven by a finger (drag), a tap on the handle, or by tapping a pin.
+  // The list always has its full height and the whole sheet slides (a transform), so the pull is drawn on the native
+  // thread: a changing height would re-lay-out the page every frame, which is what made the sheet jerky on Android.
   const open = useRef(new Animated.Value(0)).current;
-  const openAt = useRef(0); // the same value, readable while dragging
+  const openAt = useRef(0); // where the sheet is heading or being held (0 closed .. 1 open), readable at any time
+  const [isOpen, setIsOpen] = useState(false);
   const dragFrom = useRef(0);
   const maxRef = useRef(listMax);
   maxRef.current = listMax;
-  useEffect(() => {
-    const id = open.addListener(({ value }) => (openAt.current = value));
-    return () => open.removeListener(id);
-  }, [open]);
   const settle = useCallback(
     (to: 0 | 1, velocity = 0) => {
-      Animated.spring(open, { toValue: to, velocity, friction: 9, tension: 80, useNativeDriver: false }).start();
+      openAt.current = to;
+      setIsOpen(to === 1);
+      Animated.spring(open, { toValue: to, velocity, friction: 11, tension: 90, useNativeDriver: true }).start();
     },
     [open],
   );
@@ -345,27 +354,33 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   useEffect(() => {
     settle(key ? 1 : 0);
   }, [key, settle]);
+  // The grip and the summary under it are the part you drag. Taps go to what is inside; only a clearly vertical drag is taken over.
   const pan = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 4,
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.2,
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
-        open.stopAnimation();
         dragFrom.current = openAt.current;
+        open.stopAnimation((v) => {
+          openAt.current = v;
+          dragFrom.current = v;
+        });
       },
-      onPanResponderMove: (_e, g) => open.setValue(Math.max(0, Math.min(1, dragFrom.current - g.dy / Math.max(maxRef.current, 1)))),
+      onPanResponderMove: (_e, g) => {
+        const v = Math.max(0, Math.min(1, dragFrom.current - g.dy / Math.max(maxRef.current, 1)));
+        openAt.current = v;
+        open.setValue(v);
+      },
       onPanResponderRelease: (_e, g) => {
-        const moved = Math.abs(g.dy) < 5 && Math.abs(g.dx) < 5; // a tap on the handle toggles
-        if (moved) return settle(openAt.current > 0.5 ? 0 : 1);
         const to = g.vy < -0.3 ? 1 : g.vy > 0.3 ? 0 : openAt.current > 0.5 ? 1 : 0;
         settle(to, -g.vy / Math.max(maxRef.current, 1));
       },
     }),
   ).current;
 
-  const listH = open.interpolate({ inputRange: [0, 1], outputRange: [0, listMax] });
+  const sheetY = open.interpolate({ inputRange: [0, 1], outputRange: [listMax, 0] });
   const [baseH, setBaseH] = useState(96); // the sheet without its list: handle + summary
-  const toolsBottom = Animated.add(listH, baseH + 12 + dock);
 
   const todayCount = pins.filter((a) => new Date(a.startsAt).toDateString() === new Date().toDateString()).length;
   const count = todayCount > 0 ? todayCount : pins.length;
@@ -407,7 +422,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
       </View>
 
       {/* tools: "Near me" bottom left, zoom bottom right; they ride up with the sheet */}
-      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: toolsBottom, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: baseH + 12 + dock + listMax, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', transform: [{ translateY: sheetY }] }}>
         {near ? (
           <PillButton icon="close-circle-outline" title={t('Whole city')} onPress={() => setNear(null)} />
         ) : (
@@ -420,13 +435,13 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
       </Animated.View>
 
       {/* bottom sheet */}
-      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingBottom: 12 + dock, // runs down behind the dock, so no strip of map shows between them
-         paddingHorizontal: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 } }}>
-        <View onLayout={(e) => setBaseH(e.nativeEvent.layout.height + 12)} style={{ width: '100%', alignItems: 'center' }}>
-          {/* the grip and the summary are the part you drag */}
-          <View {...pan.panHandlers} accessible accessibilityRole="adjustable" accessibilityLabel={t('Activities list. Swipe up to open, down to close')} style={{ width: '100%', alignItems: 'center', paddingTop: 8 }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.line, marginBottom: 14 }} />
-          </View>
+      <Animated.View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingBottom: 12 + dock, // runs down behind the dock, so no strip of map shows between them
+         paddingHorizontal: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, transform: [{ translateY: sheetY }] }}>
+        <View {...pan.panHandlers} onLayout={(e) => setBaseH(e.nativeEvent.layout.height + 12)} style={{ width: '100%', alignItems: 'center' }}>
+          {/* the grip and the summary are the part you drag; tapping the grip opens or closes the list */}
+          <Pressable accessibilityRole="adjustable" accessibilityLabel={t('Activities list. Swipe up to open, down to close')} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={(e) => settle(e.nativeEvent.actionName === 'increment' ? 1 : 0)} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)} hitSlop={{ top: 6, bottom: 6 }} style={{ width: '100%', alignItems: 'center', paddingTop: 8, paddingBottom: 14 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.line }} />
+          </Pressable>
           <View style={{ width: '100%', maxWidth: 560, gap: 8 }}>
             {selected ? (
               <>
@@ -467,7 +482,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
         </View>
 
         {/* the list: its height follows the pull, rows ease in one after another each time the list changes */}
-        <Animated.View style={{ width: '100%', maxWidth: 560, height: listH, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
+        <Animated.View pointerEvents={isOpen ? 'auto' : 'none'} style={{ width: '100%', maxWidth: 560, height: listMax, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
           <ScrollView style={{ marginTop: 10 }} contentContainerStyle={{ gap: 10, paddingBottom: 4 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
             {rows.map((a, i) => (
               <Reveal key={`${key}:${a.id}`} index={i}>
@@ -495,7 +510,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
             ))}
           </ScrollView>
         </Animated.View>
-      </View>
+      </Animated.View>
     </View>
   );
 }

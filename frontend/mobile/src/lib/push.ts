@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
 import { api } from './api';
 import { t } from './i18n';
 
@@ -22,6 +22,29 @@ function loadNotifications(): NotificationsModule | null {
   return notificationsModule;
 }
 
+type FirebaseModule = typeof import('@react-native-firebase/messaging');
+let firebaseModule: FirebaseModule | null | undefined;
+/**
+ * Firebase messaging (FCM, the way phone push is sent for both iPhone and Android), or null where it is not in the app: Expo Go,
+ * the browser, or a build made without the Firebase files (google-services.json / GoogleService-Info.plist). Everything that
+ * needs it falls back to Expo's push route in that case, so the app keeps working everywhere.
+ */
+function loadFirebase(): FirebaseModule | null {
+  if (firebaseModule === undefined) {
+    if (Platform.OS === 'web' || Constants.executionEnvironment === 'storeClient' || Constants.appOwnership === 'expo') return (firebaseModule = null);
+    try {
+      // Firebase's native part is not in Expo Go or in builds made without it: check before loading, because loading it there throws
+      if (!TurboModuleRegistry.get('NativeRNFBTurboApp') && !NativeModules.RNFBAppModule) return (firebaseModule = null);
+      const m = require('@react-native-firebase/messaging') as FirebaseModule;
+      m.getMessaging(); // throws when the app was built without the Firebase files
+      firebaseModule = m;
+    } catch {
+      firebaseModule = null;
+    }
+  }
+  return firebaseModule;
+}
+
 /** unsupported: this browser or device cannot do it. default: not asked yet. granted / denied: the person's answer. */
 export type PushState = 'unsupported' | 'default' | 'granted' | 'denied';
 
@@ -31,6 +54,11 @@ export async function pushState(): Promise<PushState> {
   try {
     if (Platform.OS === 'web') return webReady() ? (Notification.permission as PushState) : 'unsupported';
     if (!Device.isDevice) return 'unsupported';
+    const fb = loadFirebase();
+    if (fb) {
+      const s = await fb.hasPermission(fb.getMessaging());
+      return s === fb.AuthorizationStatus.DENIED ? 'denied' : s === fb.AuthorizationStatus.NOT_DETERMINED ? 'default' : 'granted';
+    }
     const Notifications = loadNotifications();
     if (!Notifications) return 'unsupported';
     const p = await Notifications.getPermissionsAsync();
@@ -55,9 +83,16 @@ async function subscribeWeb() {
   await api('POST', '/v1/push/subscribe', { kind: 'web', token: JSON.stringify(sub) });
 }
 
-/** Phone: get this device's Expo push token and give it to the server. */
+/** Phone: get this device's push token (Firebase when the build has it, otherwise Expo's) and give it to the server. */
 async function subscribeNative() {
   const Notifications = loadNotifications();
+  const fb = loadFirebase();
+  if (fb) {
+    // the channel Firebase messages arrive on (Android 8 and later)
+    if (Platform.OS === 'android' && Notifications) await Notifications.setNotificationChannelAsync('default', { name: t('Messages and requests'), importance: Notifications.AndroidImportance.DEFAULT }).catch(() => undefined);
+    await api('POST', '/v1/push/subscribe', { kind: 'fcm', token: await fb.getToken(fb.getMessaging()) });
+    return;
+  }
   if (!Notifications) return;
   if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('default', { name: t('Messages and requests'), importance: Notifications.AndroidImportance.DEFAULT });
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
@@ -73,6 +108,12 @@ export async function enablePush(): Promise<PushState> {
       const perm = await Notification.requestPermission();
       if (perm === 'granted') await subscribeWeb();
     } else {
+      const fb = loadFirebase();
+      if (fb) {
+        const s = await fb.requestPermission(fb.getMessaging());
+        if (s === fb.AuthorizationStatus.AUTHORIZED || s === fb.AuthorizationStatus.PROVISIONAL) await subscribeNative();
+        return pushState();
+      }
       const Notifications = loadNotifications();
       if (!Notifications) return 'unsupported';
       const r = await Notifications.requestPermissionsAsync();
@@ -100,6 +141,26 @@ export function usePushTaps() {
   const router = useRouter();
   useEffect(() => {
     if (Platform.OS === 'web') return;
+    const fb = loadFirebase();
+    if (fb) {
+      // Firebase: the alert tapped while the app was in the background, the one that started the app, and a changed device token
+      try {
+        const m = fb.getMessaging();
+        const open = (msg: { data?: Record<string, unknown> } | null) => {
+          const url = msg?.data?.url;
+          if (typeof url === 'string' && url.startsWith('/')) router.push(url as never);
+        };
+        void fb.getInitialNotification(m).then(open, () => undefined);
+        const a = fb.onNotificationOpenedApp(m, open);
+        const b = fb.onTokenRefresh(m, (token) => void api('POST', '/v1/push/subscribe', { kind: 'fcm', token }).catch(() => undefined));
+        return () => {
+          a();
+          b();
+        };
+      } catch {
+        return;
+      }
+    }
     const Notifications = loadNotifications();
     if (!Notifications) return;
     try {

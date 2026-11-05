@@ -107,7 +107,7 @@ export default function UserProfile() {
       {mine ? <Btn title={t('Edit my profile')} variant="secondary" onPress={() => go('/edit-profile')} /> : null}
       {!mine && relation ? (
         <>
-          <Btn title={relation.buddy ? t('Buddies ✓') : relation.following ? t('Following ✓') : relation.followsYou ? t('Follow back') : t('Follow')} variant={relation.following ? 'secondary' : 'primary'} onPress={toggleFollow} />
+          <Btn title={relation.buddy ? t('Friends ✓') : relation.following ? t('Following ✓') : relation.followsYou ? t('Follow back') : t('Follow')} variant={relation.following ? 'secondary' : 'primary'} onPress={toggleFollow} />
           {!relation.buddy && relation.followsYou && !relation.following ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('{name} follows you.', { name: p.displayName })}</Txt> : null}
         </>
       ) : null}

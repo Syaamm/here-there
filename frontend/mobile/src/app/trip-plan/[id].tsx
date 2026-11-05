@@ -293,10 +293,11 @@ export default function TripPlan() {
                     </View>
                   ))}
                 </View>
-                <Text style={{ flex: 1, color: c.text, fontSize: 12 }}>{t('{going} of {capacity} going', { going: tr.members, capacity: tr.maxCapacity })}</Text>
-                {status ? <Chip label={status} tone={finished ? 'neutral' : 'ok'} /> : null}
-                <Text style={{ color: tr.spotsLeft === 0 ? c.danger : c.green, fontSize: 12, fontWeight: '500' }}>{tr.spotsLeft === 0 ? t('Full') : tn(tr.spotsLeft, '{n} place left', '{n} places left')}</Text>
+                <Text style={{ flex: 1, minWidth: 0, color: c.text, fontSize: 12 }}>{t('{going} of {capacity} going', { going: tr.members, capacity: tr.maxCapacity })}</Text>
+                <Text style={{ flexShrink: 0, color: tr.spotsLeft === 0 ? c.danger : c.green, fontSize: 12, fontWeight: '500' }}>{tr.spotsLeft === 0 ? t('Full') : tn(tr.spotsLeft, '{n} place left', '{n} places left')}</Text>
               </Row>
+              {/* the status gets its own line: beside the other three it squeezed "3 of 6 going" into a column of single letters */}
+              {status ? <View style={{ alignSelf: 'flex-start' }}><Chip label={status} tone={finished ? 'neutral' : 'ok'} /></View> : null}
             </Card>
           ) : null}
 

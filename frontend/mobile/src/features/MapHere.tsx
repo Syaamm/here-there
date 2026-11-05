@@ -21,6 +21,9 @@ const GREY_MAP = [
  * One pin. It is redrawn (the green fill playing) only when ITS OWN selection changes, for just long enough for the
  * change to show, and then goes back to being a still picture. Selecting or deselecting one pin never touches the others.
  */
+/** When a pin was last tapped: the map reports a tap on a pin as a tap on itself too, which would close what the pin just opened. */
+const lastPinTap = { at: 0 };
+
 const MapPin = memo(function MapPin({ g, active, onSelect }: { g: Group; active: boolean; onSelect: (g: Group) => void }) {
   const { tn } = useT();
   const [track, setTrack] = useState(true); // drawn live while it first appears, and again for a moment after it is (de)selected
@@ -31,7 +34,11 @@ const MapPin = memo(function MapPin({ g, active, onSelect }: { g: Group; active:
   }, [active]);
   const coordinate = useMemo(() => ({ latitude: g.lat, longitude: g.lng }), [g.lat, g.lng]);
   return (
-    <Marker anchor={{ x: 0.5, y: 1 }} coordinate={coordinate} title={g.items.length > 1 ? tn(g.items.length, '{n} activity', '{n} activities') : g.items[0].title} tracksViewChanges={track} onPress={() => onSelect(g)}>
+    <Marker anchor={{ x: 0.5, y: 1 }} coordinate={coordinate} title={g.items.length > 1 ? tn(g.items.length, '{n} activity', '{n} activities') : g.items[0].title} tracksViewChanges={track} onPress={(e) => {
+      e?.stopPropagation?.(); // Android: do not let the map see this tap as well
+      lastPinTap.at = Date.now();
+      onSelect(g);
+    }}>
       <PinIcon category={g.items[0].category} full={g.items.every((a) => a.spotsLeft === 0)} active={active} count={g.items.length} />
     </Marker>
   );
@@ -83,7 +90,10 @@ export function MapHere() {
         style={StyleSheet.absoluteFill}
         initialRegion={{ latitude: center[0], longitude: center[1], latitudeDelta: 0.08, longitudeDelta: 0.08 }}
         customMapStyle={GREY_MAP}
-        onPress={() => setSelected(null)}
+        onPress={() => {
+          if (Date.now() - lastPinTap.at < 500) return; // that was the pin's own tap
+          setSelected(null);
+        }}
         onRegionChangeComplete={(r) => (region.current = r)}
         showsPointsOfInterests={false}
         toolbarEnabled={false}

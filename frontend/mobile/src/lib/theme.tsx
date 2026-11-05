@@ -137,7 +137,7 @@ const modes = {
 };
 export type Colors = typeof modes.here;
 
-type ThemeState = { mode: Mode; setMode: (m: Mode) => void; /** like setMode, with the full-screen colour-wave transition */ switchMode: (m: Mode) => void; /** the saved mode has been read, so `mode` is the real one */ ready: boolean; c: Colors };
+type ThemeState = { mode: Mode; setMode: (m: Mode) => void; /** like setMode, with the full-screen colour-wave transition */ switchMode: (m: Mode, then?: () => void) => void; /** the saved mode has been read, so `mode` is the real one */ ready: boolean; c: Colors };
 const Ctx = createContext<ThemeState>({ mode: 'here', setMode: () => {}, switchMode: () => {}, ready: true, c: modes.here });
 export const useTheme = () => useContext(Ctx);
 
@@ -175,13 +175,40 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const [moving, setMoving] = useState<Mode | null>(null);
-  const switchMode = useCallback((m: Mode) => setMoving((cur) => (cur || m === mode ? cur : m)), [mode]);
+  const movingRef = useRef<Mode | null>(null);
+  const afterRef = useRef<(() => void) | null>(null);
+  // `then` runs once the wave has covered the screen and the product underneath has swapped: use it to open a page of the new
+  // product, so that page is never seen (in the old colours) before the animation has played
+  const switchMode = useCallback(
+    (m: Mode, then?: () => void) => {
+      if (movingRef.current) {
+        if (then) afterRef.current = then;
+        return;
+      }
+      if (m === mode) {
+        then?.();
+        return;
+      }
+      movingRef.current = m;
+      afterRef.current = then ?? null;
+      setMoving(m);
+    },
+    [mode],
+  );
 
   const value = useMemo(() => ({ mode, setMode, switchMode, ready, c: modes[mode] }), [mode, setMode, switchMode, ready]);
   return (
     <Ctx.Provider value={value}>
       {children}
-      {moving ? <ModeTransition target={moving} onCovered={() => setMode(moving)} onDone={() => setMoving(null)} /> : null}
+      {moving ? <ModeTransition target={moving} onCovered={() => {
+          setMode(moving);
+          const after = afterRef.current;
+          afterRef.current = null;
+          after?.();
+        }} onDone={() => {
+          movingRef.current = null;
+          setMoving(null);
+        }} /> : null}
     </Ctx.Provider>
   );
 }

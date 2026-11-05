@@ -10,14 +10,14 @@ type Kind = 'buddies' | 'following' | 'followers';
 type Person = { userId: string; displayName: string; homeCity: string | null; photoUrl: string | null; verifiedAdult: boolean; following: boolean; followsYou: boolean; buddy: boolean };
 type Counts = { counts: Record<Kind, number> };
 
-const LABEL: Record<Kind, string> = { buddies: 'Buddies', following: 'Following', followers: 'Followers' };
+const LABEL: Record<Kind, string> = { buddies: 'Friends', following: 'Following', followers: 'Followers' };
 const EMPTY: Record<Kind, string> = {
-  buddies: 'No buddies yet',
+  buddies: 'No friends yet',
   following: 'You are not following anyone',
   followers: 'No followers yet',
 };
 
-/** Your buddies, the people you follow and the people who follow you. Private: nobody else can see these lists. */
+/** Your friends (buddies in the code), the people you follow and the people who follow you. Private: nobody else can see these lists. */
 export default function Connections() {
   const { t } = useT();
   const go = useGo();
@@ -50,7 +50,7 @@ export default function Connections() {
               <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20 }}>{p.displayName}</Txt>
               <Row style={{ gap: 6 }}>
                 <Txt variant="small">{p.homeCity ?? t('City not set')}</Txt>
-                {p.buddy && <Chip label={t('Buddy')} tone="ok" />}
+                {p.buddy && <Chip label={t('Friend')} tone="ok" />}
               </Row>
             </View>
             {!p.following && <Btn title={t('Follow back')} small onPress={() => toggle(p)} />}

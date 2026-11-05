@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useIsFocused, useRoute, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { Children, createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Modal, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Modal, type NativeScrollEvent, type NativeSyntheticEvent, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
@@ -22,6 +22,12 @@ import { PAGE_TITLES, PLAIN_PAGES } from '@/lib/pageTitles';
 
 // ---------------------------------------------------------------- layout
 /** Shared press feedback: a crisp 3% shrink and a light dim. Transform and opacity only, so it never reflows. */
+/**
+ * Android buttons: a 1.5 px border draws heavier there than on iPhone, and the text sits a little tight in the 42 px box, so the
+ * border is a fine 1 px and the button has a little more room (it is a pill-like, easy target). iPhone is untouched.
+ */
+const android = Platform.OS === 'android' ? StyleSheet.create({ btn: { borderWidth: 1, borderRadius: 12, paddingVertical: 8 }, btnSmall: { paddingVertical: 5, borderRadius: 12 } }) : { btn: null, btnSmall: null };
+
 export const pressed = (p: boolean) => (p ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null);
 
 // Lists ask to be told when the reader gets near the end of the page, so they can draw the next batch (see lib/paged).
@@ -129,6 +135,9 @@ export function PlainTitle({ title, onBack, right, custom }: { title?: string; o
   );
 }
 
+/** the rounded top edge of the card that slides over a fixed picture */
+const FIXED_CARD_RADIUS = 28;
+
 export function Screen({
   header, headerBg, plain, bandFade, bandDark, bandTall, title, onBack, right, children,
   hasHeader = false,
@@ -138,6 +147,7 @@ export function Screen({
   maxWidth,
   hero,
   stickyHero,
+  fixedHero,
   onRefresh,
   refreshing = false,
   onScrollY,
@@ -149,6 +159,8 @@ export function Screen({
   hero?: ReactNode;
   /** a picture area in two pieces: `scrolling` scrolls away with the page, `pinned` scrolls until it reaches the top and then stays there while the rest of the page slides under it. Both are laid out by the system's own sticky header, so they never lag the scroll. */
   stickyHero?: { scrolling: ReactNode; pinned: ReactNode };
+  /** a picture that never moves: it stays at the top, and the page (a card with rounded top corners) slides up over it as it scrolls. `height` is the picture's full height. */
+  fixedHero?: { photo: ReactNode; height: number; /** where the card stops rising: its distance from the top of the screen (below the buttons) */ stop: number };
   /** stays put at the top while the content scrolls beneath it (the HERE/THERE header on the main tabs) */
   header?: ReactNode;
   /** a plain header on the page's own background (no band, no sheet; dark status bar). Pages listed in PLAIN_PAGES get it without passing this. */
@@ -190,7 +202,7 @@ export function Screen({
   const { t } = useT();
   const routeName = useRoute().name;
   // a page listed in PAGE_TITLES gets the band by itself (its stack header is hidden in the layout)
-  const listed = !header && !hero && !stickyHero ? PAGE_TITLES[routeName] : undefined;
+  const listed = !header && !hero && !stickyHero && !fixedHero ? PAGE_TITLES[routeName] : undefined;
   const bandTitle = !header ? (title ?? (listed ? t(listed) : undefined)) : undefined;
   const isPlain = plain ?? PLAIN_PAGES.has(routeName);
   const bandHeader = header ?? (bandTitle !== undefined ? (isPlain ? <PlainTitle title={bandTitle} onBack={onBack} right={right} /> : <BandTitle title={bandTitle} onBack={onBack} right={right} />) : undefined);
@@ -208,6 +220,7 @@ export function Screen({
     if (onScreen) endListeners.forEach((f) => f());
   };
   const scrolled = useRef(0);
+  const fixedY = useRef(new Animated.Value(0)).current; // the scroll position, for the fixed picture's little effects
   const savedTop = useRef(0);
   const onScreen = useIsFocused();
   useScrollFieldIntoView(scroller, scrolled, onScreen);
@@ -221,8 +234,21 @@ export function Screen({
   // The content sits in a centred column: full width on phones, a comfortable measure on tablets and desktops.
   const columnWidth = maxWidth ?? (wide ? 1180 : 760);
   const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 16 };
+  // a fixed-picture page feeds the scroll position straight to the native side (Animated.event with the native driver), so the picture's
+  // grow and dim follow the finger on the UI thread and never wait for the JS thread (which is what lags on a weaker Android)
+  const ScrollBox = (fixedHero ? Animated.ScrollView : ScrollView) as typeof ScrollView;
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrolled.current = e.nativeEvent.contentOffset.y;
+    const m = e.nativeEvent;
+    if (m.contentSize.height - m.contentOffset.y - m.layoutMeasurement.height < 600 && Date.now() - lastFire.current > 150) {
+      lastFire.current = Date.now();
+      fireEnd(); // near the end: the next batch is shown before the reader gets there
+    }
+    if (onScreen) savedTop.current = scrolled.current; // only while the page is in front: a reset after it left must not overwrite it
+    onScrollY?.(scrolled.current);
+  };
   const body = scroll ? (
-    <ScrollView
+    <ScrollBox
       ref={scroller}
       // a page too short to scroll (a big screen, a short list) asks for more at once, until it is full. Both sizes are
       // needed, and either can arrive first, so the check runs when either one is known.
@@ -231,24 +257,15 @@ export function Screen({
         if (contentH.current && contentH.current < viewH.current) fireEnd();
       }}
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={[{ flexGrow: 1 }, hero || stickyHero ? { paddingBottom: pad.paddingBottom } : pad, style]}
+      contentContainerStyle={[{ flexGrow: 1 }, hero || stickyHero || fixedHero ? { paddingBottom: pad.paddingBottom } : pad, style]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       stickyHeaderIndices={stickyHero ? [1] : undefined}
       // a picture page starts at the very top edge: iOS must not push the content down by a navigation bar's height (it did, leaving a white band above the photo)
-      // a picture page does not stretch when pulled down at the top (no bounce on iPhone, no glow on Android): the picture stays put and only scrolls up
-      {...(hero || stickyHero ? { bounces: false, overScrollMode: 'never' as const, contentInsetAdjustmentBehavior: 'never' as const, automaticallyAdjustContentInsets: false, automaticallyAdjustsScrollIndicatorInsets: false, contentInset: { top: 0, left: 0, bottom: 0, right: 0 }, contentOffset: { x: 0, y: 0 } } : null)}
+      // a picture page does not stretch when pulled down at the top (no bounce on iPhone, no glow on Android): the picture stays put and only scrolls up. A fixed-picture page is the exception: it gives a little springy pull (and the picture eases larger) so it feels alive even at the top
+      {...(hero || stickyHero || fixedHero ? { bounces: !!fixedHero, overScrollMode: fixedHero ? ('always' as const) : ('never' as const), contentInsetAdjustmentBehavior: 'never' as const, automaticallyAdjustContentInsets: false, automaticallyAdjustsScrollIndicatorInsets: false, contentInset: { top: 0, left: 0, bottom: 0, right: 0 }, contentOffset: { x: 0, y: 0 } } : null)}
       scrollEventThrottle={16}
-      onScroll={(e) => {
-        scrolled.current = e.nativeEvent.contentOffset.y;
-        const m = e.nativeEvent;
-        if (m.contentSize.height - m.contentOffset.y - m.layoutMeasurement.height < 600 && Date.now() - lastFire.current > 150) {
-          lastFire.current = Date.now();
-          fireEnd(); // near the end: the next batch is shown before the reader gets there
-        }
-        if (onScreen) savedTop.current = scrolled.current; // only while the page is in front: a reset after it left must not overwrite it
-        onScrollY?.(scrolled.current);
-      }}
+      onScroll={fixedHero ? Animated.event([{ nativeEvent: { contentOffset: { y: fixedY } } }], { useNativeDriver: true, listener: handleScroll as never }) : handleScroll}
       refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined}
     >
       {/* an array, not a fragment: the ScrollView counts its direct children to find the sticky one */}
@@ -257,6 +274,11 @@ export function Screen({
           {stickyHero.scrolling}
         </View>,
         <View key="pinned" style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{stickyHero.pinned}</View>,
+      ] : fixedHero ? [
+        // empty room where the fixed picture shows through; the card below it scrolls up over the picture
+        <View key="room" pointerEvents="none" style={{ height: fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop }} />,
+        // the card's rounded top edge: it rises with the page, then stays at the stop line while the content scrolls under it
+        <View key="edge" pointerEvents="none" style={{ height: FIXED_CARD_RADIUS }} />,
       ] : hero ? (
         <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{hero}</View>
       ) : null}
@@ -267,11 +289,11 @@ export function Screen({
           contentH.current = e.nativeEvent.layout.height;
           if (viewH.current && contentH.current < viewH.current) fireEnd();
         }}
-        style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: 16 } : null]}
+        style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: 16 } : null, fixedHero ? { flexGrow: 1, backgroundColor: c.bg, paddingHorizontal: gutter, paddingTop: 0, maxWidth: undefined } : null]}
       >
         {children}
       </View>
-    </ScrollView>
+    </ScrollBox>
   ) : (
     <View style={[{ flex: 1 }, pad, style]}>
       <View style={[column, { flex: 1 }]}>{children}</View>
@@ -302,6 +324,24 @@ export function Screen({
             <Svg width={SHEET_RADIUS} height={SHEET_RADIUS + 1} viewBox={`0 -1 ${SHEET_RADIUS} ${SHEET_RADIUS + 1}`}>
               <Path d={`M0 -1 H${SHEET_RADIUS} V${SHEET_RADIUS} A${SHEET_RADIUS} ${SHEET_RADIUS} 0 0 0 0 0 Z`} fill={bg} />
             </Svg>
+          </View>
+        </View>
+      ) : fixedHero ? (
+        <View style={{ flex: 1 }}>
+          {/* as the card rises the picture grows downward (its top edge stays put) and dims */}
+          <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: fixedHero.height, transform: [{ translateY: fixedY.interpolate({ inputRange: [-200, 0, 400], outputRange: [0, 0, fixedHero.height * 0.06], extrapolate: 'clamp' }) }, { scale: fixedY.interpolate({ inputRange: [-200, 0, 400], outputRange: [1.15, 1, 1.12], extrapolate: 'clamp' }) }] }}>
+            {fixedHero.photo}
+            <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000', opacity: fixedY.interpolate({ inputRange: [-200, 0, 300], outputRange: [0, 0, 0.3], extrapolate: 'clamp' }) }} />
+          </Animated.View>
+          <View style={{ flex: 1, marginTop: fixedHero.stop, overflow: 'hidden', borderTopLeftRadius: FIXED_CARD_RADIUS, borderTopRightRadius: FIXED_CARD_RADIUS }}>
+            {/* the card itself (its colour and rounded top): it rises with the scroll to the stop line and never moves when the page is pulled down, so only the contents spring */}
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.bg, borderTopLeftRadius: FIXED_CARD_RADIUS, borderTopRightRadius: FIXED_CARD_RADIUS, transform: [{ translateY: fixedY.interpolate({ inputRange: [0, Math.max(1, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop)], outputRange: [Math.max(1, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop), 0], extrapolate: 'clamp' }) }] }} />
+            <PageTransition>{body}</PageTransition>
+            {/* content melts away as it slides up into the card's rounded top edge: the same soft fade as the Profile page (a fixed overlay, no scroll work) */}
+            {/* shown only once the card has risen to its stop line (scroll = the empty room above the card); before that it would wash over the picture */}
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 34, opacity: fixedY.interpolate({ inputRange: [fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop - 1, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop + 24], outputRange: [0, 1], extrapolate: 'clamp' }) }}>
+              <LinearGradient colors={[c.bg, c.fadeFrom]} style={{ flex: 1 }} />
+            </Animated.View>
           </View>
         </View>
       ) : (
@@ -415,9 +455,9 @@ export function Btn({ title, onPress, variant = 'primary', disabled, loading, sm
         tap(variant === 'primary' || variant === 'accent' || variant === 'light' || variant === 'mint' ? 'Medium' : 'Light');
         onPress?.();
       }}
-      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { minHeight: sc(small ? 34 : 42) }, { backgroundColor: v.bg, borderColor: v.border, opacity: off ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
+      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { minHeight: sc(small ? 34 : 42) }, android.btn, small && android.btnSmall, { backgroundColor: v.bg, borderColor: v.border, opacity: off ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
     >
-      {loading ? <ActivityIndicator color={v.fg} /> : <Text style={{ color: v.fg, fontWeight: '700', fontSize: small ? 13 : 14 }}>{title}</Text>}
+      {loading ? <ActivityIndicator color={v.fg} /> : <Text numberOfLines={2} style={{ color: v.fg, fontWeight: '700', fontSize: small ? 13 : 14, textAlign: 'center' }}>{title}</Text>}
     </Pressable>
   );
 }

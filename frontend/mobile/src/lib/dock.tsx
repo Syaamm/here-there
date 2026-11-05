@@ -125,6 +125,8 @@ export const DockButton = memo(function DockButton(props: any) {
       {glass ? (
         <Animated.View
           pointerEvents="none"
+          // Android: the capsule (two gradients) is scaled and faded as one cached layer instead of being redrawn every frame
+          renderToHardwareTextureAndroid
           style={{
             position: 'absolute',
             top: 0,
@@ -142,6 +144,7 @@ export const DockButton = memo(function DockButton(props: any) {
           </View>
         </Animated.View>
       ) : null}
+      {/* no hardware-texture cache here: the icon inside animates too (fill rising), which would re-draw the cache every frame */}
       <Animated.View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transformOrigin: 'center bottom', transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }, { scaleY: squash }] }}>{children}</Animated.View>
     </Pressable>
   );

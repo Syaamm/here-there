@@ -10,6 +10,7 @@ import { VerifyBanner } from '@/components/VerifyBanner';
 import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type Activity } from '@/lib/api';
 import { CATS } from '@/lib/constants';
+import { useClock } from '@/lib/clock';
 import { comingUp, type MyActivitiesData } from '@/lib/myActivities';
 import { useLayout } from '@/lib/layout';
 import { hhmm } from '@/lib/format';
@@ -65,11 +66,7 @@ export function ExploreHere() {
   const sections = splitFeed(items);
   const soon = sections[0].items;
   // Next up: only what is happening now or starts within 3 hours, soonest first. The clock moves on once a minute.
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useClock(60_000);
   const soonAll = comingUp(mine.data, now, 3);
   // the cards show the two soonest; "+N more" appears only when there are more than two, and lists just the others
   // with a category chosen the page is about that kind of activity: Next up (your own plans of every kind) steps aside

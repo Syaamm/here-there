@@ -83,7 +83,9 @@ export default function ActivityDetail() {
   // a cancelled plan, or one that has started, cannot be saved or shared (a saved one can still be taken out)
   const ahead = !closed && +new Date(a.startsAt) > Date.now();
   // leaving is for a plan that has not started or is going on now, never one that is finished, called off or past its end
-  const canLeave = !over && a.status !== 'cancelled' && !(a.endsAt && +new Date(a.endsAt) < Date.now());
+  // by the clock as well as by the status, which is only updated a little after the end (an activity with no end time counts as 4 hours long)
+  const endedByClock = (a.endsAt ? +new Date(a.endsAt) : +new Date(a.startsAt) + 4 * 3600e3) < Date.now();
+  const canLeave = !over && a.status !== 'cancelled' && !endedByClock;
 
   const canHandOver = a.isHost && !over && a.status !== 'cancelled' && !a.handover && (a.participants ?? []).some((p) => p.role !== 'host' && p.verifiedAdult);
   const menu = [
@@ -114,8 +116,9 @@ export default function ActivityDetail() {
   const length = mins >= 60 ? `${tn(Math.floor(mins / 60), '{n} hour', '{n} hours')}${mins % 60 ? ` ${t('{m} min', { m: mins % 60 })}` : ''}` : t('{m} min', { m: mins });
   // the map tab picks this activity's pin and zooms to its venue (it only exists in HERE, so flip there first)
   const showOnMap = () => {
-    if (mode !== 'here') switchMode('here');
-    router.navigate(`/discover?focus=${a.id}&t=${Date.now()}` as never);
+    const go = () => router.navigate(`/discover?focus=${a.id}&t=${Date.now()}` as never);
+    if (mode !== 'here') switchMode('here', go);
+    else go();
   };
   // the link opens this activity in the app, or sends the person to the App Store / Google Play when they have not got it
   const share = () => void Share.share({ message: `${t('{title}, {time} at {venue}, {city}', { title: a.title, time: timeText, venue: a.venueName, city: a.city })}\n${shareLink('activity', a.id)}` }).catch(() => undefined);
@@ -124,7 +127,6 @@ export default function ActivityDetail() {
 
   const top = statusTop(insets.top) + 8;
   const PHOTO = 250 + top; // the picture's full height
-  const STRIP = top + 84; // what is left of it once collapsed: the button row (44) plus the sheet's 28 px rounded edge and a little air, so the white stays below the buttons
   const fav = favNow ?? !!a.favorited;
 
   // who is going: up to three faces, open places drawn as dashed rings (one per open place, never more than four circles in all),
@@ -157,21 +159,7 @@ export default function ActivityDetail() {
           header does the pinning, so there is no scroll code running to lag behind. */}
       <Screen
         bottomRoom={primary ? barH : undefined}
-        stickyHero={{
-          scrolling: (
-            <View style={{ height: PHOTO - STRIP, overflow: 'hidden' }}>
-              <Hero plain round height={PHOTO} color={catColor(a.category)} category={a.category} emoji={cat?.emoji} />
-            </View>
-          ),
-          pinned: (
-            <View style={{ height: STRIP, overflow: 'hidden', backgroundColor: c.bg }}>
-              <View style={{ marginTop: -(PHOTO - STRIP) }}>
-                <Hero plain round height={PHOTO} color={catColor(a.category)} category={a.category} emoji={cat?.emoji} />
-              </View>
-              <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 28, backgroundColor: c.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28 }} />
-            </View>
-          ),
-        }}
+        fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={catColor(a.category)} category={a.category} emoji={cat?.emoji} /> }}
       >
         <Stack.Screen options={{ headerShown: false }} />
 

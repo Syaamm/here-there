@@ -23,7 +23,7 @@ const SHOW_MS = 7000;
  */
 export function AlertBanner() {
   const { t } = useT();
-  const { c, mode } = useTheme();
+  const { c, mode, switchMode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [n, setN] = useState<Shown | null>(null);
@@ -58,7 +58,8 @@ export function AlertBanner() {
     bumpUnread(-1); // opening it reads it
     void post(`/v1/notifications/${shown.id}/read`).then(refreshUnread, () => undefined);
     const to = alertRoute(shown);
-    if (to) router.push(to as never); // that page flips the app to its own product
+    // the colour wave plays first and the page opens once it has covered the screen, so it is never seen before the switch
+    if (to) switchMode(shown.product, () => router.push(to as never));
   };
   return (
     <Animated.View

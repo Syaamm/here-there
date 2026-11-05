@@ -32,7 +32,7 @@ export const shell: Record<string, string> = {
   'Trip plan': 'Piano del viaggio',
   'Ask for a review': 'Chiedi un riesame',
   'Favourites': 'Preferiti',
-  'Buddies': 'Buddy',
+  'Friends': 'Amici',
   'Verify your identity': 'Verifica la tua identità',
   // dock and guest walls
   'Create': 'Crea',

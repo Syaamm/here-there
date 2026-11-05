@@ -5,7 +5,7 @@ import { CurrentUser } from '../common/auth';
 import { PushService } from '../common/push.service';
 import { parse } from '../common/validate';
 
-export const subscribeSchema = z.object({ kind: z.enum(['web', 'expo']), token: z.string().min(10).max(4000) });
+export const subscribeSchema = z.object({ kind: z.enum(['web', 'expo', 'fcm']), token: z.string().min(10).max(4000) });
 export const unsubscribeSchema = z.object({ token: z.string().min(10).max(4000) });
 
 /** Where an app registers (or removes) the address its push notifications should be sent to. */

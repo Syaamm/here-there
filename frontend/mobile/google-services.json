@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "375032827844",
-    "project_id": "here-there-5b6f5",
-    "storage_bucket": "here-there-5b6f5.firebasestorage.app"
+    "project_number": "707022903710",
+    "project_id": "dev-lamis",
+    "storage_bucket": "dev-lamis.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:375032827844:android:8cff168fe001e6fff81e91",
+        "mobilesdk_app_id": "1:707022903710:android:5a540c6fde4aaf2f4dde8f",
         "android_client_info": {
           "package_name": "io.herethere.app"
         }
@@ -15,7 +15,26 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCHL6iTGG65CMVhAu09xUVaSqHubyYw2xg"
+          "current_key": "AIzaSyCJJCXUPFxJzefOWldIjhBUmVuvk3G5_sM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:707022903710:android:fa1780839efaa52e4dde8f",
+        "android_client_info": {
+          "package_name": "io.herethere.app.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJJCXUPFxJzefOWldIjhBUmVuvk3G5_sM"
         }
       ],
       "services": {

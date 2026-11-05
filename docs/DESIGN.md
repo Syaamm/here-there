@@ -70,6 +70,14 @@ Email and Home City placeholders copy "Enter your name" / "Enter your password" 
 - Page 15 is the chat header popover menu; pages 37 and 38 (the chooser) are not built, by the owner's decision; the THERE home filter button opens the full filter sheet shared with search (`features/ThereFilters.tsx`).
 - Still open: nothing has been seen on a real phone or compared with the PDF page by page; the design then needs tweaking and optimising.
 
+## Added 5 November 2026
+
+- Activity detail and trip detail now use a **fixed photo**: `Screen` has a new `fixedHero={{ photo, height, stop }}` prop (in `components/ui.tsx`). The picture never moves; the page is a card with a rounded top edge (28 px) that slides up over it and stops `stop` px from the top (below the buttons). While the card rises the picture grows a little and dims. The older `stickyHero` prop (two-piece sticky header) is no longer used by these pages.
+- The fixed photo's grow and dim run on the native side: with `fixedHero`, `Screen` uses `Animated.ScrollView` and `Animated.event` with the native driver (the normal scroll code runs as its listener). Pages without `fixedHero` are unchanged.
+- The card's top edge has the Profile page's soft fade: content slides up into the curve and melts away there. It is a fixed gradient whose opacity follows the scroll (hidden until the card has reached its stop line, so it never washes over the picture). The edge is not pinned; the card clips its own rounded corners.
+- A fixed-picture page springs a little when pulled down at the top (iPhone bounce, Android stretch) and the picture eases larger and stays undimmed while pulled. Only the contents move: the card's colour and rounded top is its own layer (inside `Screen`'s `fixedHero` branch) that rises with the scroll to the stop line and ignores the pull.
+- THERE Home: the "Explore The World Like Never" heading was removed from `features/ExploreThere.tsx`.
+
 ## Shared building blocks (for the next person)
 
 `AuthForm` (round back button, heading, pill field, pill button, switch row, tick box), `OnboardingParts`, `HereHeader` (the dark band, with `Screen`'s `headerBg` so the page is a white sheet over it), `CategoryChips`, `Cards.tsx` (`ActivityBigCard`, `TripBigCard`), `CreateParts` and `TripCreateParts` (wizard top bar with step bars), `ActivityParts` (detail header, host card, info rows, who's-going circles), `AccountParts` and `ProfileParts` (title row, cards, rows with chevron circles), `ThereParts` (THERE header, search pill, chips, filter sheet pieces). Use these before inventing new ones.

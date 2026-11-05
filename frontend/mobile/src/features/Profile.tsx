@@ -3,9 +3,9 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import { ActivityCard, TripCard } from '@/components/Cards';
-import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { Text } from '@/components/ScaledText';
 import { StatsCard } from '@/components/StatsCard';
+import { ReliabilityIcon } from '@/components/ProfileParts';
 import { ModeSwitch } from '@/components/TabHeader';
 import { Avatar, Between, Btn, Card, Chip, Empty, ErrorBanner, Field, Grid, Pill, PillRow, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, patch, type Activity, type MyActivitiesPage, type MyReliability, type MyTripRow, type MyTripsPage } from '@/lib/api';
@@ -30,8 +30,8 @@ export function Profile() {
   // only the 3 newest of each list are fetched (the full lists are their own pages), with how many there are in all
   const acts = useLoad(() => get<MyActivitiesPage>('/v1/me/activities/page?tab=all&limit=3'), [], undefined, 'me:acts:recent');
   const trips = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?limit=2'), [], undefined, 'me:trips');
-  const conns = useLoad(() => get<{ counts: { following: number; followers: number; buddies: number } }>('/v1/me/connections?limit=1'), [], undefined, 'me:buddies2');
   const rel = useLoad(() => get<MyReliability>('/v1/me/reliability'), [], undefined, 'me:reliability');
+  const conns = useLoad(() => get<{ counts: { following: number; followers: number; buddies: number } }>('/v1/me/connections?limit=1'), [], undefined, 'me:buddies2');
   const favs = useLoad(() => get<{ items: Activity[]; total?: number }>('/v1/me/favorites?limit=3'), [], undefined, 'me:favs');
   const rows = acts.data?.items ?? [];
   const all = myActivityItems({
@@ -59,18 +59,17 @@ export function Profile() {
   const rowCard = { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 64, paddingHorizontal: 20, borderRadius: 24 } as const;
 
   const buddiesRow = (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Buddies and followers: {buddies} Buddies, {following} following, {followers} followers', { buddies: conns.data?.counts.buddies ?? 0, following: conns.data?.counts.following ?? 0, followers: conns.data?.counts.followers ?? 0 })} onPress={() => go('/connections')} style={[rowCard, soft]}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Friends and followers: {buddies} Friends, {following} following, {followers} followers', { buddies: conns.data?.counts.buddies ?? 0, following: conns.data?.counts.following ?? 0, followers: conns.data?.counts.followers ?? 0 })} onPress={() => go('/connections')} style={[rowCard, soft]}>
             <Ionicons name="people-outline" size={22} color={c.forest} />
-            <Text style={{ flex: 1, color: c.forest, fontSize: 14, lineHeight: 19, fontWeight: '500' }}>{conns.data ? t('{buddies} Buddies · {following} following · {followers} followers', { buddies: conns.data.counts.buddies, following: conns.data.counts.following, followers: conns.data.counts.followers }) : t('Buddies and followers')}</Text>
+            <Text style={{ flex: 1, color: c.forest, fontSize: 14, lineHeight: 19, fontWeight: '500' }}>{conns.data ? t('{buddies} Friends · {following} following · {followers} followers', { buddies: conns.data.counts.buddies, following: conns.data.counts.following, followers: conns.data.counts.followers }) : t('Buddies and followers')}</Text>
             <Ionicons name="chevron-forward" size={18} color={c.text} />
           </Pressable>
   );
   const reliabilityRow = (
-          rel.data ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Your reliability level: {label}. See why', { label: rel.data.label })} onPress={() => go('/reliability')} style={[rowCard, soft]}>
-              <Ionicons name="shield-half-outline" size={22} color={c.forest} />
-              <Text style={{ color: c.forest, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{t('Reliability')}</Text>
-              <View style={{ flex: 1, alignItems: 'flex-start' }}><ReliabilityChip r={{ level: rel.data.level, label: rel.data.label }} /></View>
+          me.role !== 'guest' ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={rel.data ? t('Your reliability level: {label}. See why', { label: rel.data.label }) : t('Reliability')} onPress={() => go('/reliability')} style={[rowCard, soft]}>
+              <ReliabilityIcon size={22} color={c.forest} />
+              <Text style={{ flex: 1, color: c.forest, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{t('Reliability')}</Text>
               <Ionicons name="chevron-forward" size={18} color={c.text} />
             </Pressable>
           ) : null
@@ -113,7 +112,7 @@ export function Profile() {
       <>
           <StatsCard hosted={stats.data?.stats.activitiesHosted} joined={stats.data?.stats.activitiesJoined} trips={stats.data?.stats.tripsDone} />
           <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17, textAlign: 'center' }}>{t('No reviews yet.')}</Text>
-          {there ? <>{reliabilityRow}{travelRow}{buddiesRow}</> : <>{buddiesRow}{reliabilityRow}{travelRow}</>}
+          {there ? <>{reliabilityRow}{travelRow}{buddiesRow}</> : <>{buddiesRow}{reliabilityRow}</>}
           {!me.emailVerified ? (
             <Pressable accessibilityRole="button" onPress={() => go('/onboarding')} style={{ minHeight: 54, borderRadius: 32, borderWidth: 1, borderColor: c.line, backgroundColor: there ? '#fff' : undefined, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: c.text, fontSize: 15, fontWeight: '500' }}>{t('Confirm your email')}</Text>

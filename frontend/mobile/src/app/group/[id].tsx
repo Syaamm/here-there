@@ -5,7 +5,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ScaledText';
 import { BackArrow, ModeSwitch } from '@/components/TabHeader';
-import { statusTop } from '@/lib/layout';
+import { statusTop, useLayout } from '@/lib/layout';
 import { Pressable, View } from 'react-native';
 import { CatPhoto } from '@/components/CatPhoto';
 import { Avatar, Banner, Btn, Empty, ErrorBanner, Screen, useGo } from '@/components/ui';
@@ -26,30 +26,41 @@ export default function GroupInfoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { c, mode } = useTheme();
   const go = useGo();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { gutter } = useLayout();
   const info = useLoad(() => get<GroupInfo>(`/v1/conversations/${id}/info`), [id], undefined, 'chat:info');
   const { refreshing, onRefresh } = useRefresh(info.reload);
   const act = useAction();
   const g = info.data;
 
-  if (info.loading && !g)
+  // the picture layer and the back/switch buttons are the same while loading as when loaded, so nothing jumps when the data arrives
+  const barTop = statusTop(insets.top) + 8; // where the back arrow and the switch sit
+  const barH = barTop + 52; // just below the back arrow and the switch
+  const PHOTO = barH + 230; // the picture layer's full height: picture, title and the line under it
+  const topBar = (
+    // fixed over the page (the picture layer under it does not take touches): back on the left, the switch on the right
+    <View pointerEvents="box-none" style={{ position: 'absolute', top: barTop, left: gutter, right: gutter, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <BackArrow />
+      <ModeSwitch />
+    </View>
+  );
+  const heroBackdrop = <LinearGradient colors={['#FFFFFF', mode === 'there' ? c.sand : '#B7DBCF']} style={{ height: PHOTO }} />;
+  if ((info.loading && !g) || info.error || !g)
     return (
-      <Screen>
-        <SkeletonDetail />
-      </Screen>
-    );
-  if (info.error || !g)
-    return (
-      <Screen>
-        <Empty title={t('Group info is for members')} />
-      </Screen>
+      <View style={{ flex: 1 }}>
+        <Screen tabBar fixedHero={{ height: PHOTO, stop: barH + 110, photo: heroBackdrop }}>
+          {info.error || (!info.loading && !g) ? <Empty title={t('Group info is for members')} /> : <SkeletonDetail />}
+        </Screen>
+        {topBar}
+      </View>
     );
 
   const trip = g.scope === 'trip';
   const me = g.members.find((m) => m.isMe);
   const closed = ['cancelled', 'archived'].includes(g.status);
-  const finished = g.status === 'completed'; // it took place: history now, so nothing to cancel
+  // it took place: history now, so nothing to cancel or leave. By the clock as well as the status, which is only updated a little after the end.
+  const finished = g.status === 'completed' || (g.scope !== 'match' && +new Date(g.endsAt) < Date.now());
   const open = () => go(trip ? `/trip/${g.scopeId}` : `/activity/${g.scopeId}`);
 
   const leave = async () => {
@@ -71,7 +82,7 @@ export default function GroupInfoScreen() {
   const actions: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void; danger?: boolean }[] = [
     { icon: 'chatbubble-ellipses-outline', label: t('Message'), onPress: () => go(`/chat/${id}`) },
     { icon: trip ? 'airplane-outline' : 'calendar-outline', label: trip ? t('View trip') : t('View activity'), onPress: open },
-    ...(me?.role === 'host' ? (!closed && !finished ? [{ icon: 'close-circle-outline' as const, label: trip ? t('Cancel trip') : t('Cancel activity'), onPress: cancel, danger: true }] : []) : !closed ? [{ icon: 'exit-outline' as const, label: t('Leave'), onPress: leave, danger: true }] : []),
+    ...(me?.role === 'host' ? (!closed && !finished ? [{ icon: 'close-circle-outline' as const, label: trip ? t('Cancel trip') : t('Cancel activity'), onPress: cancel, danger: true }] : []) : !closed && !finished ? [{ icon: 'exit-outline' as const, label: t('Leave'), onPress: leave, danger: true }] : []),
   ];
   const fact = (icon: React.ComponentProps<typeof Ionicons>['name'], title: string, sub?: string) => (
     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: c.line }}>
@@ -84,26 +95,25 @@ export default function GroupInfoScreen() {
   );
 
   return (
+    <View style={{ flex: 1 }}>
     <Screen
       tabBar
       onRefresh={onRefresh}
       refreshing={refreshing}
-      hero={
-        <View>
-          <Stack.Screen options={{ headerShown: false }} />
-          <LinearGradient colors={['#FFFFFF', mode === 'there' ? c.sand : '#B7DBCF']} style={{ paddingTop: statusTop(insets.top) + 8, paddingBottom: 36, paddingHorizontal: 16, alignItems: 'center', gap: 8 }}>
-            <View style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <BackArrow />
-              <ModeSwitch />
-            </View>
+      // like the Activity page: the picture and title stay in place and the card below rises over them as you scroll, up to just under the buttons
+      fixedHero={{
+        height: PHOTO,
+        stop: barH + 110, // the card rises only about 90 px: it stops under the picture, so the picture stays in view
+        photo: (
+          <LinearGradient colors={['#FFFFFF', mode === 'there' ? c.sand : '#B7DBCF']} style={{ height: PHOTO, paddingTop: barH + 4, paddingHorizontal: 16, alignItems: 'center', gap: 6 }}>
             {g.category ? <CatPhoto category={g.category} style={{ width: 100, height: 100, borderRadius: 50 }} /> : <Avatar name={g.title} size={100} />}
-            <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600', textAlign: 'center', marginTop: 6 }} numberOfLines={3}>{g.title}</Text>
-            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>{trip ? t('Trip group') : t('Activity group')} · {tn(g.members.length, '{n} person', '{n} people')}</Text>
+            <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600', textAlign: 'center', marginTop: 6 }} numberOfLines={2}>{g.title}</Text>
+            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20, textAlign: 'center' }}>{trip ? t('Trip group') : t('Activity group')} · {tn(g.members.length, '{n} person', '{n} people')}</Text>
           </LinearGradient>
-          <View style={{ height: 30, marginTop: -30, borderTopLeftRadius: 40, borderTopRightRadius: 40, backgroundColor: c.bg }} />
-        </View>
-      }
+        ),
+      }}
     >
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={{ flexDirection: 'row', backgroundColor: c.surface, borderRadius: 36, paddingVertical: 10, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
         {actions.map((a, k) => (
           <Pressable key={a.label} accessibilityRole="button" accessibilityLabel={a.label} disabled={a.danger && act.busy} onPress={a.onPress} style={({ pressed }) => [{ flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 4, borderLeftWidth: k ? 1 : 0, borderLeftColor: c.line }, pressed && { opacity: 0.7 }]}>
@@ -163,5 +173,8 @@ export default function GroupInfoScreen() {
 
       <Btn title={t('Safety & privacy')} variant="ghost" small onPress={() => go('/safety')} />
     </Screen>
+
+    {topBar}
+    </View>
   );
 }

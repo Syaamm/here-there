@@ -162,7 +162,7 @@ export interface ApiRoutes {
   "POST /v1/polls/{pollId}/close": { body: { adopt?: boolean }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_FOUND" | "NOT_ORGANIZER" | "NO_DATES" | "POLL_CLOSED" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" | "VERIFICATION_REQUIRED" };
   "POST /v1/polls/{pollId}/vote": { body: { vote: "accept" | "reject" }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "NOT_A_MEMBER" | "NOT_FOUND" | "POLL_CLOSED" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" | "VERIFICATION_REQUIRED" };
   "GET /v1/push/config": { errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" };
-  "POST /v1/push/subscribe": { body: { kind: "web" | "expo"; token: string }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
+  "POST /v1/push/subscribe": { body: { kind: "web" | "expo" | "fcm"; token: string }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "POST /v1/push/unsubscribe": { body: { token: string }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "GET /v1/regions/limits": { query: { city?: string }; errors: "ACCOUNT_SUSPENDED" | "INTERNAL_ERROR" | "INVALID_TOKEN" | "RATE_LIMITED" | "UNAUTHENTICATED" | "VALIDATION_FAILED" };
   "GET /v1/reliability/info": { errors: "INTERNAL_ERROR" };

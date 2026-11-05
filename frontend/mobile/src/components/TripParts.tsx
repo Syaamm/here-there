@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ReactNode } from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
@@ -11,7 +11,7 @@ import { VerifiedTick } from './ActivityParts';
 
 /** The white card on ivory (the design's own white, whatever the page colour is). */
 export const WHITE = '#FFFFFF';
-export const softShadow = { shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 3 } as const;
+export const softShadow = { shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: Platform.OS === 'android' ? 1.5 : 3 } as const;
 
 /** The white card showing who organises the trip. */
 export function TripHostCard({ name, uri, verified, onPress, label, children }: { name: string; uri?: string | null; verified: boolean; onPress: () => void; label: string; children: ReactNode }) {

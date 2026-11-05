@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as webpush from 'web-push';
+import { sendFcm } from './fcm';
 import { JobsService } from './jobs.service';
 import { NotificationPrefsService } from '../notifications/preference-rules';
 import { LiveService } from './live.service';
@@ -19,7 +20,8 @@ export type PushMessage = {
 };
 
 /**
- * Push notifications to people who are not in the app: Web Push for browsers (VAPID) and Expo's push service for phones.
+ * Push notifications to people who are not in the app: Web Push for browsers (VAPID) and Firebase Cloud Messaging for phones
+ * (iPhone and Android). Devices registered earlier through Expo's push service (kind "expo") are still served.
  * Nothing here ever throws into the caller: a failed push must never fail a message or a request.
  */
 @Injectable()
@@ -78,7 +80,7 @@ export class PushService implements OnModuleInit {
     return this.vapid().publicKey;
   }
 
-  async subscribe(userId: string, kind: 'web' | 'expo', token: string) {
+  async subscribe(userId: string, kind: 'web' | 'expo' | 'fcm', token: string) {
     // one row per device token; if the same device signs in as someone else it moves to them
     await this.prisma.pushSubscription.upsert({
       where: { token },
@@ -119,7 +121,9 @@ export class PushService implements OnModuleInit {
     const subs = (await this.prisma.pushSubscription.findMany({ where: { userId: p.userId } })).filter((s) => !p.only || p.only.includes(s.token));
     if (subs.length === 0) return;
     if (!p.only && p.msg.group) this.noteSent(p.userId, p.msg.group);
-    const results = await Promise.all(subs.map(async (s) => ((s.kind === 'expo' ? await this.sendExpo(s.token, p.msg) : await this.sendWeb(s.token, p.msg)) ? null : s.token)));
+    const results = await Promise.all(
+      subs.map(async (s) => ((s.kind === 'fcm' ? await this.sendFirebase(s.token, p.msg) : s.kind === 'expo' ? await this.sendExpo(s.token, p.msg) : await this.sendWeb(s.token, p.msg)) ? null : s.token)),
+    );
     const failed = results.filter((t): t is string => !!t);
     if (failed.length && p.round < 2) await this.jobs.enqueue('push.send', { ...p, only: failed, round: p.round + 1 }, { delayMs: 30_000 * 2 ** p.round, maxAttempts: 3 });
   }
@@ -131,6 +135,13 @@ export class PushService implements OnModuleInit {
     } catch {
       /* push is best effort */
     }
+  }
+
+  /** true = delivered, or nothing more can be done (the device is gone, or Firebase is not set up here); false = worth trying again. */
+  private async sendFirebase(token: string, msg: PushMessage) {
+    const r = await sendFcm(token, msg);
+    if (r === 'gone') await this.prisma.pushSubscription.deleteMany({ where: { token } });
+    return r !== 'retry';
   }
 
   /** true = delivered, or nothing more can be done (the device is gone); false = worth trying again. */

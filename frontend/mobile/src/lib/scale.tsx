@@ -8,7 +8,9 @@ import { Platform, StyleSheet, useWindowDimensions, type StyleProp, type TextSty
  * between 90% and 110%. Tablets and desktop browsers are not scaled: they get more room instead.
  */
 const BASE = 390;
-export const scaleFor = (w: number) => (w >= 640 ? 1 : Math.min(1.1, Math.max(0.9, w / BASE)));
+/** Android draws the same design larger than an iPhone does, so everything that follows the scale (text and the main controls) is 12% smaller there. */
+const ANDROID_SHRINK = Platform.OS === 'android' ? 0.88 : 1;
+export const scaleFor = (w: number) => (w >= 640 ? 1 : Math.min(1.1, Math.max(0.9, w / BASE)) * ANDROID_SHRINK);
 
 const Ctx = createContext(1);
 export const useScale = () => useContext(Ctx);
@@ -16,7 +18,7 @@ export const useScale = () => useContext(Ctx);
 /**
  * How big the writing is, as the person likes it (Settings → Text size). The design was drawn compact, which reads as
  * tiny on an iPhone, so iPhones start on "Standard" (12% bigger than the drawing); Android starts on "Compact", the
- * drawing's own size. Text and the main controls follow, but never the dock (see scBase).
+ * drawing's own size (Standard made everything too big there, tried 2026-11-05 and undone). Text and the main controls follow, but never the dock (see scBase).
  */
 export type TextSize = 'compact' | 'standard' | 'large' | 'larger';
 export const TEXT_SIZES: [TextSize, string, number][] = [

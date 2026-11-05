@@ -412,7 +412,7 @@ model PushSubscription {
   id         String   @id @default(cuid())
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  kind       String // web | expo
+  kind       String // web | expo | fcm
   token      String   @unique
   createdAt  DateTime @default(now())
   lastUsedAt DateTime @default(now())

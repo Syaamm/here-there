@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, Tabs } from 'expo-router';
 import { useEffect } from 'react';
-import { type ColorValue } from 'react-native';
+import { View, type ColorValue } from 'react-native';
 import { get } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useLoad } from '@/lib/hooks';
@@ -56,11 +56,13 @@ export default function TabsLayout() {
     if (signedIn) void prefetchApp(signedIn).catch(() => {});
   }, [signedIn?.id]);
 
+
   // right after sign-up: confirm email + profile once, then the tabs
   if (onboarding) return <Redirect href={'/onboarding' as never} />;
 
   return (
     <DockSpace.Provider value={dockSpace}>
+    <View style={{ flex: 1 }}>
     <Tabs
       backBehavior="history"
       screenOptions={{
@@ -108,6 +110,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="inbox" options={{ title: t('Message'), tabBarAccessibilityLabel: t('Messages'), tabBarIcon: svgTabIcon(MessageIcon), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
       <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarAccessibilityLabel: t('Profile'), tabBarIcon: ({ focused }) => <ProfileGlyph focused={focused} /> }} />
     </Tabs>
+    </View>
     </DockSpace.Provider>
   );
 }

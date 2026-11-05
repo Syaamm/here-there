@@ -85,7 +85,6 @@ export function ExploreThere() {
 
       <ModeTabs />
 
-      <Txt variant="h1" accessibilityRole="header" style={{ fontSize: 28, lineHeight: 41, fontWeight: '500', marginTop: 12, maxWidth: 280 }}>{t('Explore The World Like Never')}</Txt>
       <ThereSearchField value={q} onChangeText={setQ} placeholder={t('Where next? e.g. Japan....')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || f.active} />
       <TripStyleChips value={style} onChange={setStyle} />
 

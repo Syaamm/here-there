@@ -1,5 +1,5 @@
 import type { Ref } from 'react';
-import { Platform, Text as RNText, TextInput as RNTextInput, type TextInputProps, type TextProps } from 'react-native';
+import { Platform, StyleSheet, Text as RNText, TextInput as RNTextInput, type TextInputProps, type TextProps } from 'react-native';
 import { notifyInputFocus } from '@/lib/keyboard';
 import { scaleText, useScale } from '@/lib/scale';
 
@@ -9,9 +9,18 @@ const MAX_FONT_SCALE = 1.3;
 // Android adds extra space above and below the letters, which sits text off-centre in pills and buttons; iOS does not.
 const androidText = Platform.OS === 'android' ? ({ includeFontPadding: false, textAlignVertical: 'center' } as const) : null;
 
+// Without the font padding Android sets lines of text tight against each other; iOS spaces them about 1.25 times the size by itself.
+// Text that has a size but no line height gets that spacing here (text that sets its own line height is left alone).
+function withLineHeight(style: TextProps['style']): TextProps['style'] {
+  if (Platform.OS !== 'android' || !style) return style;
+  const flat = StyleSheet.flatten(style);
+  if (!flat || flat.fontSize == null || flat.lineHeight != null) return style;
+  return { ...flat, lineHeight: Math.round(flat.fontSize * 1.22) };
+}
+
 export function Text(props: TextProps) {
   const k = useScale();
-  const style = scaleText(props.style, k);
+  const style = withLineHeight(scaleText(props.style, k));
   return <RNText maxFontSizeMultiplier={MAX_FONT_SCALE} {...props} style={androidText ? [androidText, style] : style} />;
 }
 

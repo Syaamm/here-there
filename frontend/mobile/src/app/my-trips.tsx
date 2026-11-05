@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import { TripCard } from '@/components/Cards';
+import { TripRow } from '@/components/Cards';
 import { Btn, Chip, Empty, ErrorBanner, Grid, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { type MyTripRow } from '@/lib/api';
 import { useRefresh } from '@/lib/hooks';
@@ -22,7 +22,7 @@ export default function MyTripsPage() {
         {trips.items.map((x) =>
           x.row === 'joined' ? (
             <View key={x.id} style={{ gap: 6 }}>
-              <TripCard t={x} />
+              <TripRow t={x} />
               <Row>
                 <Chip label={x.role === 'organizer' ? t('You organize this') : t('In the group')} tone="ok" />
                 {x.role === 'organizer' && <Btn title={t('Review applications ›')} variant="ghost" small onPress={() => go(`/review/${x.id}`)} />}
@@ -30,7 +30,7 @@ export default function MyTripsPage() {
             </View>
           ) : (
             <View key={x.applicationId} style={{ gap: 6 }}>
-              <TripCard t={x.trip} />
+              <TripRow t={x.trip} />
               <Chip label={x.state === 'pending' ? t('Pending organizer review') : x.state === 'waitlisted' ? t('Waitlisted') : t('Not approved')} tone={x.state === 'declined' ? 'bad' : 'warn'} />
             </View>
           ),

@@ -150,7 +150,8 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
           const old = dataRef.current;
           if (old === null || JSON.stringify(old) !== JSON.stringify(d)) {
             // a different answer while something is already on screen: rows glide to their new places
-            if (opts?.animate && old !== null) LayoutAnimation.configureNext(LayoutAnimation.create(260, 'easeInEaseOut', 'opacity'));
+            // (not on Android: its layout animation redraws the whole screen and glitches lists, the chat most of all)
+            if (opts?.animate && old !== null && Platform.OS !== 'android') LayoutAnimation.configureNext(LayoutAnimation.create(260, 'easeInEaseOut', 'opacity'));
             dataRef.current = d;
             setData(d);
           } // the same answer: nothing is redrawn at all
@@ -166,8 +167,11 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
       // Coming back to a page: if it was loaded moments ago and nothing was changed since, it is still right, so do not ask
       // again (nothing to refresh, nothing to flicker). A change made anywhere, or a few seconds more, and it is asked.
       const fresh = have.current && Date.now() - fetched.current.at < 15_000 && fetched.current.writes === writeCount();
-      if (!fresh) void reload();
-      if (!pollMs) return;
+      // coming back to a page that already shows something: ask again only after the slide has finished (Android drops frames
+      // when the answer re-renders the page mid-slide); a first visit asks at once
+      const late = !fresh && have.current && Platform.OS === 'android' ? setTimeout(() => void reload(), 320) : null;
+      if (!fresh && !late) void reload();
+      if (!pollMs) return () => { if (late) clearTimeout(late); };
       // with the live connection up, a screen it covers asks only every few ticks instead of every one
       let tick = 0;
       const t = setInterval(() => {
@@ -175,7 +179,10 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
         if (opts?.live && liveIsUp() && ++tick % LIVE_POLL_STRETCH !== 0) return;
         void reload();
       }, pollMs);
-      return () => clearInterval(t);
+      return () => {
+        clearInterval(t);
+        if (late) clearTimeout(late);
+      };
     }, [reload, pollMs, opts?.live]),
   );
 

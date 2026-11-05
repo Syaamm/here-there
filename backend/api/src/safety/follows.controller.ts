@@ -38,7 +38,7 @@ export class FollowsController {
       const mine = await this.prisma.profile.findUnique({ where: { userId: me.id } });
       const back = await this.prisma.follow.findUnique({ where: { followerId_followingId: { followerId: userId, followingId: me.id } } });
       const name = mine?.displayName ?? 'Someone';
-      await this.notifications.notify(userId, 'follow', back ? 'You are now buddies' : 'New follower', back ? `You and ${name} follow each other.` : `${name} started following you.`, { userId: me.id });
+      await this.notifications.notify(userId, 'follow', back ? 'You are now friends' : 'New follower', back ? `You and ${name} follow each other.` : `${name} started following you.`, { userId: me.id });
     }
     return this.relation(me.id, userId);
   }

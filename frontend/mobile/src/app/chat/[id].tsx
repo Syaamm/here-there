@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useIsFocused, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { memo, useEffect, useRef, useState } from 'react';
-import { Animated, FlatList, Keyboard, Linking, Pressable, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { Animated, FlatList, Keyboard, Linking, Platform, Pressable, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Menu } from '@/components/Menu';
@@ -144,7 +144,7 @@ const Bubble = memo(
           onAccessibilityAction={() => onPick(m)}
           onLongPress={mine ? undefined : () => onPick(m)}
           delayLongPress={350}
-          style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8, shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: mine ? 0 : 1 }}
+          style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8, ...(Platform.OS === 'android' ? null : { shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: mine ? 0 : 1 }) }}
         >
           <Text selectable={mine} style={{ color: mine ? '#fff' : c.text, fontSize: 15, lineHeight: 23 }}>
             <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
@@ -255,7 +255,14 @@ function Chat({ id }: { id: string }) {
       setLoadingOlder(false);
     }
   };
-  const shown = [...older, ...(msgs.data?.items ?? [])];
+  // The screen paints first (its top row and a placeholder) and the bubbles follow a moment later: drawing a few dozen bubbles at
+  // once, in the same breath as opening the screen, is what made it feel slow to open on Android.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    const h = setTimeout(() => setSettled(true), 60); // after the screen's first paint
+    return () => clearTimeout(h);
+  }, []);
+  const shown = settled ? [...older, ...(msgs.data?.items ?? [])] : [];
 
   const [text, setText] = useState('');
   const typing = useKeyboardShown();
@@ -435,7 +442,8 @@ function Chat({ id }: { id: string }) {
     ...(conv ? [{ label: conv.scope === 'trip' ? t('View trip') : t('View activity'), onSelect: () => go(conv.scope === 'trip' ? `/trip/${conv.scopeId}` : `/activity/${conv.scopeId}`) }] : []),
     { label: t('Safety tools'), onSelect: () => go('/safety') },
     // hosts cannot leave their own group: they cancel the activity instead (see Group info)
-    ...(amHost ? [] : [{ label: t('Leave group'), danger: true, onSelect: leave }]),
+    // nothing to leave once it is over (by its status or by the clock) or called off
+    ...(amHost || (conv && (['completed', 'cancelled', 'archived'].includes(conv.status) || +new Date(conv.endsAt) < Date.now())) ? [] : [{ label: t('Leave group'), danger: true, onSelect: leave }]),
   ];
   const closedText =
     info.data?.status === 'archived'
@@ -514,9 +522,11 @@ function Chat({ id }: { id: string }) {
         onScroll={onScroll}
         scrollEventThrottle={16}
         keyboardShouldPersistTaps="handled"
-        initialNumToRender={30}
-        windowSize={11}
-        maxToRenderPerBatch={12}
+        // Android draws fewer bubbles at a time (it is slower at it); the list fills in as you scroll
+        initialNumToRender={Platform.OS === 'android' ? 14 : 30}
+        windowSize={Platform.OS === 'android' ? 7 : 11}
+        maxToRenderPerBatch={Platform.OS === 'android' ? 8 : 12}
+        removeClippedSubviews={Platform.OS === 'android'}
         maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
         onViewableItemsChanged={onViewable}
         viewabilityConfig={viewability}
@@ -525,6 +535,8 @@ function Chat({ id }: { id: string }) {
           if (!stick.current) return;
           // the first load jumps to the latest message; later ones glide
           list.current?.scrollToEnd({ animated: loaded.current });
+          // Android measures the last bubbles a moment later than this call, which left the newest one half hidden under the bottom edge: go to the end once more when they have their final size
+          if (!loaded.current) setTimeout(() => stick.current && list.current?.scrollToEnd({ animated: false }), 80);
           if (msgs.data) loaded.current = true;
         }}
         ListHeaderComponent={
@@ -542,7 +554,7 @@ function Chat({ id }: { id: string }) {
                 <Text style={{ color: c.muted, fontSize: 11 }}>{t('Start of the conversation')}</Text>
               </View>
             ) : null}
-            {msgs.loading && !msgs.data && <SkeletonChat />}
+            {((msgs.loading && !msgs.data) || !settled) && <SkeletonChat />}
             {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>{t('No messages yet. Say hi 👋')}</Txt>}
           </View>
         }

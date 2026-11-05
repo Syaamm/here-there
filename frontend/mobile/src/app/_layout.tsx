@@ -95,8 +95,12 @@ function Gate() {
           headerTintColor: c.text,
           headerBackTitle: t('Back'),
           // pages pushed on top (verify) slide in smoothly
-          animation: 'slide_from_right',
+          // iPhone: the system's slide, with the swipe back. Android: pages swap at once, and the page you come BACK to eases its
+          // content in like a dock tab does (PageTransition), so there is no white fade between the two.
+          animation: Platform.OS === 'android' ? 'none' : 'slide_from_right',
           animationDuration: 240,
+          // a page that has another one open on top of it stops re-rendering (polls, live events) until you come back, so the slide stays smooth
+          freezeOnBlur: true,
           contentStyle: { backgroundColor: c.bg },
         }}
       >
@@ -111,7 +115,7 @@ function Gate() {
           <Stack.Screen name="apply/[id]" options={banded} />
           <Stack.Screen name="host/[id]" options={banded} />
           <Stack.Screen name="review/[id]" options={banded} />
-          <Stack.Screen name="group/[id]" options={inner('Group info')} />
+          <Stack.Screen name="group/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="user/[id]" options={banded} />
           <Stack.Screen name="safety" options={banded} />
           <Stack.Screen name="settings" options={banded} />

@@ -3947,7 +3947,7 @@ Request body (JSON)
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `kind` | one of: `web`, `expo` | yes |  |
+| `kind` | one of: `web`, `expo`, `fcm` | yes |  |
 | `token` | string (10 to 4000 characters) | yes |  |
 
 Responses

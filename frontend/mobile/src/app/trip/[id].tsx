@@ -64,12 +64,15 @@ export default function TripDetail() {
 
   const verified = me?.eligibility === 'verified';
   const app = trip.myApplication;
-  const closed = ['cancelled', 'completed'].includes(trip.status);
+  const closed = ['cancelled', 'completed', 'archived'].includes(trip.status);
   const full = trip.status === 'full' || trip.spotsLeft === 0;
   // a cancelled trip, or one that has started, cannot be saved or shared (a saved one can still be taken out)
   const ahead = !closed && +new Date(trip.dateStart) > Date.now();
   // leaving is for a trip that has not started or is under way (its last day included), never one that is finished or called off
-  const canLeave = !closed && +new Date(trip.dateEnd) + 864e5 > Date.now();
+  // (the last day ends at midnight on the person's own clock; the old "+ 24 hours" ran on into the day after it)
+  const lastDay = new Date(trip.dateEnd);
+  lastDay.setHours(23, 59, 59, 999);
+  const canLeave = !closed && +lastDay > Date.now();
   const fav = favNow ?? !!trip.favorited;
 
   const menu = trip.isHost || isGuest
@@ -96,7 +99,6 @@ export default function TripDetail() {
 
   const top = statusTop(insets.top) + 8;
   const PHOTO = 250 + top; // the picture's full height
-  const STRIP = top + 84; // what is left of it once collapsed: the button row plus the sheet's rounded edge
 
   const style = tripStyle(trip);
   const photo = style ? TRIP_PHOTOS[style] : undefined; // the picture of the trip's travel style (trips have no photos of their own)
@@ -120,21 +122,7 @@ export default function TripDetail() {
     <View style={{ flex: 1 }}>
       <Screen
         bottomRoom={primary ? barH : undefined}
-        stickyHero={{
-          scrolling: (
-            <View style={{ height: PHOTO - STRIP, overflow: 'hidden' }}>
-              <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} />
-            </View>
-          ),
-          pinned: (
-            <View style={{ height: STRIP, overflow: 'hidden', backgroundColor: c.bg }}>
-              <View style={{ marginTop: -(PHOTO - STRIP) }}>
-                <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} />
-              </View>
-              <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 28, backgroundColor: c.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28 }} />
-            </View>
-          ),
-        }}
+        fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} /> }}
       >
         <Stack.Screen options={{ headerShown: false }} />
 

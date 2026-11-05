@@ -227,7 +227,7 @@ export const account: Record<string, string> = {
   'Saved plans': 'Piani salvati',
   'When something changes in a plan you saved': 'Quando cambia qualcosa in un piano che hai salvato',
   'People': 'Persone',
-  'New followers and buddies': 'Nuovi follower e buddy',
+  'New followers and friends': 'Nuovi follower e amici',
   'Could not load your settings': 'Impossibile caricare le impostazioni',
   'Choose which alerts also reach you as a notification on this phone.': 'Scegli quali avvisi ti arrivano anche come notifica su questo telefono.',
   'Important alerts': 'Avvisi importanti',

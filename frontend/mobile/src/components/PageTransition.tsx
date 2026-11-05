@@ -1,6 +1,6 @@
 import { useIsFocused, usePathname } from 'expo-router';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, Animated, Easing } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Platform } from 'react-native';
 import { entersFresh } from '@/lib/nav';
 
 const MAIN_TABS = ['/', '/discover', '/create', '/inbox', '/profile'];
@@ -30,23 +30,36 @@ export function PageTransition({ children }: { children: ReactNode }) {
       .catch(() => {});
   }, []);
 
+  const covered = useRef(false); // a page that something else was opened over: coming back to it is a "back"
   useEffect(() => {
-    if (!focused) return; // leaving: stay exactly as it is
-    // a page the system animates, reduced motion, or just coming back to this page: no entrance at all
-    if (inner.current || reduce.current || !entersFresh(pathNow.current, false)) {
+    if (!focused) {
+      // Android shows no slide for pages opened on top (see the stack in app/_layout), so the page underneath is simply hidden.
+      // While nothing of it is on screen it is already set to the start of its entrance, so on the way back the first frame
+      // you see is the beginning of the animation (setting it at that moment instead showed one frame at full strength, then a dip: a flicker).
+      if (Platform.OS === 'android') {
+        covered.current = true;
+        v.setValue(0);
+      }
+      return; // iPhone: leaving, stay exactly as it is (the system slide shows it)
+    }
+    const back = covered.current;
+    covered.current = false;
+    const arriving = !inner.current && entersFresh(pathNow.current, false);
+    // reduced motion, or a page that is simply there: no entrance at all. iPhone also has none for inner pages or for coming back (the slide does it)
+    if (reduce.current || (!arriving && !back)) {
       v.setValue(1);
       return;
     }
-    v.setValue(0);
+    if (!back) v.setValue(0);
     // Android fades a whole page's children one by one; caching the page as one layer while it moves keeps every frame cheap
     setMoving(true);
-    Animated.timing(v, { toValue: 1, duration: 230, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
+    Animated.timing(v, { toValue: 1, duration: back ? 220 : 230, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
       if (finished) setMoving(false);
     });
   }, [focused, v]);
 
   return (
-    <Animated.View renderToHardwareTextureAndroid={moving} style={{ flex: 1, opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
+    <Animated.View renderToHardwareTextureAndroid={moving} style={{ flex: 1, opacity: Platform.OS === 'android' ? v.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) : v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
       {children}
     </Animated.View>
   );

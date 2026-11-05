@@ -4,6 +4,7 @@ import { Platform, Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { DraftBar } from '@/components/DraftBar';
 import { useRouter } from 'expo-router';
+import { useClock } from '@/lib/clock';
 import { AuthButton } from '@/components/AuthForm';
 import { StepTransition } from '@/components/StepMotion';
 import { CategoryPill, CountPill, CreateLabel, MonthCalendar, PillArea, PillInput, PlacePick, RoundBtn, SmallPill, WizardTop } from '@/components/CreateParts';
@@ -129,13 +130,12 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const { me } = useMe();
   const { c } = useTheme();
   const go = useGo();
-  const [city, setCity] = useCity();
+  // the form's own city box starts on the app's city; typing in it does not change the city the rest of the app shows
+  const [appCity] = useCity();
+  const [city, setCity] = useState(appCity);
+  useEffect(() => setCity(appCity), [appCity]);
   // a clock that ticks, so options that have just become too soon disappear while the form is open
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 20_000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useClock(20_000);
   const earliest = earliestStart(now);
   const [f, setF] = useState<Draft>({ title: '', category: 'drinks', dayIdx: 0, hour: earliest.getHours(), minute: earliest.getMinutes(), duration: 2, capacity: 6, area: 'Brera', venueName: '', place: null, description: '', joinPolicy: 'host_approval' });
   const [publicPlace, setPublicPlace] = useState(false);

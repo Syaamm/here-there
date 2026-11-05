@@ -60,12 +60,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(null);
     setOnboarding(false);
     setDevCode(null);
-    // development only: say which code signed the person out (names of the calling functions), so a mystery sign-out can be traced
-    const caller = __DEV__ ? new Error().stack?.split('\n').slice(2, 6).map((l) => l.trim().replace(/^at /, '').replace(/\s*\(.*$/, '')).filter(Boolean).join(' < ') : '';
-    setNotice(typeof why === 'string' ? why + (caller ? ` {by ${caller}}` : '') : caller ? `Signed out {by ${caller}}` : null);
+    setNotice(typeof why === 'string' ? why : null);
   }, []);
 
   const lastFail = useRef('');
+  const meRef = useRef<Me | null>(null);
+  meRef.current = me;
   /** 'ok': the account is loaded. 'ended': the server says this sign-in is over (already handled). 'offline': no answer, nothing is known. */
   const load = useCallback(async (): Promise<'ok' | 'ended' | 'offline'> => {
     try {
@@ -97,7 +97,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setOnboarding(!!opts?.fresh);
       setToken(token);
       setRefreshToken(refreshToken ?? null);
-      await Promise.all([saveToken(token), saveRefreshToken(refreshToken ?? null)]);
+      // saved in the background: signing in never waits on the keychain for more than a moment
+      await Promise.race([Promise.all([saveToken(token), saveRefreshToken(refreshToken ?? null)]), new Promise((done) => setTimeout(done, 3000))]);
       // signed in on the server, but the account could not be read: say why on the login page instead of staying silent
       if ((await load()) === 'offline') throw new Error(`Signed in, but your account could not be loaded (${lastFail.current}). Trying again...`);
     },
@@ -125,19 +126,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // still holding a saved sign-in but the account could not be loaded (no network yet): keep asking until it can, so the person is signed in as soon as the connection is back
   useEffect(() => {
     if (!ready || me || !getRefreshToken()) return;
-    const t = setInterval(() => void load(), 5000);
-    return () => clearInterval(t);
+    // asks again after 5 s, then 10, 20, up to a minute, so a phone that stays offline is not woken every 5 seconds; coming back to the app asks at once
+    let wait = 5000;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    let gone = false;
+    const again = () => {
+      t = setTimeout(async () => {
+        if (gone) return;
+        if (AppState.currentState === 'active') await load();
+        wait = Math.min(wait * 2, 60_000);
+        if (!gone) again();
+      }, wait);
+    };
+    again();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s !== 'active') return;
+      wait = 5000;
+      if (t) clearTimeout(t);
+      void load().finally(() => !gone && again());
+    });
+    return () => {
+      gone = true;
+      if (t) clearTimeout(t);
+      sub.remove();
+    };
   }, [ready, me, load]);
 
   // identity verification, roles and suspension change on the server, so re-read when the app returns to the foreground
   const signedIn = !!me;
   useEffect(() => {
     if (!signedIn) return;
-    const sub = AppState.addEventListener('change', (s) => s === 'active' && void reload());
-    const t = setInterval(() => AppState.currentState === 'active' && void reload(), 30_000);
+    // every 30 s while the account keeps coming back the same, then slower (1 min, 2 min at most); any change, or coming back to the app, starts again at 30 s
+    let wait = 30_000;
+    let last = JSON.stringify(meRef.current);
+    let t: ReturnType<typeof setTimeout> | null = null;
+    let gone = false;
+    const again = () => {
+      t = setTimeout(async () => {
+        if (gone) return;
+        if (AppState.currentState === 'active') {
+          await reload();
+          await new Promise((done) => setTimeout(done, 150)); // let the new account reach the screen before comparing
+          const now = JSON.stringify(meRef.current);
+          wait = now === last ? Math.min(wait * 2, 120_000) : 30_000;
+          last = now;
+        }
+        if (!gone) again();
+      }, wait);
+    };
+    again();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s !== 'active') return;
+      wait = 30_000;
+      if (t) clearTimeout(t);
+      void reload().finally(() => {
+        last = JSON.stringify(meRef.current);
+        if (!gone) again();
+      });
+    });
     return () => {
+      gone = true;
+      if (t) clearTimeout(t);
       sub.remove();
-      clearInterval(t);
     };
   }, [signedIn, reload]);
 

@@ -31,7 +31,16 @@ async function readSecret(key: string): Promise<string | null> {
     return null;
   }
 }
-async function writeSecret(key: string, value: string | null) {
+// Writes to the keychain run one after another: a sign-out that deletes the tokens and a sign-in that stores new ones a moment later
+// must never overlap (on an iPhone that could leave the second write waiting), and an older write must never land after a newer one.
+let writeQueue: Promise<unknown> = Promise.resolve();
+function writeSecret(key: string, value: string | null): Promise<void> {
+  const run = () => writeSecretNow(key, value);
+  const next = writeQueue.then(run, run);
+  writeQueue = next;
+  return next;
+}
+async function writeSecretNow(key: string, value: string | null) {
   try {
     if (Platform.OS === 'web') {
       if (value) localStorage.setItem(key, value);
@@ -169,7 +178,8 @@ function refreshSession(): Promise<boolean> {
         setToken(d.token);
         refreshToken = d.refreshToken;
         remember();
-        await Promise.all([saveToken(d.token), saveRefreshToken(d.refreshToken)]);
+        void saveToken(d.token); // stored in the background (in order): every request is waiting on this refresh, so it never waits on the keychain
+        void saveRefreshToken(d.refreshToken);
         return true;
       }
       if (res.status === 401 || res.status === 400) return false;

@@ -12735,7 +12735,8 @@
                     "type": "string",
                     "enum": [
                       "web",
-                      "expo"
+                      "expo",
+                      "fcm"
                     ]
                   },
                   "token": {

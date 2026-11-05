@@ -91,7 +91,7 @@ export default function NotificationSettings() {
       case 'requests': return [t('Requests'), t('Join requests and answers to yours')];
       case 'reminders': return [t('Reminders'), t('Plans starting soon and changes to them')];
       case 'saved': return [t('Saved plans'), t('When something changes in a plan you saved')];
-      case 'people': return [t('People'), t('New followers and buddies')];
+      case 'people': return [t('People'), t('New followers and friends')];
       default: return null;
     }
   };

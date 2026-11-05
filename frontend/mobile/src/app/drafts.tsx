@@ -18,8 +18,9 @@ export default function Drafts() {
 
   const open = (d: ServerDraft) => {
     const want = d.kind === 'trip' ? 'there' : 'here';
-    if (mode !== want) switchMode(want);
-    r.push({ pathname: '/(tabs)/create', params: { draft: d.id } } as never);
+    const go = () => r.push({ pathname: '/(tabs)/create', params: { draft: d.id } } as never);
+    if (mode !== want) switchMode(want, go); // the wave plays first, the form opens once it has covered the screen
+    else go();
   };
 
   return (
