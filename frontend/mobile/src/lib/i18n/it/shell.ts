@@ -2,6 +2,9 @@
 export const shell: Record<string, string> = {
   // header titles of the root stack (kept in English in app/_layout.tsx, translated by InnerHeader)
   'Back': 'Indietro',
+  'A new version is available.': 'È disponibile una nuova versione.',
+  'Update': 'Aggiorna',
+  'Update failed. Try again.': 'Aggiornamento non riuscito. Riprova.',
   'Activity': 'Attività',
   'Trip': 'Viaggio',
   'Request to join': 'Richiesta di partecipazione',

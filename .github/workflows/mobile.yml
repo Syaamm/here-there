@@ -1,0 +1,88 @@
+name: Mobile build
+# Run it from GitHub: Actions > Mobile build > Run workflow. Steps: deployment/FOR_DEPLOYMENT.md, section "Builds".
+on:
+  workflow_dispatch:
+    inputs:
+      action:   { type: choice, options: [build, ota-update], default: build, required: true }
+      platform: { type: choice, options: [all, android, ios], default: all, required: true }
+      profile:  { type: choice, options: [production, development], default: production, required: true }
+
+env:
+  RELEASES_REPO: REPLACE_WITH_OWNER/here-there-releases   # public repo that hosts the Android APK download
+
+defaults:
+  run:
+    working-directory: frontend/mobile
+
+jobs:
+  ota-update:
+    if: inputs.action == 'ota-update'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm' }
+      - uses: expo/expo-github-action@v8
+        with: { eas-version: latest, packager: npm, token: '${{ secrets.EXPO_TOKEN }}' }
+      - run: npm ci
+        working-directory: .
+      - env:
+          APP_ENV: production
+          EXPO_PUBLIC_API_URL: https://here-there.susmitha.site
+        run: npx eas update --channel production --message "v$(node -p "require('./package.json').version")" --non-interactive
+
+  android:
+    if: inputs.action == 'build' && (inputs.platform == 'all' || inputs.platform == 'android')
+    runs-on: ubuntu-latest
+    env:
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a   # 64-bit phones only: faster, less disk
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+      - name: Build on the large disk
+        run: |
+          sudo mkdir -p /mnt/eas && sudo chown "$USER" /mnt/eas
+          echo "EAS_LOCAL_BUILD_WORKINGDIR=/mnt/eas/work" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: expo/expo-github-action@v8
+        with: { eas-version: latest, packager: npm, token: '${{ secrets.EXPO_TOKEN }}' }
+      - run: npm ci
+        working-directory: .
+      - id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - run: eas build --local -p android --profile ${{ inputs.profile }} --non-interactive --output build/app.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: 'app-${{ inputs.profile }}-apk', path: frontend/mobile/build/app.apk, retention-days: 30 }
+      - if: inputs.profile == 'production'
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ env.RELEASES_REPO }}
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: v${{ steps.v.outputs.version }}
+          files: frontend/mobile/build/app.apk
+          make_latest: true
+          overwrite_files: true
+
+  ios:
+    if: inputs.action == 'build' && (inputs.platform == 'all' || inputs.platform == 'ios')
+    runs-on: macos-latest
+    env:
+      IOS_PROFILE: ${{ inputs.profile == 'development' && 'development-testflight' || 'production-testflight' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm' }
+      - uses: expo/expo-github-action@v8
+        with: { eas-version: latest, packager: npm, token: '${{ secrets.EXPO_TOKEN }}' }
+      - run: npm ci
+        working-directory: .
+      - name: Retry downloads (pod install)
+        run: printf -- "--http1.1\n--retry 5\n--retry-delay 5\n--retry-all-errors\n--connect-timeout 30\n" > ~/.curlrc
+      - run: eas build --local -p ios --profile "$IOS_PROFILE" --non-interactive --output build/app.ipa
+      - run: eas submit -p ios --profile "$IOS_PROFILE" --path build/app.ipa --non-interactive

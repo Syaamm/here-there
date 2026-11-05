@@ -18,3 +18,11 @@ handover/client-progress-report-*
 # load-test output (npm run load:seed / load:test)
 load-manifest.json
 load-result-*.json
+
+# Apple/EAS signing files - never commit
+certs/
+*.p8
+credentials.json
+
+# Firebase server key (secret, server only)
+*-firebase-adminsdk-*.json

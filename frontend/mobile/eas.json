@@ -7,20 +7,21 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "android": { "buildType": "apk" },
       "env": { "APP_ENV": "development" }
     },
-    "preview": {
-      "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "APP_ENV": "preview" }
-    },
     "production": {
+      "channel": "production",
+      "distribution": "store",
       "autoIncrement": true,
-      "env": { "APP_ENV": "production" }
-    }
+      "android": { "buildType": "apk" },
+      "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site" }
+    },
+    "development-testflight": { "extends": "development", "distribution": "store", "autoIncrement": true },
+    "production-testflight": { "extends": "production" }
   },
   "submit": {
-    "production": {}
+    "development-testflight": { "ios": { "ascAppId": "REPLACE_WITH_DEV_APP_APPLE_ID" } },
+    "production-testflight": { "ios": { "ascAppId": "REPLACE_WITH_MAIN_APP_APPLE_ID" } }
   }
 }
-

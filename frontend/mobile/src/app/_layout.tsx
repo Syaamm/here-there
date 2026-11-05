@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { InnerHeader, Logo } from '@/components/TabHeader';
 import { AlertBanner } from '@/components/AlertBanner';
 import { Toast } from '@/components/Toast';
+import { UpdatePrompt } from '@/components/UpdatePrompt';
 import { AuthProvider, useMe } from '@/lib/auth';
 import { PhoneFrame } from '@/components/PhoneFrame';
 import { LangProvider, useT } from '@/lib/i18n';
@@ -145,6 +146,7 @@ function Gate() {
       </Stack>
       {me ? <AlertBanner /> : null}
       <Toast />
+      <UpdatePrompt />
     </WebFrame>
   );
 }
