@@ -29,6 +29,7 @@ jobs:
       - env:
           APP_ENV: production
           EXPO_PUBLIC_API_URL: https://here-there.susmitha.site
+          EXPO_PUBLIC_SHARE_URL: https://here-there.susmitha.site
         run: npx eas update --channel production --message "v$(node -p "require('./package.json').version")" --non-interactive
 
   android:

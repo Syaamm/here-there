@@ -34,3 +34,19 @@ Run: GitHub > Actions > Mobile build > Run workflow (action, platform, profile).
 | Dev app | rebuild only after native changes; daily work: `npx expo start --dev-client --tunnel` |
 
 After the first iOS build: App Store Connect > TestFlight > add testers (Internal, then External with a public link).
+
+## Live site: push, maps, shared links (live site `https://here-there.susmitha.site`)
+The production build already points at the live site (`eas.json` > `production` > `env`: `EXPO_PUBLIC_API_URL`, `SHARE_DOMAIN`, `EXPO_PUBLIC_SHARE_URL`).
+
+**Server settings to add** to `backend/api/.env` (the owner approves these; they go beyond the original five lines). Never paste the key itself into a chat:
+```
+FIREBASE_SERVICE_ACCOUNT_FILE=/home/<user>/secrets/firebase-adminsdk.json   # phone push (Firebase > Project settings > Service accounts > Generate new private key; file stays on the server, outside git)
+APPLE_TEAM_ID=N7X7Q2H8V8                                                    # shared links open the app on iPhone
+```
+Later, when the app is in the stores: `APP_STORE_URL`, `PLAY_STORE_URL`, `ANDROID_CERT_SHA256`. Restart the API (pm2) after changing `.env`.
+
+**Order matters:** put the server settings live first, then install the build (Apple reads `/.well-known/apple-app-site-association` when the app is installed). Check it: `https://here-there.susmitha.site/.well-known/apple-app-site-association` shows JSON, no redirect.
+
+**Push also needs** the Apple push key (.p8, APNs) uploaded in Firebase for the iOS app. No rebuild needed after adding it.
+
+**Maps:** iPhone uses Apple Maps, no key. Android needs `GOOGLE_MAPS_ANDROID_KEY` set for the Android build.

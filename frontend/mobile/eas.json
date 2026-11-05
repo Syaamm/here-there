@@ -1,4 +1,4 @@
-﻿{
+{
   "cli": {
     "version": ">= 16.0.0",
     "appVersionSource": "remote"
@@ -15,7 +15,7 @@
       "distribution": "store",
       "autoIncrement": true,
       "android": { "buildType": "apk" },
-      "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site" }
+      "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site" }
     },
     "development-testflight": { "extends": "development", "distribution": "store", "autoIncrement": true },
     "production-testflight": { "extends": "production" }
