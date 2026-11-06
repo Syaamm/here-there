@@ -5,7 +5,7 @@ on:
     inputs:
       action:   { type: choice, options: [build, ota-update], default: build, required: true }
       platform: { type: choice, options: [all, android, ios], default: all, required: true }
-      profile:  { type: choice, options: [production, development], default: production, required: true }
+      profile:  { type: choice, options: [production, preview, development], default: production, required: true }
 
 env:
   RELEASES_REPO: REPLACE_WITH_OWNER/here-there-releases   # public repo that hosts the Android APK download

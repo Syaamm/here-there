@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, View, type ColorValue } from 'react-native';
+import { useContext, useEffect } from 'react';
+import { Animated, View, type ColorValue } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { DOCK, useAnim } from '@/lib/dock';
+import { DOCK, DockFillContext, useAnim } from '@/lib/dock';
 import { useMe } from '@/lib/auth';
+import { useLayout } from '@/lib/layout';
 import { useTheme } from '@/lib/theme';
 import { Avatar } from '@/components/ui';
 
@@ -54,29 +55,21 @@ export function MessageIcon({ size, color, focused }: Props) {
 }
 
 /**
- * Dock icon that fills in when its tab opens: it rests as an outline; on selection the solid version rises from the
- * bottom, and leaving the tab drains it again. `render(true)` is the solid icon. Transforms and opacity only, on the
- * native driver. (The press squash is in DockButton.)
+ * Dock icon: an outline when idle, solid when its tab is open. The swap is instant. Inside the dock the button sets `fill`
+ * from the tap itself; `render(true)` is the solid icon.
  */
 function TabGlyph({ size, focused, render }: { size: number; focused: boolean; render: (solid: boolean) => React.ReactElement }) {
-  const fill = useAnim(focused ? 1 : 0); // 0 outline .. 1 solid
-  const first = useRef(true);
+  const own = useAnim(focused ? 1 : 0); // 0 outline .. 1 solid
+  const shared = useContext(DockFillContext);
+  const fill = shared ?? own;
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    Animated.timing(fill, { toValue: focused ? 1 : 0, duration: focused ? 340 : 200, delay: focused ? 120 : 0, easing: focused ? Easing.out(Easing.cubic) : Easing.in(Easing.quad), useNativeDriver: true }).start();
-  }, [focused, fill]);
+    if (!shared) own.setValue(focused ? 1 : 0);
+  }, [focused, shared, own]);
   const layer = { position: 'absolute', left: 0, top: 0, width: size, height: size } as const;
   return (
-    <View style={{ width: size, height: size, overflow: 'hidden' }}>
-      {/* the outline fades as the solid rises, so its lines never show through the solid's cut-outs */}
+    <View style={{ width: size, height: size }}>
       <Animated.View style={{ ...layer, opacity: fill.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>{render(false)}</Animated.View>
-      {/* the solid rises from the bottom: a window slides up while the icon inside slides down by the same amount */}
-      <Animated.View style={{ ...layer, overflow: 'hidden', transform: [{ translateY: fill.interpolate({ inputRange: [0, 1], outputRange: [size, 0] }) }] }}>
-        <Animated.View style={{ width: size, height: size, transform: [{ translateY: fill.interpolate({ inputRange: [0, 1], outputRange: [-size, 0] }) }] }}>{render(true)}</Animated.View>
-      </Animated.View>
+      <Animated.View style={{ ...layer, opacity: fill }}>{render(true)}</Animated.View>
     </View>
   );
 }
@@ -84,17 +77,24 @@ function TabGlyph({ size, focused, render }: { size: number; focused: boolean; r
 type Custom = (p: Props) => React.ReactElement;
 /** Tab icon from one of the hand-drawn SVGs above, all at the one dock icon size. */
 export const svgTabIcon = (Icon: Custom) =>
-  function TabSvgIcon({ color, focused }: { color: ColorValue; size?: number; focused: boolean }) {
-    return <TabGlyph size={DOCK.icon} focused={focused} render={(solid) => <Icon size={DOCK.icon} color={color as string} focused={solid} />} />;
+  function TabSvgIcon({ focused }: { color: ColorValue; size?: number; focused: boolean }) {
+    // The solid icon appears the moment a tab is touched, before the tab bar has handed out its "open" colour, so the two
+    // looks carry their own colours: the open one is never drawn in the inactive grey.
+    const { c } = useTheme();
+    const { isWide } = useLayout();
+    const open = isWide ? c.green : c.text;
+    return <TabGlyph size={DOCK.icon} focused={focused} render={(solid) => <Icon size={DOCK.icon} color={solid ? open : c.muted} focused={solid} />} />;
   };
 
 /** Profile tab: the member's own round photo (initial when there is none), ringed while the tab is open. */
 export function ProfileGlyph({ focused }: { focused: boolean }) {
   const { c } = useTheme();
   const { me } = useMe();
+  const fill = useContext(DockFillContext); // set from the touch, like the other icons
   // 28 square in all: 2 ring + 1 gap + 22 photo
   return (
-    <View style={{ width: DOCK.avatar, height: DOCK.avatar, borderRadius: DOCK.avatar / 2, borderWidth: 2, borderColor: focused ? c.text : 'transparent', padding: 1, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: DOCK.avatar, height: DOCK.avatar, borderRadius: DOCK.avatar / 2, padding: 3, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, borderRadius: DOCK.avatar / 2, borderWidth: 2, borderColor: c.text, opacity: fill ?? (focused ? 1 : 0) }} />
       <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={DOCK.avatar - 6} />
     </View>
   );

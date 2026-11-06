@@ -1,25 +1,29 @@
 # Phone builds (GitHub Actions + updates)
 
-Two apps on one phone, built on GitHub (no EAS build credits). Push is direct Firebase on both iPhone and Android.
+**ONE app for every build (changed 2026-11-06):** `HERE & THERE`, id `io.herethere.app` (Android package and iOS bundle). There is no `.dev` app any more: one Firebase app per platform, one keystore, one signing SHA-1. Development, preview and production builds all use this id; they differ only in the EAS profile.
 
-| | Main app | Dev app |
-|---|---|---|
-| Name | HERE & THERE | HERE & THERE (Dev) |
-| Id (Android package / iOS bundle) | `io.herethere.app` | `io.herethere.app.dev` |
-| eas.json profile | `production` / `production-testflight` | `development` / `development-testflight` |
-| Code comes from | built in, updated by OTA | live from the PC (dev client) |
-| Android | APK link from the releases repo | APK from the GitHub run's Artifacts |
-| iPhone | TestFlight (public link) | TestFlight, internal testers |
+| EAS profile | Use |
+|---|---|
+| `development` | dev client, code loads live from the PC (`npx expo start --dev-client --tunnel`); Android APK |
+| `preview` | internal test build against the live site, channel `preview`; Android APK |
+| `production` | the release build, channel `production` |
+| `development-testflight` / `production-testflight` | iPhone builds sent to TestFlight |
 
-Config: `frontend/mobile/eas.json`, `frontend/mobile/app.config.ts` (`APP_ENV=development` switches to the Dev app), workflow `.github/workflows/mobile.yml`.
+Because the id is the same, only ONE of these builds can be installed on a phone at a time (a new one replaces the old one, uninstall first if the signing differs).
+
+Config: `frontend/mobile/eas.json`, `frontend/mobile/app.config.ts` (`APP_ENV` only switches cleartext HTTP and code shrinking, never the id), workflow `.github/workflows/mobile.yml`.
 
 ## One-time setup (owner)
-1. **Firebase**: Android apps `io.herethere.app` and `io.herethere.app.dev`; iOS apps with the same two ids. Put the files in `frontend/mobile/`: `google-services.json` (both Android apps), `GoogleService-Info.plist` (main), `GoogleService-Info.dev.plist` (dev). They are not secret: **commit them** (the GitHub build needs them). Without the `.dev` entries the Dev app is built without Firebase push.
+1. **Firebase** (done 2026-11-05, project **`dev-lamis`**, a personal project: move to a company-owned project before the real launch, which means new files, a rebuild, the APNs key again and a new server key). Firebase apps: Android `io.herethere.app` and iOS `io.herethere.app`. Two files in `frontend/mobile/` (committed, not secret; the GitHub build needs them):
+   - `google-services.json`: Android (its `.dev` entry is unused and harmless).
+   - `GoogleService-Info.plist`: iOS (`io.herethere.app`). `GoogleService-Info.dev.plist` is no longer read and can be deleted.
+   Without the right entry/file the app is built without Firebase push.
+   Expo's own credentials page (FCM V1 key, Push Key) stays EMPTY: it is only for Expo's push service, we send through Firebase directly.
 2. **Apple push key (APNs, .p8)**: upload it in Firebase > Project settings > Cloud Messaging > each iOS app.
 3. **Firebase service-account key** (server sends with it): secret, server only, never commit.
 4. **App Store Connect**: create both apps, copy each Apple ID into `eas.json` > `submit` (replace the two `REPLACE_WITH_...`).
-5. **EAS credentials** (once per app; for the Dev app set `$env:APP_ENV = "development"` first and check the id ends in `.dev`):
-   `cd frontend/mobile` then `npx eas credentials -p ios` and `npx eas credentials -p android` (profiles `production-testflight` / `development-testflight` for iOS; `production` / `development` for Android). Android also needs a keystore for each.
+5. **EAS credentials** (once; the id is always `io.herethere.app`):
+   `cd frontend/mobile` then `npx eas credentials -p ios` and `npx eas credentials -p android`. Android: ONE keystore, created 2026-11-06 under profile `production`, SHA-1 `62:F5:2E:42:32:B6:2E:C7:61:AD:1C:3C:B7:69:61:2B:64:39:0A:A9`. All Android profiles share it (credentials belong to the app id, not the profile). Download a backup copy (Keystore > Download existing keystore).
 6. **GitHub**: repo secrets `EXPO_TOKEN` (expo.dev robot, role Developer) and `RELEASES_TOKEN` (fine-grained, Contents read/write on the releases repo). Create the public releases repo and put its name in `mobile.yml` (`RELEASES_REPO`).
 7. **expo.dev** > project > Environment variables > `production`: the app's `EXPO_PUBLIC_*` values (API URL etc.).
 
@@ -31,7 +35,7 @@ Run: GitHub > Actions > Mobile build > Run workflow (action, platform, profile).
 | JS/TS code, screens, text, images | `action = ota-update`. Raise `version` first. Users see "Update available" in the app. |
 | New native library, permission, icon, push setup, Expo SDK upgrade | `action = build`. Raise `runtimeVersion` in `app.config.ts` and `version`. |
 | iPhone TestFlight build near 90 days old | new iOS build |
-| Dev app | rebuild only after native changes; daily work: `npx expo start --dev-client --tunnel` |
+| Development build | rebuild only after native changes; daily work: `npx expo start --dev-client --tunnel` |
 
 After the first iOS build: App Store Connect > TestFlight > add testers (Internal, then External with a public link).
 
@@ -49,4 +53,30 @@ Later, when the app is in the stores: `APP_STORE_URL`, `PLAY_STORE_URL`, `ANDROI
 
 **Push also needs** the Apple push key (.p8, APNs) uploaded in Firebase for the iOS app. No rebuild needed after adding it.
 
-**Maps:** iPhone uses Apple Maps, no key. Android needs `GOOGLE_MAPS_ANDROID_KEY` set for the Android build.
+**Maps:** iPhone uses Apple Maps, no key. Android needs `GOOGLE_MAPS_ANDROID_KEY` set for the Android build; without it the Android app crashes when the map page opens ("API key not found", seen 2026-11-06). The key must come from the company's Google Cloud project (see "Move Firebase and Maps to the company" below).
+
+## Development build, step by step
+The development build is a dev client with the same id as production: code loads from the PC. Profiles: Android `development`, iPhone `development-testflight`. Build on EAS cloud with `$env:EAS_NO_VCS = "1"` (uploads the whole folder, so uncommitted files are included; a git build would only send committed files).
+1. Credentials: already set (see step 5 above); iPhone with the App Store Connect API key variables (see the iOS memory/guide).
+2. Build: `npx eas build -p android --profile development` and `npx eas build -p ios --profile development-testflight`, then `npx eas submit -p ios --profile development-testflight`. iPhone now needs the ONE app's Apple ID in `eas.json` > `submit` (the `ascAppId` there was made for the old `.dev` app: replace it with the Apple ID of the `io.herethere.app` app).
+3. Run against the live site: `$env:EXPO_PUBLIC_API_URL = "https://here-there.susmitha.site"` then `npx expo start --dev-client --tunnel` (a dev client reads this from the PC, not from the cloud build).
+4. Push needs: Apple APNs key (.p8, different from the App Store Connect API key) in Firebase > Cloud Messaging for both iOS apps with team id N7X7Q2H8V8; Firebase service-account key of `dev-lamis` on the server with `FIREBASE_SERVICE_ACCOUNT_FILE`. Android needs nothing more. Android maps need `GOOGLE_MAPS_ANDROID_KEY`.
+
+## Move Firebase and Maps to the company (do once, before real users)
+**Why:** Firebase project `dev-lamis` belongs to a personal Google account, while Expo, Apple and the builds belong to the company. Push works for testing, but before real users everything must be company-owned, and the Google Maps bill must go to the company. Do it in ONE go with ONE rebuild: the Firebase files are baked into the builds, so every tester has to install the new build afterwards (old builds keep talking to `dev-lamis`).
+
+**You need first:** a company Google account with owner rights, and a Google Cloud billing account (Maps needs billing switched on, even inside Google's free monthly credit).
+
+1. [ ] **Create the Firebase project** in the company Google account (the free Spark plan is enough for push). Name it for the company, not "dev".
+2. [ ] **Add two apps** to it: Android `io.herethere.app` and iOS `io.herethere.app`. Both in this ONE project: the server can use only one project's service-account key.
+3. [ ] **Replace the two files in `frontend/mobile/`** with the new ones, then commit and push (the GitHub build needs them; they are not secret):
+   - `google-services.json`: Android (`io.herethere.app`).
+   - `GoogleService-Info.plist`: iOS (`io.herethere.app`).
+4. [ ] **Upload the Apple push key** (APNs `.p8`, Key ID `CVHH4LBXUC`, Team ID `N7X7Q2H8V8`: check the Team ID in the Apple Developer portal, Membership) in Firebase > Project settings > Cloud Messaging > Apple app configuration, for the iOS app, in BOTH the development and the production slot. Leave "APNs Certificates" empty.
+5. [ ] **New Firebase service-account key** for the server: Firebase > Project settings > Service accounts > Generate new private key. Put the file on the server outside git, set `FIREBASE_SERVICE_ACCOUNT_FILE` in `backend/api/.env` to its path, restart the API (pm2). Secret: never commit it or paste it into a chat.
+6. [ ] **Google Maps key (Android) in the company's Google Cloud project** (it does not have to be the Firebase project, only company-owned with billing on): enable **Maps SDK for Android**, then APIs & Services > Credentials > Create credentials > API key.
+   - Restrict it: Application restrictions > Android apps, add `io.herethere.app` with its signing SHA-1 (`cd frontend/mobile` then `npx eas credentials -p android`; once the app is in Google Play, also the Play App Signing SHA-1). API restrictions > Maps SDK for Android only.
+   - Put the key in as `GOOGLE_MAPS_ANDROID_KEY` for the Android build (`eas.json` env of the Android profiles, or an EAS environment variable: `npx eas env:create --name GOOGLE_MAPS_ANDROID_KEY --value "<key>" --environment production`, same for development). The key is not secret (it ends up inside the app). iPhone needs nothing: Apple Maps.
+7. [ ] **Rebuild once.** Raise `version` and `runtimeVersion` in `app.config.ts`, then build both platforms (see "Each build"). An over-the-air update cannot carry these changes.
+8. [ ] **Test on real phones**, Android and iPhone, both apps: a push notification arrives, and the Android map page opens without crashing and shows tiles (grey tiles with a key = the SHA-1 restriction does not match the build).
+9. [ ] **Clean up** once every tester is on the new builds: delete the service-account key and the project `dev-lamis` in the personal account, and remove the personal account's access to anything the company uses.

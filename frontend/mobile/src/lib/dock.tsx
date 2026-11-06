@@ -78,36 +78,66 @@ export const DockBackground = memo(function DockBackground({ bottom }: { bottom:
 });
 
 /**
- * Every dock item reacts to a touch, in one motion: while the finger is down the icon squashes flat from the top;
- * on release it springs a little taller than normal, jumps up, and drops back to rest with a small bounce.
- * Behind the open tab a soft capsule swells in. All animations are transforms/opacity on the native driver.
+ * Every dock item answers a touch at once. When the finger lands: a small haptic tap, the icon squashes flat from the top, the
+ * icon turns solid and the open tab's capsule swells in behind it. On release the icon springs back with a small jump.
+ * Every motion is ONE native-driver animation started straight from the touch (never a step started from another step's
+ * end, which would wait for the JS thread while the new page renders and look stuck). All transforms/opacity.
  */
+/** The icon's look (0 outline .. 1 solid) is owned by its dock button, so a tap can set it before the new page has rendered. */
+export const DockFillContext = createContext<Animated.Value | null>(null);
+
+// A tap tells every other dock button to let go of its open look at once (not after the new page has rendered).
+const pressListeners = new Set<(from: object) => void>();
+
 export const DockButton = memo(function DockButton(props: any) {
   const { children, onPress, onLongPress, style, accessibilityLabel, accessibilityState, testID, glass } = props;
   const { c } = useTheme();
   // this navigator reports the open tab as `aria-selected` (older ones used accessibilityState)
   const selected = !!(props['aria-selected'] ?? accessibilityState?.selected);
-  const drop = useAnim(selected ? 1 : 0);
-  const seen = useRef(selected);
+  const drop = useAnim(selected ? 1 : 0); // the capsule behind the open tab
+  const fill = useAnim(selected ? 1 : 0); // the icon: outline or solid
+  const target = useRef(selected);
+  const me = useRef({}).current;
+  const animateTo = (open: boolean) => {
+    if (target.current === open) return;
+    target.current = open;
+    Animated.spring(drop, { toValue: open ? 1 : 0, friction: open ? 8 : 12, tension: open ? 320 : 300, useNativeDriver: true }).start();
+    fill.setValue(open ? 1 : 0); // the icon is simply solid or outline: no filling-up motion
+  };
+  // keeps up with changes that did not start from a tap on this dock (back button, links)
+  useEffect(() => animateTo(selected));
   useEffect(() => {
-    if (seen.current === selected) return;
-    seen.current = selected;
-    Animated.spring(drop, { toValue: selected ? 1 : 0, friction: selected ? 5 : 9, tension: selected ? 150 : 200, useNativeDriver: true }).start();
-  }, [selected, drop]);
-  const squash = useAnim(1); // vertical scale: below 1 squashed, above 1 stretched
-  const lift = useAnim(0); // 0 on the ground, 1 at the top of the jump
+    const l = (from: object) => {
+      if (from !== me) animateTo(false);
+    };
+    pressListeners.add(l);
+    return () => void pressListeners.delete(l);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const choose = (e: unknown) => {
+    animateTo(true);
+    pressListeners.forEach((l) => l(me));
+    // one frame later, so the dock's first frames are on screen before the new page starts to render
+    if (onPress) requestAnimationFrame(() => onPress(e));
+  };
+  const selectedNow = useRef(selected);
+  selectedNow.current = selected;
+  const squash = useAnim(1); // vertical scale: below 1 squashed
+  const lift = useAnim(0); // 1 at the top of the little jump, 0 on the ground
   const down = () => {
     tap('Light'); // a small tap under the finger, like the Create button
-    lift.stopAnimation();
     squash.stopAnimation();
+    lift.stopAnimation();
     Animated.timing(squash, { toValue: 0.88, duration: 60, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+    // the tab looks open the moment the finger lands (the page itself follows on release)
+    animateTo(true);
+    pressListeners.forEach((l) => l(me));
   };
   const up = () => {
     Animated.spring(squash, { toValue: 1, friction: 12, tension: 420, useNativeDriver: true }).start();
-    Animated.sequence([
-      Animated.timing(lift, { toValue: 1, duration: 50, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(lift, { toValue: 0, friction: 14, tension: 420, useNativeDriver: true }),
-    ]).start();
+    lift.setValue(1); // starts at the top and falls back in one spring
+    Animated.spring(lift, { toValue: 0, friction: 14, tension: 420, useNativeDriver: true }).start();
+    // a touch that slid off without choosing the tab: the dock goes back to what is really open
+    setTimeout(() => animateTo(selectedNow.current), 600);
   };
   return (
     <Pressable
@@ -115,8 +145,7 @@ export const DockButton = memo(function DockButton(props: any) {
       accessibilityLabel={props['aria-label'] ?? accessibilityLabel}
       accessibilityState={{ ...accessibilityState, selected }}
       testID={testID}
-      // Android: let the press animation draw its first frame before the new page starts rendering
-      onPress={Platform.OS === 'android' && onPress ? (e: unknown) => requestAnimationFrame(() => onPress(e)) : onPress}
+      onPress={choose}
       onLongPress={onLongPress}
       onPressIn={down}
       onPressOut={up}
@@ -144,8 +173,8 @@ export const DockButton = memo(function DockButton(props: any) {
           </View>
         </Animated.View>
       ) : null}
-      {/* no hardware-texture cache here: the icon inside animates too (fill rising), which would re-draw the cache every frame */}
-      <Animated.View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transformOrigin: 'center bottom', transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }, { scaleY: squash }] }}>{children}</Animated.View>
+      
+      <Animated.View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transformOrigin: 'center bottom', transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }, { scaleY: squash }] }}><DockFillContext.Provider value={fill}>{children}</DockFillContext.Provider></Animated.View>
     </Pressable>
   );
 });
@@ -180,18 +209,19 @@ export const CreateButton = memo(function CreateButton({ onPress }: { onPress?: 
       first.current = false;
       return;
     }
-    Animated.timing(grow, { toValue: selected ? 1 : 0, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-    Animated.timing(spin, { toValue: selected ? 1 : 0, duration: 460, easing: Easing.out(Easing.back(1.8)), useNativeDriver: true }).start();
+    Animated.timing(grow, { toValue: selected ? 1 : 0, duration: 170, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    Animated.timing(spin, { toValue: selected ? 1 : 0, duration: 300, easing: Easing.out(Easing.back(1.4)), useNativeDriver: true }).start();
   }, [selected, grow, spin]);
   // driven straight from the touch (no React state), so a press never re-renders anything on the JS thread
   // pressing squeezes it in quickly; letting go springs it back past its size and settles (a loose spring: the bounce is the feel)
   const setDown = (isDown: boolean) => {
     if (isDown) tap('Medium'); // the one haptic of a tap, the moment the finger lands
-    Animated.spring(press, { toValue: isDown ? 1 : 0, friction: isDown ? 9 : 3.6, tension: isDown ? 320 : 240, useNativeDriver: true }).start();
+    Animated.spring(press, { toValue: isDown ? 1 : 0, friction: isDown ? 10 : 6, tension: 420, useNativeDriver: true }).start();
   };
   const land = () => {
+    pressListeners.forEach((l) => l({})); // the other dock items let go of their open look right away
     pulse.setValue(0);
-    Animated.timing(pulse, { toValue: 1, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    Animated.timing(pulse, { toValue: 1, duration: 360, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     onPress?.();
   };
   // The feel of the first version: small at rest, swelling under the finger, bigger while Create is open. `size` is how big the

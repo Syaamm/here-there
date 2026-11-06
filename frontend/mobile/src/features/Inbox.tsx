@@ -96,7 +96,7 @@ export function Inbox() {
   const go = useGo();
   const { c, mode, switchMode } = useTheme();
   const { me } = useMe();
-  const [tab, setTab] = useState<Tab>('alerts');
+  const [tab, setTab] = useState<Tab>('chats');
   const [q, setQ] = useState(''); // search box on the Chats tab: narrows the chats already loaded
   // each product has its own alerts and chats: HERE shows activity ones, THERE shows trip ones (follows, warnings and the like show in both)
   const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number; unreadByProduct?: { here: number; there: number } }>(`/v1/notifications?product=${mode}`), [mode], 60_000, 'inbox:notifs', { animate: true, live: true }); // new alerts arrive by the live connection; this is only the slow fallback
@@ -252,8 +252,8 @@ export function Inbox() {
       <View accessibilityRole="tablist" style={[{ flexDirection: 'row', borderRadius: 30, backgroundColor: c.surface, padding: 5 }, SOFT]}>
         {(
           [
-            ['alerts', t('Alerts'), alertsUnread],
             ['chats', t('Chats'), unreadChats.size],
+            ['alerts', t('Alerts'), alertsUnread],
           ] as const
         ).map(([k, label, n]) => {
           const on = tab === k;

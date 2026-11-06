@@ -167,11 +167,8 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
       // Coming back to a page: if it was loaded moments ago and nothing was changed since, it is still right, so do not ask
       // again (nothing to refresh, nothing to flicker). A change made anywhere, or a few seconds more, and it is asked.
       const fresh = have.current && Date.now() - fetched.current.at < 15_000 && fetched.current.writes === writeCount();
-      // coming back to a page that already shows something: ask again only after the slide has finished (Android drops frames
-      // when the answer re-renders the page mid-slide); a first visit asks at once
-      const late = !fresh && have.current && Platform.OS === 'android' ? setTimeout(() => void reload(), 320) : null;
-      if (!fresh && !late) void reload();
-      if (!pollMs) return () => { if (late) clearTimeout(late); };
+      if (!fresh) void reload(); // asked at once, on both phones: no waiting before the page is refreshed
+      if (!pollMs) return;
       // with the live connection up, a screen it covers asks only every few ticks instead of every one
       let tick = 0;
       const t = setInterval(() => {
@@ -179,10 +176,7 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
         if (opts?.live && liveIsUp() && ++tick % LIVE_POLL_STRETCH !== 0) return;
         void reload();
       }, pollMs);
-      return () => {
-        clearInterval(t);
-        if (late) clearTimeout(late);
-      };
+      return () => clearInterval(t);
     }, [reload, pollMs, opts?.live]),
   );
 

@@ -10,10 +10,9 @@ const path = require('path') as { resolve(...parts: string[]): string };
  * IDs below are placeholders. Replace `io.herethere.app` with an identifier your company owns
  * BEFORE the first store build. Store listings are tied to it permanently.
  */
-// The development build (EAS profile "development", sent through TestFlight) gets its own id and name, so it installs next to
-// the production app. Production has no suffix.
-const isDev = process.env.APP_ENV === 'development';
-const APP_ID = isDev ? 'io.herethere.app.dev' : 'io.herethere.app';
+// ONE app id for every build (development, preview, production): same Firebase app, same keystore, same signing SHA-1.
+// APP_ENV only switches behaviour (cleartext HTTP, code shrinking), never the id or name.
+const APP_ID = 'io.herethere.app';
 const isProd = process.env.APP_ENV === 'production';
 // The domain whose shared links (/a/<id>, /t/<id>) open the app straight from a message. Set it for store builds; it also
 // needs the two files the API serves under /.well-known (see deployment/FOR_DEPLOYMENT.md).
@@ -30,10 +29,9 @@ const hasMapKeys = Object.values(mapKeys).some(Boolean);
 // (Firebase console > Project settings > Your apps). Put them next to this file, or point GOOGLE_SERVICES_JSON /
 // GOOGLE_SERVICES_PLIST at them (on EAS: a file secret). Without a file that platform is built without Firebase, as before.
 const androidFirebase = process.env.GOOGLE_SERVICES_JSON ?? './google-services.json';
-// The development app (io.herethere.app.dev) has its own Firebase iOS app, so its own file: GoogleService-Info.dev.plist.
-const iosFirebase = process.env.GOOGLE_SERVICES_PLIST ?? (isDev ? './GoogleService-Info.dev.plist' : './GoogleService-Info.plist');
+const iosFirebase = process.env.GOOGLE_SERVICES_PLIST ?? './GoogleService-Info.plist';
 // The Android build fails if google-services.json has no entry for the app's package, so the Firebase file is only used when it
-// lists this build's package (the Dev app needs io.herethere.app.dev added in Firebase, see deployment/FOR_DEPLOYMENT.md).
+// lists this build's package.
 const hasAndroidPackage = (file: string, pkg: string): boolean => {
   try {
     const json = JSON.parse(require('fs').readFileSync(path.resolve(process.cwd(), file), 'utf8'));
@@ -48,7 +46,7 @@ const hasFirebase = hasAndroidFirebase || hasIosFirebase;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: isDev ? 'HERE & THERE (Dev)' : 'HERE & THERE',
+  name: 'HERE & THERE',
   slug: 'here-there',
   owner: 'cloudhouse-production',
   scheme: 'herethere',
@@ -110,6 +108,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     'expo-router',
     'expo-secure-store',
+    // Listed before expo-notifications on purpose: Expo runs the manifest changes of the last plugin first, so this one must come
+    // first in the list to run after expo-notifications has added the entry it patches.
+    './plugins/with-notification-color-override.js',
     ['expo-notifications', { color: '#102F29' }],
     [
       'expo-location',
@@ -131,7 +132,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       ],
     ],
     // Release builds only: R8 code shrinking + unused-resource removal (smaller APK/AAB, less memory for dex). Revert by deleting the two flags if a release build crashes on a missing class.
-    ['expo-build-properties', { android: { usesCleartextTraffic: !isProd, ...(isProd ? { enableMinifyInReleaseBuilds: true, enableShrinkResourcesInReleaseBuilds: true } : {}) }, ...(hasIosFirebase ? { ios: { useFrameworks: 'static' } } : {}) }],
+    ['expo-build-properties', { android: { usesCleartextTraffic: !isProd, ...(isProd ? { enableMinifyInReleaseBuilds: true, enableShrinkResourcesInReleaseBuilds: true } : {}) }, ...(hasIosFirebase ? { ios: { useFrameworks: 'dynamic' } } : {}) }],
     ...(hasFirebase ? ([['@react-native-firebase/app']] as NonNullable<ExpoConfig['plugins']>) : []),
     ...(hasMapKeys ? ([['react-native-maps', mapKeys]] as NonNullable<ExpoConfig['plugins']>) : []),
   ],
