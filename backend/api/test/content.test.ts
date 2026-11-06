@@ -17,8 +17,7 @@ describe('content rules for titles, descriptions and chat', () => {
     assert.equal(contentProblem('see www.a.com and https://b.com'), 'Too many links');
     assert.equal(contentProblem('aaaaaaaaaaaa'), 'Spam-like repetition');
     assert.equal(contentProblem('buy now buy now buy now buy now buy now buy now'), 'Spam-like repetition');
-    assert.equal(contentProblem('JOIN US TONIGHT FOR A GREAT NIGHT OUT'), 'Please do not write everything in capitals');
-    assert.equal(contentProblem('OK GREAT'), null, 'short shouting is fine');
+    assert.equal(contentProblem('JOIN US TONIGHT FOR A GREAT NIGHT OUT'), null, 'writing in capitals is allowed');
     assert.equal(contentProblem('please send me money'), 'Financial solicitation is not allowed');
     assert.equal(contentProblem('click here for free followers'), 'This looks like spam');
   });

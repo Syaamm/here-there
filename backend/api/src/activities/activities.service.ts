@@ -491,8 +491,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
     }
 
-    // anti-spam: bounded creates per day and bounded concurrent open activities
-    this.limiter.hit(`activity-create:${me.id}`, 5, 24 * HOUR);
+    // anti-spam: bounded concurrent open activities (the per-day create limit was removed by the owner, 2026-11-06)
     const open = await this.prisma.activity.count({
       where: { hostId: me.id, status: { in: ['published', 'full', 'confirmed'] }, endsAt: { gt: now } },
     });

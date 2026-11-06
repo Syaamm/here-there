@@ -245,7 +245,6 @@ describe('confirmed plans, starting-soon reminders, drafts and appeals', () => {
     const r1 = await post('/v1/activities', host.token, activityBody({ title: 'Che cazzo di serata' }));
     assert.equal(r1.status, 400);
     assert.equal(r1.body.code, 'CONTENT_REJECTED');
-    assert.equal((await post('/v1/activities', host.token, activityBody({ description: 'THIS IS THE BEST EVENT EVER COME NOW' }))).body.code, 'CONTENT_REJECTED');
     assert.equal((await post('/v1/trips', host.token, tripBody({ title: 'Fucking great trip' }))).body.code, 'CONTENT_REJECTED');
     assert.equal((await post('/v1/activities', host.token, activityBody())).status, 201);
   });

@@ -82,8 +82,8 @@ const MONEY_ASK = [
 const PAYMENT_DETAILS = [/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,7}(?:\s?[A-Z0-9]{1,4})?\b/, /\b(?:\d{4}[ -]){3}\d{3,4}\b/, /\b0x[a-fA-F0-9]{40}\b/, /\bbc1[a-z0-9]{30,60}\b/];
 
 /**
- * Cheap content rules for titles, descriptions, intros and chat (spec 4.2 / 7.5): spam links, repetition, shouting, scam
- * wording, suspicious links, requests for money and payment details, and strong swear words (English and Italian). Real
+ * Cheap content rules for titles, descriptions, intros and chat (spec 4.2 / 7.5): spam links, repetition, scam
+ * wording (writing in capitals is allowed, by the owner's decision 2026-11-06), suspicious links, requests for money and payment details, and strong swear words (English and Italian). Real
  * moderation sits on top. Returns the reason to show the person, or null when the text is fine.
  */
 export function contentProblem(text?: string | null): string | null {
@@ -93,8 +93,6 @@ export function contentProblem(text?: string | null): string | null {
   if (/(.)\1{9,}/.test(text)) return 'Spam-like repetition';
   const words = text.toLowerCase().match(/\p{L}{3,}/gu) ?? [];
   if (words.length >= 6 && words.some((w) => words.filter((x) => x === w).length >= Math.max(5, words.length * 0.4))) return 'Spam-like repetition';
-  const letters = text.replace(/[^\p{L}]/gu, '');
-  if (letters.length >= 15 && letters.replace(/[^\p{Lu}]/gu, '').length / letters.length > 0.8) return 'Please do not write everything in capitals';
   if (BLOCKED.test(plainText(text))) return 'Please keep the language respectful';
   if (MONEY_ASK.some((r) => r.test(text))) return 'Financial solicitation is not allowed';
   if (PAYMENT_DETAILS.some((r) => r.test(text))) return 'Please do not share bank, card or wallet details';
