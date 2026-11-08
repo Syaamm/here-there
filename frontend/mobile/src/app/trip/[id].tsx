@@ -20,10 +20,11 @@ import { TRIP_PHOTOS, tripStyle } from '@/components/Cards';
 import { FLEX } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, money } from '@/lib/format';
-import { useAction, useLoad } from '@/lib/hooks';
+import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
+import { ReadMore } from '@/components/ReadMore';
 
 /** THERE · Trip detail. A proposal with an estimated budget. Never a booking, never a guaranteed departure. Laid out like an activity. */
 export default function TripDetail() {
@@ -37,9 +38,9 @@ export default function TripDetail() {
   const insets = useSafeAreaInsets();
   const HERO = c.heroBlock;
   const { gutter } = useLayout();
-  const [expanded, setExpanded] = useState(false);
   const [barH, setBarH] = useState(0); // the fixed bottom bar's measured height
   const { data: trip, error, loading, reload } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
+  const { refreshing, onRefresh } = useRefresh(reload); // pull down to refresh, like Home
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'trip' | 'user'; id: string } | null>(null);
   const [noShow, setNoShow] = useState<'closed' | 'open' | 'confirm' | 'sent'>('closed'); // "the host did not show up": sheet closed, open, showing its thank-you, or sent and closed
@@ -79,7 +80,7 @@ export default function TripDetail() {
     ? []
     : [
         { label: t('Report this trip'), onSelect: () => setReport({ type: 'trip', id: trip.id }) },
-        { label: t('Report {name}', { name: trip.host.displayName }), onSelect: () => setReport({ type: 'user', id: trip.host.id }) },
+        // a person is reported from their profile (its ⋯ menu), not from their activity
         {
           label: t('Block {name}', { name: trip.host.displayName }),
           danger: true,
@@ -94,7 +95,6 @@ export default function TripDetail() {
 
   // the link opens this trip in the app, or sends the person to the App Store / Google Play when they have not got it
   const share = () => void Share.share({ message: `${t('{title}, {dates}, from {city}', { title: trip.title, dates: dateSpan(trip.dateStart, trip.dateEnd), city: trip.originCity })}\n${shareLink('trip', trip.id)}` }).catch(() => undefined);
-  const longText = (trip.description?.length ?? 0) > 130;
   const flex = FLEX.find(([v]) => v === trip.dateFlexibility)?.[1] ?? trip.dateFlexibility;
 
   const top = statusTop(insets.top) + 8;
@@ -121,6 +121,8 @@ export default function TripDetail() {
   return (
     <View style={{ flex: 1 }}>
       <Screen
+        onRefresh={onRefresh}
+        refreshing={refreshing}
         bottomRoom={primary ? barH : undefined}
         fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} /> }}
       >
@@ -133,16 +135,8 @@ export default function TripDetail() {
         <View style={{ gap: 10 }}>
           <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{trip.title}</Text>
           {trip.description ? (
-            <View style={{ gap: 4 }}>
-              <Text numberOfLines={expanded ? undefined : 3} style={{ color: c.muted, fontSize: 15, lineHeight: 27 }}>
-                {trip.description}
-              </Text>
-              {longText ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={expanded ? t('Read less') : t('Read more')} onPress={() => setExpanded((v) => !v)} hitSlop={8} style={{ minHeight: 32, justifyContent: 'center' }}>
-                  <Text style={{ color: c.green, fontSize: 14, fontWeight: '600' }}>{expanded ? t('read less') : t('read more')}</Text>
-                </Pressable>
-              ) : null}
-            </View>
+            // "read more" when it really runs past three lines (bullet points too), not by its number of characters
+            <ReadMore text={trip.description} style={{ color: c.muted, fontSize: 15, lineHeight: 27 }} />
           ) : null}
         </View>
 

@@ -26,7 +26,23 @@ export function useKeyboardShown() {
  * a window that already made room needs no padding, and one that did not gets exactly what is missing. It looks again
  * whenever the screen's own size changes.
  */
-export function useKeyboardOverlap() {
+/**
+ * Where the keyboard's top edge is on screen, in the coordinates measureInWindow gives. Android apps are drawn edge to edge
+ * (under the status and navigation bars), so "window height minus keyboard height" is off by a bar's height on many phones,
+ * which left fields a little under the keyboard. The event's own screenY is the keyboard's real top edge: use it when it is
+ * there, and fall back to the old sum only when it is not.
+ */
+function keyboardTopOf(e: { endCoordinates: { screenY: number; height: number } }) {
+  const y = e.endCoordinates.screenY;
+  const screen = Dimensions.get('screen').height;
+  if (Number.isFinite(y) && y > 0 && y < screen) return y;
+  return Dimensions.get('window').height - e.endCoordinates.height;
+}
+/** A little air between a field and the keyboard on Android (its keyboard has no suggestion strip padding of its own). */
+const ANDROID_AIR = Platform.OS === 'android' ? 12 : 0;
+
+/** `air`: extra room kept above the keyboard (a bottom sheet passes 0: it already pads its own bottom, so no dark strip shows between it and the keyboard). */
+export function useKeyboardOverlap(air = ANDROID_AIR) {
   const inset = useRef(new Animated.Value(0)).current;
   const box = useRef<HostInstance>(null);
   const top = useRef(Infinity); // where the keyboard's top edge is, in window coordinates (Infinity while it is down)
@@ -43,8 +59,8 @@ export function useKeyboardOverlap() {
   const measure = useCallback(() => {
     const view = box.current;
     if (top.current === Infinity || !view) return go(0);
-    view.measureInWindow((_x, y, _w, h) => go(Math.max(0, y + h - top.current)));
-  }, [go]);
+    view.measureInWindow((_x, y, _w, h) => go(Math.max(0, y + h - top.current + air)));
+  }, [go, air]);
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const ios = Platform.OS === 'ios';
@@ -65,7 +81,7 @@ export function useKeyboardOverlap() {
       : [
           Keyboard.addListener('keyboardDidShow', (e) => {
             duration.current = 120;
-            top.current = Dimensions.get('window').height - e.endCoordinates.height;
+            top.current = keyboardTopOf(e);
             measure();
           }),
           Keyboard.addListener('keyboardDidHide', () => {
@@ -84,10 +100,27 @@ export function useKeyboardOverlap() {
 }
 
 let keyboardHeight = 0; // how tall the keyboard is right now (0 when it is down)
+let keyboardTop = Infinity; // where its top edge is (see keyboardTopOf)
 let sheetsOpen = 0; // pop-up sheets showing: while one is, the page behind it must not scroll for a field that is in the sheet
 const focusListeners = new Set<() => void>();
+/** Puts the keyboard away AND takes the cursor out of the field (on Android the field keeps its cursor after the keyboard closes). */
+export function closeKeyboard() {
+  Keyboard.dismiss();
+  TextInput.State.currentlyFocusedInput?.()?.blur?.();
+}
+
 /** Called by every text field when it gets focus, so a page can scroll it into view. */
 export const notifyInputFocus = () => focusListeners.forEach((f) => f());
+
+type Measurable = { measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => void };
+let listBelow: RefObject<Measurable | null> | null = null;
+/**
+ * A list that opens under the field being typed in (search results): the page scrolls so the list shows above the keyboard too,
+ * without pushing the field itself off the top. Pass null when the list is gone. Call notifyInputFocus() when it appears.
+ */
+export const setListBelowField = (ref: RefObject<Measurable | null> | null) => {
+  listBelow = ref;
+};
 
 /**
  * Keeps the text field you are typing in above the keyboard. The page ends at the bottom of the screen and is padded by
@@ -106,17 +139,25 @@ export function useScrollFieldIntoView(scroller: RefObject<ScrollViewInstance | 
       const input = TextInput.State.currentlyFocusedInput?.();
       if (!input) return;
       input.measureInWindow((_x, y, _w, h) => {
-        const keyboardTop = Dimensions.get('window').height - keyboardHeight;
-        const hidden = y + h + 28 - keyboardTop; // how much of the field (plus a little air) is under the keyboard
-        if (hidden > 0) scroller.current?.scrollTo({ y: offset.current + hidden, animated: true });
+        const go = (hiddenList: number) => {
+          const hidden = y + h + 28 - keyboardTop; // how much of the field (plus a little air) is under the keyboard
+          // a list under the field is shown too, but never so far that the field itself goes off the top
+          const wanted = Math.max(hidden, Math.min(hiddenList, Math.max(0, y - 110)));
+          if (wanted > 0) scroller.current?.scrollTo({ y: offset.current + wanted, animated: true });
+        };
+        const list = listBelow?.current;
+        if (list) list.measureInWindow((_a, ly, _b, lh) => go(ly + lh + 16 - keyboardTop));
+        else go(-1);
       });
     };
     const show = Keyboard.addListener('keyboardDidShow', (e) => {
       keyboardHeight = e.endCoordinates.height;
+      keyboardTop = keyboardTopOf(e);
       setTimeout(reveal, 40);
     });
     const hide = Keyboard.addListener('keyboardDidHide', () => {
       keyboardHeight = 0;
+      keyboardTop = Infinity;
     });
     const onFocus = () => setTimeout(reveal, 90); // moving from one field to the next while the keyboard stays up
     focusListeners.add(onFocus);
@@ -137,3 +178,10 @@ export function formatDay(input: string) {
   const d = input.replace(/\D/g, '').slice(0, 8);
   return d.length > 6 ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}` : d.length > 4 ? `${d.slice(0, 4)}-${d.slice(4)}` : d;
 }
+
+/**
+ * How scrolling pages treat taps while the keyboard is up. iPhone: a tap on an empty part of the page closes it (scrolling
+ * never does). Android: only the back button closes it, so taps leave it open. Pages never close it on scroll (no
+ * keyboardDismissMode), which keeps the next field reachable while typing.
+ */
+export const keyboardTaps = Platform.OS === 'ios' ? ('handled' as const) : ('always' as const);

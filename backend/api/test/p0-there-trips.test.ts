@@ -338,18 +338,16 @@ describe('THERE: trips, applications, approval, chat', () => {
     assert.equal((await post(`/v1/conversations/${conv.id}/messages`, m1.token, { body: 'Maybe this hotel? https://example.com/hotel' })).status, 201);
     assert.equal((await post(`/v1/conversations/${conv.id}/links`, org.token, { url: 'https://example.com/hotel' })).status, 404); // no separate share-link feature
 
-    // adopting the poll puts the dates to the group: nobody is committed until they confirm themselves
+    // using the poll's dates changes the trip's dates at once, everywhere, and tells every member: no second round of confirmation
     assert.equal((await post(`/v1/polls/${made.body.id}/close`, m1.token, { adopt: true })).body.code, 'NOT_ORGANIZER');
     assert.equal((await post(`/v1/polls/${made.body.id}/close`, org.token, { adopt: true })).status, 201);
     const d1 = (await get(`/v1/trips/${t.id}`, m1.token)).body;
-    assert.equal(d1.datesState, 'proposed');
-    assert.equal(d1.myDatesConfirmed, false);
-    assert.equal(d1.datesConfirmedCount, 1);
-    assert.ok((await get('/v1/notifications', m1.token)).body.items.some((n: any) => n.type === 'trip_dates_proposed'));
-    assert.equal((await post(`/v1/trips/${t.id}/confirm-dates`, m1.token)).body.confirmed, 2);
-    assert.equal((await post(`/v1/trips/${t.id}/confirm-dates`, m2.token)).body.confirmed, 3);
+    assert.equal(d1.datesState, 'tentative', 'nothing waits for confirmation');
+    assert.equal(new Date(d1.dateStart).toISOString(), poll.dateStart, 'the trip now has the poll\'s dates');
+    assert.equal(new Date(d1.dateEnd).toISOString(), poll.dateEnd);
+    for (const who of [m1, m2]) assert.ok((await get('/v1/notifications', who.token)).body.items.some((n: any) => n.type === 'trip_changed' && /New dates/.test(n.title)), 'every member is told');
     const done = (await get(`/v1/conversations/${conv.id}/messages`, org.token)).body.items.filter((x: any) => x.kind === 'system');
-    assert.ok(done.some((x: any) => /Everyone has confirmed/.test(x.body)));
+    assert.ok(done.some((x: any) => /New dates/.test(x.body)));
     assert.equal((await post(`/v1/polls/${made.body.id}/vote`, m1.token, { vote: 'accept' })).body.code, 'POLL_CLOSED');
   });
 

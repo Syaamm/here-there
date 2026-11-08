@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Btn, Card, Chip, Empty, ErrorBanner, Row, Screen, Spinner, Txt } from '@/components/ui';
 import { del, type ServerDraft } from '@/lib/api';
 import { useAction, useRefresh } from '@/lib/hooks';
@@ -14,7 +15,21 @@ export default function Drafts() {
   const list = useCursorList<ServerDraft>('/v1/me/drafts', {}, 'me:drafts');
   const { refreshing, onRefresh } = useRefresh(() => list.reload());
   const act = useAction(() => void list.reload());
-  const items = list.data?.items ?? [];
+  // Delete is instant: the draft leaves the list at once and the server is told in the background (nothing else on the page
+  // waits or flickers); if the server refuses, it comes back and the reason is shown
+  const [gone, setGone] = useState<Set<string>>(new Set());
+  const items = (list.data?.items ?? []).filter((d) => !gone.has(d.id));
+  const remove = (id: string) => {
+    setGone((g) => new Set(g).add(id));
+    void act.run(() => del(`/v1/me/drafts/${id}`)).then((ok) => {
+      if (ok === undefined)
+        setGone((g) => {
+          const n = new Set(g);
+          n.delete(id);
+          return n;
+        });
+    });
+  };
 
   const open = (d: ServerDraft) => {
     const want = d.kind === 'trip' ? 'there' : 'here';
@@ -37,7 +52,7 @@ export default function Drafts() {
           <Txt variant="h3" style={{ fontSize: 16, lineHeight: 22 }}>{d.title ?? t('Untitled')}</Txt>
           <Row style={{ gap: 8 }}>
             <Btn title={t('Continue')} small onPress={() => open(d)} style={{ flex: 1 }} />
-            <Btn title={t('Delete')} small variant="danger" onPress={() => void act.run(() => del(`/v1/me/drafts/${d.id}`))} loading={act.busy} />
+            <Btn title={t('Delete')} small variant="danger" onPress={() => remove(d.id)} />
           </Row>
         </Card>
       ))}

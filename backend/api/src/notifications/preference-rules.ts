@@ -19,12 +19,12 @@ export const ALERT_GROUPS = {
   requests: {
     label: 'Requests and answers',
     text: 'People asking to join, and answers to your requests.',
-    types: ['join_request', 'trip_application', 'request_approved', 'request_declined', 'application_approved', 'application_declined', 'member_joined', 'waitlist_promoted', 'host_handover_offer', 'host_handover_accepted', 'host_handover_declined'],
+    types: ['join_request', 'trip_application', 'request_approved', 'request_declined', 'application_approved', 'application_declined', 'member_joined', 'waitlist_promoted', 'request_auto_withdrawn', 'host_handover_offer', 'host_handover_accepted', 'host_handover_declined'],
   },
   reminders: {
     label: 'Reminders and changes',
     text: 'Plans starting soon, confirmed, or changed.',
-    types: ['starting_soon', 'activity_confirmed', 'activity_changed', 'trip_changed', 'trip_dates_proposed', 'trip_dates_confirmed'],
+    types: ['starting_soon', 'attendance_prompt', 'activity_confirmed', 'activity_changed', 'trip_changed', 'trip_dates_proposed', 'trip_dates_confirmed'],
   },
   saved: { label: 'Plans you saved', text: 'A place opened up, or a saved plan changed or was cancelled.', types: ['spot_opened'] },
   people: { label: 'People', text: 'New followers and travel matches.', types: ['follow', 'travel_match'] },

@@ -21,7 +21,8 @@
     "demo:chat": "node dist/scripts/long-chat-demo.js",
     "load:seed": "node dist/scripts/load-seed.js",
     "load:test": "node dist/scripts/load-test.js",
-    "test": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json && node --test \"dist/test/*.test.js\""
+    "test": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json && node --test \"dist/test/*.test.js\"",
+    "test:clash": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json && node --test dist/test/time-clash.test.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.2.0",

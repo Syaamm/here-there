@@ -138,7 +138,7 @@ describe('planning limits: HERE activities and THERE trips', () => {
     // the admin lowers Italy: Milan follows at once, Rome (which sets its own) does not
     assert.equal((await patchRegion(admin, 'italy', { hereMonths: 1 })).status, 200);
     assert.equal((await h.post('/v1/activities', host.token, act('Milan', 50))).body.code, 'INVALID_SCHEDULE');
-    assert.equal((await h.post('/v1/activities', host.token, act('Rome', 100))).status, 201);
+    assert.equal((await h.post('/v1/activities', host.token, act('Rome', 110))).status, 201); // not day 100: this host is on the Milan trip then (one plan at a time)
     // a city that clears its own setting follows the country again
     assert.equal((await patchRegion(admin, 'rome', { hereMonths: null })).status, 200);
     assert.equal((await h.get('/v1/regions/limits?city=Rome', host.token)).body.here.months, 1);
@@ -181,11 +181,11 @@ describe('planning limits: HERE activities and THERE trips', () => {
     const milan = list.items.find((i: { key: string }) => i.key === 'milan');
     assert.deepEqual([milan.effective.here, milan.effective.hereFrom, milan.hereMonths], [2, 'Italy', null]);
     assert.equal(list.items.find((i: { key: string }) => i.key === 'global').canEdit, true);
-    // only administrators change places; a moderator can look
-    const mod = await h.verified('RegionMod');
-    await h.prisma.user.update({ where: { id: mod.id }, data: { role: 'moderator' } });
+    // only administrators change places; staff can look at the places of their area
+    const mod = await staff('RegionMod', 'staff', 'milan');
     assert.equal((await h.get('/v1/admin/regions', mod.token)).status, 200);
     assert.equal((await patchRegion(mod.token, 'italy', { hereMonths: 3 })).status, 403);
+    assert.equal((await patchRegion(mod.token, 'milan', { hereMonths: 3 })).status, 403, 'not even their own city');
     // the cities people use that no place covers yet
     const unassigned = (await h.get('/v1/admin/regions/unassigned', admin)).body.items;
     assert.ok(unassigned.some((u: { cityKey: string }) => u.cityKey === 'anywhere'));
@@ -210,13 +210,15 @@ describe('staff who look after one city, region or country', () => {
     assert.ok(milanPlan && romePlan);
 
     const plain = await h.verified('ScPlain');
-    assert.equal((await h.post(`/v1/admin/users/${plain.id}/role`, admin, { role: 'admin', regionKey: 'nowhere' })).body.code, 'INVALID_PLACE');
-    milanAdmin = await staff('ScMilanAdmin', 'admin', 'milan');
-    italyAdmin = await staff('ScItalyAdmin', 'admin', 'italy');
-    const whole = await staff('ScWholeAdmin', 'admin', null);
-    assert.deepEqual((await h.get('/v1/admin/scope', milanAdmin.token)).body, { role: 'admin', scope: { key: 'milan', name: 'Milan', kind: 'city' } });
+    assert.equal((await h.post(`/v1/admin/users/${plain.id}/role`, admin, { role: 'staff', regionKey: 'nowhere' })).body.code, 'INVALID_PLACE');
+    assert.equal((await h.post(`/v1/admin/users/${plain.id}/role`, admin, { role: 'staff' })).body.code, 'AREA_REQUIRED', 'staff always look after an area');
+    milanAdmin = await staff('ScMilanAdmin', 'staff', 'milan');
+    italyAdmin = await staff('ScItalyAdmin', 'staff', 'italy');
+    const whole = await staff('ScWholeAdmin', 'admin', 'milan');
+    assert.deepEqual((await h.get('/v1/admin/scope', milanAdmin.token)).body, { role: 'staff', scope: { key: 'milan', name: 'Milan', kind: 'city' }, permissions: ['reports', 'verification', 'users', 'content'] });
     assert.equal((await h.get('/v1/admin/scope', italyAdmin.token)).body.scope.kind, 'country');
-    assert.equal((await h.get('/v1/admin/scope', whole.token)).body.scope, null, 'no area: the whole service');
+    assert.equal((await h.get('/v1/admin/scope', whole.token)).body.scope, null, 'an admin has no area: the whole service');
+    assert.equal((await h.prisma.user.findUnique({ where: { id: whole.id } })).adminRegionKey, null, 'an area given to an admin is dropped');
     // a person who is made an ordinary member again loses the area
     await h.post(`/v1/admin/users/${whole.id}/role`, admin, { role: 'user', regionKey: 'milan' });
     assert.equal((await h.prisma.user.findUnique({ where: { id: whole.id } })).adminRegionKey, null);
@@ -253,7 +255,7 @@ describe('staff who look after one city, region or country', () => {
     assert.equal((await h.get(`/v1/admin/users/${romeHost.id}`, milanAdmin.token)).body.code, 'OUT_OF_SCOPE');
     assert.equal((await h.get(`/v1/admin/users/${milanHost.id}`, milanAdmin.token)).status, 200);
     assert.equal((await h.post(`/v1/admin/users/${romeHost.id}/suspend`, milanAdmin.token, { reason: 'testing the area', days: 1 })).body.code, 'OUT_OF_SCOPE');
-    assert.equal((await h.post(`/v1/admin/users/${italyAdmin.id}/suspend`, milanAdmin.token, { reason: 'testing the area', days: 1 })).body.code, 'OUT_OF_SCOPE', 'other staff are for the whole service');
+    assert.equal((await h.post(`/v1/admin/users/${italyAdmin.id}/suspend`, milanAdmin.token, { reason: 'testing the area', days: 1 })).body.code, 'OUT_OF_SCOPE', 'never other staff');
     assert.equal((await h.post(`/v1/admin/activities/${romePlan}/remove`, milanAdmin.token, { reason: 'testing the area' })).body.code, 'OUT_OF_SCOPE');
     assert.equal((await h.post(`/v1/admin/activities/${milanPlan}/remove`, milanAdmin.token, { reason: 'testing the area' })).status, 201);
     assert.equal((await h.post(`/v1/admin/users/${romeHost.id}/suspend`, italyAdmin.token, { reason: 'inside the country', days: 1 })).status, 201);
@@ -266,36 +268,31 @@ describe('staff who look after one city, region or country', () => {
     assert.ok(trips.includes(romeTrip));
   });
 
-  it('keeps everything that is not for an area closed: the audit log, health, the on-call rota, roles, the other cities', async () => {
-    for (const path of ['/v1/admin/audit', '/v1/admin/health', '/v1/admin/overview', '/v1/admin/oncall', '/v1/admin/verifications', '/v1/admin/regions/unassigned', '/v1/admin/reports/workload', '/v1/admin/no-shows']) {
+  it('keeps everything that is not for an area closed: the audit log, health, the dashboard numbers, roles, the other cities', async () => {
+    for (const path of ['/v1/admin/audit', '/v1/admin/health', '/v1/admin/overview', '/v1/admin/regions/unassigned', '/v1/admin/reports/workload', '/v1/admin/no-shows', '/v1/admin/staff']) {
       const r = await h.get(path, milanAdmin.token);
       assert.equal(r.status, 403, path);
-      assert.equal(r.body.code, 'GLOBAL_STAFF_ONLY', path);
+      assert.ok(['GLOBAL_STAFF_ONLY', 'FORBIDDEN'].includes(r.body.code), `${path}: ${r.body.code}`);
     }
-    assert.equal((await h.post(`/v1/admin/users/${milanHost.id}/role`, milanAdmin.token, { role: 'moderator' })).body.code, 'GLOBAL_STAFF_ONLY', 'they cannot make staff');
+    // identity checks are for an area: the staff of the person's home city
+    assert.equal((await h.get('/v1/admin/verifications', milanAdmin.token)).status, 200);
+    assert.equal((await h.post(`/v1/admin/users/${milanHost.id}/role`, milanAdmin.token, { role: 'staff', regionKey: 'milan' })).status, 403, 'they cannot make staff');
     assert.equal((await h.get('/v1/admin/audit', admin)).status, 200, 'the whole service still can');
   });
 
-  it('lets them set the limits for their own area and below, and nothing above it', async () => {
+  it('shows them the places of their own area, and leaves changing limits and places to an admin', async () => {
     const list = (await h.get('/v1/admin/regions', milanAdmin.token)).body;
     assert.deepEqual(list.items.map((i: { key: string }) => i.key), ['milan']);
     assert.deepEqual(list.scope, { key: 'milan', name: 'Milan', kind: 'city' });
     assert.equal(list.items[0].parentKey, null, 'the place above is not shown');
-    assert.equal((await patchRegion(milanAdmin.token, 'milan', { hereMonths: 3 })).status, 200);
+    assert.ok(((await h.get('/v1/admin/regions', italyAdmin.token)).body.items as { key: string }[]).some((i) => i.key === 'rome'), 'a country covers its cities');
+    for (const key of ['milan', 'italy', 'global']) assert.equal((await patchRegion(milanAdmin.token, key, { hereMonths: 6 })).status, 403, key);
+    assert.equal((await h.call('DELETE', '/v1/admin/regions/milan', milanAdmin.token)).status, 403);
+    assert.equal((await region(italyAdmin.token, { name: 'Turin', kind: 'city', parentKey: 'italy' })).status, 403, 'only an admin adds places');
+    // the admin sets the limits for any place
+    assert.equal((await patchRegion(admin, 'milan', { hereMonths: 3 })).status, 200);
     assert.equal((await h.get('/v1/regions/limits?city=Milan', milanHost.token)).body.here.months, 3);
-    assert.equal((await h.post('/v1/activities', milanHost.token, act('Milan', 80))).status, 201, 'the city admin gave Milan three months');
-    for (const key of ['italy', 'rome', 'global']) assert.equal((await patchRegion(milanAdmin.token, key, { hereMonths: 6 })).body.code, 'OUT_OF_SCOPE', key);
-    assert.equal((await h.call('DELETE', '/v1/admin/regions/milan', milanAdmin.token)).body.code, 'OUT_OF_SCOPE', 'a city admin cannot remove their own city');
-    assert.equal((await region(milanAdmin.token, { name: 'Sub', kind: 'city', parentKey: 'milan' })).body.code, 'INVALID_PLACE', 'nothing sits under a city');
-
-    // a country admin can add cities and regions under the country, not beside it
-    const turin = await region(italyAdmin.token, { name: 'Turin', kind: 'city', parentKey: 'italy', thereMonths: 12 });
-    assert.equal(turin.status, 201, JSON.stringify(turin.body));
-    assert.equal((await region(italyAdmin.token, { name: 'Lyon', kind: 'city', parentKey: 'global' })).body.code, 'OUT_OF_SCOPE');
-    assert.equal((await region(italyAdmin.token, { name: 'France', kind: 'country' })).body.code, 'OUT_OF_SCOPE');
-    assert.equal((await h.get('/v1/regions/limits?city=Turin', milanHost.token)).body.there.months, 12);
-    assert.equal((await h.call('DELETE', '/v1/admin/regions/turin', italyAdmin.token)).status, 200);
-    assert.equal((await h.call('DELETE', '/v1/admin/regions/italy', italyAdmin.token)).body.code, 'OUT_OF_SCOPE');
+    assert.equal((await h.post('/v1/activities', milanHost.token, act('Milan', 80))).status, 201, 'the admin gave Milan three months');
     // a place with staff cannot be removed from under them
     assert.equal((await h.call('DELETE', '/v1/admin/regions/rome', admin)).status, 200);
     assert.equal((await region(admin, { name: 'Rome', kind: 'city', parentKey: 'italy' })).status, 201);
@@ -305,12 +302,12 @@ describe('staff who look after one city, region or country', () => {
   });
 
   it('shuts out an account whose area no longer exists instead of opening everything', async () => {
-    const orphan = await staff('ScOrphan', 'admin', 'milan');
+    const orphan = await staff('ScOrphan', 'staff', 'milan');
     await h.prisma.user.update({ where: { id: orphan.id }, data: { adminRegionKey: 'removed-place' } });
     assert.deepEqual(((await h.get('/v1/admin/activities', orphan.token)).body.items), []);
     assert.deepEqual(((await h.get('/v1/admin/users', orphan.token)).body.items), []);
     assert.equal((await h.post(`/v1/admin/users/${milanHost.id}/suspend`, orphan.token, { reason: 'should not work', days: 1 })).body.code, 'OUT_OF_SCOPE');
-    assert.equal((await h.get('/v1/admin/audit', orphan.token)).body.code, 'GLOBAL_STAFF_ONLY');
+    assert.equal((await h.get('/v1/admin/audit', orphan.token)).status, 403);
   });
 });
 
@@ -371,10 +368,10 @@ describe('choosing where to work after signing in (the X-Admin-Place header)', (
     assert.equal(bad.body.code, 'INVALID_PLACE');
   });
 
-  it('lets an area admin choose their area or a place inside it, never one outside, and never more than their area', async () => {
+  it('lets area staff choose their area or a place inside it, never one outside, and never more than their area', async () => {
     wholeAdmin = await staff('PlWhole', 'admin', null);
-    italyAdmin = await staff('PlItaly', 'admin', 'italy');
-    milanAdmin = await staff('PlMilanAdmin', 'admin', 'milan');
+    italyAdmin = await staff('PlItaly', 'staff', 'italy');
+    milanAdmin = await staff('PlMilanAdmin', 'staff', 'milan');
     const acts = (t: Person, place?: string) => ids(t.token, '/v1/admin/activities', place);
     // Italy: no choice = all of Italy; Milan or Rome = just that city
     const both = await acts(italyAdmin);
@@ -393,7 +390,62 @@ describe('choosing where to work after signing in (the X-Admin-Place header)', (
     assert.ok(!(await acts(milanAdmin, 'all')).includes(romePlan), 'all = the whole of their own area');
     assert.ok((await acts(milanAdmin, 'milan')).includes(milanPlan));
     // the header cannot be used to reach a page that is not for an area
-    assert.equal((await asPlace(milanAdmin.token, '/v1/admin/audit', 'milan')).body.code, 'GLOBAL_STAFF_ONLY');
-    assert.equal((await asPlace(wholeAdmin.token, '/v1/admin/audit', 'milan')).status, 200, 'staff of the whole service still reach it');
+    assert.equal((await asPlace(milanAdmin.token, '/v1/admin/audit', 'milan')).status, 403);
+    assert.equal((await asPlace(wholeAdmin.token, '/v1/admin/audit', 'milan')).status, 200, 'an admin still reaches it');
+  });
+});
+
+describe('staff permissions and people who travel', () => {
+  it('lets an admin change what a staff member may do, and records it in the audit log', async () => {
+    const s = await h.staff('PermStaff');
+    assert.equal((await h.get('/v1/admin/reports', s.token)).status, 200);
+    const changed = await h.call('PATCH', `/v1/admin/staff/${s.id}`, admin, { permissions: ['users', 'content'] });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    assert.deepEqual(changed.body.permissions, ['users', 'content']);
+    const blocked = await h.get('/v1/admin/reports', s.token);
+    assert.equal(blocked.status, 403);
+    assert.equal(blocked.body.code, 'NO_PERMISSION', 'no reports permission: no reports');
+    assert.equal((await h.get('/v1/admin/verifications', s.token)).body.code, 'NO_PERMISSION');
+    assert.equal((await h.get('/v1/admin/users', s.token)).status, 200, 'what they still have keeps working');
+    const entry = await h.prisma.auditEvent.findFirst({ where: { action: 'staff.update', objectId: s.id } });
+    assert.ok(entry, 'the change is in the audit log');
+    assert.deepEqual(JSON.parse(entry.metadata).before.permissions, ['reports', 'verification', 'users', 'content']);
+    // only an admin changes it, and only for staff
+    assert.equal((await h.call('PATCH', `/v1/admin/staff/${s.id}`, s.token, { permissions: ['reports'] })).status, 403);
+    const plain = await h.verified('PermPlain');
+    assert.equal((await h.call('PATCH', `/v1/admin/staff/${plain.id}`, admin, { permissions: ['reports'] })).body.code, 'INVALID_TARGET');
+    assert.equal((await h.call('PATCH', `/v1/admin/staff/${s.id}`, admin, { permissions: ['everything'] })).status, 400);
+  });
+
+  it('shuts out a staff account that has no area', async () => {
+    const s = await h.staff('NoAreaStaff');
+    await h.prisma.user.update({ where: { id: s.id }, data: { adminRegionKey: null } });
+    const r = await h.get('/v1/admin/reports', s.token);
+    assert.equal(r.status, 403);
+    assert.equal(r.body.code, 'NO_AREA');
+    assert.equal((await h.get('/v1/admin/users', s.token)).body.code, 'NO_AREA');
+  });
+
+  it('shows a traveller to the staff where they are active, but leaves account-wide actions to their home city', async () => {
+    const milanStaff = await h.staff('TravelMilanStaff', { city: 'Milan' });
+    const traveller = await h.verified('NewYorker');
+    await h.prisma.profile.update({ where: { userId: traveller.id }, data: { homeCity: 'New York', homeCityKey: 'new york' } });
+    const listed = async () => ((await h.get('/v1/admin/users?q=NewYorker', milanStaff.token)).body.items as { id: string }[]).some((u) => u.id === traveller.id);
+    assert.equal(await listed(), false, 'not active in Milan yet');
+    assert.equal((await h.get(`/v1/admin/users/${traveller.id}`, milanStaff.token)).body.code, 'OUT_OF_SCOPE');
+
+    // they join a plan in Milan
+    const host = await h.verified('TravelHost');
+    const plan = (await h.post('/v1/activities', host.token, act('Milan', 2))).body.id;
+    const req = await h.post(`/v1/activities/${plan}/requests`, traveller.token, {});
+    assert.equal(req.status, 201, JSON.stringify(req.body));
+    await h.post(`/v1/activities/${plan}/requests/${req.body.id}/decision`, host.token, { decision: 'approve' });
+
+    assert.equal(await listed(), true, 'Milan staff see them now');
+    assert.equal((await h.get(`/v1/admin/users/${traveller.id}`, milanStaff.token)).status, 200);
+    assert.equal((await h.post(`/v1/admin/users/${traveller.id}/warn`, milanStaff.token, { reason: 'Please be on time in Milan.' })).status, 201, 'a local action is fine');
+    assert.equal((await h.post(`/v1/admin/users/${traveller.id}/suspend`, milanStaff.token, { reason: 'account-wide action', days: 1 })).body.code, 'OUT_OF_SCOPE', 'suspending the account is for their home city or an admin');
+    assert.equal((await h.post(`/v1/admin/users/${traveller.id}/suspend`, admin, { reason: 'an admin may', days: 1 })).status, 201);
+    await h.post(`/v1/admin/users/${traveller.id}/restore`, admin, { reason: 'test over' });
   });
 });

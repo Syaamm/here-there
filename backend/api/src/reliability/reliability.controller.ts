@@ -3,11 +3,13 @@ import { User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
-import { CurrentUser, Public, Staff } from '../common/auth';
+import { CurrentUser, Perm, Public, RegionalOk, Staff } from '../common/auth';
+import { RegionsService } from '../regions/regions.service';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { parse } from '../common/validate';
+import { ProofsService } from '../appeals/proofs.controller';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   DAY, DISPUTE_DAYS, HORIZON_DAYS, HOST_ABSENT_GRACE_MIN, HOST_ABSENT_WINDOW_H, HOST_MARK_REVIEW, HOUR, LATE_ACTIVITY_H, LATE_HOST_TRIP_DAYS, LATE_TRIP_DAYS, LEVEL_LABEL, MARK_WINDOW_H, PENALTY,
@@ -15,11 +17,11 @@ import {
 } from './reliability';
 
 type Kind = 'activity' | 'trip';
-const disputeSchema = z.object({ note: z.string().trim().min(3, 'Say briefly what happened').max(500) });
+export const disputeSchema = z.object({ note: z.string().trim().min(3, 'Say briefly what happened').max(500), proofIds: z.array(z.string().min(1)).max(3).optional().describe('ids of photos sent with PUT /v1/me/proofs, up to 3 (a screenshot of the chat, say)') });
 const markSchema = z.object({ userId: z.string().min(1) });
 const decisionSchema = z.object({ decision: z.enum(['uphold', 'overturn']), note: z.string().trim().min(3).max(500) });
-const MOD = ['moderator', 'trust_lead', 'admin'];
-const ALL = ['support', 'moderator', 'trust_lead', 'admin'];
+const MOD = ['staff', 'admin'];
+const ALL = ['staff', 'admin'];
 
 const confirmed = (m: { state: string; markedAt: Date }, now: Date) => m.state === 'upheld' || (m.state === 'marked' && +now > +m.markedAt + DISPUTE_DAYS * DAY);
 const CATEGORY_WORDS: Record<string, string> = {
@@ -30,7 +32,7 @@ const LEVEL_LINE: Record<Level, string> = {
   new: 'You are new here. Join a few plans and your level will grow.',
   reliable: 'People can count on you.',
   very_reliable: 'People can really count on you.',
-  needs_care: 'Some recent plans did not go well.',
+  needs_care: "A few recent plans didn't go as planned.",
 };
 
 /** A person's level, shown to other verified members: just the level and its words, never the events behind it. */
@@ -43,6 +45,7 @@ export class ReliabilityService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly limiter: RateLimiter,
+    private readonly proofs: ProofsService,
   ) {}
 
   // ---------------------------------------------------------------- working out the level
@@ -262,7 +265,7 @@ export class ReliabilityService {
     if (existing) return { id: existing.id, state: existing.state };
     const m = await this.prisma.attendanceMark.create({ data: { kind, targetId: id, userId, markedById: me.id, title: p.title, planEndsAt: p.endsAt } });
     await this.audit.log(me.id, 'attendance.marked', kind, id, { userId, markId: m.id });
-    await this.notifications.notify(userId, 'attendance_marked', 'The host says you did not come', `${p.title}: you can dispute this.`, { markId: m.id, ...(kind === 'activity' ? { activityId: id } : { tripId: id }) });
+    await this.notifications.notify(userId, 'attendance_marked', "The host says you didn't come", `${p.title} · Tap to dispute.`, { markId: m.id, ...(kind === 'activity' ? { activityId: id } : { tripId: id }) });
     await this.reviewHost(me.id).catch(() => undefined); // never lets the check get in the way of the note
     return { id: m.id, state: m.state };
   }
@@ -287,9 +290,11 @@ export class ReliabilityService {
     const found = await this.prisma.attendanceMark.findMany({ where: { userId: me.id, ...beforeKeyset(decodeKeyset(cursorRaw), 'markedAt') }, orderBy: [{ markedAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
     const page = sliceKeyset(found, limit, (m) => m.markedAt);
     const rows = page.items;
+    const photos = await this.proofs.idsFor('markId', rows.map((m) => m.id));
     return {
       nextCursor: page.nextCursor,
       items: rows.map((m) => ({
+        proofs: photos.get(m.id) ?? [],
         id: m.id,
         kind: m.kind,
         targetId: m.targetId,
@@ -305,29 +310,44 @@ export class ReliabilityService {
   }
 
   async dispute(me: User, markId: string, body: unknown) {
-    const { note } = parse(disputeSchema, body);
+    const { note, proofIds } = parse(disputeSchema, body);
     const m = await this.prisma.attendanceMark.findUnique({ where: { id: markId } });
     if (!m || m.userId !== me.id) throw E.notFound('Note');
     if (m.state !== 'marked') throw E.conflict('NOT_DISPUTABLE', m.state === 'disputed' ? 'You have already disputed this' : 'A moderator has already decided this');
     if (+new Date() > +m.markedAt + DISPUTE_DAYS * DAY) throw E.conflict('DISPUTE_CLOSED', `The ${DISPUTE_DAYS} days to dispute this have passed`);
+    const photos = await this.proofs.claimable(me.id, proofIds); // checked first, so nothing is half sent
     await this.prisma.attendanceMark.update({ where: { id: m.id }, data: { state: 'disputed', disputeNote: note, disputedAt: new Date() } });
-    await this.audit.log(me.id, 'attendance.disputed', m.kind, m.targetId, { markId: m.id });
+    await this.proofs.attach(photos, { markId: m.id });
+    await this.audit.log(me.id, 'attendance.disputed', m.kind, m.targetId, { markId: m.id, photos: photos.length });
+    await this.notifications.markDone(me.id, 'attendance_marked', `"markId":"${m.id}"`); // its "the host says you didn't come" alert is answered
     return { id: m.id, state: 'disputed' };
   }
 
   // ---------------------------------------------------------------- moderators
   async adminList(state?: string) {
     const rows = await this.prisma.attendanceMark.findMany({
-      where: state && state !== 'all' ? { state } : { state: { in: ['disputed', 'marked'] } },
-      orderBy: { markedAt: 'asc' },
-      take: 100,
+      // a state shows just that state; "all" (and nothing asked) shows every record, decided ones too.
+      // Records still waiting for a decision go oldest first; the rest, newest first.
+      where: state && state !== 'all' ? { state } : {},
+      orderBy: { markedAt: state === 'disputed' || state === 'marked' ? 'asc' : 'desc' },
+      take: 200,
     });
     const people = await this.prisma.user.findMany({ where: { id: { in: [...new Set(rows.flatMap((r) => [r.userId, r.markedById]))] } }, select: { id: true, email: true, profile: { select: { displayName: true } } } });
     const name = new Map(people.map((p) => [p.id, { id: p.id, email: p.email, displayName: p.profile?.displayName ?? p.email }]));
     // hosts whose notes look unusual are marked, so a moderator reads those notes with that in mind
     const hosts = [...new Set(rows.map((r) => r.markedById))].slice(0, 30);
     const flagged = new Map((await Promise.all(hosts.map(async (h) => [h, await this.hostPattern(h)] as const))).map(([h, p]) => [h, p.flag ? p.reasons : null]));
-    return { items: rows.map((r) => ({ id: r.id, kind: r.kind, targetId: r.targetId, title: r.title, state: r.state, markedAt: r.markedAt, disputedAt: r.disputedAt, disputeNote: r.disputeNote, decisionNote: r.decisionNote, member: name.get(r.userId), host: name.get(r.markedById), hostUnusual: flagged.get(r.markedById) ?? null })) };
+    // where and when each plan was, so the console can say "Coffee in Brera, 12 Oct, Milan"
+    const [acts, trips] = await Promise.all([
+      this.prisma.activity.findMany({ where: { id: { in: rows.filter((r) => r.kind === 'activity').map((r) => r.targetId) } }, select: { id: true, startsAt: true, city: true, venueName: true } }),
+      this.prisma.trip.findMany({ where: { id: { in: rows.filter((r) => r.kind === 'trip').map((r) => r.targetId) } }, select: { id: true, dateStart: true, destination: true, originCity: true } }),
+    ]);
+    const plan = new Map<string, { at: Date; city: string; place: string | null }>([
+      ...acts.map((x) => [x.id, { at: x.startsAt, city: x.city, place: x.venueName }] as const),
+      ...trips.map((x) => [x.id, { at: x.dateStart, city: x.destination, place: x.originCity ? 'from ' + x.originCity : null }] as const),
+    ]);
+    const photos = await this.proofs.idsFor('markId', rows.map((r) => r.id));
+    return { items: rows.map((r) => ({ proofs: photos.get(r.id) ?? [], id: r.id, kind: r.kind, targetId: r.targetId, title: r.title, plan: plan.get(r.targetId) ?? null, state: r.state, markedAt: r.markedAt, disputedAt: r.disputedAt, disputeNote: r.disputeNote, decisionNote: r.decisionNote, member: name.get(r.userId), host: name.get(r.markedById), hostUnusual: flagged.get(r.markedById) ?? null })) };
   }
 
   /** A moderator settles a note: uphold it (it counts) or overturn it (it never counts). Works on any note, to fix mistakes. */
@@ -370,7 +390,7 @@ export class ReliabilityService {
     const r = await this.prisma.report.create({ data: { reporterId: me.id, targetType: kind, targetId: id, category: 'host_no_show', details: note || undefined, priority: 'normal' } });
     await this.audit.log(me.id, 'attendance.host_absent_reported', kind, id, { reportId: r.id });
     // the host is told, in neutral words: it is a report, not a decision
-    await this.notifications.notify(p.hostId, 'host_absence_reported', 'A member says you did not show up', `${p.title}: a moderator will look at it. If you were there, you do not need to do anything unless we contact you.`, { reportId: r.id, ...(kind === 'activity' ? { activityId: id } : { tripId: id }) });
+    await this.notifications.notify(p.hostId, 'host_absence_reported', 'A member says you did not show up', `${p.title} · A moderator will look at it.`, { reportId: r.id, ...(kind === 'activity' ? { activityId: id } : { tripId: id }) });
     return { id: r.id, status: r.status, priority: r.priority };
   }
 
@@ -416,7 +436,7 @@ export class ReliabilityService {
       await this.audit.log(actor.id, 'attendance.overturned', kind, report.targetId, { markId: m.id, userId: m.userId, because: 'host_absent', reportId: report.id });
       await this.notifications.notify(m.userId, 'attendance_decided', 'Note cancelled', `${m.title}: the host's note about you was cancelled.`, { markId: m.id });
     }
-    await this.notifications.notify(p.hostId, 'host_absence_decided', 'A moderator confirmed a report about you', `${p.title}: a moderator confirmed you did not show up. You can ask for a review under Settings, Reviews of decisions.`, { reportId: report.id });
+    await this.notifications.notify(p.hostId, 'host_absence_decided', 'A moderator confirmed a report about you', `${p.title} · Tap to ask for a review.`, { reportId: report.id });
   }
 
   // ---------------------------------------------------------------- hosts who say many people did not come
@@ -464,7 +484,10 @@ export class ReliabilityService {
 
 @Controller('v1')
 export class ReliabilityController {
-  constructor(private readonly reliability: ReliabilityService) {}
+  constructor(
+    private readonly reliability: ReliabilityService,
+    private readonly regions: RegionsService,
+  ) {}
 
   /** How levels work, in plain words (what / how / why cards). Public, like the retention page. */
   @Public()
@@ -543,8 +566,11 @@ export class ReliabilityController {
   }
 
   @Staff(...ALL)
+  @RegionalOk()
+  @Perm('users')
   @Get('admin/users/:id/reliability')
-  forStaff(@Param('id') id: string) {
+  async forStaff(@CurrentUser() actor: User, @Param('id') id: string) {
+    await this.regions.assertPersonLocal(actor, id);
     return this.reliability.forStaff(id);
   }
 }

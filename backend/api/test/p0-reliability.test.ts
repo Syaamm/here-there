@@ -162,7 +162,7 @@ describe('reliability: host notes, disputes, moderators, and who sees the level'
     return a;
   };
   // the person's own screen is deliberately minimal, so the detail is read from the staff view
-  const LABEL: Record<string, string> = { new: 'New', reliable: 'Reliable', very_reliable: 'Very reliable', needs_care: 'Needs care' };
+  const LABEL: Record<string, string> = { new: 'New', reliable: 'Reliable', very_reliable: 'Very reliable', needs_care: 'Building trust' };
   const mine = async (u: { id: string }) => {
     const b = (await get(`/v1/admin/users/${u.id}/reliability`, adminToken)).body;
     return {
@@ -318,8 +318,8 @@ describe('reliability: host notes, disputes, moderators, and who sees the level'
     await post('/v1/follows', viewer.token, { userId: followed.id });
     await post('/v1/follows', follower.token, { userId: viewer.id });
     const city = 'Tierville';
-    const make = async (who: { token: string }, title: string) => (await post('/v1/activities', who.token, activityBody({ city, title, category: 'sports', startsAt: hours(3), endsAt: hours(4) }))).body.id;
-    const ids = { stranger: await make(stranger, 'By a stranger'), follower: await make(follower, 'By a follower'), followed: await make(followed, 'By someone I follow'), buddy: await make(buddy, 'By a buddy') };
+    const make = async (who: { token: string }, title: string, at = 3) => (await post('/v1/activities', who.token, activityBody({ city, title, category: 'sports', startsAt: hours(at), endsAt: hours(at + 1) }))).body.id;
+    const ids = { stranger: await make(stranger, 'By a stranger', 5), /* after the buddy's own (3 to 4), so the buddy can join it: one plan at a time */ follower: await make(follower, 'By a follower'), followed: await make(followed, 'By someone I follow'), buddy: await make(buddy, 'By a buddy') };
 
     const r = await get(`/v1/activities?city=${city}&from=${encodeURIComponent(hours(0))}&to=${encodeURIComponent(hours(30))}&sort=relevance`, viewer.token);
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -359,7 +359,7 @@ describe('reliability: host notes, disputes, moderators, and who sees the level'
     const a = await plan(host, [u], { title: 'Short alert', startHoursAgo: 3, endHoursAgo: 1 });
     await post(`/v1/activities/${a.id}/no-shows`, host.token, { userId: u.id });
     const alert = (await get('/v1/notifications', u.token)).body.items.find((n: { type: string }) => n.type === 'attendance_marked');
-    assert.equal(alert.body, 'Short alert: you can dispute this.');
+    assert.equal(alert.body, 'Short alert · Tap to dispute.');
   });
 
   it('shows the level only to verified members, and on request cards and the host card', async () => {
@@ -384,7 +384,7 @@ describe('reliability: host notes, disputes, moderators, and who sees the level'
     assert.equal(detail.body.hostReliability.level, 'reliable', 'the host kept their own earlier plans');
     assert.equal((await get(`/v1/activities/${id}`, unverified.token)).body.hostReliability, null);
 
-    // "Needs care" is shown to verified members too (the person decided it should be)
+    // "Building trust" is shown to verified members too (the person decided it should be)
     const careless = await verified('ShowCareless');
     for (let i = 0; i < 2; i++) {
       const p = await plan(host, [careless], { title: `Missed ${i}`, startHoursAgo: 24 * (15 + i) + 2, endHoursAgo: 24 * (15 + i) });

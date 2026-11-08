@@ -98,12 +98,21 @@ export class PushService implements OnModuleInit {
    * service, and a device that could not be reached is tried again a few times. Nothing here ever throws into the caller.
    */
   queue(userId: string, msg: PushMessage) {
-    // Decided here when it can be decided without the database, because every queued push is several writes (the job, its claim,
-    // its result): someone looking at the app sees it live, and a group already pushed to them inside the grouping window is
-    // not pushed again. The worker checks both again, so nothing that should go out is lost.
-    if (this.live.isViewing(userId)) return;
+    // Pushes go out with the app open too: the phone shows them as a banner (like WhatsApp; the app hides the one for a chat
+    // that is open on screen). Decided here when it can be decided without the database, because every queued push is several
+    // writes (the job, its claim, its result): a group already pushed inside the grouping window is not pushed again. The worker
+    // checks again, so nothing that should go out is lost.
     if (msg.group && this.throttled(userId, msg.group)) return;
     void this.jobs.enqueue('push.send', { userId, msg, round: 0 }, { maxAttempts: 3 }).catch(() => undefined);
+  }
+
+  /**
+   * A chat message: sent at once, every message, without the job queue (no database writes, only the read of the person's
+   * devices), so a busy chat costs the database next to nothing. Not tried again if a device cannot be reached: the message is
+   * still in the chat and in the alert list.
+   */
+  sendNow(userId: string, msg: PushMessage) {
+    void this.deliver({ userId, msg, round: 2 }).catch(() => undefined);
   }
 
   onModuleInit() {
@@ -112,7 +121,6 @@ export class PushService implements OnModuleInit {
 
   /** The worker's side of `queue`: send to every device, and queue the devices that failed for another go (up to 3 rounds). */
   private async deliver(p: { userId: string; msg: PushMessage; only?: string[]; round: number }) {
-    if (this.live.isViewing(p.userId)) return; // looking at the app: they see it live
     if (!p.only) {
       // first attempt only (a retry for a device that failed was already allowed): the person's settings and quiet hours, then grouping
       if (p.msg.alert && !(await this.prefs.allowsPush(p.userId, p.msg.alert.type, p.msg.alert.data))) return;

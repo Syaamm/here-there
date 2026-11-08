@@ -5,6 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { ApiError, writeCount } from './api';
 import { t } from './i18n';
+import { showToast } from './toast';
+
+/** The server did not answer, answered with a fault, or the phone has no connection: nothing the person did wrong. */
+export const isOutage = (e: unknown) => !(e instanceof ApiError) || e.status === 0 || e.status >= 500 || ['NETWORK', 'RENEW_FAILED', 'PLACES_UNAVAILABLE', 'INTERNAL_ERROR'].includes(e.code);
 
 export const errMsg = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : t('Something went wrong'));
 
@@ -209,7 +213,8 @@ export function useAction(after?: () => void) {
       after?.();
       return r;
     } catch (e) {
-      setError(errMsg(e));
+      if (isOutage(e)) showToast(t('Something went wrong. Please try again after some time.'), 'warn', 5000); // a calm note at the top, not a red banner
+      else setError(errMsg(e));
       return undefined;
     } finally {
       setBusy(false);

@@ -85,7 +85,7 @@ describe('API documentation', () => {
     assert.deepEqual(create.properties.capacity, { type: 'integer', minimum: 2, maximum: 20 });
     assert.ok(create.required.includes('title') && !create.required.includes('tags'), 'fields with a default are optional');
     assert.equal(doc.paths['/v1/auth/login'].post.security.length, 0, 'public routes need no token');
-    assert.ok(doc.paths['/v1/admin/audit'].get['x-staff-roles'].includes('trust_lead'));
+    assert.ok(doc.paths['/v1/admin/audit'].get['x-staff-roles'].includes('admin') && !doc.paths['/v1/admin/audit'].get['x-staff-roles'].includes('staff'), 'the audit log is for admins only');
     assert.ok(doc.paths['/v1/conversations/{id}/messages'].post.description.includes('verified adult'));
   });
 });

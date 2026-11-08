@@ -4,7 +4,7 @@ import { ActivityCard } from '@/components/Cards';
 import { Reveal } from '@/components/Reveal';
 import { Between, Empty, ErrorBanner, Grid, Screen, Spinner, Txt } from '@/components/ui';
 import { get, type Activity } from '@/lib/api';
-import { useCity } from '@/lib/city';
+import { cityQuery, useCity, useCityPos } from '@/lib/city';
 import { feedRange, splitFeed } from '@/lib/feed';
 import { useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
@@ -25,14 +25,15 @@ export default function AllActivities() {
   const router = useRouter();
   const toMap = from === 'map';
   const [city] = useCity();
+  const cityPos = useCityPos();
   const feed = useLoad(
     () => {
       const [from, to] = feedRange();
-      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
+      const p = new URLSearchParams({ ...cityQuery(city, cityPos), from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
       if (category) p.set('category', category); // opened from Home with a category chosen
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
-    [city, category],
+    [city, cityPos, category],
     60_000,
   );
   const { refreshing, onRefresh } = useRefresh(feed.reload);

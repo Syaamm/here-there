@@ -1,140 +1,75 @@
-import { useState, type FormEvent } from 'react';
-import { get, post, type Role, type Session } from '../api';
-import './Staff.css';
-import { Avatar, Chip, Empty, ErrorBanner, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { api, get, PERMISSIONS, post, roleLabel, type Permission, type Role, type Session } from '../api';
+import { Avatar, Chip, Empty, errMsg, ErrorBanner, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
 
-type Member = { id: string; email: string; displayName: string | null; photoUrl: string | null; role: Role; regionKey: string | null; state: string; mfaEnabled: boolean; mustChangePassword: boolean; createdAt: string };
+type Member = { id: string; email: string; displayName: string | null; photoUrl: string | null; role: Role; regionKey: string | null; permissions: Permission[]; state: string; mfaEnabled: boolean; mustChangePassword: boolean; createdAt: string };
 type Place = { key: string; name: string; kind: string };
-type Made = { email: string; role: string; temporaryPassword: string };
+type Made = { email: string; temporaryPassword: string };
 
-const ROLES: [string, string, string][] = [
-  ['support', 'Support', 'Answers members and looks things up. Cannot suspend or decide reports.'],
-  ['moderator', 'Moderator', 'Handles reports, suspensions and appeals.'],
-  ['trust_lead', 'Trust lead', 'Everything a moderator does, plus identity checks and the audit log.'],
-];
+const ALL_PERMS = PERMISSIONS.map((p) => p.id);
 
-/** Only an administrator of the whole service sees this page: it makes support, moderator and trust-lead accounts. */
+/** Admin only: the console's accounts. Staff look after one area and use only the parts an admin allows. */
 export function StaffPage({ me }: { me: Session }) {
   const list = useLoad(() => get<{ items: Member[] }>('/v1/admin/staff'), []);
   const places = useLoad(() => get<{ items: Place[] }>('/v1/admin/regions').catch(() => ({ items: [] as Place[] })), []);
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Member | null>(null);
   const [made, setMade] = useState<Made | null>(null);
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [role, setRole] = useState('moderator');
-  const [area, setArea] = useState('');
   const act = useAction(list.reload);
 
-  const create = (e: FormEvent) => {
-    e.preventDefault();
-    return act.run(async () => {
-      const r = await post<Made>('/v1/admin/staff', { email, displayName: name, role, regionKey: area || null });
-      setMade(r);
-      setAdding(false);
-      setEmail('');
-      setName('');
-      setArea('');
-    });
-  };
-  const rows = (list.data?.items ?? []).filter((m) => `${m.email} ${m.displayName ?? ''} ${m.role}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const areas = (places.data?.items ?? []).filter((p) => p.kind !== 'global');
+  const placeName = (key: string | null) => (key ? (places.data?.items.find((p) => p.key === key)?.name ?? key) : 'Everywhere');
+  const rows = (list.data?.items ?? []).filter((m) => `${m.email} ${m.displayName ?? ''} ${roleLabel(m.role)}`.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
     <Page
       fill
       title="Staff"
-      sub="Create support, moderator and trust-lead accounts. Each person is given a temporary password, chooses their own at the first sign-in, then connects an authenticator app. They see only the city, region or country you give them."
       actions={
-        <button className="btn primary" onClick={() => (setAdding(!adding), setMade(null))}>
+        <button className="btn primary" onClick={() => (setAdding(true), setMade(null))}>
           <Icon name="plus" /> Add staff
         </button>
       }
     >
       <ErrorBanner message={list.error ?? act.error} onRetry={list.reload} />
       {made && (
-        <div className="st-made" role="status">
-          <h2 style={{ margin: 0 }}>Account created for {made.email}</h2>
-          <p className="muted" style={{ margin: 0 }}>
-            Give them this temporary password now. <strong>It will not be shown again.</strong> They sign in with it, choose their own password (asked once), then connect an authenticator app before anything else opens.
-          </p>
+        <div className="card stack" role="status">
+          <div className="row between wrap">
+            <strong>{made.email} · temporary password (shown once)</strong>
+            <button className="btn small ghost" onClick={() => setMade(null)}>
+              Done
+            </button>
+          </div>
           <div className="row wrap">
-            <code className="mono" style={{ fontSize: '1.1rem', letterSpacing: 1 }}>
+            <code className="mono" style={{ fontSize: '1.05rem' }}>
               {made.temporaryPassword}
             </code>
             <button className="btn small" onClick={() => navigator.clipboard?.writeText(made.temporaryPassword)}>
               <Icon name="copy" /> Copy
             </button>
-            <button className="btn small" onClick={() => setMade(null)}>
-              Done
-            </button>
           </div>
         </div>
       )}
-      {adding && (
-        <form className="st-form" onSubmit={create}>
-          <h2 style={{ margin: 0 }}>New staff account</h2>
-          <div className="form-grid">
-            <label>
-              Name
-              <input required minLength={2} maxLength={40} autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <label>
-              Email
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-            </label>
-            <label>
-              Role
-              <select value={role} onChange={(e) => setRole(e.target.value)}>
-                {ROLES.map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-              <span className="muted small">{ROLES.find(([v]) => v === role)?.[2]}</span>
-            </label>
-            <label>
-              Looks after
-              <select value={area} onChange={(e) => setArea(e.target.value)}>
-                <option value="">The whole service (every city and country)</option>
-                {(places.data?.items ?? [])
-                  .filter((p) => p.kind !== 'global')
-                  .map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {p.name} ({p.kind})
-                    </option>
-                  ))}
-              </select>
-              <span className="muted small">{area ? 'This person sees only this place and everything inside it. They have no place picker.' : 'This person works across the whole service.'}</span>
-            </label>
-          </div>
-          <div className="row end" style={{ margin: 0 }}>
-            <button type="button" className="btn" onClick={() => setAdding(false)}>
-              Cancel
-            </button>
-            <button className="btn primary" disabled={act.busy}>
-              {act.busy ? 'Creating…' : 'Create account'}
-            </button>
-          </div>
-        </form>
-      )}
-      <div className="toolbar st-search">
-        <Search label="Search staff" placeholder="Search by name, email or role" value={q} onChange={setQ} />
+      <div className="toolbar">
+        <div className="grow">
+          <Search label="Search staff" placeholder="Search" value={q} onChange={setQ} />
+        </div>
       </div>
       {list.loading && !list.data && <Loading rows={5} />}
-      {list.data && rows.length === 0 && <Empty title="No staff match">Try a different search, or add a new account.</Empty>}
+      {list.data && rows.length === 0 && <Empty>No accounts.</Empty>}
       {rows.length > 0 && (
-        <div className="table-wrap st-table">
+        <div className="table-wrap">
           <div className="table-scroll">
             <table>
               <thead>
                 <tr>
                   <th>Person</th>
-                  <th>Role</th>
-                  <th>Looks after</th>
-                  <th>Password</th>
+                  <th>Type</th>
+                  <th>Area</th>
+                  <th>Can use</th>
                   <th>Two-step</th>
-                  <th>State</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -142,22 +77,41 @@ export function StaffPage({ me }: { me: Session }) {
                   <tr key={m.id}>
                     <td>
                       <div className="person">
-                        <Avatar name={m.displayName ?? m.email} photo={m.photoUrl} size="lg" />
+                        <Avatar name={m.displayName ?? m.email} photo={m.photoUrl} size="sm" />
                         <div style={{ minWidth: 0 }}>
                           <div className="name">
-                            {m.displayName ?? '(no name)'}
+                            {m.displayName ?? m.email}
                             {m.email === me.email && <Chip value="You" tone="plain" />}
+                            {m.mustChangePassword && <Chip value="New" tone="line" />}
                           </div>
                           <div className="sub">{m.email}</div>
                         </div>
                       </div>
                     </td>
-                    <td>{m.role.replace('_', ' ')}</td>
-                    <td>{m.regionKey ? (places.data?.items.find((p) => p.key === m.regionKey)?.name ?? m.regionKey) : 'Whole service'}</td>
-                    <td>{m.mustChangePassword ? <Chip value="temporary" tone="warn" /> : <Chip value="their own" tone="ok" icon="check" />}</td>
-                    <td>{m.mfaEnabled ? <Chip value="connected" tone="ok" icon="check" /> : <Chip value="not yet" tone="warn" />}</td>
                     <td>
-                      <Chip value={m.state} />
+                      <Chip value={roleLabel(m.role)} tone={m.role === 'admin' ? 'dark' : 'plain'} />
+                    </td>
+                    <td>{m.role === 'admin' ? 'Everywhere' : m.regionKey ? placeName(m.regionKey) : <Chip value="No area" tone="dark" />}</td>
+                    <td>
+                      {m.role === 'admin' ? (
+                        <span className="muted small">Everything</span>
+                      ) : m.permissions.length === 0 ? (
+                        <span className="muted small">Nothing</span>
+                      ) : (
+                        <div className="row wrap" style={{ gap: 4 }}>
+                          {PERMISSIONS.filter((p) => m.permissions.includes(p.id)).map((p) => (
+                            <Chip key={p.id} value={p.label} tone="ok" />
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td>{m.mfaEnabled ? <Chip value="On" tone="ok" /> : <Chip value="Off" tone="line" />}</td>
+                    <td className="end">
+                      {m.role === 'staff' && (
+                        <button className="btn small" onClick={() => setEditing(m)}>
+                          Edit
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -166,6 +120,112 @@ export function StaffPage({ me }: { me: Session }) {
           </div>
         </div>
       )}
+      {adding && (
+        <StaffDialog
+          title="Add staff"
+          areas={areas}
+          onClose={() => setAdding(false)}
+          onSave={async ({ name, email, area, perms }) => {
+            const r = await post<Made>('/v1/admin/staff', { email, displayName: name, regionKey: area, permissions: perms });
+            setMade(r);
+            setAdding(false);
+            list.reload();
+          }}
+        />
+      )}
+      {editing && (
+        <StaffDialog
+          title={`Edit ${editing.displayName ?? editing.email}`}
+          areas={areas}
+          start={{ area: editing.regionKey ?? '', perms: editing.permissions }}
+          onClose={() => setEditing(null)}
+          onSave={async ({ area, perms }) => {
+            await api('PATCH', `/v1/admin/staff/${editing.id}`, { regionKey: area, permissions: perms });
+            setEditing(null);
+            list.reload();
+          }}
+        />
+      )}
     </Page>
+  );
+}
+
+type Draft = { name: string; email: string; area: string; perms: Permission[] };
+
+/** Add a staff member (name, email, area, permissions) or change an existing one's area and permissions. */
+function StaffDialog({ title, areas, start, onClose, onSave }: { title: string; areas: Place[]; start?: { area: string; perms: Permission[] }; onClose: () => void; onSave: (d: Draft) => Promise<void> }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const editing = !!start;
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [area, setArea] = useState(start?.area ?? '');
+  const [perms, setPerms] = useState<Permission[]>(start?.perms ?? ALL_PERMS);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => ref.current?.showModal(), []);
+  const toggle = (p: Permission) => setPerms((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave({ name, email, area, perms });
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <dialog ref={ref} className="dialog" onCancel={(e) => (e.preventDefault(), onClose())} aria-labelledby="staff-dlg">
+      <form onSubmit={submit}>
+        <h2 id="staff-dlg">{title}</h2>
+        <ErrorBanner message={error} />
+        {!editing && (
+          <>
+            <label>
+              Name
+              <input required minLength={2} maxLength={40} autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+            <label>
+              Email
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            </label>
+          </>
+        )}
+        <label>
+          Area
+          <select required value={area} onChange={(e) => setArea(e.target.value)}>
+            <option value="" disabled>
+              Choose a city, region or country
+            </option>
+            {areas.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.name} ({p.kind})
+              </option>
+            ))}
+          </select>
+        </label>
+        <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 8 }}>
+          <legend style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 6 }}>Can use</legend>
+          {PERMISSIONS.map((p) => (
+            <label key={p.id} className="check">
+              <input type="checkbox" checked={perms.includes(p.id)} onChange={() => toggle(p.id)} />
+              {p.label}
+            </label>
+          ))}
+        </fieldset>
+        <div className="row end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={busy || !area}>
+            {busy ? 'Saving…' : editing ? 'Save' : 'Create'}
+          </button>
+        </div>
+      </form>
+    </dialog>
   );
 }

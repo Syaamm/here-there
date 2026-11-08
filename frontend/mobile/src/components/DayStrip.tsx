@@ -5,6 +5,7 @@ import { localeTag, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { reducedMotion, SOFT } from './Pop';
 import { Text } from './ScaledText';
+import { keyboardTaps } from '@/lib/keyboard';
 
 const CARD = 58;
 const GAP = 8;
@@ -84,8 +85,9 @@ export function DayStrip({ days, value, onChange, dayNumber }: { days: string[];
             // the ref only ever needs scrollTo
             ref={ref as never}
             horizontal
+            overScrollMode="never"
             showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps={keyboardTaps}
             snapToInterval={STEP}
             decelerationRate="fast"
             scrollEventThrottle={16}

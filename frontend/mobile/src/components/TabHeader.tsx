@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n';
 import { type Mode, useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { Between, BandTitle, useLightStatusBar } from './ui';
+import { tracking } from '@/lib/scale';
 
 const MAIN_TABS = ['/', '/discover', '/create', '/inbox', '/profile'];
 
@@ -58,31 +59,15 @@ export function ModeTabs() {
     if (!MAIN_TABS.includes(path)) setTimeout(() => router.dismissTo('/' as never), 800);
   };
   const opts: [Mode, string, string][] = [['here', 'HERE', 'Today & tomorrow'], ['there', 'THERE', 'Plan a trip']];
-  if (mode === 'there') {
-    // THERE (Figma): a soft off-white pill with a shadow, one word per side, the open one a deep green pill with white letters
-    return (
-      <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 40, backgroundColor: '#F6F4EF', padding: 8, gap: 4, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
-        {opts.map(([m, label, sub]) => {
-          const on = mode === m;
-          return (
-            <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}: {sub}', { name: label, sub: t(sub) })} onPress={() => flip(m)} style={({ pressed: p }) => [{ flex: 1, minHeight: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: on ? c.forest : 'transparent' }, p && { opacity: 0.85 }]}>
-              <Text style={{ color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 14, letterSpacing: 1.2, lineHeight: 18 }}>{label}</Text>
-              <Text style={{ color: on ? 'rgba(255,255,255,0.8)' : c.muted, fontSize: 12, lineHeight: 16 }}>{t(sub)}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    );
-  }
+  // One look for both products (the THERE design): a soft off-white pill with a shadow, one word per side, the open one a deep green pill with white letters
   return (
-    // a soft white pill with a shadow; the open product sits in a tinted pill inside it
-    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 37, backgroundColor: c.surface, padding: 9, gap: 8, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2 }}>
+    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 40, backgroundColor: '#F6F4EF', padding: 8, gap: 4, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
       {opts.map(([m, label, sub]) => {
         const on = mode === m;
         return (
-          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}: {sub}', { name: label, sub: t(sub) })} onPress={() => flip(m)} style={({ pressed: p }) => [{ flex: 1, minHeight: 55, borderRadius: 28, alignItems: 'center', justifyContent: 'center', gap: 3, backgroundColor: on ? c.sand : 'transparent' }, p && { opacity: 0.85 }]}>
-            <Text style={{ color: c.text, fontWeight: on ? '700' : '600', fontSize: 12, letterSpacing: 1.2, lineHeight: 16 }}>{label}</Text>
-            <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t(sub)}</Text>
+          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}: {sub}', { name: label, sub: t(sub) })} onPress={() => flip(m)} style={({ pressed: p }) => [{ flex: 1, minHeight: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: on ? c.forest : 'transparent' }, p && { opacity: 0.85 }]}>
+            <Text style={{ color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 14, letterSpacing: 1.2, lineHeight: 18 }}>{label}</Text>
+            <Text style={{ color: on ? 'rgba(255,255,255,0.8)' : c.muted, fontSize: 12, lineHeight: 16 }}>{t(sub)}</Text>
           </Pressable>
         );
       })}
@@ -96,7 +81,7 @@ export function Wordmark({ size = 20, light }: { size?: number; light?: boolean 
   const ink = light ? c.onBand : c.forest;
   const name = mode === 'here' ? 'HERE' : 'THERE';
   return (
-    <Text accessibilityRole="header" accessibilityLabel={name} style={{ fontSize: size, fontWeight: '800', letterSpacing: -0.8, color: ink }}>
+    <Text accessibilityRole="header" accessibilityLabel={name} style={{ fontSize: size, fontWeight: '800', letterSpacing: tracking(-0.8), color: ink }}>
       {name}<Text style={{ color: light ? c.bandDotAlt : c.accent }}>.</Text>
     </Text>
   );

@@ -6,6 +6,19 @@ import { scaleText, useScale } from '@/lib/scale';
 /** Text and TextInput that follow the screen-size scale (see lib/scale). Use these instead of the react-native ones. */
 // The phone's own font-size setting is applied on top of the app's Text size; capped so the band, chips, pills and dock never break.
 const MAX_FONT_SCALE = 1.3;
+// the forest of both modes: the cursor and selection of every field (a field can still pass its own)
+const FOREST = '#102F29';
+
+/**
+ * Android paints selected text with the selection colour itself: a solid colour (the forest many fields pass) covered the
+ * words in a block of green. There it is made see-through, so selected text stays readable; the cursor keeps the solid colour.
+ */
+function softSelection(color: TextInputProps['selectionColor']) {
+  if (Platform.OS !== 'android') return color ?? FOREST;
+  if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return color ?? 'rgba(16,47,41,0.25)';
+  const n = parseInt(color.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},0.25)`;
+}
 // Android adds extra space above and below the letters, which sits text off-centre in pills and buttons; iOS does not.
 const androidText = Platform.OS === 'android' ? ({ includeFontPadding: false, textAlignVertical: 'center' } as const) : null;
 
@@ -33,12 +46,15 @@ export function TextInput(props: TextInputProps & { ref?: Ref<any> }) {
   return (
     <RNTextInput
       maxFontSizeMultiplier={MAX_FONT_SCALE}
+      underlineColorAndroid="transparent"
+      cursorColor={FOREST}
       {...props}
+      selectionColor={softSelection(props.selectionColor)}
       onFocus={(e) => {
         notifyInputFocus(); // a page may need to scroll this field above the keyboard
         props.onFocus?.(e);
       }}
-      style={scaleText(props.style, k)}
+      style={androidText ? [{ includeFontPadding: false }, scaleText(props.style, k)] : scaleText(props.style, k)}
     />
   );
 }

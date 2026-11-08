@@ -188,7 +188,7 @@ describe('hosts who say many people did not come', () => {
     const guests: Person[] = [];
     for (let i = 0; i < 5; i++) guests.push(await h.verified(`MarkyGuest${i}`));
     const mod = await h.verified('MarkyMod');
-    await h.prisma.user.update({ where: { id: mod.id }, data: { role: 'moderator' } });
+    await h.prisma.user.update({ where: { id: mod.id }, data: { role: 'admin' } }); // no-show notes are reviewed by an admin
 
     // one plan, five guests, all of them marked absent: 5 of 5
     const { id } = await runPlan(host, guests, 'Marky night');

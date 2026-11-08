@@ -54,10 +54,10 @@ async function main() {
 
   const people: P[] = [
     // staff
-    { name: 'Giulia Rossi', city: 'Milan', photo: true, role: 'moderator', mfa: true, phone: '+393331110001', eligibility: 'verified' },
-    { name: 'Luca Bianchi', city: 'Milan', photo: true, role: 'support', mfa: true, eligibility: 'verified' },
-    { name: 'Chiara Conti', city: 'Rome', photo: true, role: 'trust_lead', mfa: true, phone: '+393331110003', eligibility: 'verified' },
-    { name: 'Paolo Neri', city: 'Milan', photo: false, role: 'moderator', mfa: false, eligibility: 'verified' },
+    { name: 'Giulia Rossi', city: 'Milan', photo: true, role: 'staff', mfa: true, phone: '+393331110001', eligibility: 'verified' },
+    { name: 'Luca Bianchi', city: 'Milan', photo: true, role: 'staff', mfa: true, eligibility: 'verified' },
+    { name: 'Chiara Conti', city: 'Rome', photo: true, role: 'staff', mfa: true, phone: '+393331110003', eligibility: 'verified' },
+    { name: 'Paolo Neri', city: 'Milan', photo: false, role: 'staff', mfa: false, eligibility: 'verified' },
     // members
     { name: 'Elena Marchetti', city: 'Milan', photo: true, eligibility: 'verified', bio: 'Coffee, long walks and bad puns.' },
     { name: 'Matteo Ferri', city: 'Milan', photo: true, eligibility: 'verified' },
@@ -178,12 +178,6 @@ async function main() {
   await prisma.userWarning.create({ data: { userId: by('Tommaso Barbieri'), reason: 'Asking people to send money outside the app is not allowed.', createdById: staff.mod, createdAt: ago(25) } });
   await prisma.userWarning.create({ data: { userId: by('Davide Greco'), reason: 'Selling a "VIP list" is not allowed.', createdById: staff.mod, createdAt: ago(5), withdrawnAt: null } });
 
-  // on-call shifts
-  const shift = (who: string, from: number, to: number, note: string) => prisma.onCallShift.create({ data: { userId: who, startsAt: ahead(from), endsAt: ahead(to), note, createdBy: admin.id } });
-  await shift(staff.mod, -3, 9, 'Daytime cover');
-  await shift(staff.trust, 9, 33, 'Night and morning');
-  await shift(staff.mod, 33, 57, 'Daytime cover');
-
   // places and limits
   const region = (key: string, name: string, kind: string, parentKey: string | null, cityKey: string | null, hereMonths: number | null, thereMonths: number | null) =>
     prisma.region.upsert({ where: { key }, update: {}, create: { key, name, kind, parentKey, cityKey, hereMonths, thereMonths, updatedById: admin.id } }).catch(() => undefined);
@@ -195,6 +189,9 @@ async function main() {
   await region('it-rome', 'Rome', 'city', 'it-lazio', 'rome', null, 12);
   await region('fr', 'France', 'country', 'global', null, 1, 6);
   await region('fr-paris', 'Paris', 'city', 'fr', 'paris', null, null);
+  // staff always look after one area: Rome for Chiara, Milan for the others
+  for (const [name, area] of [['Giulia Rossi', 'it-milan'], ['Luca Bianchi', 'it-milan'], ['Chiara Conti', 'it-rome'], ['Paolo Neri', 'it-milan']] as const)
+    await prisma.user.update({ where: { id: by(name) }, data: { adminRegionKey: area, staffPermissions: name === 'Luca Bianchi' ? ['users', 'content'] : ['reports', 'verification', 'users', 'content'] } });
 
   // audit entries: what the staff did, spread over the last days
   const log = (actor: string, action: string, objectType: string, objectId: string, meta: Record<string, unknown>, h: number) =>
@@ -209,9 +206,9 @@ async function main() {
   await log(staff.mod, 'appeal.decision', 'appeal', 'demo', { state: 'upheld' }, 20);
   await log(staff.mod, 'warning.create', 'user', by('Tommaso Barbieri'), { reason: 'Money outside the app' }, 25);
   await log(staff.mod, 'attendance.decision', 'attendance', 'demo', { state: 'upheld' }, 30);
-  await log(admin.id, 'staff.create', 'user', by('Giulia Rossi'), { role: 'moderator' }, 200);
-  await log(admin.id, 'staff.create', 'user', by('Chiara Conti'), { role: 'trust_lead' }, 190);
-  await log(admin.id, 'user.role_change', 'user', by('Paolo Neri'), { role: 'moderator' }, 90);
+  await log(admin.id, 'staff.create', 'user', by('Giulia Rossi'), { role: 'staff' }, 200);
+  await log(admin.id, 'staff.create', 'user', by('Chiara Conti'), { role: 'staff' }, 190);
+  await log(admin.id, 'user.role_change', 'user', by('Paolo Neri'), { role: 'staff' }, 90);
   await log(admin.id, 'region.update', 'region', 'it', { hereMonths: 2, thereMonths: 9 }, 70);
   await log(staff.support, 'mfa.enabled', 'user', staff.support, {}, 120);
   await log(staff.mod, 'mfa.enabled', 'user', staff.mod, {}, 130);

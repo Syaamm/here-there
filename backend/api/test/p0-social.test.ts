@@ -232,7 +232,7 @@ describe('sign in with Google or Apple, and the document-only identity check', (
 
     const staff = await signup('StaffViaGoogle');
     await confirmEmail(staff);
-    await prisma.user.update({ where: { id: staff.id }, data: { role: 'moderator' } });
+    await prisma.user.update({ where: { id: staff.id }, data: { role: 'staff' } });
     const blocked = await social(await makeToken({ sub: 'g-staff', email: staff.email }));
     assert.equal(blocked.status, 403);
     assert.equal(blocked.body.code, 'SOCIAL_NOT_FOR_STAFF');

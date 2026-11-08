@@ -1,6 +1,9 @@
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { View } from 'react-native';
+import { CityField } from '@/components/OnboardingParts';
+import { Text } from '@/components/ScaledText';
+import { useTheme } from '@/lib/theme';
 import { AuthBack, AuthButton, AuthCheck, AuthField, AuthHeading, AuthSwitch, type InputHandle } from '@/components/AuthForm';
 import { Banner, Btn, ErrorBanner, Screen, Txt } from '@/components/ui';
 import { post } from '@/lib/api';
@@ -13,11 +16,11 @@ export default function Register() {
   const router = useRouter();
   const { t } = useT();
   const { signIn } = useMe();
-  const [f, setF] = useState({ displayName: '', email: '', password: '', homeCity: 'Milan' });
+  const { c } = useTheme();
+  const [f, setF] = useState({ displayName: '', email: '', password: '', homeCity: '' });
   const [adult, setAdult] = useState(false);
   const emailRef = useRef<InputHandle>(null);
   const pwRef = useRef<InputHandle>(null);
-  const cityRef = useRef<InputHandle>(null);
   // step 2: the code from the email. `ticket` proves it is the same person who filled the form.
   const [pending, setPending] = useState<{ email: string; ticket: string } | null>(null);
   const [code, setCode] = useState('');
@@ -25,7 +28,8 @@ export default function Register() {
   const act = useAction();
   const set = (k: keyof typeof f) => (v: string) => setF((p) => ({ ...p, [k]: v }));
 
-  const valid = f.displayName.trim().length >= 2 && /\S+@\S+\.\S+/.test(f.email) && f.password.length >= 10 && adult;
+  // the city is picked (search or "Use my location"), never typed by hand, so it is always a real one
+  const valid = f.displayName.trim().length >= 2 && /\S+@\S+\.\S+/.test(f.email) && f.password.length >= 10 && f.homeCity.length >= 2 && adult;
   const submit = () =>
     act.run(async () => {
       // the answer is the same whether or not the address already has an account; the email says which
@@ -33,7 +37,7 @@ export default function Register() {
         displayName: f.displayName.trim(),
         email: f.email.trim(),
         password: f.password,
-        homeCity: f.homeCity.trim() || undefined,
+        homeCity: f.homeCity,
         adultConfirmed: adult,
       });
       setPending({ email: r.email, ticket: r.ticket });
@@ -83,8 +87,12 @@ export default function Register() {
       <View style={{ gap: 18 }}>
         <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="name" textContentType="name" autoCapitalize="words" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => emailRef.current?.focus()} />
         <AuthField label={t('Email')} placeholder={t('Enter your email')} value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" inputRef={emailRef} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => pwRef.current?.focus()} />
-        <AuthField label={t('Password')} placeholder={t('Enter your password')} hint={t('At least {n} characters', { n: 10 })} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" inputRef={pwRef} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => cityRef.current?.focus()} />
-        <AuthField label={t('Home city')} placeholder={t('Enter your city')} hint={t('City only, never an address')} value={f.homeCity} onChangeText={set('homeCity')} maxLength={60} autoCapitalize="words" inputRef={cityRef} returnKeyType="done" />
+        <AuthField label={t('Password')} placeholder={t('Enter your password')} hint={t('At least {n} characters', { n: 10 })} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" inputRef={pwRef} returnKeyType="done" />
+        <View style={{ gap: 8 }}>
+          <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Home city')}</Text>
+          <CityField value={f.homeCity} onPick={(name) => setF((p) => ({ ...p, homeCity: name }))} />
+          <Txt variant="muted">{t('City only, never an address')}</Txt>
+        </View>
         <AuthCheck checked={adult} onChange={setAdult} label={t('I confirm that I am 18 or older.')} />
         <AuthButton title={t('Create account')} onPress={submit} loading={act.busy} disabled={!valid} />
       </View>

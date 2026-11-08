@@ -4,7 +4,9 @@ import { checkPassword } from '../common/password';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { afterKeyset, beforeKeyset, decodeKeyset, pageLimit, sliceKeyset, pageOf } from '../common/paging';
-import { CurrentUser, Public, Staff } from '../common/auth';
+import { CurrentUser, Perm, Public, RegionalOk, Staff } from '../common/auth';
+import { RegionsService } from '../regions/regions.service';
+import { inScope } from '../regions/regions';
 import { EmailService } from '../common/email.service';
 import { E } from '../common/errors';
 import { liftBans } from '../common/identity';
@@ -13,19 +15,22 @@ import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VerificationService } from '../verification/verification.service';
+import { ProofsService } from './proofs.controller';
 
 const messageSchema = z.string().trim().min(10, 'Please say a little more (at least a sentence)').max(1000);
-const createSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('verification'), message: messageSchema }),
-  z.object({ kind: z.literal('removal'), targetType: z.enum(['activity', 'trip']), targetId: z.string().min(1), message: messageSchema }),
-  z.object({ kind: z.literal('report'), targetId: z.string().min(1), message: messageSchema }),
-  z.object({ kind: z.literal('warning'), targetId: z.string().min(1), message: messageSchema }),
-  z.object({ kind: z.literal('message'), targetId: z.string().min(1), message: messageSchema }),
+/** Photos sent earlier with PUT /v1/me/proofs (a chat screenshot, say): up to 3. */
+const proofIds = z.array(z.string().min(1)).max(3).optional().describe('ids of photos sent with PUT /v1/me/proofs, up to 3 (a screenshot of a chat, say)');
+export const createSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('verification'), message: messageSchema, proofIds }),
+  z.object({ kind: z.literal('removal'), targetType: z.enum(['activity', 'trip']), targetId: z.string().min(1), message: messageSchema, proofIds }),
+  z.object({ kind: z.literal('report'), targetId: z.string().min(1), message: messageSchema, proofIds }),
+  z.object({ kind: z.literal('warning'), targetId: z.string().min(1), message: messageSchema, proofIds }),
+  z.object({ kind: z.literal('message'), targetId: z.string().min(1), message: messageSchema, proofIds }),
 ]);
 const suspensionSchema = z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1).max(200), message: messageSchema });
 const decisionSchema = z.object({ decision: z.enum(['uphold', 'reject']), note: z.string().trim().min(3, 'Write a short note the person will see').max(500) });
 
-const STAFF = ['moderator', 'trust_lead', 'admin'];
+const STAFF = ['staff', 'admin'];
 /** After a suspension appeal the person may ask again no sooner than this. */
 const SUSPENSION_COOLDOWN_DAYS = 30;
 
@@ -46,7 +51,21 @@ export class AppealsService {
     private readonly verification: VerificationService,
     private readonly email: EmailService,
     private readonly limiter: RateLimiter,
+    private readonly regions: RegionsService,
+    private readonly proofs: ProofsService,
   ) {}
+
+  /** A new appeal: every admin is told, and the staff who look after the person's home city and work on reports. */
+  private async tell(userId: string, kind: string) {
+    const home = (await this.prisma.profile.findUnique({ where: { userId }, select: { homeCityKey: true } }))?.homeCityKey ?? null;
+    const people = await this.prisma.user.findMany({ where: { role: { in: ['admin', 'staff'] }, state: 'active' }, select: { id: true, role: true, adminRegionKey: true, staffPermissions: true } });
+    const to: string[] = [];
+    for (const p of people) {
+      if (p.role === 'admin') to.push(p.id);
+      else if (kind !== 'verification' && p.adminRegionKey && p.staffPermissions.includes('reports') && inScope(await this.regions.scopeOf(p), home)) to.push(p.id);
+    }
+    await this.notifications.notifyMany(to, 'appeal_new', 'A new appeal', `Someone asked for a ${WORDS[kind] ?? kind} to be looked at again.`, {}).catch(() => undefined);
+  }
 
   private clean(message: string) {
     const bad = contentProblem(message);
@@ -58,6 +77,7 @@ export class AppealsService {
     const dto = parse(createSchema, body);
     this.clean(dto.message);
     this.limiter.hit(`appeal:${me.id}`, 5, 24 * 3600 * 1000);
+    const photos = await this.proofs.claimable(me.id, dto.proofIds); // checked first, so nothing is half sent
     if (await this.prisma.appeal.findFirst({ where: { userId: me.id, state: 'open' } })) throw E.conflict('APPEAL_OPEN', 'You already have an appeal waiting for a decision');
 
     let targetType: string | null = null;
@@ -96,8 +116,10 @@ export class AppealsService {
     }
     if (await this.prisma.appeal.findFirst({ where: { userId: me.id, kind: dto.kind, targetId } })) throw E.conflict('ALREADY_APPEALED', 'This decision was already appealed once');
     const a = await this.prisma.appeal.create({ data: { userId: me.id, kind: dto.kind, targetType, targetId, message: dto.message } });
-    await this.audit.log(me.id, 'appeal.create', 'appeal', a.id, { kind: dto.kind });
-    return this.dto(a);
+    await this.proofs.attach(photos, { appealId: a.id });
+    await this.audit.log(me.id, 'appeal.create', 'appeal', a.id, { kind: dto.kind, photos: photos.length });
+    await this.tell(me.id, a.kind);
+    return { ...this.dto(a), proofs: photos };
   }
 
   /** Is this report about the person: the user reported, the sender of the message, or the host of the listing? */
@@ -122,12 +144,14 @@ export class AppealsService {
       throw E.conflict('ALREADY_APPEALED', `You can appeal a suspension once every ${SUSPENSION_COOLDOWN_DAYS} days`);
     const a = await this.prisma.appeal.create({ data: { userId: user.id, kind: 'suspension', message: dto.message } });
     await this.audit.log(user.id, 'appeal.create', 'appeal', a.id, { kind: 'suspension' });
+    await this.tell(user.id, 'suspension');
     return { id: a.id, state: a.state };
   }
 
   async mine(me: User, limitRaw?: string, cursorRaw?: string) {
     const page = await pageOf((a) => this.prisma.appeal.findMany(a), { limit: pageLimit(limitRaw, 20), cursor: cursorRaw, where: { userId: me.id } });
-    return { items: page.items.map((a) => this.dto(a)), nextCursor: page.nextCursor };
+    const photos = await this.proofs.idsFor('appealId', page.items.map((a) => a.id));
+    return { items: page.items.map((a) => ({ ...this.dto(a), proofs: photos.get(a.id) ?? [] })), nextCursor: page.nextCursor };
   }
 
   /** What the person sees: their words, the state and the moderator's note. Never who decided. */
@@ -136,17 +160,20 @@ export class AppealsService {
   }
 
   // ---------------------------------------------------------------- staff
-  async queue(state: string, limitRaw?: string, cursorRaw?: string) {
+  async queue(actor: User, state: string, limitRaw?: string, cursorRaw?: string) {
+    const scope = await this.regions.scopeOf(actor);
     const size = pageLimit(limitRaw, 100, 200);
     const { items: rows, nextCursor } = await pageOf(
       (a) => this.prisma.appeal.findMany({ ...a, include: { user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } } }),
-      { limit: size, cursor: cursorRaw, where: { state }, order: 'asc' },
+      { limit: size, cursor: cursorRaw, where: { state, ...(scope && { user: this.regions.peopleWhere(scope) }) }, order: 'asc' },
     );
+    const photos = await this.proofs.idsFor('appealId', rows.map((a) => a.id));
     return {
       nextCursor,
       items: await Promise.all(
         rows.map(async (a) => ({
           ...this.dto(a),
+          proofs: photos.get(a.id) ?? [],
           decidedBy: a.decidedBy,
           user: { id: a.user.id, email: a.user.email, displayName: a.user.profile?.displayName ?? null, state: a.user.state, eligibility: a.user.eligibility },
           target: await this.targetInfo(a),
@@ -189,7 +216,10 @@ export class AppealsService {
     if (!a) throw E.notFound('Appeal');
     if (a.state !== 'open') throw E.conflict('APPEAL_DECIDED', 'This appeal was already decided');
     if (a.userId === actor.id) throw E.forbidden('OWN_APPEAL', 'You cannot decide your own appeal');
-    if (a.kind === 'verification' && !['trust_lead', 'admin'].includes(actor.role)) throw E.forbidden('FORBIDDEN', 'Identity appeals are decided by the trust team');
+    if (a.kind === 'verification' && actor.role !== 'admin') throw E.forbidden('FORBIDDEN', 'Identity appeals are decided by an admin');
+    // staff decide appeals from people of their area (a suspension: only the staff of the person's home city); admins any
+    if (a.kind === 'suspension') await this.regions.assertPersonHome(actor, a.userId);
+    else await this.regions.assertPersonLocal(actor, a.userId);
     // a second pair of eyes: the person who made the decision does not review the appeal of it (an administrator may)
     const earlier =
       a.kind === 'report' ? (await this.prisma.report.findUnique({ where: { id: a.targetId ?? '' }, select: { assignedTo: true } }))?.assignedTo
@@ -264,12 +294,16 @@ export class AppealsController {
   }
 
   @Staff(...STAFF)
+  @RegionalOk()
+  @Perm('reports')
   @Get('admin/appeals')
-  queue(@Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
-    return this.appeals.queue(['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor);
+  queue(@CurrentUser() actor: User, @Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.appeals.queue(actor, ['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor);
   }
 
   @Staff(...STAFF)
+  @RegionalOk()
+  @Perm('reports')
   @Post('admin/appeals/:id/decision')
   decide(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     return this.appeals.decide(actor, id, body);

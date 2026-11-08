@@ -32,8 +32,9 @@ Run: GitHub > Actions > Mobile build > Run workflow (action, platform, profile).
 
 | Change | Do |
 |---|---|
-| JS/TS code, screens, text, images | `action = ota-update`. Raise `version` first. Users see "Update available" in the app. |
-| New native library, permission, icon, push setup, Expo SDK upgrade | `action = build`. Raise `runtimeVersion` in `app.config.ts` and `version`. |
+| JS/TS code, screens, text, images | `action = ota-update`. Raise `version` in `frontend/mobile/package.json` first (last number +1, see CLAUDE.md). Users see "Update available" in the app. |
+| Any `action = build` | Raise `version` in `frontend/mobile/package.json` first (last number +1, see CLAUDE.md) and commit it. Build numbers go up by themselves. |
+| New native library, permission, icon, push setup, Expo SDK upgrade | `action = build`. Also raise `runtimeVersion` in `app.config.ts`. |
 | iPhone TestFlight build near 90 days old | new iOS build |
 | Development build | rebuild only after native changes; daily work: `npx expo start --dev-client --tunnel` |
 
@@ -77,6 +78,6 @@ The development build is a dev client with the same id as production: code loads
 6. [ ] **Google Maps key (Android) in the company's Google Cloud project** (it does not have to be the Firebase project, only company-owned with billing on): enable **Maps SDK for Android**, then APIs & Services > Credentials > Create credentials > API key.
    - Restrict it: Application restrictions > Android apps, add `io.herethere.app` with its signing SHA-1 (`cd frontend/mobile` then `npx eas credentials -p android`; once the app is in Google Play, also the Play App Signing SHA-1). API restrictions > Maps SDK for Android only.
    - Put the key in as `GOOGLE_MAPS_ANDROID_KEY` for the Android build (`eas.json` env of the Android profiles, or an EAS environment variable: `npx eas env:create --name GOOGLE_MAPS_ANDROID_KEY --value "<key>" --environment production`, same for development). The key is not secret (it ends up inside the app). iPhone needs nothing: Apple Maps.
-7. [ ] **Rebuild once.** Raise `version` and `runtimeVersion` in `app.config.ts`, then build both platforms (see "Each build"). An over-the-air update cannot carry these changes.
+7. [ ] **Rebuild once.** Raise `version` (in `frontend/mobile/package.json`) and `runtimeVersion` (in `app.config.ts`), then build both platforms (see "Each build"). An over-the-air update cannot carry these changes.
 8. [ ] **Test on real phones**, Android and iPhone, both apps: a push notification arrives, and the Android map page opens without crashing and shows tiles (grey tiles with a key = the SHA-1 restriction does not match the build).
 9. [ ] **Clean up** once every tester is on the new builds: delete the service-account key and the project `dev-lamis` in the personal account, and remove the personal account's access to anything the company uses.

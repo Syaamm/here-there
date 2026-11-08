@@ -30,6 +30,8 @@ export async function createApp() {
   for (const handler of siteHandlers() ?? []) app.use(handler);
   // the profile picture arrives as raw image bytes
   app.use('/v1/me/photo', raw({ type: 'image/*', limit: '6mb' }));
+  // a proof photo for an appeal or a dispute arrives the same way
+  app.use('/v1/me/proofs', raw({ type: 'image/*', limit: '6mb' }));
   // one error shape everywhere: { statusCode, code, message, details? }
   app.useGlobalFilters(new ApiExceptionFilter());
   // ETag is readable by the browser app, so it can ask "has this changed?" and get a bodyless 304 when it has not

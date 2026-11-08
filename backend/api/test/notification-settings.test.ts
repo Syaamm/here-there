@@ -157,7 +157,7 @@ describe('notification settings: the person decides what pushes', () => {
     await put(member, { quietHours: { enabled: true, start: hhmm(now - 60), end: hhmm(now + 60), timezone: 'Europe/Rome' } });
     const warned = await pushesDuring(() => h.post(`/v1/admin/users/${member.id}/warn`, adminToken, { reason: 'Please keep chat friendly' }));
     assert.equal(warned.length, 1, 'safety and account alerts always reach the person');
-    assert.match(warned[0].title, /warning/i);
+    assert.match(warned[0].title, /warned/i);
 
     // back on: pushes again
     for (const g of Object.keys(ALERT_GROUPS)) await put(member, { groups: { [g]: true } });
@@ -198,15 +198,15 @@ describe('notification settings: the person decides what pushes', () => {
 });
 
 describe('repeat alerts are grouped', () => {
-  it('turns many messages in one chat into one alert with a count, moved to the top, and one push a minute', async () => {
+  it('turns many messages in one chat into one alert with a count, moved to the top, while every message still pushes', async () => {
     const { member, say, conv } = await scene();
     const sent = await pushesDuring(async () => {
       await say('one');
       await say('two');
       await say('three');
     });
-    assert.equal(sent.length, 1, 'only the first message pushes inside the grouping window');
-    assert.ok(sent[0].body.includes('one'));
+    // like WhatsApp: a banner for every message (chat pushes are sent straight away, not grouped)
+    assert.deepEqual(sent.map((p: { body: string }) => p.body.split(': ').pop()).sort(), ['one', 'three', 'two']);
 
     const list = await alerts(member, 'chat_message');
     assert.equal(list.length, 1, 'one alert, not three');

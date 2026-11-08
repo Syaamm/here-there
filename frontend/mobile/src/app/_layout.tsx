@@ -148,7 +148,8 @@ function Gate() {
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
-      {me ? <AlertBanner /> : null}
+      {/* phones show alerts as their own banners (lib/push); the browser keeps this in-app strip */}
+      {me && Platform.OS === 'web' ? <AlertBanner /> : null}
       <Toast />
       <UpdatePrompt />
     </WebFrame>

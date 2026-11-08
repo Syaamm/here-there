@@ -15,7 +15,7 @@ export type FeedSection = { id: 'soon' | 'tonight' | 'tomorrow' | 'later'; title
 
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 
-/** Next 2 hours, then the rest of today ("Tonight"), then tomorrow, then everything further ahead ("Later"). Each activity lands in exactly one section; the server's order (best match first) is kept inside each. */
+/** Only what has not started yet: next 2 hours, then the rest of today ("Tonight"), then tomorrow, then everything further ahead ("Later"). Each activity lands in exactly one section; the server's order (best match first) is kept inside each. */
 export function splitFeed(all: Activity[], now = new Date()): FeedSection[] {
   const soonCut = +now + 2 * 3600e3;
   const tomorrow = new Date(+now + 24 * 3600e3);
@@ -25,10 +25,12 @@ export function splitFeed(all: Activity[], now = new Date()): FeedSection[] {
   const later: Activity[] = [];
   for (const a of all) {
     const t = new Date(a.startsAt);
+    // the moment it starts it leaves every section: what is on now is not "coming up" (your own live plan shows as the pill at the top)
+    if (+t <= +now) continue;
     if (+t <= soonCut) soon.push(a);
     else if (sameDay(t, now)) tonight.push(a);
     else if (sameDay(t, tomorrow)) tmrw.push(a);
-    else if (+t > +now) later.push(a);
+    else later.push(a);
   }
   return [
     { id: 'soon', title: 'Next 2 hours', items: soon },

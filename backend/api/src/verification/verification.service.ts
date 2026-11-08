@@ -193,7 +193,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
       this.prisma.user.update({ where: { id: userId }, data: { eligibility: 'unverified', reverifyReason: null } }),
     ]);
     await this.audit.log(actorId, 'verification.reset', 'user', userId, { note, from: user.eligibility });
-    await this.notifications.notify(userId, 'verification_result', 'You can verify again', 'Our team reopened your identity verification. You can start it again whenever you are ready.');
+    await this.notifications.notify(userId, 'verification_result', 'You can verify again', 'Tap to start whenever you are ready.');
     return { eligibility: 'unverified' };
   }
 
@@ -218,7 +218,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
       this.prisma.user.update({ where: { id: userId }, data: { eligibility: 'verified', verifiedUntil: until, adultVerifiedAt: now, reverifyReason: null } }),
     ]);
     await this.audit.log(actor.id, 'verification.rejection_overturned', 'user', userId, { checkId: check.id, previousReason: check.rejectionReason, note });
-    await this.notifications.notify(userId, 'verification_result', 'You are verified', 'After a review by our team, your verification was approved. You can now host, join and chat.');
+    await this.notifications.notify(userId, 'verification_result', 'You are verified', 'You can now host, join and chat.');
     return { eligibility: 'verified' };
   }
 
@@ -315,7 +315,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
       this.prisma.user.update({ where: { id: userId }, data: { eligibility: 'reverification_required', reverifyReason: reason } }),
     ]);
     await this.audit.log(actorId, 'verification.reverification_required', 'user', userId, { reason, ...(note ? { note } : {}) });
-    await this.notifications.notify(userId, 'verification_result', 'Please verify again', 'For the safety of our community we need you to complete identity verification again before you can join, host or chat.');
+    await this.notifications.notify(userId, 'verification_result', 'Please verify again', 'Needed before you can join, host or chat.');
     return { eligibility: 'reverification_required' };
   }
 
@@ -327,7 +327,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     });
     if (!r.count) return false;
     await this.audit.log(null, 'verification.expired', 'user', id);
-    await this.notifications.notify(id, 'verification_result', 'Your verification has expired', 'Please verify again to keep joining, hosting and chatting. It only takes a couple of minutes.');
+    await this.notifications.notify(id, 'verification_result', 'Your verification has expired', 'Verify again to keep joining and chatting.');
     return true;
   }
 

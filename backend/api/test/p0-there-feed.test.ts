@@ -166,7 +166,7 @@ describe('THERE feed: a trip that has started is no longer offered', () => {
       groupSize: '2-3',
     });
     const ahead = (await post('/v1/trips', org.token, body('Still ahead trip', 10))).body.id as string;
-    const begun = (await post('/v1/trips', org.token, body('Already under way trip', 10))).body.id as string;
+    const begun = (await post('/v1/trips', org.token, body('Already under way trip', 20))).body.id as string; // other days than the first (one plan at a time); moved into the past just below
     await prisma.trip.update({ where: { id: begun }, data: { dateStart: new Date(Date.now() - 2 * day), dateEnd: new Date(Date.now() + 4 * day) } });
 
     const titles = async (who: { token: string }) => (await get('/v1/trips?destination=underwayville&limit=50', who.token)).body.items.map((x: { title: string }) => x.title);

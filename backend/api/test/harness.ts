@@ -63,11 +63,32 @@ export async function startHarness(name: string, opts: { queueWrites?: boolean }
     return u;
   }
 
+  /** The place for a city (made by the admin if it is not there yet), so a staff member can be given it as their area. */
+  async function cityArea(city: string) {
+    const cityKey = city.trim().toLowerCase();
+    const found = await prisma.region.findUnique({ where: { cityKey } });
+    if (found) return found.key as string;
+    const r = await post('/v1/admin/regions', adminToken, { name: city, kind: 'city', cityKey });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    return r.body.key as string;
+  }
+  /**
+   * A verified person made staff for one city (Milan unless said), with every permission unless some are given. Staff always
+   * look after an area: there is no staff account for the whole service (that is an admin).
+   */
+  async function staff(who: string, opts: { city?: string; permissions?: string[] } = {}) {
+    const u = await verified(who);
+    const regionKey = await cityArea(opts.city ?? 'Milan');
+    const r = await post(`/v1/admin/users/${u.id}/role`, adminToken, { role: 'staff', regionKey, ...(opts.permissions && { permissions: opts.permissions }) });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    return { ...u, regionKey };
+  }
+
   const hours = (h: number) => new Date(Date.now() + h * 3600 * 1000).toISOString();
   const activityBody = (over: Record<string, unknown> = {}) => ({ title: 'After-work aperitivo', category: 'drinks', city: 'Milan', venueName: 'Bar Brera', lat: 45.472, lng: 9.188, startsAt: hours(1), endsAt: hours(3), capacity: 3, ...over });
 
   return {
-    get, post, call, base, hours, verified, activityBody, prisma, app, emailSvc,
+    get, post, call, base, hours, verified, staff, cityArea, adminToken, activityBody, prisma, app, emailSvc,
     async stop() {
       await app.close();
       await dropTestDatabase(name);

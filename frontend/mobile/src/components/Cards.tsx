@@ -116,8 +116,9 @@ const SPOTS_GREEN = '#2E7D32';
  * the time and place, who is going, and a See details button. `tag` is the small label on the photo; `status` is your part
  * in it ("You host this"), shown at the photo's right.
  */
-export function ActivityBigCard({ a, tag, status, accessibilityLabel }: { a: Activity; tag?: string; status?: { label: string; tone: 'ok' | 'warn' | 'bad' }; accessibilityLabel?: string }) {
+export function ActivityBigCard({ a, tag, status: given, accessibilityLabel }: { a: Activity; tag?: string; status?: { label: string; tone: 'ok' | 'warn' | 'bad' }; accessibilityLabel?: string }) {
   useT();
+  const status = given ?? mineStatus(a);
   const go = useGo();
   const { c } = useTheme();
   const full = a.spotsLeft === 0;
@@ -186,6 +187,7 @@ function ActivityRowBase({ a }: { a: Activity }) {
   const { c } = useTheme();
   const full = a.spotsLeft === 0;
   const circle = circleLine(a.buddiesGoing, a.followingGoing);
+  const mine = mineStatus(a);
   return (
     <Pressable
       accessibilityRole="button"
@@ -201,10 +203,13 @@ function ActivityRowBase({ a }: { a: Activity }) {
             <Ionicons name="location-outline" size={14} color={c.muted} />
             <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 13, lineHeight: 17 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
           </Row>
-          <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 16, fontWeight: '600', ...FLAT }}>
-            {a.status === 'in_progress' ? `${tr('Happening now')} · ` : ''}
-            {full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}
-          </Text>
+          <Row style={{ gap: 8, flexWrap: 'wrap' }}>
+            {mine ? <Chip label={mine.label} tone={mine.tone} /> : null}
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 16, fontWeight: '600', ...FLAT }}>
+              {a.status === 'in_progress' ? `${tr('Happening now')} · ` : ''}
+              {full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}
+            </Text>
+          </Row>
         </View>
       </Row>
       <Row style={{ gap: 10 }}>
@@ -500,6 +505,22 @@ export function TripNextUpCard({ t, status }: { t: Trip; status?: { label: strin
  * different, so the comparison is by content (functions count only as "there is one"). Cards that show a countdown
  * (Next up) are not in this group: they must redraw as time passes.
  */
+/** Your part in an activity, shown on its card so you need not open it: "You're going", "Requested"... (null: none). */
+export function mineStatus(a: Pick<Activity, 'mine'>): { label: string; tone: 'ok' | 'warn' } | null {
+  switch (a.mine) {
+    case 'host':
+      return { label: tr('You host this'), tone: 'ok' };
+    case 'going':
+      return { label: tr("You're going"), tone: 'ok' };
+    case 'requested':
+      return { label: tr('Request pending'), tone: 'warn' };
+    case 'waitlisted':
+      return { label: tr('On the waiting list'), tone: 'warn' };
+    default:
+      return null;
+  }
+}
+
 function sameCard(prev: Record<string, unknown>, next: Record<string, unknown>) {
   const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
   for (const k of keys) {

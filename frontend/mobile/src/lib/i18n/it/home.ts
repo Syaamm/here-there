@@ -66,7 +66,8 @@ export const home: Record<string, string> = {
   // ---- reliability
   New: 'Nuovo',
   Reliable: 'Affidabile',
-  'Needs care': 'Da migliorare',
+  'Building trust': 'Fiducia in crescita',
+  "A few recent plans didn't go as planned.": 'Alcuni piani recenti non sono andati come previsto.',
   '★ Very reliable': '★ Molto affidabile',
 
   // ---- feed sections and filters

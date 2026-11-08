@@ -211,7 +211,7 @@ export const errors: Record<string, string> = {
   'Only the host can do this': 'Solo l’organizzatore può farlo',
   'Only a request the host declined can be asked about again': 'Si può chiedere di riesaminare solo una richiesta rifiutata dall’organizzatore',
   'You already asked the host to look again': 'Hai già chiesto all’organizzatore di riesaminare',
-  'You already host 5 upcoming activities': 'Organizzi già 5 attività in programma',
+  'You already host 10 upcoming activities': 'Organizzi già 10 attività in programma',
   'Chat is only available to approved members': 'La chat è disponibile solo per i membri approvati',
   'This conversation is closed': 'Questa conversazione è chiusa',
   'Applicant account is unavailable': 'L’account di chi si è candidato non è disponibile',

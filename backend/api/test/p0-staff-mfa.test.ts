@@ -9,6 +9,7 @@ process.env.ARGON2_MEMORY_KIB = '8';
 process.env.ARGON2_PASSES = '1';
 process.env.TRUST_PROXY = '1';
 process.env.ACCESS_TOKEN_MINUTES = '600'; // a slow test run must not outlive the real 15-minute sign-in
+process.env.REGION_CACHE_MS = '0'; // places made straight in the database show at once
 
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -153,9 +154,15 @@ describe('two-step sign-in for staff', () => {
     const { totp, base32Decode } = await import('../src/common/totp');
     return totp(base32Decode(secret), stepNow() + offset);
   };
-  const makeStaff = async (name: string, role = 'moderator') => {
+  /** Staff always look after an area: Milan here. */
+  const milan = async () => {
+    await prisma.region.upsert({ where: { key: 'global' }, update: {}, create: { key: 'global', name: 'Whole service', kind: 'global' } });
+    await prisma.region.upsert({ where: { key: 'milan' }, update: {}, create: { key: 'milan', name: 'Milan', kind: 'city', parentKey: 'global', cityKey: 'milan' } });
+    return 'milan';
+  };
+  const makeStaff = async (name: string) => {
     const s = await signup(name);
-    await prisma.user.update({ where: { id: s.id }, data: { role } });
+    await prisma.user.update({ where: { id: s.id }, data: { role: 'staff', adminRegionKey: await milan(), staffPermissions: ['reports', 'verification', 'users', 'content'] } });
     return s;
   };
   const login = (email: string) => post('/v1/auth/login', undefined, { email, password: 'a-long-password-1' });
@@ -244,25 +251,29 @@ describe('two-step sign-in for staff', () => {
     const s = await makeStaff('Mod3');
     process.env.STAFF_MFA_REQUIRED = 'true';
     try {
-      const blocked = await get('/v1/admin/overview', s.token);
+      const blocked = await get('/v1/admin/reports', s.token);
       assert.equal(blocked.status, 403);
       assert.equal(blocked.body.code, 'MFA_REQUIRED');
       assert.equal((await get('/v1/me/mfa', s.token)).body.required, true, 'but the page that sets it up stays open');
       const setup = await post('/v1/me/mfa/setup', s.token);
       await post('/v1/me/mfa/enable', s.token, { code: await codeAt(setup.body.secret) });
-      assert.notEqual((await get('/v1/admin/overview', s.token)).status, 403);
+      assert.equal((await get('/v1/admin/reports', s.token)).status, 200);
       assert.equal((await call('DELETE', '/v1/me/mfa', s.token, { password: 'a-long-password-1', code: await codeAt(setup.body.secret, 1) })).body.code, 'MFA_REQUIRED', 'staff cannot turn it off');
     } finally {
       delete process.env.STAFF_MFA_REQUIRED;
     }
   });
   it('lets an administrator create staff, asks them to connect an authenticator at first sign-in, and lets only administrators put it off', async () => {
-    const made = await post('/v1/admin/staff', adminToken, { email: 'New.Mod@example.com', displayName: 'New Mod', role: 'moderator' });
+    const area = await milan();
+    assert.equal((await post('/v1/admin/staff', adminToken, { email: 'no.area@example.com', displayName: 'No Area' })).status, 400, 'staff always have an area');
+    const made = await post('/v1/admin/staff', adminToken, { email: 'New.Mod@example.com', displayName: 'New Mod', regionKey: area });
     assert.equal(made.status, 201, JSON.stringify(made.body));
     assert.equal(made.body.email, 'new.mod@example.com');
+    assert.equal(made.body.role, 'staff');
+    assert.deepEqual(made.body.permissions, ['reports', 'verification', 'users', 'content'], 'every permission unless chosen');
     assert.match(made.body.temporaryPassword, /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/);
-    assert.equal((await post('/v1/admin/staff', adminToken, { email: 'new.mod@example.com', displayName: 'Again', role: 'support' })).body.code, 'EMAIL_TAKEN');
-    assert.equal((await post('/v1/admin/staff', adminToken, { email: 'x@example.com', displayName: 'X', role: 'admin' })).status, 400, 'administrators are not made here');
+    assert.equal((await post('/v1/admin/staff', adminToken, { email: 'new.mod@example.com', displayName: 'Again', regionKey: area })).body.code, 'EMAIL_TAKEN');
+    assert.equal((await post('/v1/admin/staff', adminToken, { email: 'x@example.com', displayName: 'X', regionKey: area, role: 'admin' })).status, 400, 'administrators are not made here');
     assert.ok((await get('/v1/admin/staff', adminToken)).body.items.some((u: any) => u.email === 'new.mod@example.com' && u.mfaEnabled === false));
 
     const first = await post('/v1/auth/login', undefined, { email: 'new.mod@example.com', password: made.body.temporaryPassword });
@@ -270,18 +281,18 @@ describe('two-step sign-in for staff', () => {
     let mod = first.body.token as string;
     const st = (await get('/v1/me/mfa', mod)).body;
     assert.equal(st.passwordChangeRequired, true, 'the console asks for their own password first');
-    assert.equal((await get('/v1/admin/overview', mod)).body.code, 'PASSWORD_CHANGE_REQUIRED', 'and opens nothing until they have');
+    assert.equal((await get('/v1/admin/reports', mod)).body.code, 'PASSWORD_CHANGE_REQUIRED', 'and opens nothing until they have');
     assert.equal((await post('/v1/me/password', mod, { currentPassword: made.body.temporaryPassword, newPassword: 'my-own-password-1' })).status, 201);
     const mine = await post('/v1/auth/login', undefined, { email: 'new.mod@example.com', password: 'my-own-password-1' });
     assert.equal((await get('/v1/me/mfa', mine.body.token)).body.passwordChangeRequired, false, 'asked once, never again');
-    assert.notEqual((await get('/v1/admin/overview', mine.body.token)).body.code, 'PASSWORD_CHANGE_REQUIRED');
+    assert.notEqual((await get('/v1/admin/reports', mine.body.token)).body.code, 'PASSWORD_CHANGE_REQUIRED');
     assert.equal((await get('/v1/me/mfa', adminToken)).body.passwordChangeRequired, false, 'accounts that were not made this way are never asked');
     mod = mine.body.token as string;
     assert.equal(st.setupNeeded, true, 'the console asks for the authenticator straight away');
     assert.equal(st.canSkip, false);
     assert.equal((await post('/v1/me/mfa/skip', mod)).body.code, 'ADMIN_ONLY', 'a moderator cannot put it off');
     // staff cannot create staff
-    assert.equal((await post('/v1/admin/staff', mod, { email: 'y@example.com', displayName: 'Y', role: 'support' })).status, 403);
+    assert.equal((await post('/v1/admin/staff', mod, { email: 'y@example.com', displayName: 'Y', regionKey: area })).status, 403);
 
     const setup = await post('/v1/me/mfa/setup', mod);
     await post('/v1/me/mfa/enable', mod, { code: await codeAt(setup.body.secret) });

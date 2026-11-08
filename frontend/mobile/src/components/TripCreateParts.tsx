@@ -1,10 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import type { ReactNode } from 'react';
-import { Pressable, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { notifyInputFocus, setListBelowField } from '@/lib/keyboard';
+import { Pressable, View, type HostInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { get } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
-import { Text, TextInput } from './ScaledText';
+import { Text, TextInput, type InputHandle } from './ScaledText';
 import { StepBars, StepLabel } from './StepMotion';
 import { PlainTitle, pressed } from './ui';
 
@@ -13,7 +15,7 @@ import { PlainTitle, pressed } from './ui';
 const WHITE = '#FFFFFF';
 
 /** Back button, "Create a Trip" and the step's name in the middle, "Step n/4" and four bars under them. */
-export function TripTop({ step, title, onBack, right }: { step: number; title: string; onBack: () => void; right?: ReactNode }) {
+export function TripTop({ step, title, onBack, right, onStep, canStep }: { step: number; title: string; onBack: () => void; right?: ReactNode; /** tapping a step bar jumps to it, where canStep allows */ onStep?: (i: number) => void; canStep?: (i: number) => boolean }) {
   const { t } = useT();
   const { c, mode } = useTheme();
   return (
@@ -31,7 +33,7 @@ export function TripTop({ step, title, onBack, right }: { step: number; title: s
         <StepLabel step={step} style={{ color: c.muted, fontSize: 12.7, lineHeight: 16 }} />
         {right}
       </View>
-      <StepBars step={step} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} />
+      <StepBars step={step} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} onPick={onStep} canPick={canStep} />
     </View>
   );
 }
@@ -82,9 +84,83 @@ export function TripValue({ children, placeholder }: { children?: string; placeh
 }
 
 /** The text input inside a TripField. */
-export function TripInput({ label, style, ...rest }: TextInputProps & { label: string }) {
+export function TripInput({ label, style, ...rest }: TextInputProps & { label: string; ref?: Ref<InputHandle> }) {
   const { c } = useTheme();
   return <TextInput accessibilityLabel={label} placeholderTextColor={c.placeholder} selectionColor={c.forest} cursorColor={c.forest} underlineColorAndroid="transparent" returnKeyType="done" {...rest} style={[{ includeFontPadding: false, color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', paddingVertical: 0, minHeight: 22, minWidth: 0 }, style]} />;
+}
+
+type Found = { id: string; name: string; address: string; label: string };
+
+/**
+ * Where to go: as you type in the destination, real places from anywhere in the world are listed (countries, regions, cities,
+ * neighbourhoods), each named with its country: "Milan, Italy", "Kerala, India". Tap one and it becomes the destination.
+ */
+export function DestinationResults({ text, active, onPick }: { text: string; active: boolean; onPick: (label: string) => void }) {
+  const { t } = useT();
+  const { c } = useTheme();
+  const [found, setFound] = useState<Found[] | null>(null);
+  const [state, setState] = useState<'idle' | 'searching' | 'done' | 'error'>('idle');
+  const picked = useRef<string | null>(null); // the name a result put in the field, so choosing it does not start another search
+  const latest = useRef(0);
+  useEffect(() => {
+    const q = text.trim();
+    const mine = ++latest.current;
+    if (!active || q.length < 2 || picked.current === text) {
+      setFound(null);
+      setState('idle');
+      return;
+    }
+    setState('searching');
+    const timer = setTimeout(async () => {
+      try {
+        const r = await get<{ items: (Found & { label?: string })[] }>(`/v1/places/search?${new URLSearchParams({ q, kind: 'destination' })}`);
+        if (mine !== latest.current) return;
+        setFound(r.items.map((x) => ({ ...x, label: x.label ?? x.name })));
+        setState('done');
+      } catch {
+        if (mine !== latest.current) return;
+        setFound(null);
+        setState('error');
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [text, active]);
+  // when results are showing, the page scrolls so they are above the keyboard (not hidden under it)
+  const box = useRef<HostInstance>(null);
+  const showing = state !== 'idle';
+  useEffect(() => {
+    if (!showing) return;
+    setListBelowField(box);
+    notifyInputFocus();
+    return () => setListBelowField(null);
+  }, [showing, found]);
+  if (state === 'idle') return null;
+  const say = (s: string) => <Text style={{ color: c.muted, fontSize: 12, paddingHorizontal: 16, paddingVertical: 10 }}>{s}</Text>;
+  return (
+    <View ref={box} collapsable={false} style={{ borderRadius: 18, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
+      {state === 'searching' && !found ? say(t('Searching…')) : null}
+      {state === 'error' ? say(t('Search unavailable. Type the place name.')) : null}
+      {state === 'done' && found?.length === 0 ? say(t('No place found.')) : null}
+      {found?.map((p, i) => (
+        <Pressable
+          key={p.id}
+          accessibilityRole="button"
+          accessibilityLabel={p.label}
+          onPress={() => {
+            picked.current = p.label;
+            onPick(p.label);
+          }}
+          style={({ pressed: isPressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 16, minHeight: 48, borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, isPressed && { backgroundColor: c.sand }]}
+        >
+          <Ionicons name="location-outline" size={18} color={c.muted} />
+          <View style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ color: c.text, fontSize: 15, fontWeight: '600' }}>{p.label}</Text>
+            {p.address && p.address !== p.label.split(', ').slice(1).join(', ') ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{p.address}</Text> : null}
+          </View>
+        </Pressable>
+      ))}
+    </View>
+  );
 }
 
 /** The dark round button between two stacked pills (swap, calendar). Sits on the right edge, half over each pill. */
@@ -102,7 +178,7 @@ export function TripRoundDark({ icon, label, onPress }: { icon: React.ComponentP
 }
 
 /** A round-cornered one-line white pill for a number (the budget). */
-export function TripAmount({ label, ...rest }: TextInputProps & { label: string }) {
+export function TripAmount({ label, ...rest }: TextInputProps & { label: string; ref?: Ref<InputHandle> }) {
   const { c } = useTheme();
   return (
     <View style={{ flex: 1, minHeight: sc(54), borderRadius: 32, backgroundColor: WHITE, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20 }}>

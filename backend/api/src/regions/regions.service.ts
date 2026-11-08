@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, Get, Injectable, OnModuleInit, Param, Patch, Post, Query } from '@nestjs/common';
-import { User } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser, RegionalOk, Staff } from '../common/auth';
-import { STAFF_ROLES } from '../common/constants';
+import { STAFF_PERMISSIONS, STAFF_ROLES } from '../common/constants';
 import { E } from '../common/errors';
 import { log } from '../common/observability';
 import { PrismaService } from '../common/prisma.service';
@@ -123,6 +123,51 @@ export class RegionsService implements OnModuleInit {
   async assertCity(user: { adminRegionKey?: string | null }, cityKey: string | null | undefined) {
     const scope = await this.scopeOf(user);
     if (!inScope(scope, cityKey ? cityKey.trim().toLowerCase() : null)) throw outOfScope();
+  }
+
+  /**
+   * The members a staff member may see: their home city is in the area, or they have been active there in the last 30 days
+   * (hosted or joined an activity there, or a trip that starts there). A person from New York planning things in Milan shows up
+   * for Milan staff while they are there. Never other staff.
+   */
+  peopleWhere(scope: Scope): Prisma.UserWhereInput {
+    const cities = [...scope.cityKeys];
+    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+    return {
+      role: 'user',
+      OR: [
+        { profile: { homeCityKey: { in: cities } } },
+        { activitiesHosted: { some: { cityKey: { in: cities }, startsAt: { gte: since } } } },
+        { activityMemberships: { some: { activity: { cityKey: { in: cities }, startsAt: { gte: since } } } } },
+        { trips: { some: { originKey: { in: cities }, dateEnd: { gte: since } } } },
+        { tripMemberships: { some: { trip: { originKey: { in: cities }, dateEnd: { gte: since } } } } },
+      ],
+    };
+  }
+  /**
+   * How far ahead plans can be made for what this viewer looks after, in months: the longest limit of any place in their area
+   * (a country with one city allowed further ahead gives that city's limit), or of the whole service when there is no area.
+   */
+  async limitMonths(scope: Scope | null, which: 'here' | 'there') {
+    const rows = await this.all();
+    const places = scope ? rows.filter((r) => scope.regionKeys.has(r.key)) : rows;
+    const months = places.map((r) => effectiveMonths(chainOf(rows, r), which).months);
+    return months.length ? Math.max(...months) : effectiveMonths([], which).months;
+  }
+
+  /** Local actions (seeing someone, warning them, removing them from a plan, hiding a message): home city or active in the area. */
+  async assertPersonLocal(user: { adminRegionKey?: string | null }, userId: string) {
+    const scope = await this.scopeOf(user);
+    if (!scope) return;
+    if (!(await this.prisma.user.count({ where: { AND: [{ id: userId }, this.peopleWhere(scope)] } }))) throw outOfScope();
+  }
+  /** Account-wide actions (suspending, restoring, identity checks): only the staff of the person's home city, or an admin. */
+  async assertPersonHome(user: { adminRegionKey?: string | null }, userId: string) {
+    const scope = await this.scopeOf(user);
+    if (!scope) return;
+    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true, profile: { select: { homeCityKey: true } } } });
+    if (!target) throw E.notFound('User');
+    if (target.role !== 'user' || !inScope(scope, target.profile?.homeCityKey)) throw outOfScope();
   }
 
   // ---------------------------------------------------------------- the admin's list
@@ -266,7 +311,8 @@ export class RegionsAdminController {
   @Get('scope')
   async scope(@CurrentUser() me: User) {
     const s = await this.regions.scopeOf(me);
-    return { role: me.role, scope: s && { key: s.regionKey, name: s.name, kind: s.kind } };
+    // which parts of the console this account may use: everything for an admin, what an admin allowed for staff
+    return { role: me.role, scope: s && { key: s.regionKey, name: s.name, kind: s.kind }, permissions: me.role === 'admin' ? [...STAFF_PERMISSIONS] : me.staffPermissions };
   }
 
   @Staff(...ALL)

@@ -12,6 +12,7 @@ import { dateSpan, money } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
 import { CheckLine } from '@/components/CheckLine';
+import { ClashNotice, useClashes } from '@/components/ClashNotice';
 import { useT } from '@/lib/i18n';
 
 /** THERE · Application. Structured so the organizer can decide; no payment, no documents. */
@@ -30,6 +31,8 @@ export default function Apply() {
   const [guidelines, setGuidelines] = useState(false);
   const act = useAction();
   const [tried, setTried] = useState(false); // after the first tap on Send: show what is still missing
+  // One plan at a time: a trip or activity you are in on these days blocks applying (a trip holds its whole days)
+  const clash = useClashes(trip?.dateStart, trip ? new Date(+new Date(trip.dateEnd) + 864e5) : null, trip ? `trip:${trip.id}` : undefined);
 
   if (loading && !trip) return <Screen hasHeader><SkeletonDetail /></Screen>;
   if (!trip) return <Screen hasHeader><Txt>{t('Trip not found.')}</Txt></Screen>;
@@ -51,7 +54,7 @@ export default function Apply() {
     if (r) {
       await confirmAsync(t('Application sent'), t("The organizer will review it. You'll get a notification with their decision."), t('OK'));
       router.back();
-    }
+    } else void clash.reload(); // refused because of a clash: show what is in the way
   };
 
   return (
@@ -65,6 +68,7 @@ export default function Apply() {
         <Txt variant="muted">{dateSpan(trip.dateStart, trip.dateEnd)} · {money(trip.budget.min, trip.budget.currency)}–{money(trip.budget.max, trip.budget.currency)} {t('pp (estimate)')} · {t('{going}/{capacity} going', { going: trip.members, capacity: trip.maxCapacity })}</Txt>
       </View>
       <ErrorBanner message={act.error} />
+      <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="apply" onChanged={() => void clash.reload()} />
       <Field label={t('Introduce yourself to the organizer')} placeholder={t("Hello! I'd love to join.")} multiline value={intro} onChangeText={setIntro} maxLength={1000} hint={intro.trim().length < 10 ? t('At least 10 characters') : `${intro.length}/1000`} error={tried && intro.trim().length < 10 ? t('Write at least 10 characters') : null} />
       <Txt variant="label">{t('Your travel experience')}</Txt>
       <PillRow>
@@ -91,7 +95,7 @@ export default function Apply() {
       </Card>
 
       {tried && problems.length ? <Banner tone="bad">{t('Before you can send: {list}.', { list: problems.join(', ') })}</Banner> : null}
-      <Btn title={t('Send application')} onPress={() => (problems.length ? setTried(true) : void submit())} loading={act.busy} />
+      <Btn title={t('Send application')} onPress={() => (problems.length ? setTried(true) : void submit())} loading={act.busy} disabled={clash.firm.length > 0} />
       <Banner>{t("Actual membership requires organizer approval. Don't send money or documents to anyone through the app.")}</Banner>
     </Screen>
   );

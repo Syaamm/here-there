@@ -1,12 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useCallback, useState, type ReactNode } from 'react';
-import { Pressable, View } from 'react-native';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { BackHandler, Keyboard, Platform, Pressable, View, type HostInstance } from 'react-native';
 import { AuthButton } from '@/components/AuthForm';
 import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
 import { DraftBar } from '@/components/DraftBar';
-import { Text, TextInput } from '@/components/ScaledText';
+import { WizardActions } from '@/components/CreateParts';
+import { ClashNotice, tellWithdrawn, useClashes, type Withdrawn } from '@/components/ClashNotice';
+import { Text, TextInput, type InputHandle } from '@/components/ScaledText';
 import { StepTransition } from '@/components/StepMotion';
-import { TRIP_WHITE, TripAmount, TripCard, TripField, TripHeading, TripInput, TripLabel, TripPill, TripRoundDark, TripTop, TripValue } from '@/components/TripCreateParts';
+import { DestinationResults, TRIP_WHITE, TripAmount, TripCard, TripField, TripHeading, TripInput, TripLabel, TripPill, TripRoundDark, TripTop, TripValue } from '@/components/TripCreateParts';
 import { Banner, CheckRow, Chip, ErrorBanner, Screen, Txt, useGo } from '@/components/ui';
 import { get, post, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -16,6 +18,9 @@ import { money, parseDay } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
+import { success, tap } from '@/lib/haptics';
+import { closeKeyboard } from '@/lib/keyboard';
+import { scrollToField } from '@/lib/pageScroll';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
@@ -27,7 +32,7 @@ const FLEX_CHOICES: readonly (readonly [string, string])[] = [
   ['plus_minus_3', '±3 days'],
   ['plus_minus_7', '±1 wk'],
 ];
-const GROUP_CHOICES: readonly (readonly [string, string])[] = GROUP_SIZES.map(([v]) => [v, v === '10+' ? '10+' : v.replace('-', ' - ')] as const);
+const GROUP_CHOICES: readonly (readonly [string, string])[] = GROUP_SIZES.map(([v]) => [v, v === '10+' ? '10 - 20' : v.replace('-', ' - ')] as const);
 
 type Draft = { destination: string; originCity: string; description: string; start: string; end: string; flex: string; min: string; max: string; transport: boolean; tags: string[]; size: string };
 
@@ -50,8 +55,8 @@ const cap = (tag: string) => tag[0].toUpperCase() + tag.slice(1);
 
 /**
  * THERE · Create: four short steps (Destination & Vibe, Budget & Preferences, Group guidelines, Review & publish). A trip is a
- * proposal, never a booking or an offer to sell travel. It behaves like the HERE form: leaving it saves what was typed as a
- * draft and it comes back empty. Changing `round` remounts the form, which is what empties it (and takes it back to the first step).
+ * proposal, never a booking or an offer to sell travel. It behaves like the HERE form: leaving it for another tab or page keeps
+ * it as it was, and leaving the app saves it as a draft. Changing `round` remounts the form, which is what empties it.
  */
 export function CreateTrip() {
   const [round, setRound] = useState(0);
@@ -64,15 +69,21 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const { c } = useTheme();
   const go = useGo();
   const [step, setStep] = useState(0);
+  useEffect(() => Keyboard.dismiss(), [step]); // a new step starts with the keyboard down
+  const destRef = useRef<InputHandle>(null);
+  const maxRef = useRef<InputHandle>(null);
+  const aboutRef = useRef<InputHandle>(null);
   const [f, setF] = useState<Draft>({ destination: '', originCity: me?.profile?.homeCity ?? '', description: '', start: '', end: '', flex: 'plus_minus_3', min: '', max: '', transport: true, tags: [], size: '4-6' });
   const [agree, setAgree] = useState(false);
   const [tried, setTried] = useState(false);
   const [calendar, setCalendar] = useState<null | 'start' | 'end'>(null);
+  const [destFocus, setDestFocus] = useState(false); // the destination field has the cursor
+  const [destTyped, setDestTyped] = useState(false); // and its text was changed since: only then are suggestions looked up (tapping it again, or a place just picked, shows none)
   const act = useAction();
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((p) => ({ ...p, [k]: v }));
   const loadDraft = useCallback((d: Record<string, unknown>) => setF((p) => ({ ...p, ...(d as Partial<Draft>) })), []);
-  // leaving saves a draft and empties the form, "Clear all", and saving on leaving the app: shared with the activity form
-  const { posted, clearAll } = useFormDraft('trip', f, hasContent, onReset);
+  // saving a draft when the app is left, "Clear all", and starting over after publishing: shared with the activity form
+  const { posted, clearAll, stashNow, restart } = useFormDraft('trip', f, hasContent, onReset);
 
   const start = parseDay(f.start);
   const end = parseDay(f.end);
@@ -101,16 +112,57 @@ function TripForm({ onReset }: { onReset: () => void }) {
     (!f.min || !f.max || Number.isNaN(min) || Number.isNaN(max)) && t('a budget range'),
     !Number.isNaN(min) && !Number.isNaN(max) && !!f.min && !!f.max && max <= min && t('a maximum budget higher than the minimum'),
   ].filter(Boolean) as string[];
+  // one plan at a time: a trip or activity you are in on these days blocks the trip (it holds its whole days)
+  const clash = useClashes(start, start && end && end >= start ? new Date(+end + 864e5) : null);
+  const busy = clash.firm.length > 0;
   const publishProblems = [...routeProblems, ...budgetProblems, !agree && t('the guidelines ticked')].filter(Boolean) as string[];
   const verified = me?.eligibility === 'verified';
 
+  // what is missing is shown to the person (scrolled to, marked red), with no message
+  const originBox = useRef<HostInstance>(null);
+  const destBox = useRef<HostInstance>(null);
+  const startBox = useRef<HostInstance>(null);
+  const endBox = useRef<HostInstance>(null);
+  const budgetBox = useRef<HostInstance>(null);
+  const agreeBox = useRef<HostInstance>(null);
+  const originBad = f.originCity.trim().length < 2;
+  const destBad = f.destination.trim().length < 2;
+  const startBad = !start || start < tomorrow || (!!start && start > lastDay) || (nights ?? 0) > 90;
+  const endBad = !!start && (!end || (!!end && end > lastDay));
+  const refFor = (at: number) => (at === 0 ? (originBad ? originBox : destBad ? destBox : startBad || busy ? startBox : endBox) : at === 1 ? budgetBox : agreeBox);
+  const showProblem = (at: number) => {
+    closeKeyboard();
+    tap('Medium');
+    if (at !== step) {
+      setStep(at);
+      setTimeout(() => (setTried(true), scrollToField(refFor(at))), 350);
+    } else {
+      setTried(true);
+      setTimeout(() => scrollToField(refFor(at)), 60);
+    }
+  };
   const next = () => {
-    if (step === 0 && routeProblems.length) return setTried(true);
-    if (step === 1 && budgetProblems.length) return setTried(true);
-    if (step === 2 && !agree) return setTried(true);
+    if (step === 0 && (routeProblems.length || busy)) return showProblem(0);
+    if (step === 1 && budgetProblems.length) return showProblem(1);
+    if (step === 2 && !agree) return showProblem(2);
     setTried(false);
     setStep(step + 1);
   };
+  // a step can be opened once every step before it is done (going back is always fine)
+  const stepOk = [!routeProblems.length && !busy, !budgetProblems.length, agree];
+  const canStep = (i: number) => i < step || stepOk.slice(0, i).every(Boolean);
+  const jump = (i: number) => {
+    setTried(false);
+    setStep(i);
+  };
+  // the keyboard's return key on a step's last field: on to the next step if this one is done, else just put the keyboard away
+  // Android's Back button on a later step goes one step back, not out of the form
+  useEffect(() => {
+    if (Platform.OS !== 'android' || step === 0) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => (setTried(false), setStep(step - 1), true));
+    return () => sub.remove();
+  }, [step]);
+  const nextFromKeyboard = () => (step < STEPS - 1 ? next() : Keyboard.dismiss());
   const back = () => {
     if (step > 0) {
       setTried(false);
@@ -119,9 +171,9 @@ function TripForm({ onReset }: { onReset: () => void }) {
   };
 
   const publish = async () => {
-    if (publishProblems.length || !start || !end) return setTried(true);
+    if (publishProblems.length || !start || !end || busy) return showProblem(routeProblems.length || busy ? 0 : budgetProblems.length ? 1 : 2);
     const created = await act.run(() =>
-      post<Trip>('/v1/trips', {
+      post<Trip & { withdrawn?: Withdrawn[] }>('/v1/trips', {
         destination: f.destination.trim(),
         originCity: f.originCity.trim(),
         description: f.description.trim() || undefined,
@@ -138,9 +190,11 @@ function TripForm({ onReset }: { onReset: () => void }) {
     );
     if (created) {
       posted.current = true;
-      void dropDraft('trip');
+      success();
+      void dropDraft('trip', f);
+      await tellWithdrawn(created.withdrawn, t('Your trip is live'));
       go(`/trip/${created.id}`);
-    }
+    } else void clash.reload(); // refused because of a clash: show what is in the way
   };
 
   const stepNames = [t('Destination & Vibe'), t('Budget & Preferences'), t('Travel Preferences'), t('Review & publish')];
@@ -153,15 +207,16 @@ function TripForm({ onReset }: { onReset: () => void }) {
     const d = k === 'start' ? start : end;
     const label = k === 'start' ? t('Departure date') : t('Return date');
     return (
-      <TripField
-        key={k}
-        label={label}
-        invalid={tried && step === 0 && !d}
-        onPress={() => setCalendar(k)}
-        a11y={t('{kind} date: {day}. Opens a calendar', { kind: k === 'start' ? t('Depart') : t('Return'), day: d ? shortDay(d) : t('not chosen') })}
-      >
-        <TripValue placeholder={t('Select date')}>{dayText(d)}</TripValue>
-      </TripField>
+      <View key={k} ref={k === 'start' ? startBox : endBox} collapsable={false}>
+        <TripField
+          label={label}
+          invalid={tried && step === 0 && (k === 'start' ? startBad || busy : endBad)}
+          onPress={() => setCalendar(k)}
+          a11y={t('{kind} date: {day}. Opens a calendar', { kind: k === 'start' ? t('Depart') : t('Return'), day: d ? shortDay(d) : t('not chosen') })}
+        >
+          <TripValue placeholder={t('Select date')}>{dayText(d)}</TripValue>
+        </TripField>
+      </View>
     );
   };
 
@@ -172,31 +227,34 @@ function TripForm({ onReset }: { onReset: () => void }) {
       step={step}
       title={stepNames[step]}
       onBack={back}
-      right={
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Clear all')} accessibilityState={{ disabled: !hasContent(f) }} disabled={!hasContent(f)} hitSlop={8} onPress={() => void clearAll()} style={{ minHeight: 30, justifyContent: 'center', opacity: hasContent(f) ? 1 : 0.4 }}>
-          <Text style={{ color: c.text, fontSize: 13, fontWeight: '500' }}>{t('Clear all')}</Text>
-        </Pressable>
-      }
+      onStep={jump}
+      canStep={canStep}
+      right={<WizardActions canRestart={step > 0 || hasContent(f)} onRestart={() => void restart()} canClear={hasContent(f)} onClear={() => void clearAll()} />}
     />
       }>
 
-        <StepTransition step={step} style={{ gap: 16 }}>
+        {/* swipe left for the next step (once this one is done), right for the one before; it stops at the last step */}
+        <StepTransition step={step} style={{ gap: 16 }} swipe={{ canNext: step < 3 && !!stepOk[step], canBack: step > 0, onNext: next, onBack: () => jump(step - 1) }}>
         {step === 0 && (
           <>
             <TripHeading title={t('Where do you want to go?')} subtitle={t('Choose where you leave from and where you are heading, then the dates.')} />
             {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
             <TripLabel style={{ marginTop: 8 }}>{t('Route')}</TripLabel>
             <View style={{ gap: 4 }}>
-              <TripField label={t('Departing from')}>
-                <TripInput label={t('Departing from')} autoCapitalize="words" placeholder={t('Milan, Italy')} value={f.originCity} onChangeText={(v) => set('originCity', v)} maxLength={60} />
+              <View ref={originBox} collapsable={false}>
+              <TripField label={t('Departing from')} invalid={tried && step === 0 && originBad}>
+                <TripInput label={t('Departing from')} autoCapitalize="words" placeholder={t('Milan, Italy')} value={f.originCity} onChangeText={(v) => set('originCity', v)} maxLength={60} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => destRef.current?.focus()} />
               </TripField>
-              <TripField label={t('Destination')} invalid={tried && step === 0 && f.destination.trim().length < 2}>
-                <TripInput label={t('Destination')} autoCapitalize="words" placeholder={t('Tokyo & Kyoto, Japan')} value={f.destination} onChangeText={(v) => set('destination', v)} maxLength={100} />
+              </View>
+              <View ref={destBox} collapsable={false}>
+              <TripField label={t('Destination')} invalid={tried && step === 0 && destBad}>
+                <TripInput ref={destRef} label={t('Destination')} autoCapitalize="words" placeholder={t('Tokyo & Kyoto, Japan')} value={f.destination} onChangeText={(v) => { set('destination', v); setDestTyped(true); }} onFocus={() => { setDestFocus(true); setDestTyped(false); }} onBlur={() => setTimeout(() => setDestFocus(false), 200)} maxLength={100} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => (start && end ? nextFromKeyboard() : (Keyboard.dismiss(), setCalendar(start ? 'end' : 'start')))} />
               </TripField>
-              <View style={{ position: 'absolute', right: 12, top: '50%', marginTop: -22 }}>
-                <TripRoundDark icon="swap-vertical" label={t('Swap departure and destination')} onPress={() => setF((p) => ({ ...p, originCity: p.destination, destination: p.originCity }))} />
               </View>
             </View>
+
+            {/* any place in the world, named with its country ("Milan, Italy", "Kerala, India"): tap one to use it */}
+            <DestinationResults text={f.destination} active={destFocus && destTyped} onPick={(label) => { set('destination', label); setDestTyped(false); Keyboard.dismiss(); }} />
 
             <TripLabel style={{ marginTop: 14 }} right={nights !== null && nights >= 0 ? tn(nights, '{n} night', '{n} nights') : undefined}>{t('When would you like to go?')}</TripLabel>
             <View style={{ gap: 4 }}>
@@ -220,15 +278,18 @@ function TripForm({ onReset }: { onReset: () => void }) {
           <>
             <TripHeading title={t('What kind of trip are you planning?')} subtitle={t('Set a budget range per person, what it covers and how big the group should be.')} />
             <TripLabel style={{ marginTop: 10 }}>{t('Budget per person')}</TripLabel>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View ref={budgetBox} collapsable={false} style={{ flexDirection: 'row', alignItems: 'center' }}>
               {(['min', 'max'] as const).map((k, i) => (
-                <View key={k} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 32, borderWidth: budgetBad(k) ? 1.2 : 0, borderColor: c.danger }}>
-                  {i === 1 ? <Text style={{ color: c.muted, fontSize: 14, marginLeft: -4 }}>–</Text> : null}
-                  <TripAmount label={k === 'min' ? t('Budget minimum in euros') : t('Budget maximum in euros')} placeholder={k === 'min' ? t('Min') : t('Max')} placeholderTextColor={c.placeholder} value={f[k]} onChangeText={(v) => set(k, v.replace(/\D/g, '').slice(0, 6))} />
-                </View>
+                <Fragment key={k}>
+                  {/* its own slot between the two pills, centred in it, so it is exactly halfway between them */}
+                  {i === 1 ? <Text accessibilityElementsHidden importantForAccessibility="no" style={{ width: 28, textAlign: 'center', color: c.muted, fontSize: 14 }}>–</Text> : null}
+                  <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', borderRadius: 32, borderWidth: budgetBad(k) ? 1.2 : 0, borderColor: c.danger }}>
+                  <TripAmount ref={k === 'max' ? maxRef : undefined} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => (k === 'min' ? maxRef : aboutRef).current?.focus()} label={k === 'min' ? t('Budget minimum in euros') : t('Budget maximum in euros')} placeholder={k === 'min' ? t('Min') : t('Max')} placeholderTextColor={c.placeholder} value={f[k]} onChangeText={(v) => set(k, v.replace(/\D/g, '').slice(0, 6))} />
+                  </View>
+                </Fragment>
               ))}
             </View>
-            {!!f.min && !!f.max && max <= min ? <Text style={{ color: c.danger, fontSize: 12 }}>{t('The maximum has to be higher than the minimum.')}</Text> : null}
+            {tried && step === 1 && !!f.min && !!f.max && max <= min ? <Text style={{ color: c.muted, fontSize: 12 }}>{t('The maximum has to be higher than the minimum.')}</Text> : null}
             <Text style={{ color: c.muted, fontSize: 12 }}>{t('Shown as an estimate, never a price.')}</Text>
 
             <TripLabel style={{ marginTop: 10 }}>{t('Includes')}</TripLabel>
@@ -256,7 +317,12 @@ function TripForm({ onReset }: { onReset: () => void }) {
 
             <TripLabel style={{ marginTop: 10 }}>{t('About the trip')}</TripLabel>
             <View style={{ backgroundColor: TRIP_WHITE, borderRadius: 32, paddingHorizontal: 22, paddingVertical: 16 }}>
+              {/* its return key moves on to the next step (so it takes no new lines) */}
               <TextInput
+                ref={aboutRef}
+                returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={nextFromKeyboard}
                 accessibilityLabel={t('About the trip')}
                 placeholder={t('Culture, food, city walks and local experiences.')}
                 placeholderTextColor={c.placeholder}
@@ -266,10 +332,10 @@ function TripForm({ onReset }: { onReset: () => void }) {
                 multiline
                 value={f.description}
                 onChangeText={(v) => set('description', v)}
-                maxLength={2000}
+                maxLength={300}
                 style={{ minHeight: 76, color: c.text, fontSize: 14, lineHeight: 20, textAlignVertical: 'top', paddingVertical: 0, includeFontPadding: false }}
               />
-              <Text style={{ color: c.muted, fontSize: 12, textAlign: 'right' }}>{f.description.length} / 2000</Text>
+              <Text style={{ color: c.muted, fontSize: 12, textAlign: 'right' }}>{f.description.length} / 300</Text>
             </View>
           </>
         )}
@@ -284,7 +350,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
               </View>
               <Text style={{ color: c.muted, fontSize: 12, lineHeight: 18, paddingLeft: 32 }}>{t('THERE is not a travel agency. Everyone books flights, stays and activities themselves, directly with suppliers. Never ask for or send deposits.')}</Text>
             </TripCard>
-            <View style={{ marginTop: 12, paddingHorizontal: 4 }}>
+            <View ref={agreeBox} collapsable={false} style={{ marginTop: 12, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20, borderWidth: tried && step === 2 && !agree ? 1.2 : 0, borderColor: c.danger }}>
               <CheckRow checked={agree} onChange={setAgree}>
                 <Text style={{ color: c.text, fontSize: 14, lineHeight: 22 }}>{t('I confirm this is a non-commercial proposal for adults and I agree to the group guidelines.')}</Text>
               </CheckRow>
@@ -351,10 +417,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
         )}
         </StepTransition>
 
-        {tried && step === 0 && routeProblems.length ? <Banner tone="bad">{t('Still needed: {list}.', { list: routeProblems.join(', ') })}</Banner> : null}
-        {tried && step === 1 && budgetProblems.length ? <Banner tone="bad">{t('Still needed: {list}.', { list: budgetProblems.join(', ') })}</Banner> : null}
-        {tried && step === 2 && !agree ? <Banner tone="bad">{t('Tick the box to continue.')}</Banner> : null}
-        {tried && step === 3 && publishProblems.length ? <Banner tone="bad">{t('Still needed: {list}. Go back to fix it.', { list: publishProblems.join(', ') })}</Banner> : null}
+        {/* once dates are chosen: what you already have on those days, and when it ends */}
+        <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />
 
         <AuthButton
           title={step < STEPS - 1 ? t('Continue') : t('Publish trip')}
@@ -363,10 +427,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
           style={{ marginTop: 10 }}
         />
         {step === STEPS - 1 ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Your trip goes live in the feed. Nobody is charged and nothing is booked.')}</Text> : null}
-        {/* always mounted: opening a saved draft from "My drafts" loads it whichever step is showing; its buttons show on the last step */}
-        <View style={step === STEPS - 1 ? undefined : { display: 'none' }}>
-          <DraftBar kind="trip" data={f} onLoad={loadDraft} />
-        </View>
+        {/* on every step: saving a draft (a draft opened from My drafts loads whichever step is showing) */}
+        <DraftBar kind="trip" data={f} onLoad={loadDraft} beforeLoad={stashNow} showMyDrafts={step === 0} named={f.destination.trim().length > 0} />
       </Screen>
       {/* the calendar sits just above the dock, outside the scrolling page */}
       <DateRangeSheet

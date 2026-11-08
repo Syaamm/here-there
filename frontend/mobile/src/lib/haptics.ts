@@ -17,3 +17,15 @@ export const tap = (kind: 'Light' | 'Medium' = 'Light') => {
     /* no haptics here */
   }
 };
+
+/** The faint click of a picker wheel passing a value. */
+export const tick = () => {
+  try {
+    void haptics?.selectionAsync();
+  } catch {
+    /* no haptics here */
+  }
+};
+
+/** Something went through (published, signed in): the same tap as switching tabs on the dock, not the stronger success buzz. */
+export const success = () => tap('Medium');

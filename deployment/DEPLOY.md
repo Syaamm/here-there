@@ -85,7 +85,7 @@ The web server (nginx) only passes everything on to the API. The app and the adm
 
 - `curl -I http://127.0.0.1:3000/` gives 200, and so does `/admin/`.
 - In a browser: the domain shows the app's welcome screen, and `<domain>/admin/` shows the admin sign-in.
-- Sign in to the app as `sofia@demo.local` / `demo-password-1`. Sign in to the console as `admin@herethere.local` / `change-me-admin-1`. Other staff: `moderator@herethere.local` / `moderator-demo-1`, `trustlead@herethere.local` / `trustlead-demo-1`, `support@herethere.local` / `support-demo-1`.
+- Sign in to the app as `sofia@demo.local` / `demo-password-1`. Sign in to the console as `admin@herethere.local` / `change-me-admin-1`. Staff (looks after Milan): `staff@herethere.local` / `staff-demo-1`. There are two kinds of console account: the admin (everything) and staff (one area, the parts the admin allows on the Staff page). The old `support@`, `moderator@` and `trustlead@` demo logins are retired automatically when the API starts.
 - Staff made on the Staff page (not these default accounts) are asked to choose their own password at their first sign-in, once. The default logins above are never asked.
 - New accounts get their sign-up code shown in the app. The identity check opens a simulated page in a new tab: press **Approve**.
 

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { ApiError, BASE } from './api';
+import { ApiError, BASE, getImage } from './api';
 
 // ---------------------------------------------------------------- data loading
 /** pollMs: look again every so often while the page is open and visible, so new entries appear without a manual refresh. */
@@ -97,7 +97,7 @@ let openAsk: ((a: Ask) => void) | null = null;
 export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean; choices?: [string, string][]; choiceLabel?: string } = {}) {
   return new Promise<string | null>((resolve) => {
     if (!openAsk) return resolve(null);
-    openAsk({ title, label: opts.label ?? 'Reason (kept in the audit log)', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, choiceLabel: opts.choiceLabel, resolve });
+    openAsk({ title, label: opts.label ?? 'Reason', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, choiceLabel: opts.choiceLabel, resolve });
   });
 }
 
@@ -139,6 +139,7 @@ export function DialogHost() {
   if (!ask) return null;
   return (
     <dialog ref={ref} className="dialog" onCancel={(e) => (e.preventDefault(), close(null))} aria-labelledby="dlg-title">
+      {/* the label defaults to "Reason" (it is kept in the audit log either way) */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -176,23 +177,41 @@ export function DialogHost() {
 }
 
 // ---------------------------------------------------------------- small pieces
-/** What the sidebar knows about the open page (its group), shown small above the heading. */
-export const PageMeta = createContext<{ eyebrow?: string }>({});
+/**
+ * Set by the shell for sections with tabs (Reports, Users, Team, Settings): the section's title wins over the page's own,
+ * and the tab bar is drawn under the heading.
+ */
+export const PageMeta = createContext<{ eyebrow?: string; title?: string; tabs?: ReactNode }>({});
 
-export function Page({ title, sub, actions, children, fill }: { title: string; sub?: ReactNode; actions?: ReactNode; children: ReactNode; fill?: boolean }) {
-  const { eyebrow } = useContext(PageMeta);
+/** Every page: the small group label, the title, optional actions on the right, then the body. `sub` is accepted but not shown. */
+export function Page({ title, actions, children, fill }: { title: string; sub?: ReactNode; actions?: ReactNode; children: ReactNode; fill?: boolean }) {
+  const meta = useContext(PageMeta);
   return (
     <section className="page">
       <header className="page-head">
         <div>
-          {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-          <h1>{title}</h1>
-          {sub && <p className="sub">{sub}</p>}
+          {meta.eyebrow && <p className="eyebrow">{meta.eyebrow}</p>}
+          <h1>{meta.title ?? title}</h1>
         </div>
         <div className="row wrap">{actions}</div>
       </header>
+      {meta.tabs}
       <div className={fill ? 'page-body fill' : 'page-body'}>{children}</div>
     </section>
+  );
+}
+
+/** Underlined tabs, e.g. Reports / Appeals / No-shows. */
+export function Tabs<T extends string>({ options, value, onChange, label }: { options: { id: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="page-tabs" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.id} type="button" role="tab" aria-selected={value === o.id} className={value === o.id ? 'tab active' : 'tab'} onClick={() => onChange(o.id)}>
+          {o.label}
+          {!!o.count && <span className="count">{o.count}</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -231,9 +250,55 @@ export const Loading = ({ label = 'Loading…', rows = 0 }: { label?: string; ro
     </div>
   );
 
-/** Status chips always carry a text label, never colour alone. */
-export function Chip({ value, tone, icon }: { value: string; tone?: 'ok' | 'warn' | 'bad' | 'info' | 'plain'; icon?: IconName }) {
-  const t = tone ?? toneFor(value);
+/**
+ * Status chips always carry a text label. Tones: ok = green, dark = needs attention (urgent, overdue, suspended),
+ * line = waiting (outlined), plain = everything else. The old names still work: warn -> line, bad -> dark, info -> plain.
+ */
+export type Tone = 'ok' | 'dark' | 'line' | 'plain' | 'warn' | 'bad' | 'info';
+/** The proof photos sent with an appeal or a dispute (a screenshot of a chat, say). Click one to open it full size in a new tab. */
+export function ProofImages({ ids }: { ids?: string[] }) {
+  const [urls, setUrls] = useState<(string | null)[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const made: string[] = [];
+    setUrls([]);
+    (ids ?? []).forEach((id, i) =>
+      getImage(`/v1/proofs/${id}`)
+        .then((u) => {
+          if (!alive) return URL.revokeObjectURL(u);
+          made.push(u);
+          setUrls((list) => Object.assign([...list], { [i]: u }));
+        })
+        .catch(() => alive && setUrls((list) => Object.assign([...list], { [i]: null }))),
+    );
+    return () => {
+      alive = false;
+      made.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [(ids ?? []).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!ids?.length) return null;
+  return (
+    <div className="proofs">
+      <span className="small muted">Photos sent as proof ({ids.length})</span>
+      <div className="proof-row">
+        {ids.map((id, i) =>
+          urls[i] ? (
+            <a key={id} href={urls[i]!} target="_blank" rel="noreferrer" title="Open full size">
+              <img src={urls[i]!} alt={`Proof photo ${i + 1}`} />
+            </a>
+          ) : (
+            <span key={id} className="proof-ph small muted">
+              {urls[i] === null ? 'Could not load' : 'Loading…'}
+            </span>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function Chip({ value, tone, icon }: { value: string; tone?: Tone; icon?: IconName }) {
+  const t = { warn: 'line', bad: 'dark', info: 'plain' }[tone as string] ?? tone ?? toneFor(value);
   return (
     <span className={`chip ${t}`}>
       {icon && <Icon name={icon} />}
@@ -241,11 +306,11 @@ export function Chip({ value, tone, icon }: { value: string; tone?: 'ok' | 'warn
     </span>
   );
 }
-function toneFor(v: string): 'ok' | 'warn' | 'bad' | 'info' {
+function toneFor(v: string): Tone {
   if (['active', 'verified', 'resolved', 'published', 'approved', 'completed', 'confirmed'].includes(v)) return 'ok';
-  if (['pending', 'open', 'in_review', 'full', 'planning', 'unverified'].includes(v)) return 'warn';
-  if (['suspended', 'rejected', 'cancelled', 'physical_safety', 'underage', 'dismissed'].includes(v)) return 'bad';
-  return 'info';
+  if (['pending', 'open', 'in_review', 'full', 'planning', 'unverified'].includes(v)) return 'line';
+  if (['suspended', 'banned', 'urgent', 'physical_safety', 'immediate_danger', 'underage'].includes(v)) return 'dark';
+  return 'plain';
 }
 
 export const fmt = (iso?: string | null) =>
@@ -276,6 +341,10 @@ const ICONS = {
   userPlus: 'M15 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19 8v6M16 11h6',
   bell: 'M6 9a6 6 0 1 1 12 0c0 5 2 6 2 7H4c0-1 2-2 2-7zM10 20a2 2 0 0 0 4 0',
   key: 'M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7zM11.4 11.6L15.5 7.5M18 5l3 3-3 3-3-3',
+  settings: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
+  list: 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
+  eye: 'M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  eyeOff: 'M3 3l18 18M10.6 6.2A9.9 9.9 0 0 1 12 6c5 0 8.5 4.2 9.5 6a11 11 0 0 1-2.6 3.1M6.3 7.6A11 11 0 0 0 2.5 12c1 1.8 4.5 6 9.5 6 1.5 0 2.8-.4 4-1M9.9 9.9a3 3 0 0 0 4.2 4.2',
 } as const;
 export type IconName = keyof typeof ICONS;
 export const Icon = ({ name }: { name: IconName }) => (
@@ -401,14 +470,14 @@ export function usePages<T>(items: T[], resetKey: string, size = 10) {
   const foot = items.length > 0 && (
     <div className="table-foot">
       <span className="muted small">
-        Showing {from + 1}–{from + shown.length} of {items.length}
+        {from + 1}–{from + shown.length} of {items.length}
       </span>
       {items.length > size && (
         <div className="row">
           <button className="btn small" disabled={p === 0} onClick={() => setPage(p - 1)}>
             Previous
           </button>
-          <button className="btn small primary" disabled={p === last} onClick={() => setPage(p + 1)}>
+          <button className="btn small" disabled={p === last} onClick={() => setPage(p + 1)}>
             Next
           </button>
         </div>

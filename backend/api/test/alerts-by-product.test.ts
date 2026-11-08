@@ -42,7 +42,8 @@ describe('alerts and chats are split by product (HERE | THERE)', () => {
     // reading HERE alerts leaves THERE ones unread
     await post('/v1/notifications/read-all?scope=alerts&product=here', me.token);
     const after = (await get('/v1/notifications?product=there', me.token)).body;
-    assert.deepEqual(after.unreadByProduct, { here: 0, there: 1 });
+    // (the HERE alert here is a join request: it waits for an answer, so "Mark all read" leaves it; THERE is untouched either way)
+    assert.deepEqual(after.unreadByProduct, { here: 1, there: 1 });
 
     // chats: the activity group is HERE, the trip group is THERE
     const reqs = (await get(`/v1/activities/${act}/requests`, me.token)).body.items;

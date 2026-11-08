@@ -162,8 +162,8 @@ export class MatchingService {
     if (conv.endedAt) return { matched: false }; // an ended chat is not reopened
     if (created) {
       const names = new Map((await this.prisma.profile.findMany({ where: { userId: { in: [me.id, otherId] } }, select: { userId: true, displayName: true } })).map((p) => [p.userId, p.displayName]));
-      await this.notifications.notify(me.id, 'travel_match', 'It is a match', `You and ${names.get(otherId) ?? 'a traveler'} both want to travel to ${conv.topic}. You can chat now.`, { conversationId: conv.id });
-      await this.notifications.notify(otherId, 'travel_match', 'It is a match', `You and ${names.get(me.id) ?? 'a traveler'} both want to travel to ${conv.topic}. You can chat now.`, { conversationId: conv.id });
+      await this.notifications.notify(me.id, 'travel_match', 'It is a match', `You and ${names.get(otherId) ?? 'a traveler'} both want to travel to ${conv.topic}.`, { conversationId: conv.id });
+      await this.notifications.notify(otherId, 'travel_match', 'It is a match', `You and ${names.get(me.id) ?? 'a traveler'} both want to travel to ${conv.topic}.`, { conversationId: conv.id });
       await this.audit.log(me.id, 'match.connected', 'conversation', conv.id);
     }
     return { matched: true, conversationId: conv.id };

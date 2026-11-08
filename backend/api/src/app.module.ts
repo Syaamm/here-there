@@ -13,6 +13,7 @@ import { ContactVerificationService } from './auth/contact-verification.service'
 import { GuestService } from './auth/guest.service';
 import { AuditService } from './common/audit.service';
 import { EmailService } from './common/email.service';
+import { RoleMigration } from './common/role-migration';
 import { SmsService } from './common/sms.service';
 import { AuthGuard } from './common/auth';
 import { PrismaService } from './common/prisma.service';
@@ -20,12 +21,12 @@ import { RateLimiter } from './common/rate-limiter';
 import { DocsController } from './docs/docs.controller';
 import { PlacesController } from './places/places.controller';
 import { AppealsController, AppealsService } from './appeals/appeals.controller';
+import { ProofsController, ProofsService } from './appeals/proofs.controller';
 import { MatchingController, MatchingService } from './matching/matching.controller';
 import { ShareController } from './share/share.controller';
 import { RegionsAdminController, RegionsPublicController, RegionsService } from './regions/regions.service';
 import { TripPlanController, TripPlanService } from './trips/trip-plan.controller';
 import { ModerationController, ModerationService } from './moderation/moderation.controller';
-import { OnCallController, OnCallService } from './moderation/oncall';
 import { DraftsController } from './drafts/drafts.controller';
 import { ReliabilityController, ReliabilityService } from './reliability/reliability.controller';
 import { RetentionController, RetentionService } from './retention/retention.service';
@@ -47,6 +48,7 @@ import { SafetyController } from './safety/safety.controller';
 import { SafetyService } from './safety/safety.service';
 import { TripsController } from './trips/trips.controller';
 import { TripsService } from './trips/trips.service';
+import { ClashController, ClashService } from './schedule/clash.service';
 import { VerificationController } from './verification/verification.controller';
 import { VerificationService } from './verification/verification.service';
 
@@ -61,14 +63,15 @@ import { VerificationService } from './verification/verification.service';
     ReliabilityController,
     DraftsController,
     ModerationController,
-    OnCallController,
     RegionsPublicController,
     RegionsAdminController,
     MatchingController,
     TripPlanController,
     ShareController,
     AppealsController,
+    ProofsController,
     ActivitiesController,
+    ClashController,
     PlacesController,
     TripsController,
     ConversationsController,
@@ -87,6 +90,7 @@ import { VerificationService } from './verification/verification.service';
     RateLimiter,
     AuditService,
     EmailService,
+    RoleMigration,
     SmsService,
     ContactVerificationService,
     GuestService,
@@ -97,10 +101,10 @@ import { VerificationService } from './verification/verification.service';
     PushService,
     NotificationsService,
     NotificationPrefsService,
-    OnCallService,
     RegionsService,
     SafetyService,
     VerificationService,
+    ClashService,
     ActivitiesService,
     TripsService,
     ConversationsService,
@@ -111,6 +115,7 @@ import { VerificationService } from './verification/verification.service';
     RetentionService,
     ReliabilityService,
     AppealsService,
+    ProofsService,
     ModerationService,
     MatchingService,
     TripPlanService,

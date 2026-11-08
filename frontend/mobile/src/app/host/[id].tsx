@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { CatPhoto } from '@/components/CatPhoto';
@@ -61,7 +62,18 @@ export default function HostReview() {
   const items = reqs.items;
   const pending = reqs.data?.pending ?? 0;
   const full = !!a && a.going >= a.capacity;
-  const decide = (r: Req, decision: 'approve' | 'decline') => mutate.run(() => post(`/v1/activities/${id}/requests/${r.id}/decision`, { decision }));
+  const send = (r: Req, decision: 'approve' | 'decline') => mutate.run(() => post(`/v1/activities/${id}/requests/${r.id}/decision`, { decision }));
+  // Accept / Decline answer at once: the request shows its new state the moment it is tapped, while the server is told in the
+  // background (no spinner, no waiting). If the server refuses, it goes back to how it was and the reason is shown above.
+  const [instant, setInstant] = useState<Record<string, string>>({});
+  useEffect(() => setInstant({}), [reqs.items]); // the server's own answer has arrived: it takes over
+  const shown = (x: Req) => (instant[x.id] ? { ...x, state: instant[x.id] } : x);
+  const decide = (x: Req, decision: 'approve' | 'decline') => {
+    setInstant((m) => ({ ...m, [x.id]: decision === 'approve' ? 'approved' : 'declined' }));
+    void send(x, decision).then((ok) => {
+      if (ok === undefined) setInstant((m) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== x.id)));
+    });
+  };
   const cardStyle = { backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: c.line, padding: 18, gap: 16, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 } as const;
 
   return (
@@ -88,7 +100,7 @@ export default function HostReview() {
       <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Requests ({n})', { n: pending })}</Text>
       {reqs.data && items.length === 0 && <Empty title={t('No requests yet')} />}
 
-      {items.map((r) => (
+      {items.map(shown).map((r) => (
         <View key={r.id} style={cardStyle}>
           <Between style={{ alignItems: 'flex-start' }}>
             <Row style={{ gap: 14, flex: 1 }}>
@@ -125,8 +137,8 @@ export default function HostReview() {
 
           {r.state === 'requested' && (
             <Row style={{ gap: 12 }}>
-              <PillButton title={t('Accept')} small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} style={{ flex: 1.2 }} />
-              <PillButton outline title={t('Decline')} small disabled={mutate.busy} onPress={() => decide(r, 'decline')} style={{ flex: 1 }} />
+              <PillButton title={t('Accept')} small disabled={full} onPress={() => decide(r, 'approve')} style={{ flex: 1.2 }} />
+              <PillButton outline title={t('Decline')} small onPress={() => decide(r, 'decline')} style={{ flex: 1 }} />
             </Row>
           )}
           {r.state === 'approved' && (
@@ -136,7 +148,6 @@ export default function HostReview() {
                 title={t('Reverse')}
                 variant="danger"
                 small
-                disabled={mutate.busy}
                 onPress={async () => (await confirmAsync(t('Reverse approval for {name}?', { name: r.applicant.displayName ?? t('Member') }), t('They lose chat access immediately.'), t('Reverse'), true)) && void decide(r, 'decline')}
               />
             </Between>
@@ -144,13 +155,13 @@ export default function HostReview() {
           {r.state === 'declined' && (
             <Between>
               <Chip label={t('Declined')} tone="bad" />
-              <Btn title={t('Approve instead')} variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} />
+              <Btn title={t('Approve instead')} variant="secondary" small disabled={full} onPress={() => decide(r, 'approve')} />
             </Between>
           )}
           {r.state === 'waitlisted' && (
             <Between>
               <Chip label={t('On the waiting list')} tone="warn" />
-              <Btn title={t('Approve now')} variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(r, 'approve')} />
+              <Btn title={t('Approve now')} variant="secondary" small disabled={full} onPress={() => decide(r, 'approve')} />
             </Between>
           )}
           {r.state === 'withdrawn' && <Chip label={t('Withdrawn by the applicant')} tone="neutral" />}

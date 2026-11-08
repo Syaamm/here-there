@@ -22,6 +22,7 @@ import { EventBus } from '../common/events';
 import { tripCities } from '../common/live.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
+import { ClashService, tripWindow, withdrawnNote } from '../schedule/clash.service';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -50,14 +51,14 @@ export const createSchema = z
     budgetMax: z.number().int().min(0).max(1_000_000),
     budgetIncludesTransport: z.boolean(),
     tags: z.array(z.string().trim().min(1).max(24)).max(8).default([]),
-    description: z.string().trim().max(2000).optional(),
+    description: z.string().trim().max(300).optional(), // a few sentences (lowered from 2000 by the owner, 2026-11-08)
     groupSize: z.enum(['2-3', '4-6', '7-10', '10+']).default('4-6'),
     visibility: z.enum(['public', 'invite_only']).default('public'),
   })
   .refine((d) => d.budgetMax > d.budgetMin, { message: 'The maximum budget must be higher than the minimum', path: ['budgetMax'] });
 
 export const updateSchema = z.object({
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(300).optional(), // a few sentences (lowered from 2000 by the owner, 2026-11-08)
   dateStart: z.coerce.date().optional(),
   dateEnd: z.coerce.date().optional(),
   dateFlexibility: z.enum(FLEX).optional(),
@@ -141,6 +142,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     private readonly jobs: JobsService,
     private readonly events: EventBus,
     private readonly regions: RegionsService,
+    private readonly clash: ClashService,
   ) {}
 
   private readonly hostInclude = {
@@ -389,6 +391,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       const bad = contentProblem(t);
       if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
     }
+    // one plan at a time: no trip you organise or are in, and no activity you host or joined, on those days
+    await this.clash.assertFree(me.id, ...tripWindow(dto));
     this.limiter.hit(`trip-create:${me.id}`, 5, 24 * 3600 * 1000);
 
     const [minCapacity, maxCapacity] = GROUP_RANGES[dto.groupSize];
@@ -422,9 +426,11 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       await tx.conversation.create({ data: { scopeType: 'trip', tripId: t.id } });
       return t;
     });
+    // creating your own trip counts as getting in: your requests on those days are withdrawn, and the answer says which
+    const withdrawn = await this.clash.withdrawOverlappingPending(me.id, ...tripWindow(trip), { kind: 'trip', id: trip.id, title: trip.title });
     await this.audit.log(me.id, 'trip.create', 'trip', trip.id);
     this.events.emit({ type: 'trip.created', id: trip.id, cities: tripCities(trip) });
-    return this.detail(me, trip.id);
+    return { ...(await this.detail(me, trip.id)), withdrawn };
   }
 
   private async hostOwned(me: User, id: string) {
@@ -462,6 +468,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     const dateEnd = dto.dateEnd ?? t.dateEnd;
     if (dateStart <= new Date() || dateEnd < dateStart) throw E.badRequest('INVALID_DATES', 'Invalid dates');
     if (dto.dateStart || dto.dateEnd) await this.regions.assertWithinLimit('there', t.originCity, dateEnd > dateStart ? dateEnd : dateStart, 'INVALID_DATES');
+    if (+dateStart !== +t.dateStart || +dateEnd !== +t.dateEnd) await this.clash.assertFree(me.id, ...tripWindow({ dateStart, dateEnd }), { kind: 'trip', id });
 
     await this.prisma.trip.update({
       where: { id },
@@ -510,7 +517,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.tripApplication.updateMany({ where: { tripId: id, state: 'pending' }, data: { state: 'declined', decidedAt: new Date() } });
     for (const x of pendingApps) await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId: id }, x.applicantId);
     await this.notifications.notifyMany(await this.memberIds(id, byStaff ? undefined : me.id), 'trip_cancelled', `Cancelled: ${t.title}`, 'This trip proposal was cancelled.', { tripId: id });
-    await this.notifications.notifyMany(await this.savedOnlyIds(id, t.hostId), 'trip_cancelled', `A trip you saved was cancelled: ${t.title}`, 'The organizer cancelled it, so it is no longer open.', { tripId: id, saved: true });
+    await this.notifications.notifyMany(await this.savedOnlyIds(id, t.hostId), 'trip_cancelled', `A trip you saved was cancelled: ${t.title}`, 'The organizer cancelled it.', { tripId: id, saved: true });
     await this.audit.log(me.id, byStaff ? 'trip.removed_by_staff' : 'trip.cancel', 'trip', id);
     this.events.emit({ type: 'trip.cancelled', id, cities: tripCities(t) });
     return { ok: true };
@@ -529,6 +536,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     if (t.visibility === 'invite_only') throw E.forbidden('INVITE_ONLY', 'This trip is invitation-only');
     if (['cancelled', 'completed'].includes(t.status)) throw E.conflict('TRIP_CLOSED', 'This trip is closed');
     if (t.status === 'full' || (await this.memberCount(id)) >= t.maxCapacity) throw E.conflict('TRIP_FULL', 'This group is full');
+    // one plan at a time: a trip or activity you are in on those days blocks this (an application still waiting does not)
+    await this.clash.assertFree(me.id, ...tripWindow(t), { kind: 'trip', id });
 
     this.limiter.hit(`trip-apply:${me.id}`, 20, 24 * 3600 * 1000);
 
@@ -639,6 +648,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
 
     if (decision === 'approve') {
       if (['cancelled', 'completed'].includes(t.status)) throw E.conflict('TRIP_CLOSED', 'This trip is closed');
+      // the person may have joined or created another plan on those days since they applied
+      await this.clash.assertApplicantFree(a.applicantId, ...tripWindow(t), { kind: 'trip', id: tripId });
       await this.prisma.$transaction(async (tx) => {
         const { maxCapacity } = await lockTrip(tx, tripId);
         const already = await tx.tripMembership.findUnique({ where: { tripId_userId: { tripId, userId: a.applicantId } } });
@@ -656,7 +667,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         else if (total >= t.minCapacity && t.status === 'published') await tx.trip.update({ where: { id: tripId }, data: { status: 'planning' } });
       });
       metrics.count('joins');
-      await this.notifications.notify(a.applicantId, 'application_approved', 'You are in!', `You can now plan ${t.title} with the group`, { tripId });
+      // first accepted wins; the person is not on screen, so the approval alert itself says what was withdrawn
+      const withdrawn = await this.clash.withdrawOverlappingPending(a.applicantId, ...tripWindow(t), { kind: 'trip', id: tripId, title: t.title }, { alert: false });
+      await this.notifications.notify(a.applicantId, 'application_approved', 'You are in!', `You're in ${t.title}.${withdrawnNote(withdrawn)}`, { tripId });
     } else {
       await this.prisma.$transaction(async (tx) => {
         await tx.tripApplication.update({ where: { id: a.id }, data: { state: 'declined', reviewedBy: me.id, decidedAt: new Date() } });
@@ -727,7 +740,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     const blocked = new Set(await this.safety.blockedWith(t.hostId));
     for (const userId of saved) {
       if (busy.has(userId) || blocked.has(userId)) continue;
-      await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${t.title} has room again. Apply before it fills up.`, { tripId });
+      await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${t.title} has room again.`, { tripId });
     }
   }
 

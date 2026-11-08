@@ -9,12 +9,14 @@ import { ReportSheet } from '@/components/ReportSheet';
 import { CatPhoto } from '@/components/CatPhoto';
 import { SkeletonChat } from '@/components/Skeleton';
 import { Appear, setInView } from '@/components/Pop';
-import { Avatar, Banner, Btn, DateField, Empty, ErrorBanner, Field, Screen, Sheet, Txt, useGo } from '@/components/ui';
+import { MonthCalendar } from '@/components/CreateParts';
+import { lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
+import { Avatar, Banner, Btn, Empty, ErrorBanner, Field, Screen, Sheet, Txt, useGo } from '@/components/ui';
 import { ApiError, get, post, type ConversationRef, type GroupInfo, type Notif, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
-import { dateSpan, dayLabel, hhmm, parseDay } from '@/lib/format';
-import { useKeyboardOverlap, useKeyboardShown } from '@/lib/keyboard';
+import { dateSpan, dayLabel, hhmm, isoDay, parseDay } from '@/lib/format';
+import { useKeyboardOverlap, useKeyboardShown, keyboardTaps } from '@/lib/keyboard';
 import { cursorDeps, patchCache, useAction, useLoad } from '@/lib/hooks';
 import { BackArrow } from '@/components/TabHeader';
 import { statusTop } from '@/lib/layout';
@@ -311,7 +313,28 @@ function Chat({ id }: { id: string }) {
   });
   const pFrom = pollFrom ? parseDay(pollFrom) : null;
   const pTo = pollTo ? parseDay(pollTo) : null;
-  const pollErr = (pollFrom && !pFrom ? t('Use the format YYYY-MM-DD') : null) ?? (pollTo && !pollFrom ? t('Add the start date too') : null) ?? (pollTo && !pTo ? t('Use the format YYYY-MM-DD') : null) ?? (pFrom && pTo && pTo < pFrom ? t('The end date is before the start date') : null);
+  // the dates are picked on a calendar: From first (from tomorrow on), then To (not before From)
+  const [pollPick, setPollPick] = useState<null | 'from' | 'to'>(null);
+  const tomorrow = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate() + 1);
+  const [pollMonth, setPollMonth] = useState(tomorrow);
+  const openPick = (k: 'from' | 'to') => {
+    if (pollPick === k) return setPollPick(null);
+    Keyboard.dismiss();
+    setPollPick(k);
+    setPollMonth((k === 'to' ? pTo ?? pFrom : pFrom) ?? tomorrow);
+  };
+  const pickDay = (d: Date) => {
+    if (pollPick === 'to') {
+      setPollTo(isoDay(d));
+      setPollPick(null);
+    } else {
+      setPollFrom(isoDay(d));
+      if (pTo && pTo < d) setPollTo(''); // a To before the new From no longer fits
+      setPollPick('to'); // next: until when
+      setPollMonth(d);
+    }
+  };
+  const pollErr = null as string | null;
   const createPoll = async () => {
     const r = await plan.run(() => post(`/v1/conversations/${id}/polls`, { title: pollTitle.trim(), ...(pFrom && { dateStart: pFrom.toISOString(), dateEnd: (pTo ?? pFrom).toISOString() }) }));
     if (r) {
@@ -320,11 +343,12 @@ function Chat({ id }: { id: string }) {
       setPollTitle('');
       setPollFrom('');
       setPollTo('');
+      setPollPick(null);
     }
   };
   const vote = (pollId: string, v: 'accept' | 'reject') => void plan.run(() => post(`/v1/polls/${pollId}/vote`, { vote: v }));
   const closePoll = async (pollId: string, adopt: boolean) => {
-    if (adopt && !(await confirmAsync(t('Use these dates?'), t('Every member is asked to confirm them. Nobody is committed until they do.'), t('Use dates')))) return;
+    if (adopt && !(await confirmAsync(t('Use these dates?'), t("The trip's dates change right away, for everyone, and every member is told."), t('Use dates')))) return;
     void plan.run(() => post(`/v1/polls/${pollId}/close`, { adopt }));
   };
   const confirmDates = () => tripId && void plan.run(() => post(`/v1/trips/${tripId}/confirm-dates`));
@@ -521,7 +545,7 @@ function Chat({ id }: { id: string }) {
         contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
         onScroll={onScroll}
         scrollEventThrottle={16}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps={keyboardTaps}
         // Android draws fewer bubbles at a time (it is slower at it); the list fills in as you scroll
         initialNumToRender={Platform.OS === 'android' ? 14 : 30}
         windowSize={Platform.OS === 'android' ? 7 : 11}
@@ -604,7 +628,7 @@ function Chat({ id }: { id: string }) {
       ) : (
         <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-end', paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottomGap + 8 }}>
           {amHost && conv?.scope === 'trip' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 44, height: 44, marginBottom: 4, borderRadius: 22, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
               <Ionicons name="add" size={22} color={c.forest} />
             </Pressable>
           ) : null}
@@ -630,21 +654,35 @@ function Chat({ id }: { id: string }) {
             onPress={submit}
             style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: !text.trim() || send.busy ? 0.45 : 1 }}
           >
-            <Ionicons name="send" size={20} color="#fff" />
+            {/* the paper plane's weight sits to the left, so it is nudged to look centred in the circle */}
+            <Ionicons name="send" size={20} color="#fff" style={{ marginLeft: 3, marginBottom: 1 }} />
           </Pressable>
         </View>
       )}
       <ReportSheet target={reportMsg ? { type: 'message', id: reportMsg.id, category: reportMsg.category } : null} onClose={() => setReportMsg(null)} />
-      <Sheet visible={adding === 'poll'} title={t('Date poll')} onClose={() => setAdding(null)}>
+      <Sheet visible={adding === 'poll'} title={t('Date poll')} onClose={() => { setAdding(null); setPollPick(null); }}>
         <Field label={t('Question')} placeholder={t('Can everyone travel on these dates?')} value={pollTitle} onChangeText={setPollTitle} maxLength={120} />
-        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-          <View style={{ flex: 1 }}>
-            <DateField label={t('From (optional)')} placeholder="YYYY-MM-DD" value={pollFrom} onChangeText={setPollFrom} error={pollErr} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <DateField label={t('To (optional)')} placeholder="YYYY-MM-DD" value={pollTo} onChangeText={setPollTo} />
-          </View>
+        {/* the dates are picked on a calendar (both optional): tap From or To */}
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          {([['from', t('From (optional)'), pFrom, false], ['to', t('To (optional)'), pTo, !pFrom]] as const).map(([k, label, d, locked]) => (
+            <Pressable
+              key={k}
+              accessibilityRole="button"
+              accessibilityLabel={`${label}: ${d ? shortDay(d) : t('not chosen')}`}
+              accessibilityState={{ disabled: locked, selected: pollPick === k }}
+              disabled={locked}
+              onPress={() => openPick(k)}
+              style={{ flex: 1, minHeight: 56, borderRadius: 16, borderWidth: 1.5, borderColor: pollPick === k ? c.forest : c.line, backgroundColor: c.surface, paddingHorizontal: 14, paddingVertical: 8, justifyContent: 'center', opacity: locked ? 0.5 : 1 }}
+            >
+              <Text style={{ color: c.muted, fontSize: 11 }}>{label}</Text>
+              <Text style={{ color: c.text, fontSize: 15, fontWeight: '700' }}>{d ? shortDay(d) : t('Select date')}</Text>
+            </Pressable>
+          ))}
         </View>
+        {pollPick ? (
+          <MonthCalendar month={pollMonth} onMonth={setPollMonth} selected={(pollPick === 'to' ? pTo : pFrom) ?? new Date(0)} min={pollPick === 'to' && pFrom ? pFrom : tomorrow} max={lastPlanningDay(12)} onPick={pickDay} />
+        ) : null}
+        {pFrom ? <Btn title={t('Clear the dates')} variant="ghost" small onPress={() => { setPollFrom(''); setPollTo(''); setPollPick(null); }} /> : null}
         <ErrorBanner message={plan.error} />
         <Btn title={t('Post poll')} onPress={createPoll} loading={plan.busy} disabled={pollTitle.trim().length < 3 || !!pollErr} />
       </Sheet>

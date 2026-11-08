@@ -156,6 +156,8 @@ export function setOpenChat(id: string | null) {
   openChat = id;
   sendChat();
 }
+/** The chat open on screen now (its notifications are not shown as banners), or null. */
+export const currentOpenChat = () => openChat;
 /** Only closes the chat it opened: a second chat that opened a moment earlier stays open. */
 export function clearOpenChat(id: string) {
   if (openChat === id) setOpenChat(null);

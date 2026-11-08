@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api, can, getPlace, getRefreshToken, loadSession, saveSession, setPlace, setRefreshToken, setToken, setUnauthorizedHandler, STAFF, type Role, type Scope, type Session } from './api';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { api, getPlace, getRefreshToken, loadSession, roleLabel, saveSession, setPlace, setRefreshToken, setToken, setUnauthorizedHandler, STAFF, type Permission, type Role, type Scope, type Session } from './api';
 import { AuditPage } from './pages/Audit';
 import { ContentPage } from './pages/Content';
-import { OnCallPage } from './pages/OnCall';
 import { AppealsPage } from './pages/Appeals';
 import { NoShowsPage } from './pages/NoShows';
 import { OverviewPage } from './pages/Overview';
@@ -14,103 +13,96 @@ import { SecurityPage } from './pages/Security';
 import { StaffPage } from './pages/Staff';
 import { UsersPage } from './pages/Users';
 import { VerificationsPage } from './pages/Verifications';
-import './Login.css';
 import { AuthShell } from './AuthShell';
-import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, Loading, PageMeta, PopMenu, useLoad, type IconName } from './ui';
+import { Avatar, DialogHost, errMsg, ErrorBanner, Icon, Loading, PageMeta, PopMenu, Tabs, useLoad, type IconName } from './ui';
 
-type PageId = 'overview' | 'verifications' | 'reports' | 'noshows' | 'appeals' | 'content' | 'users' | 'staff' | 'oncall' | 'audit' | 'security' | 'regions';
-/** `regional`: staff who look after one city, region or country may open it. Everything else is for staff of the whole service. */
-const NAV: { id: PageId; label: string; icon: IconName; group: string; show: (r: Role) => boolean; regional?: boolean }[] = [
-  { id: 'overview', label: 'Today', icon: 'overview', group: 'Decide', show: () => true },
-  { id: 'reports', label: 'Reports', icon: 'flag', group: 'Decide', show: () => true, regional: true },
-  { id: 'verifications', label: 'Verification', icon: 'shield', group: 'Decide', show: () => true },
-  { id: 'appeals', label: 'Appeals', icon: 'alert', group: 'Decide', show: () => true },
-  { id: 'noshows', label: 'No-shows', icon: 'clock', group: 'Decide', show: () => true },
-  { id: 'users', label: 'Users', icon: 'users', group: 'Community', show: () => true, regional: true },
-  { id: 'content', label: 'Content', icon: 'layers', group: 'Community', show: () => true, regional: true },
-  { id: 'staff', label: 'Staff', icon: 'userPlus', group: 'Team', show: can.admin },
-  { id: 'oncall', label: 'On-call', icon: 'bell', group: 'Team', show: () => true },
-  { id: 'regions', label: 'Places & limits', icon: 'plane', group: 'Setup', show: () => true, regional: true },
-  { id: 'security', label: 'Security', icon: 'key', group: 'Setup', show: () => true },
-  { id: 'audit', label: 'Audit log', icon: 'clock', group: 'Setup', show: can.trust },
+// ---------------------------------------------------------------- sections and their tabs
+type SectionId = 'dashboard' | 'reports' | 'verification' | 'users' | 'content' | 'team' | 'settings' | 'audit';
+type Tab = { id: string; label: string; admin?: boolean; regional?: boolean; perm?: Permission };
+type Section = { id: SectionId; label: string; icon: IconName; group: string; tabs?: Tab[]; admin?: boolean; regional?: boolean; perm?: Permission };
+
+const SECTIONS: Section[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: 'overview', group: 'Decide', admin: true },
+  { id: 'reports', label: 'Reports', icon: 'flag', group: 'Decide', regional: true, perm: 'reports', tabs: [{ id: 'reports', label: 'Reports', regional: true }, { id: 'appeals', label: 'Appeals', regional: true }, { id: 'noshows', label: 'Attendance', admin: true }] },
+  { id: 'verification', label: 'Verification', icon: 'shield', group: 'Decide', regional: true, perm: 'verification' },
+  { id: 'users', label: 'Users', icon: 'users', group: 'Community', regional: true, perm: 'users' },
+  { id: 'content', label: 'Content', icon: 'layers', group: 'Community', regional: true, perm: 'content' },
+  { id: 'team', label: 'Staff', icon: 'userPlus', group: 'Team', admin: true },
+  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', regional: true, tabs: [{ id: 'places', label: 'Places & limits', regional: true }, { id: 'security', label: 'Two-step sign-in', regional: true }] },
+  { id: 'audit', label: 'Audit log', icon: 'clock', group: 'Setup', admin: true },
 ];
 
-/** The page named in the address (`/admin/#/reports`), so the browser's Back and Forward buttons move between the console's pages. */
-const pageFromHash = (): PageId => {
-  const id = window.location.hash.replace(/^#\/?/, '').split(/[/?]/)[0] as PageId;
-  return NAV.some((n) => n.id === id) ? id : 'overview';
+/** What this account may open: an admin everything; staff only the parts of their area an admin allowed. */
+const allowed = (role: Role, perms: Permission[]) => {
+  const ok = (x: { admin?: boolean; regional?: boolean; perm?: Permission }) => role === 'admin' || (!x.admin && !!x.regional && (!x.perm || perms.includes(x.perm)));
+  return SECTIONS.filter(ok)
+    .map((s) => ({ ...s, tabs: s.tabs?.filter(ok) }))
+    .filter((s) => !s.tabs || s.tabs.length > 0);
+};
+
+/** `#/reports/appeals` -> section and tab, so Back and Forward move between pages. */
+const readHash = () => {
+  const [s, t] = window.location.hash.replace(/^#\/?/, '').split(/[?]/)[0].split('/');
+  return { section: (s || 'dashboard') as SectionId, tab: t || '' };
 };
 const WHOLE_SERVICE = { key: 'all', name: 'Whole service' };
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(loadSession);
-  const [page, setPageState] = useState<PageId>(pageFromHash);
-  const [reportId, setReportId] = useState<string | null>(null); // a report opened from the audit log
-  const [userId, setUserId] = useState<string | null>(null); // one person opened from a report
+  const [loc, setLoc] = useState(readHash);
+  const [reportId, setReportId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // Each page the person opens is one step in the browser's history, so Back goes to the page before instead of leaving the
-  // console. `replace` is for automatic moves (a page this account may not open), which must not add a step.
-  const setPage = (p: PageId, replace = false) => {
-    if (p === pageFromHash() && p === page) return;
+  const go = (section: SectionId, tab = '', replace = false) => {
     try {
-      window.history[replace ? 'replaceState' : 'pushState'](null, '', `#/${p}`);
+      window.history[replace ? 'replaceState' : 'pushState'](null, '', `#/${section}${tab ? '/' + tab : ''}`);
     } catch {
       /* history unavailable: the page still changes */
     }
-    setPageState(p);
+    setLoc({ section, tab });
   };
   useEffect(() => {
-    const onBack = () => setPageState(pageFromHash());
+    const onBack = () => setLoc(readHash());
     window.addEventListener('popstate', onBack);
     return () => window.removeEventListener('popstate', onBack);
   }, []);
 
   const logout = () => {
-    // also ends this sign-in on the server (best effort)
     if (getRefreshToken()) void api('POST', '/v1/auth/logout', { refreshToken: getRefreshToken() }).catch(() => undefined);
     setToken(null);
     setRefreshToken(null);
-    setPlace(null); // the next sign-in starts in the whole service again
+    setPlace(null);
     saveSession(null);
     setSession(null);
     try {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search); // the next person starts on the first page
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
     } catch {
       /* history unavailable */
     }
-    setPageState('overview');
+    setLoc({ section: 'dashboard', tab: '' });
   };
   useEffect(() => setUnauthorizedHandler(logout), []);
 
-  // The orange numbers beside Verification and Reports count what is NEW: waiting items this admin has not looked at yet.
-  // Opening the page marks everything on it as seen in the same instant, and the badge is gone. Which items were seen is
-  // remembered in this browser, per signed-in person.
+  // badges: waiting reports and identity checks this person has not opened yet (remembered in this browser)
   const [open, setOpen] = useState<{ reports: string[]; verifications: string[] } | null>(null);
   const seenKey = `ht_admin_seen:${session?.email ?? ''}`;
-  const [seen, setSeen] = useState<Set<string>>(() => {
+  const readSeen = () => {
     try {
-      return new Set(JSON.parse(localStorage.getItem(seenKey) ?? '[]'));
+      return new Set<string>(JSON.parse(localStorage.getItem(seenKey) ?? '[]'));
     } catch {
-      return new Set();
+      return new Set<string>();
     }
-  });
-  useEffect(() => {
-    // signing in as someone else brings back that person's own list of what they have seen
-    try {
-      setSeen(new Set(JSON.parse(localStorage.getItem(seenKey) ?? '[]')));
-    } catch {
-      setSeen(new Set());
-    }
-  }, [seenKey]);
+  };
+  const [seen, setSeen] = useState<Set<string>>(readSeen);
+  useEffect(() => setSeen(readSeen()), [seenKey]);
   useEffect(() => {
     if (!session) return;
     let live = true;
-    // each list on its own: staff who look after one area may not read the verification list, and that must not hide the reports
     const ids = (path: string) => api<{ items: { id: string }[] }>('GET', path).then((r) => r.items.map((x) => x.id), () => [] as string[]);
     const load = () => Promise.all([ids('/v1/admin/reports?status=open'), ids('/v1/admin/verifications?status=pending')]).then(([reports, verifications]) => live && setOpen({ reports, verifications }));
     load();
-    const t = setInterval(() => !document.hidden && load(), 6000); // a new entry shows up within seconds
-    const back = () => !document.hidden && load(); // and straight away when the admin comes back to this tab
+    const t = setInterval(() => !document.hidden && load(), 6000);
+    const back = () => !document.hidden && load();
     document.addEventListener('visibilitychange', back);
     return () => {
       live = false;
@@ -118,18 +110,17 @@ export default function App() {
       document.removeEventListener('visibilitychange', back);
     };
   }, [session]);
-  // looking at a page marks its entries seen, including ones that arrive while it is open
   useEffect(() => {
-    const ids = page === 'reports' ? open?.reports : page === 'verifications' ? open?.verifications : null;
+    const ids = loc.section === 'reports' && (loc.tab || 'reports') === 'reports' ? open?.reports : loc.section === 'verification' ? open?.verifications : null;
     if (!ids || ids.every((id) => seen.has(id))) return;
     const next = new Set([...seen, ...ids]);
     setSeen(next);
     try {
       localStorage.setItem(seenKey, JSON.stringify([...next].slice(-500)));
     } catch {
-      /* storage unavailable: the badge just comes back next visit */
+      /* storage unavailable */
     }
-  }, [page, open]);
+  }, [loc, open]);
   const fresh = (ids?: string[]) => (ids ?? []).filter((id) => !seen.has(id)).length;
 
   if (!session)
@@ -139,31 +130,26 @@ export default function App() {
         <DialogHost />
       </>
     );
-
-  return <Console session={session} updateSession={setSession} page={page} setPage={setPage} setReportId={setReportId} setUserId={setUserId} reportId={reportId} userId={userId} fresh={fresh} open={open} logout={logout} />;
+  return <Console session={session} updateSession={setSession} loc={loc} go={go} reportId={reportId} setReportId={setReportId} userId={userId} setUserId={setUserId} badge={{ reports: fresh(open?.reports), verification: fresh(open?.verifications) }} logout={logout} />;
 }
 
 type ConsoleProps = {
   session: Session;
   updateSession: (s: Session) => void;
-  page: PageId;
-  setPage: (p: PageId, replace?: boolean) => void;
+  loc: { section: SectionId; tab: string };
+  go: (section: SectionId, tab?: string, replace?: boolean) => void;
   reportId: string | null;
   setReportId: (id: string | null) => void;
   userId: string | null;
   setUserId: (id: string | null) => void;
-  fresh: (ids?: string[]) => number;
-  open: { reports: string[]; verifications: string[] } | null;
+  badge: { reports: number; verification: number };
   logout: () => void;
 };
 
-function Console({ session: signedIn, updateSession, page, setPage, reportId, setReportId, userId, setUserId, fresh, open, logout }: ConsoleProps) {
-  // which part of the service this account looks after (asked once; staff of the whole service have none)
-  const scopeLoad = useLoad(() => api<{ scope: Scope }>('GET', '/v1/admin/scope'), [signedIn.token]);
-  const session: Session = { ...signedIn, scope: scopeLoad.data?.scope ?? null };
+function Console({ session: signedIn, updateSession, loc, go, reportId, setReportId, userId, setUserId, badge, logout }: ConsoleProps) {
+  const scopeLoad = useLoad(() => api<{ scope: Scope; permissions?: Permission[] }>('GET', '/v1/admin/scope'), [signedIn.token]);
+  const session: Session = { ...signedIn, scope: scopeLoad.data?.scope ?? null, permissions: scopeLoad.data?.permissions ?? [] };
   const regional = !!session.scope;
-  // Nobody is asked where to work. Everyone starts in the whole service (staff with an area are kept inside it by the server).
-  // Only the administrator of the whole service can move around: "Switch" in the sidebar opens the list of countries and cities.
   const canSwitch = session.role === 'admin' && !regional;
   const [chosen, setChosen] = useState(getPlace);
   const place = canSwitch && chosen ? chosen : WHOLE_SERVICE;
@@ -175,27 +161,26 @@ function Console({ session: signedIn, updateSession, page, setPage, reportId, se
     setSwitching(false);
   };
   useEffect(() => {
-    // an account that cannot switch never carries a place along (the server would refuse one outside its area)
     if (scopeLoad.data && !canSwitch && getPlace()) (setPlace(null), setChosen(null));
   }, [scopeLoad.data, canSwitch]);
+
   const [drawer, setDrawer] = useState(false);
   const [filter, setFilter] = useState('');
-  // once the person has chosen their own password the console must not ask again while the new sign-in is being loaded
   const [passwordChosen, setPasswordChosen] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const sections = allowed(session.role, session.permissions ?? []);
+  const section = sections.find((s) => s.id === loc.section) ?? sections[0];
+  const tab = section.tabs ? (section.tabs.find((t) => t.id === loc.tab) ?? section.tabs[0]).id : '';
   useEffect(() => {
-    // a page this account may not open (an old link, or Back after signing in as someone else) goes to its own first page
-    const cur = NAV.find((n) => n.id === page);
-    if (cur && !cur.show(session.role)) setPage(regional ? 'reports' : 'overview', true);
-    // a staff account with an area has no overview: it starts at the reports
-    else if (regional && !cur?.regional) setPage('reports', true);
-  }, [regional, page, session.role]);
+    // an address this account may not open goes to its first page
+    if (scopeLoad.data && section.id !== loc.section) go(section.id, '', true);
+  }, [scopeLoad.data, section.id, loc.section]);
   useEffect(() => {
-    // keyboard users land on the new page, not back at the top of the menu
     setDrawer(false);
     mainRef.current?.focus({ preventScroll: true });
-  }, [page]);
+  }, [loc.section, loc.tab]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setDrawer(false);
@@ -208,9 +193,8 @@ function Console({ session: signedIn, updateSession, page, setPage, reportId, se
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   }, []);
-  // two-step sign-in: right after the first sign-in, a staff account without an authenticator sets one up before anything else opens
+
   const mfa = useLoad(() => api<{ enabled: boolean; required: boolean; passwordChangeRequired: boolean; setupNeeded: boolean; canSkip: boolean; recoveryCodesLeft: number }>('GET', '/v1/me/mfa'), [session.token]);
-  // an account an administrator made starts with a temporary password: its owner chooses their own first, once, before anything else
   if (mfa.data?.passwordChangeRequired && !passwordChosen)
     return (
       <>
@@ -239,8 +223,6 @@ function Console({ session: signedIn, updateSession, page, setPage, reportId, se
         <DialogHost />
       </>
     );
-
-  // wait for both answers, so the console never flashes open before a password or two-step screen that has to come first
   if ((!scopeLoad.data && !scopeLoad.error) || (!mfa.data && !mfa.error))
     return (
       <AuthShell headline="Getting your console ready." sub="Your places, queues and reports are loading.">
@@ -249,10 +231,39 @@ function Console({ session: signedIn, updateSession, page, setPage, reportId, se
         </div>
       </AuthShell>
     );
-  const nav = NAV.filter((n) => n.show(session.role) && (!regional || n.regional) && n.label.toLowerCase().includes(filter.trim().toLowerCase()));
-  const groups = [...new Set(nav.map((n) => n.group))];
-  const here = NAV.find((n) => n.id === page);
-  const go = (id: PageId) => (setReportId(null), setUserId(null), setPage(id));
+
+  const openUser = (id: string) => (setUserId(id), go('users'));
+  const openReport = (id: string) => (setReportId(id), go('reports', 'reports'));
+  const nav = (id: SectionId) => (setReportId(null), setUserId(null), go(id));
+  const count = (id: SectionId) => (id === 'reports' ? badge.reports : id === 'verification' ? badge.verification : 0);
+
+  let body: ReactNode = null;
+  const key = `${section.id}/${tab}`;
+  const fromDashboard = (p: string) => {
+    if (p === 'verifications' || p === 'verification') return go('verification');
+    if (p === 'noshows' || p === 'appeals') return go('reports', p);
+    if (p === 'content') return go('content');
+    if (SECTIONS.some((s) => s.id === p)) return go(p as SectionId);
+  };
+  if (key === 'dashboard/') body = <OverviewPage go={fromDashboard} openReport={openReport} />;
+  if (key === 'reports/reports') body = <ReportsPage me={session} openUser={openUser} focusId={reportId} onClearFocus={() => setReportId(null)} />;
+  if (key === 'reports/appeals') body = <AppealsPage me={session} openUser={openUser} />;
+  if (key === 'reports/noshows') body = <NoShowsPage me={session} openUser={openUser} />;
+  if (key === 'verification/') body = <VerificationsPage me={session} />;
+  if (key === 'users/') body = <UsersPage me={session} focusId={userId} onClearFocus={() => setUserId(null)} openReport={openReport} />;
+  if (key === 'content/') body = <ContentPage me={session} />;
+  if (key === 'team/') body = <StaffPage me={session} />;
+  if (key === 'settings/places') body = <RegionsPage me={session} />;
+  if (key === 'settings/security' && mfa.data) body = <SecurityPage status={mfa.data} onChanged={mfa.reload} />;
+  if (key === 'audit/') body = <AuditPage openReport={openReport} />;
+
+  const tabs =
+    section.tabs && section.tabs.length > 1 ? (
+      <Tabs label={section.label} value={tab} onChange={(t) => (setReportId(null), setUserId(null), go(section.id, t))} options={section.tabs.map((t) => ({ id: t.id, label: t.label, count: t.id === 'reports' ? badge.reports : undefined }))} />
+    ) : null;
+
+  const shown = sections.filter((s) => s.label.toLowerCase().includes(filter.trim().toLowerCase()));
+  const groups = [...new Set(shown.map((s) => s.group))];
   return (
     <div className="shell">
       <a className="skip" href="#main" onClick={(e) => (e.preventDefault(), mainRef.current?.focus())}>
@@ -272,25 +283,22 @@ function Console({ session: signedIn, updateSession, page, setPage, reportId, se
           {groups.map((g) => (
             <div key={g} style={{ display: 'contents' }}>
               <div className="nav-group">{g}</div>
-              {nav
-                .filter((n) => n.group === g)
-                .map((n) => {
-                  const badge = n.id === 'verifications' ? fresh(open?.verifications) : n.id === 'reports' ? fresh(open?.reports) : n.id === 'overview' ? fresh(open?.reports) + fresh(open?.verifications) : 0;
-                  return (
-                    <button key={n.id} className={page === n.id ? 'nav active' : 'nav'} aria-current={page === n.id ? 'page' : undefined} onClick={() => go(n.id)}>
-                      <Icon name={n.icon} />
-                      {n.label}
-                      {!!badge && (
-                        <span className={n.id === 'reports' ? 'badge hot' : n.id === 'overview' ? 'badge light' : 'badge'} aria-label={`${badge} new`}>
-                          {badge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+              {shown
+                .filter((s) => s.group === g)
+                .map((s) => (
+                  <button key={s.id} className={section.id === s.id ? 'nav active' : 'nav'} aria-current={section.id === s.id ? 'page' : undefined} onClick={() => nav(s.id)}>
+                    <Icon name={s.icon} />
+                    {s.label}
+                    {!!count(s.id) && (
+                      <span className={s.id === 'reports' ? 'badge hot' : 'badge'} aria-label={`${count(s.id)} new`}>
+                        {count(s.id)}
+                      </span>
+                    )}
+                  </button>
+                ))}
             </div>
           ))}
-          {nav.length === 0 && <p className="nav-empty">No page matches “{filter}”.</p>}
+          {shown.length === 0 && <p className="nav-empty">No page matches “{filter}”.</p>}
         </nav>
         <div className="side-foot">
           {canSwitch && (
@@ -319,12 +327,12 @@ function Console({ session: signedIn, updateSession, page, setPage, reportId, se
               <>
                 <strong>{session.name}</strong>
                 <span className="muted small">
-                  {session.role.replace('_', ' ')} · {session.scope ? `${session.scope.name} (${session.scope.kind})` : 'whole service'}
+                  {roleLabel(session.role)} · {session.scope ? `${session.scope.name} (${session.scope.kind})` : 'whole service'}
                 </span>
               </>
             }
             items={[
-              { label: 'Security and two-step sign-in', onSelect: () => go('security') },
+              { label: 'Security and two-step sign-in', onSelect: () => go('settings', 'security') },
               { label: 'Sign out', danger: true, onSelect: logout },
             ]}
           />
@@ -341,25 +349,7 @@ function Console({ session: signedIn, updateSession, page, setPage, reportId, se
           </div>
         </header>
         <main className="main" id="main" ref={mainRef} tabIndex={-1}>
-          <PageMeta.Provider value={{ eyebrow: here ? `${here.group} · ${here.label}` : undefined }}>
-          {place.key !== 'all' && ['overview', 'noshows', 'appeals', 'audit'].includes(page) && (
-            <p className="note" style={{ marginBottom: 14 }}>
-              This page always shows the whole service, not only {place.name}. Members, reports, content and identity checks are limited to {place.name}.
-            </p>
-          )}
-          {page === 'overview' && <OverviewPage go={(p) => setPage(p as PageId)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
-          {page === 'verifications' && <VerificationsPage me={session} />}
-          {page === 'reports' && <ReportsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} focusId={reportId} onClearFocus={() => setReportId(null)} onCall={() => go('oncall')} />}
-          {page === 'appeals' && <AppealsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
-          {page === 'noshows' && <NoShowsPage me={session} openUser={(id) => (setUserId(id), setPage('users'))} />}
-          {page === 'content' && <ContentPage me={session} />}
-          {page === 'users' && <UsersPage me={session} focusId={userId} onClearFocus={() => setUserId(null)} openReport={(id) => (setReportId(id), setPage('reports'))} />}
-          {page === 'staff' && can.admin(session.role) && <StaffPage me={session} />}
-          {page === 'audit' && can.trust(session.role) && <AuditPage openReport={(id) => (setReportId(id), setPage('reports'))} />}
-          {page === 'regions' && <RegionsPage me={session} />}
-          {page === 'oncall' && <OnCallPage me={session} />}
-          {page === 'security' && mfa.data && <SecurityPage status={mfa.data} onChanged={mfa.reload} />}
-          </PageMeta.Provider>
+          <PageMeta.Provider value={{ eyebrow: `${section.group} · ${section.label}`, ...(section.tabs ? { title: section.label, tabs } : {}) }}>{body}</PageMeta.Provider>
         </main>
       </div>
       {switching && <PlaceSwitcher current={place.key} onPick={pick} onClose={() => setSwitching(false)} />}
@@ -368,6 +358,7 @@ function Console({ session: signedIn, updateSession, page, setPage, reportId, se
   );
 }
 
+// ---------------------------------------------------------------- sign-in
 type LoginReply = { token?: string; refreshToken?: string; mfaRequired?: boolean; mfaToken?: string; user?: { email: string; role: Role; profile?: { displayName: string } } };
 
 function Login({ onDone }: { onDone: (s: Session) => void }) {

@@ -744,7 +744,7 @@ describe('HERE: create, discover, request, approve, chat', () => {
     outside.ws.close();
   });
 
-  it('pushes to a member whose app is open but not on screen, and not to one who is looking at it', async () => {
+  it('pushes to a member with the app open (shown as a banner), but not to one who has that chat open', async () => {
     const { WebSocket } = await import('ws');
     const waitFor = async (ok: () => boolean) => {
       for (let i = 0; i < 60 && !ok(); i++) await new Promise((r) => setTimeout(r, 50));
@@ -786,12 +786,17 @@ describe('HERE: create, discover, request, approve, chat', () => {
       await new Promise((r) => setTimeout(r, 150));
       await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'while hidden' });
       await waitFor(() => pushed.some((p) => p.body.includes('while hidden')));
-      // on screen: they see it live, so no push
+      // the app on screen, on another page: the push still goes out (the phone shows it as a banner, like WhatsApp)
       ws.send(JSON.stringify({ type: 'presence', visible: true }));
       await new Promise((r) => setTimeout(r, 150));
-      await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'while looking' });
+      await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'while in the app' });
+      await waitFor(() => pushed.some((p) => p.body.includes('while in the app')));
+      // this chat open on screen: they see it arrive, so no push
+      ws.send(JSON.stringify({ type: 'chat', id: conv.id }));
+      await new Promise((r) => setTimeout(r, 150));
+      await post(`/v1/conversations/${conv.id}/messages`, host.token, { body: 'while in the chat' });
       await new Promise((r) => setTimeout(r, 400));
-      assert.equal(pushed.some((p) => p.body.includes('while looking')), false);
+      assert.equal(pushed.some((p) => p.body.includes('while in the chat')), false);
     } finally {
       globalThis.fetch = realFetch;
       ws.close();

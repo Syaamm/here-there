@@ -17,11 +17,13 @@ Every failed request returns the same body:
 | Code | Status | What it means | What the app should do |
 | --- | --- | --- | --- |
 | `ADULT_CONFIRMATION_REQUIRED` | 400 | A new account via Apple or Google needs the 18+ confirmation first. | Show the confirmation, then send the request again with adultConfirmed: true. |
+| `AREA_REQUIRED` | 400 | A staff account must look after one city, region or country. | Choose an area. |
 | `BAD_REQUEST` | 400 | The request body could not be read (for example malformed JSON). | Fix the request; do not retry unchanged. |
 | `CODE_EXPIRED` | 400 | The confirmation code has expired. | Start the step again. |
 | `CONSENT_REQUIRED` | 400 | The person has not agreed to the identity document and facial check. | Show the consent screen before starting. |
 | `CONTENT_REJECTED` | 400 | The text broke a content rule (spam links, repetition, or a request for money). `message` says which. | Show the message and let the person edit the text. |
 | `DAY_OUT_OF_RANGE` | 400 | The day of a plan line is more than a week outside the dates of the trip. | Let the person pick a day inside the trip. |
+| `DRAFT_NEEDS_NAME` | 400 | A draft needs its name: the activity name, or where the trip goes. | Ask for the name first; keep Save draft off until there is one. |
 | `DRAFT_TOO_LARGE` | 400 | The draft is far longer than any real form. | Ask the person to shorten it. |
 | `EMAIL_REQUIRED` | 400 | The provider did not give a confirmed email address, which an account needs. | Offer email sign-up instead. |
 | `IMAGE_TOO_LARGE` | 400 | The picture is over the 6 MB limit. | Ask for a smaller picture. |
@@ -36,7 +38,6 @@ Every failed request returns the same body:
 | `INVALID_QUIET_HOURS` | 400 | Quiet hours cannot start and end at the same time. | Ask for a different start or end. |
 | `INVALID_SCHEDULE` | 400 | The start or end time breaks the rules (not far enough ahead, too long, end before start). | Ask the person to change the time. |
 | `INVALID_SETUP_CODE` | 400 | The first code from the authenticator app was wrong while switching two-step sign-in on. | Ask for the next code; check the phone clock. |
-| `INVALID_SHIFT` | 400 | The on-call shift is not allowed (ends before it starts, longer than 14 days, or the person is not active staff). | Show the message and let the administrator change it. |
 | `INVALID_TARGET` | 400 | The action cannot be aimed at that person (yourself, for example). | Hide the action for that target. |
 | `INVALID_TIMEZONE` | 400 | The time zone is not a known name (for example Europe/Rome). | Offer the time zones the phone knows. |
 | `LINK_EXPIRED` | 400 | A signed download link is older than its two minutes. | Ask for a new link. |
@@ -48,6 +49,7 @@ Every failed request returns the same body:
 | `SAME_EMAIL` | 400 | The new email address is the one already on the account. | Ask for a different address. |
 | `SAME_PASSWORD` | 400 | The new password equals the current one. | Ask for a different password. |
 | `TOO_MANY_ATTEMPTS` | 400 | Too many wrong codes were entered; the code is locked. | Ask for a new code. |
+| `TOO_MANY_PROOFS` | 400 | More than 3 proof photos were sent with one appeal or dispute, or too many photos are waiting unsent. | Send up to 3 photos with it, and send or remove the ones already added. |
 | `VALIDATION_FAILED` | 400 | One or more fields are missing or invalid. `details` lists each field as { path, message }. | Show each message next to its field. |
 | `VERIFICATION_METHOD_UNAVAILABLE` | 400 | The kind of identity check asked for (for example the document-only route) is not set up with the provider. | Offer the other route, or tell the person it is not available right now. |
 
@@ -80,6 +82,8 @@ Every failed request returns the same body:
 | `GUEST_READ_ONLY` | 403 | A guest ("explore demo") session tried to change something. | Offer to create an account. |
 | `INVITE_ONLY` | 403 | The activity or trip is by invitation only. | Hide the join button. |
 | `MFA_REQUIRED` | 403 | Staff must have two-step sign-in on to use this part of the console (or to turn it off). | Send the person to the Security page to set it up. |
+| `NO_AREA` | 403 | This staff account has no area yet, so it reaches nothing in the console. | Ask an admin to give the account an area on the Staff page. |
+| `NO_PERMISSION` | 403 | An admin has not given this staff account access to that part of the console. | Ask an admin to change your permissions on the Staff page. |
 | `NOT_A_MEMBER` | 403 | The person is not an approved member, so the group chat is closed to them. | Show "pending approval" or the join button, never the chat. |
 | `NOT_HOST` | 403 | Only the host of the activity can do this. | Hide the action for other people. |
 | `NOT_ORGANIZER` | 403 | Only the organizer of the trip can do this. | Hide the action for other people. |
@@ -113,6 +117,7 @@ Every failed request returns the same body:
 | `ACTIVITY_CLOSED` | 409 | The activity can no longer be edited, joined or saved (it was cancelled, started or finished). | Hide the edit, join, favourite and share actions. |
 | `ACTIVITY_FINISHED` | 409 | The activity has already finished. | Refresh and show it as completed. |
 | `ACTIVITY_FULL` | 409 | No seats left (the person may be put on the waiting list instead). | Show "full" or the waiting-list option. |
+| `ACTIVITY_NOT_STARTED` | 409 | The activity has not started yet, so it cannot be marked as completed. | Offer it once the start time has passed; before that the host can cancel it. |
 | `ALREADY_APPEALED` | 409 | This decision was already appealed once (a suspension: once every 30 days). | Show the earlier appeal and its answer. |
 | `ALREADY_APPLIED` | 409 | The person already has an application for this trip; the message names its state. | Show the existing application. |
 | `ALREADY_DECIDED` | 409 | This verification check was already decided. | Refresh the case. |
@@ -120,9 +125,11 @@ Every failed request returns the same body:
 | `ALREADY_VERIFIED` | 409 | The person is already verified; use "require re-verification" instead. | Refresh the case. |
 | `APPEAL_DECIDED` | 409 | A moderator already decided this appeal. | Reload the queue. |
 | `APPEAL_OPEN` | 409 | The person already has an appeal waiting for a decision. | Show it and tell them to wait for the answer. |
+| `APPLICANT_BUSY` | 409 | The person has joined or created another plan at the same time since they asked, so they cannot be approved. | Tell the host the person is busy then; the request stays as it is. |
 | `APPLICANT_UNAVAILABLE` | 409 | The applicant's account can no longer take part (suspended or deleted). | Refresh the list of requests. |
 | `APPLICATION_WITHDRAWN` | 409 | The applicant withdrew before the decision. | Refresh the list of applications. |
 | `ATTENDANCE_CLOSED` | 409 | Attendance can only be confirmed within 7 days after the end. | Hide the question. |
+| `ATTENDANCE_SET` | 409 | The person already said whether they were there; the answer is final. | Show their answer, without the buttons. |
 | `CANNOT_REMOVE_HOST` | 409 | The host cannot be removed from their own activity. | Hide "remove" on the host. |
 | `CANNOT_REMOVE_ORGANIZER` | 409 | The organizer cannot be removed from their own trip. | Hide "remove" on the organizer. |
 | `CAPACITY_BELOW_MEMBERS` | 409 | The new capacity is lower than the number of approved members. | Show the minimum allowed. |
@@ -160,8 +167,9 @@ Every failed request returns the same body:
 | `REFRESH_IN_PROGRESS` | 409 | Two refreshes of the same sign-in ran at the same moment. | Try again in a moment; keep one refresh at a time in the app. |
 | `REQUEST_IN_PROGRESS` | 409 | The first try of this request (same Idempotency-Key) is still being handled. | Wait a moment and send it again with the same key. |
 | `REQUEST_WITHDRAWN` | 409 | The applicant withdrew this request before the decision. | Refresh the list of requests. |
+| `TIME_CLASH` | 409 | You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. | Show the clashing plans with when each ends, and offer to leave, cancel or withdraw them, or pick another time. |
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
-| `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (5). | Ask them to finish or cancel one. |
+| `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (10). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
 | `TRIP_CLOSED` | 409 | The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over). | Hide the edit, apply, favourite and share actions. |
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |

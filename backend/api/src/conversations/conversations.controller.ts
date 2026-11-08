@@ -14,6 +14,9 @@ import { PushService } from '../common/push.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { contentProblem, parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RegionsService } from '../regions/regions.service';
+import { ClashService, tripWindow } from '../schedule/clash.service';
+import { tripCities } from '../common/live.service';
 import { SafetyService } from '../safety/safety.service';
 
 export const sendSchema = z.object({ body: z.string().trim().min(1).max(2000) });
@@ -41,6 +44,8 @@ export class ConversationsService {
     private readonly events: EventBus,
     private readonly push: PushService,
     private readonly audit: AuditService,
+    private readonly clash: ClashService,
+    private readonly regions: RegionsService,
   ) {}
 
   /**
@@ -318,8 +323,9 @@ export class ConversationsService {
   }
 
   /**
-   * The organizer closes a poll. With `adopt` the poll's dates become the trip's final dates and every member is asked
-   * to confirm them (nobody is committed until they do). The change is written into the chat and the audit log.
+   * The organizer closes a poll. With `adopt` the poll's dates become the trip's dates AT ONCE, everywhere (feed, trip page, chat,
+   * My trips), every member is told by an alert and a push, and the change is written into the chat and the audit log. The
+   * organizer's choice is final: there is no second round of confirmation. The same checks as editing a trip's dates apply.
    */
   async closePoll(me: User, pollId: string, body: unknown) {
     const { adopt } = parse(z.object({ adopt: z.boolean().default(false) }), body);
@@ -332,18 +338,22 @@ export class ConversationsService {
     if (adopt && (!poll.dateStart || !poll.dateEnd)) throw E.badRequest('NO_DATES', 'This poll has no dates to adopt');
 
     if (adopt) {
+      if (['cancelled', 'completed'].includes(trip.status)) throw E.conflict('TRIP_CLOSED', 'This trip can no longer change its dates');
+      if (poll.dateStart! <= new Date()) throw E.badRequest('INVALID_DATES', 'These dates are no longer in the future');
+      // the same checks as the organizer editing the dates: how far ahead a trip may be planned, and one plan at a time
+      await this.regions.assertWithinLimit('there', trip.originCity, poll.dateEnd! > poll.dateStart! ? poll.dateEnd! : poll.dateStart!, 'INVALID_DATES');
+      await this.clash.assertFree(me.id, ...tripWindow({ dateStart: poll.dateStart!, dateEnd: poll.dateEnd! }), { kind: 'trip', id: trip.id });
       await this.prisma.$transaction(async (tx) => {
-        await tx.trip.update({ where: { id: trip.id }, data: { dateStart: poll.dateStart!, dateEnd: poll.dateEnd!, dateFlexibility: 'exact', datesState: 'proposed' } });
+        await tx.trip.update({ where: { id: trip.id }, data: { dateStart: poll.dateStart!, dateEnd: poll.dateEnd!, dateFlexibility: 'exact', datesState: 'tentative' } });
         await tx.tripPoll.update({ where: { id: pollId }, data: { state: 'adopted' } });
-        // everyone starts unconfirmed except the organizer, who is the one proposing them
-        await tx.tripMembership.updateMany({ where: { tripId: trip.id, state: 'approved' }, data: { datesConfirmed: false } });
-        await tx.tripMembership.updateMany({ where: { tripId: trip.id, userId: me.id }, data: { datesConfirmed: true } });
       });
       const range = fmtRange(poll.dateStart!, poll.dateEnd!);
-      await this.postMessage(conv, me, `Final dates proposed: ${range}. Everyone in the group: please confirm you can travel on these dates.`, { kind: 'system' });
+      await this.postMessage(conv, me, `New dates: ${range}. The trip's dates have been updated for everyone.`, { kind: 'system' });
       const members = (await this.prisma.tripMembership.findMany({ where: { tripId: trip.id, state: 'approved' } })).map((m) => m.userId).filter((u) => u !== me.id);
-      await this.notifications.notifyMany(members, 'trip_dates_proposed', `Confirm the dates: ${trip.title}`, `The organizer proposed ${range}. Open the trip to confirm you can go.`, { tripId: trip.id });
-      await this.audit.log(me.id, 'trip.dates_proposed', 'trip', trip.id, { pollId, from: trip.dateStart, to: trip.dateEnd });
+      await this.notifications.notifyMany(members, 'trip_changed', `New dates: ${trip.title}`, range, { tripId: trip.id });
+      await this.audit.log(me.id, 'trip.dates_set_by_poll', 'trip', trip.id, { pollId, from: trip.dateStart, to: trip.dateEnd, now: [poll.dateStart, poll.dateEnd] });
+      // the trip's dates changed: every list that shows it (feed, My trips, the trip page) updates at once
+      this.events.emit({ type: 'trip.changed', id: trip.id, cities: tripCities(trip) });
     } else {
       await this.prisma.tripPoll.update({ where: { id: pollId }, data: { state: 'closed' } });
       await this.postMessage(conv, me, `Poll closed: ${poll.title}`, { kind: 'system' });
@@ -360,6 +370,7 @@ export class ConversationsService {
     if (+new Date() >= +trip.dateEnd + DAY) throw E.conflict('TRIP_CLOSED', 'This trip is over, so its dates can no longer be confirmed');
     if (trip.datesState !== 'proposed') throw E.conflict('NO_DATES_TO_CONFIRM', 'There are no final dates waiting for confirmation');
     await this.prisma.tripMembership.update({ where: { tripId_userId: { tripId, userId: me.id } }, data: { datesConfirmed: true } });
+    await this.notifications.markDone(me.id, 'trip_dates_proposed', `"tripId":"${tripId}"`); // its "Confirm the dates" alert is answered
     const members = await this.prisma.tripMembership.findMany({ where: { tripId, state: 'approved' } });
     const confirmed = members.filter((m) => m.datesConfirmed).length;
     if (confirmed === members.length) {
@@ -414,9 +425,9 @@ export class ConversationsService {
       (await this.prisma.notification.findMany({ where: { userId: { in: recipients }, type: 'chat_message', readAt: null, data: { contains: marker } }, select: { id: true, userId: true, data: true } })).map((n) => [n.userId, n] as const),
     );
     const tell = async (userId: string) => {
-      // push: to people who are not in the app right now, if their settings and quiet hours allow it, and at most about one a
-      // minute per chat (the rest are counted in the one alert in their list)
-      this.push.queue(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}`, alert: { type: 'chat_message' }, group: `chat:${conv.id}` });
+      // push: every message, to everyone not looking at this chat (in the app or not), if their settings and quiet hours allow it;
+      // sent straight away, without the job queue (see PushService.sendNow)
+      this.push.sendNow(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}`, alert: { type: 'chat_message' } });
       const prev = unread.get(userId);
       if (prev) {
         // grouped: still one alert for this chat, now with a count and the newest message, moved back to the top of the list

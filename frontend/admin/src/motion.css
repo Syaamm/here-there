@@ -79,3 +79,47 @@
   .nav:nth-child(n + 5) { animation-delay: 120ms; }
   .spinner { animation-duration: 0.7s; }
 }
+
+/* ---------------------------------------------------------------- the current pages (stat tiles, cards, lists, charts) */
+@media (prefers-reduced-motion: no-preference) {
+  /* tiles and cards step in one after another */
+  .stats > *, .grid-2 > *, .grid-3 > *, .page-body > .card, .page-body > section.card { animation: mo-rise 0.4s var(--mo-ease) backwards; }
+  .stats > :nth-child(2), .grid-2 > :nth-child(2), .grid-3 > :nth-child(2) { animation-delay: 50ms; }
+  .stats > :nth-child(3), .grid-3 > :nth-child(3) { animation-delay: 100ms; }
+  .stats > :nth-child(4) { animation-delay: 150ms; }
+  .stats > :nth-child(n + 5) { animation-delay: 200ms; }
+  .page-body > section.card:nth-of-type(n + 2) { animation-delay: 180ms; }
+
+  /* list rows: the first few step in, the rest just appear */
+  .items > li { animation: mo-fade 0.3s var(--mo-ease) backwards; }
+  .items > li:nth-child(2) { animation-delay: 25ms; }
+  .items > li:nth-child(3) { animation-delay: 50ms; }
+  .items > li:nth-child(4) { animation-delay: 75ms; }
+  .items > li:nth-child(5) { animation-delay: 100ms; }
+  .items > li:nth-child(n + 6) { animation-delay: 125ms; }
+  .table-scroll tbody tr { animation: mo-fade 0.3s var(--mo-ease) backwards; }
+  .table-scroll tbody tr:nth-child(2) { animation-delay: 25ms; }
+  .table-scroll tbody tr:nth-child(3) { animation-delay: 50ms; }
+  .table-scroll tbody tr:nth-child(n + 4) { animation-delay: 75ms; }
+  .group-head { animation: mo-fade 0.3s ease backwards; }
+
+  /* stat tiles and cards answer the pointer with a small lift; the shadow only shows on hover */
+  .stat, .card, .split-list, .split-detail { transition: transform 0.18s var(--mo-ease), box-shadow 0.2s ease, border-color 0.15s ease, background-color 0.15s ease; }
+  button.stat:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(18, 48, 43, 0.09); }
+  button.stat:active { transform: scale(0.99); box-shadow: none; }
+  .stat.hot:hover { box-shadow: 0 10px 24px rgba(18, 48, 43, 0.22); }
+
+  /* the day chart: bars grow from the axis, the hovered day lights up */
+  .chart-fill.daybars { animation: none; }
+  .daybars .dbar { transform-box: fill-box; transform-origin: center bottom; animation: mo-grow-y 0.55s var(--mo-ease) backwards; transition: opacity 0.15s ease; }
+  .daybars .bar-hover { animation: mo-fade 0.12s ease backwards; }
+
+  /* tabs and filters slide their highlight instead of snapping */
+  .page-tabs .tab { transition: color 0.15s ease, border-color 0.2s ease; }
+  .seg { transition: background-color 0.2s var(--mo-ease), color 0.15s ease; }
+
+  /* the person or report on the right fades in when it changes */
+  .split-detail .detail-scroll > * { animation: mo-fade 0.26s var(--mo-ease) backwards; }
+  .split-detail .detail-scroll > :nth-child(2) { animation-delay: 30ms; }
+  .split-detail .detail-scroll > :nth-child(n + 3) { animation-delay: 60ms; }
+}

@@ -241,4 +241,11 @@ export const account: Record<string, string> = {
   'What reaches you': 'Cosa ti arriva',
   'Choose alerts and quiet hours': 'Scegli gli avvisi e le ore di silenzio',
   'Account & Security': 'Account e sicurezza',
+  'On · Open phone settings': 'Attive · Apri le impostazioni del telefono',
+  'Blocked · Open phone settings to allow': 'Bloccate · Apri le impostazioni del telefono per consentirle',
+  'Hold to keep going': 'Tieni premuto per continuare',
+  'A moderator warned you': 'Un moderatore ti ha avvisato',
+  'A moderator removed your message': 'Un moderatore ha rimosso il tuo messaggio',
+  'What the moderator said': 'Cosa ha scritto il moderatore',
+  'If you think this is a mistake, ask for a review below. Another member of staff will look at it.': 'Se pensi che sia un errore, chiedi una revisione qui sotto. Un altro membro dello staff la esaminerà.',
 };

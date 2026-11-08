@@ -1,4 +1,4 @@
-export type ToastMessage = { id: number; text: string; tone: 'ok' | 'error'; /** how long it stays, in milliseconds (3 seconds when not given) */ ms?: number };
+export type ToastMessage = { id: number; text: string; tone: 'ok' | 'error' | 'warn'; /** how long it stays, in milliseconds (3 seconds when not given) */ ms?: number };
 
 const listeners = new Set<(t: ToastMessage) => void>();
 let counter = 0;

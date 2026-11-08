@@ -1,7 +1,8 @@
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { View } from 'react-native';
+import { Stack, useNavigation, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, BackHandler, View } from 'react-native';
+import { CityField } from '@/components/OnboardingParts';
 import { AuthButton, AuthField } from '@/components/AuthForm';
 import { SmallPill, TogglePill } from '@/components/ProfileParts';
 import { Text } from '@/components/ScaledText';
@@ -31,10 +32,54 @@ export default function EditProfile() {
     interests: p?.interests ?? [],
   });
   const photo = useAction(() => void reload());
+  const saved = useRef(false); // once saved, leaving needs no question
   const save = useAction(() => {
+    saved.current = true;
     void reload();
     router.canGoBack() ? router.back() : router.replace('/profile');
   });
+  const body = () => ({ displayName: f.displayName.trim(), homeCity: f.homeCity.trim() || null, bio: f.bio.trim() || null, languages: f.languages, interests: f.interests });
+
+  // Unsaved edits: leaving is held until the person saves them or throws them away. Each way out is handled here directly:
+  // the back button at the top asks first, Android's back button is caught, and the iPhone swipe back is switched off while
+  // there are changes (a navigation "beforeRemove" listener alone did not fire for the back button here).
+  const navigation = useNavigation() as unknown as { addListener: (ev: 'beforeRemove', cb: (e: { preventDefault: () => void; data: { action: unknown } }) => void) => () => void; dispatch: (action: never) => void };
+  const start = useRef(JSON.stringify(f));
+  const dirty = JSON.stringify(f) !== start.current;
+  const leaving = useRef(false); // discarded (or saved): the way out is open
+  const latest = useRef({ dirty, body });
+  latest.current = { dirty, body };
+  const leave = () => {
+    leaving.current = true;
+    router.canGoBack() ? router.back() : router.replace('/settings' as never);
+  };
+  const ask = () =>
+    Alert.alert(t('Unsaved changes'), t('You changed your profile. Save the changes before leaving, or discard them?'), [
+      { text: t('Keep editing'), style: 'cancel' },
+      { text: t('Discard'), style: 'destructive', onPress: leave },
+      { text: t('Save changes'), onPress: () => void save.run(() => patch('/v1/me/profile', latest.current.body())) },
+    ]);
+  const back = () => (latest.current.dirty && !saved.current ? ask() : leave());
+  // Android's back button
+  useEffect(() => {
+    if (!dirty) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (saved.current || leaving.current) return false;
+      ask();
+      return true;
+    });
+    return () => sub.remove();
+  }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  // and anything else that would take the page away (kept as a safety net)
+  useEffect(
+    () =>
+      navigation.addListener('beforeRemove', (e) => {
+        if (saved.current || leaving.current || !latest.current.dirty) return;
+        e.preventDefault();
+        ask();
+      }),
+    [navigation], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   if (!p) return null;
 
   const pick = async () => {
@@ -44,7 +89,8 @@ export default function EditProfile() {
   };
 
   return (
-    <Screen tabBar>
+    <Screen tabBar onBack={back}>
+      <Stack.Screen options={{ gestureEnabled: !dirty }} />
       <View style={{ alignItems: 'center', gap: 16 }}>
         <Avatar name={f.displayName || p.displayName} uri={p.photoUrl} size={100} />
         <Row style={{ gap: 14 }}>
@@ -58,7 +104,8 @@ export default function EditProfile() {
       <ErrorBanner message={save.error} />
       <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={(v) => setF((x) => ({ ...x, displayName: v }))} maxLength={40} autoComplete="name" textContentType="name" autoCapitalize="words" />
       <AuthField label={t('About you')} hint={`${f.bio.length}/${BIO_MAX}`} placeholder={t('A few words about you')} multiline value={f.bio} onChangeText={(v) => setF((x) => ({ ...x, bio: v.slice(0, BIO_MAX) }))} maxLength={BIO_MAX} style={{ minHeight: 96, borderRadius: 28, textAlignVertical: 'top', paddingTop: 14 }} />
-      <AuthField label={t('Home city (city only)')} placeholder={t('Your city')} value={f.homeCity} onChangeText={(v) => setF((x) => ({ ...x, homeCity: v }))} maxLength={60} />
+      <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Home city (city only)')}</Text>
+      <CityField value={f.homeCity} onPick={(name) => setF((x) => ({ ...x, homeCity: name }))} />
 
       <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Languages')}</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

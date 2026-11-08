@@ -1,7 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { tap } from './haptics';
 import { usePathname } from 'expo-router';
-import { createContext, memo, useContext, useEffect, useRef } from 'react';
+import { createContext, memo, useContext, useEffect, useRef, useSyncExternalStore } from 'react';
 import { Animated, Easing, Platform, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '@/lib/layout';
@@ -51,11 +51,32 @@ const SHADOW = '#0B2620';
  * The tab bar's backdrop (phones): a soft fade so page content melts out behind the dock, and the white pill.
  * The pill is opaque so its shadow/elevation never shows through it as a grey box.
  */
+// While a calendar (or anything else that dims the page) is open, the dock's soft ivory fade would show as a pale bar under it
+// against the dimmed page: whatever dims the page asks for it to be left out, and the pill stays.
+let fadeOff = 0;
+const fadeWatchers = new Set<() => void>();
+const watchFade = (fn: () => void) => {
+  fadeWatchers.add(fn);
+  return () => void fadeWatchers.delete(fn);
+};
+export function useHideDockFade(hide: boolean) {
+  useEffect(() => {
+    if (!hide) return;
+    fadeOff++;
+    fadeWatchers.forEach((f) => f());
+    return () => {
+      fadeOff--;
+      fadeWatchers.forEach((f) => f());
+    };
+  }, [hide]);
+}
+
 export const DockBackground = memo(function DockBackground({ bottom }: { bottom: number }) {
   const { c } = useTheme();
+  const noFade = useSyncExternalStore(watchFade, () => fadeOff > 0);
   return (
     <>
-      <LinearGradient pointerEvents="none" colors={[c.fadeFrom, c.fadeTo]} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
+      {noFade ? null : <LinearGradient pointerEvents="none" colors={[c.fadeFrom, c.fadeTo]} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />}
       <View
         pointerEvents="none"
         style={{

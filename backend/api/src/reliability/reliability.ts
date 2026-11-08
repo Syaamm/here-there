@@ -13,7 +13,7 @@
  * Old events fade (half-life 180 days) and drop out after 2 years.
  */
 export type Level = 'new' | 'reliable' | 'very_reliable' | 'needs_care';
-export const LEVEL_LABEL: Record<Level, string> = { new: 'New', reliable: 'Reliable', very_reliable: 'Very reliable', needs_care: 'Needs care' };
+export const LEVEL_LABEL: Record<Level, string> = { new: 'New', reliable: 'Reliable', very_reliable: 'Very reliable', needs_care: 'Building trust' }; // renamed from 'Needs care' by the owner, 2026-11-08: it read as a judgement
 
 export type FactKind = 'kept' | 'no_show' | 'late_cancel' | 'host_late_cancel' | 'upheld_report';
 export type Fact = { kind: FactKind; at: Date; label: string };
@@ -132,7 +132,7 @@ export function nextStep(s: Summary): string {
 export function reliabilityInfo() {
   const years = HORIZON_DAYS / 365;
   return [
-    { what: 'What it is', how: 'A level that shows how dependable someone has been at turning up: New, Reliable, Very reliable or Needs care.', why: 'It helps hosts and members choose who to meet. It is not a score to compete on.' },
+    { what: 'What it is', how: 'A level that shows how dependable someone has been at turning up: New, Reliable, Very reliable or Building trust.', why: 'It helps hosts and members choose who to meet. It is not a score to compete on.' },
     { what: 'What counts', how: 'Plans and trips you were approved for that have finished. Ones that were cancelled, or that you only asked to join, do not.', why: 'Only real, completed meetups should shape a level.' },
     { what: 'Starting out', how: `Everyone starts as New. After ${RELIABLE_AT} kept plans you become Reliable, and after ${VERY_RELIABLE_AT} with a clean record, Very reliable.`, why: 'A newcomer is never marked down just for having no history.' },
     { what: 'What lowers it', how: `A host saying you did not come (if you do not dispute it), leaving a plan in its last ${LATE_ACTIVITY_H} hours, or a report that a moderator upheld.`, why: 'Reports on their own never count. A moderator has to uphold them.' },

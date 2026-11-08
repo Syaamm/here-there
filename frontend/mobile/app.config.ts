@@ -14,6 +14,7 @@ const path = require('path') as { resolve(...parts: string[]): string };
 // APP_ENV only switches behaviour (cleartext HTTP, code shrinking), never the id or name.
 const APP_ID = 'io.herethere.app';
 const isProd = process.env.APP_ENV === 'production';
+const isRelease = isProd || process.env.APP_ENV === 'preview';
 // The domain whose shared links (/a/<id>, /t/<id>) open the app straight from a message. Set it for store builds; it also
 // needs the two files the API serves under /.well-known (see deployment/FOR_DEPLOYMENT.md).
 const SHARE_DOMAIN = process.env.SHARE_DOMAIN?.trim();
@@ -50,10 +51,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'here-there',
   owner: 'cloudhouse-production',
   scheme: 'herethere',
-  version: '0.1.0',
+  // the app's version comes from package.json only (one place to raise it before every build: see CLAUDE.md > Builds)
+  version: (require('./package.json') as { version: string }).version,
   // Raise runtimeVersion whenever native code changes (new library, permission, icon, push setup). A code-only change is sent as an
   // update (OTA) to builds with the same runtimeVersion. The app asks first (see components/UpdatePrompt), so checkAutomatically is off.
-  runtimeVersion: '1',
+  runtimeVersion: '2',
   updates: {
     url: `https://u.expo.dev/${process.env.EAS_PROJECT_ID ?? '4005c1f6-33e1-4757-b262-cfa7643b5b9b'}`,
     checkAutomatically: 'NEVER',
@@ -111,12 +113,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Listed before expo-notifications on purpose: Expo runs the manifest changes of the last plugin first, so this one must come
     // first in the list to run after expo-notifications has added the entry it patches.
     './plugins/with-notification-color-override.js',
+    // release APKs (production, preview) carry only real-phone processor code: smaller download; development keeps emulator code
+    ...(isRelease ? ['./plugins/with-phone-abis.js'] : []),
     ['expo-notifications', { color: '#102F29' }],
     [
       'expo-location',
       {
         locationWhenInUsePermission:
-          'HERE & THERE uses your approximate location only when you tap "Near me", to show activities close to you. It is never shared with other people.',
+          'HERE & THERE uses your approximate location only when you tap "Near me" or "Use my location", to show activities close to you and to find your city. It is never shared with other people.',
       },
     ],
     // Plain HTTP to a dev machine is blocked on Android by default. Allowed only outside production.

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ProofPhotos } from '@/components/ProofPhotos';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { Btn, Card, Chip, ErrorBanner, Field, Row, Screen, Sheet, Spinner, Txt } from '@/components/ui';
 import { get, post, type MyNoShow, type MyReliability } from '@/lib/api';
@@ -14,9 +15,11 @@ export default function Reliability() {
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([rel.reload(), notes.reload()]));
   const [disputing, setDisputing] = useState<MyNoShow | null>(null);
   const [text, setText] = useState('');
+  const [proofs, setProofs] = useState<string[]>([]); // photos added as proof (a screenshot of the chat, say)
   const send = useAction(() => {
     setDisputing(null);
     setText('');
+    setProofs([]);
     void notes.reload();
     void rel.reload();
   });
@@ -49,7 +52,9 @@ export default function Reliability() {
       <Sheet visible={!!disputing} title={t('Dispute')} onClose={() => setDisputing(null)}>
         <ErrorBanner message={send.error} />
         <Field label={t('What happened?')} value={text} onChangeText={setText} multiline maxLength={500} />
-        <Btn title={t('Send')} onPress={() => void send.run(() => post(`/v1/no-shows/${disputing!.id}/dispute`, { note: text.trim() }))} loading={send.busy} disabled={text.trim().length < 3} />
+        {/* a screenshot of the chat, say: up to 3 photos, only you and the moderators can see them */}
+        <ProofPhotos key={disputing?.id ?? 'none'} onChange={setProofs} />
+        <Btn title={t('Send')} onPress={() => void send.run(() => post(`/v1/no-shows/${disputing!.id}/dispute`, { note: text.trim(), ...(proofs.length ? { proofIds: proofs } : {}) }))} loading={send.busy} disabled={text.trim().length < 3} />
       </Sheet>
     </Screen>
   );

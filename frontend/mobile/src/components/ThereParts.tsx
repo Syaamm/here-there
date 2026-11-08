@@ -6,12 +6,13 @@ import { AccessibilityInfo, Animated, Easing, Modal, PanResponder, Pressable, Sc
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DockSpace } from '@/lib/dock';
 import { useMe } from '@/lib/auth';
-import { useKeyboardOverlap } from '@/lib/keyboard';
+import { useKeyboardOverlap, keyboardTaps } from '@/lib/keyboard';
 import { useLayout } from '@/lib/layout';
 import { useT } from '@/lib/i18n';
-import { sc } from '@/lib/scale';
+import { sc, tracking } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { TRIP_PHOTOS } from './Cards';
+import { RoundPhoto } from './CreateParts';
 import { Text, TextInput } from './ScaledText';
 import { Avatar, Btn, pressed, Sheet, Field } from './ui';
 
@@ -25,7 +26,7 @@ export function ThereBrand() {
   const { t } = useT();
   return (
     <View style={{ gap: 3 }}>
-      <Text accessibilityRole="header" accessibilityLabel="THERE" style={{ color: c.onBand, fontSize: 24, lineHeight: 30, fontWeight: '700', letterSpacing: -1 }}>
+      <Text accessibilityRole="header" accessibilityLabel="THERE" style={{ color: c.onBand, fontSize: 24, lineHeight: 30, fontWeight: '700', letterSpacing: tracking(-1) }}>
         THERE<Text style={{ color: c.bandDot }}>.</Text>
       </Text>
       <Text style={{ color: c.onBandMuted, fontSize: 12, lineHeight: 16 }}>{t('Be Here.Go There.')}</Text>
@@ -128,7 +129,7 @@ export function TripStyleChips({ value, onChange }: { value: string | null; onCh
   const { c } = useTheme();
   const { gutter } = useLayout();
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 10, paddingVertical: 3 }}>
+    <ScrollView horizontal overScrollMode="never" showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 10, paddingVertical: 3 }}>
       {TRIP_STYLES.map((k) => {
         const on = value === k;
         return (
@@ -138,9 +139,9 @@ export function TripStyleChips({ value, onChange }: { value: string | null; onCh
             accessibilityState={{ selected: on }}
             accessibilityLabel={t(styleLabel(k))}
             onPress={() => onChange(on ? null : k)}
-            style={({ pressed: p }) => [{ minHeight: sc(44), borderRadius: 22, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 14 }, pressed(p)]}
+            style={({ pressed: p }) => [{ borderRadius: 999, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: sc(8), paddingVertical: sc(3), paddingLeft: sc(3), paddingRight: sc(14) }, pressed(p)]}
           >
-            <Image source={TRIP_PHOTOS[k]} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ width: 36, height: 36, borderRadius: 18, borderWidth: on ? 1.5 : 0, borderColor: '#fff' }} />
+            <RoundPhoto source={TRIP_PHOTOS[k]} size={sc(36)} ring={on} />
             <Text numberOfLines={1} style={{ color: on ? '#fff' : c.forest, fontSize: 14, includeFontPadding: false }}>{t(styleLabel(k))}</Text>
           </Pressable>
         );
@@ -299,7 +300,7 @@ export function ThereFilterSheet({ visible, onClose, children, footer, overlay }
   }, [visible]);
   if (!mounted) return null;
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <DockSpace.Provider value={0}>
         <Animated.View ref={box} onLayout={onLayout} style={{ flex: 1, justifyContent: isTablet ? 'center' : 'flex-end', paddingBottom: keyboard }}>
           <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.45)', opacity: slide }]}>
@@ -321,7 +322,7 @@ export function ThereFilterSheet({ visible, onClose, children, footer, overlay }
               </View>
               <View style={{ height: 1, backgroundColor: 'rgba(0,0,0,0.12)', marginTop: 8 }} />
             </View>
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 22, paddingBottom: 20, gap: 26 }}>
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 22, paddingBottom: 20, gap: 26 }}>
               {shown.current.children}
             </ScrollView>
             <View style={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: insets.bottom + 16, gap: 8, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)', backgroundColor: c.bg }}>{shown.current.footer}</View>

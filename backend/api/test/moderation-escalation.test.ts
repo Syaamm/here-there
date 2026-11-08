@@ -6,15 +6,11 @@ let h: Awaited<ReturnType<typeof startHarness>>;
 let adminToken = '';
 before(async () => {
   process.env.ACCESS_TOKEN_MINUTES = '600'; // a slow machine can take longer than the usual 15 minutes
-  process.env.ON_CALL_OWNER_EMAIL = 'owner@example.com';
-  process.env.ON_CALL_OWNER_PHONE = '+390000000000';
-  h = await startHarness('oncall' + (process.env.TEST_DB_TAG ?? ''), { queueWrites: true });
+  h = await startHarness('escalation' + (process.env.TEST_DB_TAG ?? ''), { queueWrites: true });
   adminToken = (await h.post('/v1/auth/login', undefined, { email: 'admin@example.com', password: 'admin-password-1' })).body.token;
 });
 after(async () => {
   await h?.stop();
-  delete process.env.ON_CALL_OWNER_EMAIL;
-  delete process.env.ON_CALL_OWNER_PHONE;
 });
 
 type Person = { token: string; id: string; email: string };
@@ -22,10 +18,9 @@ const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
 const alerts = async (u: { token: string }, type: string) => (await h.get('/v1/notifications', u.token)).body.items.filter((n: { type: string }) => n.type === type);
 const mails = () => (h.emailSvc.outbox as { to: string; subject: string; text: string }[]).slice();
 
-async function staff(name: string, role = 'moderator'): Promise<Person> {
-  const s = await h.verified(name);
-  await h.prisma.user.update({ where: { id: s.id }, data: { role } });
-  return s;
+/** Staff for a city (Milan, where everyone in these tests lives, unless said), with every permission unless some are given. */
+async function staff(name: string, opts: { city?: string; permissions?: string[] } = {}): Promise<Person> {
+  return h.staff(name, opts);
 }
 let n = 0;
 /** A report about a fresh target, made through the API, then backdated to `ageMinutes`. */
@@ -107,10 +102,11 @@ describe('the moderation queue is worked in a fixed order: urgency first, then h
 });
 
 describe('when nobody answers: escalation, in steps, each once', () => {
-  it('an urgent report nobody has taken goes up at 1 hour (on-call, seniors, the person who reported) and again at 2 hours (every administrator and the owner)', async () => {
+  it('an urgent report nobody has taken goes up at 1 hour (seniors, the person who reported) and again at 2 hours (every administrator)', async () => {
     const { ModerationService } = await import('../src/moderation/moderation.controller');
     const svc = h.app.get(ModerationService);
-    const lead = await staff('EscLead', 'trust_lead');
+    const lead = await staff('EscLead');
+    const romeStaff = await staff('EscRome', { city: 'Rome' });
     const mod = await staff('EscMod');
     const reporter = await h.verified('EscUrgentReporter');
     // start from an empty queue: reports the earlier tests left open (one is a day old) must not be escalated in the middle of this one
@@ -128,9 +124,9 @@ describe('when nobody answers: escalation, in steps, each once', () => {
     assert.equal((await h.prisma.report.findUnique({ where: { id: r.id } })).escalationLevel, 1);
     assert.equal((await svc.escalateOverdue()), 0, 'level 1 happens once');
     const level1 = mails().slice(before);
-    assert.ok(level1.some((m) => m.to === lead.email && /unanswered/i.test(m.subject)), 'the trust lead is emailed');
+    assert.ok(level1.some((m) => m.to === lead.email && /unanswered/i.test(m.subject)), 'the staff of the city are emailed');
+    assert.ok(!level1.some((m) => m.to === romeStaff.email), 'staff of another city are not');
     assert.ok(level1.some((m) => m.to === 'admin@example.com'));
-    assert.ok(!level1.some((m) => m.to === 'owner@example.com'), 'the owner is only for level 2');
     assert.ok(level1.every((m) => !/details/.test(m.text)), 'a page never carries what the report says');
     assert.ok((await alerts(lead, 'report_escalated')).length >= 1);
     // the person who reported hears that we are late, and the emergency number
@@ -138,16 +134,15 @@ describe('when nobody answers: escalation, in steps, each once', () => {
     assert.match(told.body, /112/);
     assert.match(told.title, /not answered/);
 
-    // 121 minutes and still nobody has taken it: level 2, every administrator and the owner contact, marked critical
+    // 121 minutes and still nobody has taken it: level 2, every administrator, marked critical
     await h.prisma.report.update({ where: { id: r.id }, data: { createdAt: minutesAgo(121) } });
     const before2 = mails().length;
-    const texts = h.app.get((await import('../src/common/sms.service')).SmsService).outbox.length;
     await svc.escalateOverdue();
     assert.equal((await h.prisma.report.findUnique({ where: { id: r.id } })).escalationLevel, 2);
     const level2 = mails().slice(before2);
-    assert.ok(level2.some((m) => m.to === 'owner@example.com' && /CRITICAL/.test(m.subject)), 'the owner contact is told');
     assert.ok(level2.some((m) => m.to === 'admin@example.com' && /CRITICAL/.test(m.subject)));
-    assert.ok(h.app.get((await import('../src/common/sms.service')).SmsService).outbox.length > texts, 'and the owner is texted');
+    assert.ok(!level2.some((m) => m.to === lead.email), 'level 2 is for administrators');
+    assert.ok((await alerts({ token: adminToken }, 'report_escalated')).some((a: { title: string }) => /CRITICAL/.test(a.title)));
     assert.equal(await svc.escalateOverdue(), 0, 'level 2 happens once');
     assert.equal((await h.prisma.auditEvent.count({ where: { action: 'report.escalated', objectId: r.id } })), 2, 'both steps are in the audit trail');
     // the queue shows the level
@@ -165,13 +160,13 @@ describe('when nobody answers: escalation, in steps, each once', () => {
     const before = mails().length;
     await svc.escalateOverdue();
     assert.equal((await h.prisma.report.findUnique({ where: { id: r.id } })).escalationLevel, 1);
-    assert.ok(!mails().slice(before).some((m) => m.to === 'owner@example.com'));
+    assert.ok(!mails().slice(before).some((m) => /CRITICAL/.test(m.subject)));
   });
 
   it('a normal report goes up once, after a day, and never pages anyone or reaches level 2', async () => {
     const { ModerationService } = await import('../src/moderation/moderation.controller');
     const svc = h.app.get(ModerationService);
-    const lead = await staff('NormalLead', 'trust_lead');
+    const lead = await staff('NormalLead');
     const r = await report('harassment', 23 * 60);
     assert.equal((await svc.escalateOverdue()) >= 0, true);
     assert.equal((await h.prisma.report.findUnique({ where: { id: r.id } })).escalationLevel, 0, 'not yet a day old');
@@ -179,7 +174,7 @@ describe('when nobody answers: escalation, in steps, each once', () => {
     const before = mails().length;
     await svc.escalateOverdue();
     assert.equal((await h.prisma.report.findUnique({ where: { id: r.id } })).escalationLevel, 1);
-    assert.ok((await alerts(lead, 'report_escalated')).length >= 1, 'the senior staff are told in the app');
+    assert.ok((await alerts(lead, 'report_escalated')).length >= 1, 'the staff of the city are told in the app');
     assert.equal(mails().length, before, 'no email or text for a normal report');
     assert.equal((await alerts(r.reporter, 'report_update')).length, 0, 'nor a message to the person who reported');
     await h.prisma.report.update({ where: { id: r.id }, data: { createdAt: minutesAgo(100 * 60) } });
@@ -188,59 +183,34 @@ describe('when nobody answers: escalation, in steps, each once', () => {
   });
 });
 
-describe('the on-call rota', () => {
-  it('pages the people on a shift (and nobody off shift) the moment an immediate-danger report arrives, by email and text', async () => {
-    const { encryptField } = await import('../src/common/vault');
-    const { SmsService } = await import('../src/common/sms.service');
-    const onDuty = await staff('OnDutyMod');
-    const offDuty = await staff('OffDutyMod');
-    await h.prisma.user.update({ where: { id: onDuty.id }, data: { phoneNumber: encryptField('+39 333 000 1111'), phoneVerifiedAt: new Date() } });
-    // a person who is not staff cannot be put on the rota, and a shift must make sense
-    const plain = await h.verified('RotaPlain');
-    const now = Date.now();
-    const shift = (userId: string, startMin: number, endMin: number) => h.post('/v1/admin/oncall', adminToken, { userId, startsAt: new Date(now + startMin * 60_000), endsAt: new Date(now + endMin * 60_000) });
-    assert.equal((await shift(plain.id, -10, 60)).body.code, 'INVALID_SHIFT');
-    assert.equal((await shift(onDuty.id, 60, 30)).body.code, 'INVALID_SHIFT', 'ends before it starts');
-    assert.equal((await shift(onDuty.id, 0, 60 * 24 * 15)).body.code, 'INVALID_SHIFT', 'longer than 14 days');
-    assert.equal((await h.post('/v1/admin/oncall', onDuty.token, { userId: onDuty.id, startsAt: new Date(now), endsAt: new Date(now + 3600e3) })).status, 403, 'only administrators set the rota');
-    const added = await shift(onDuty.id, -10, 240);
-    assert.equal(added.status, 201, JSON.stringify(added.body));
-    await shift(offDuty.id, 600, 900); // later today: not on call now
-
-    const overview = (await h.get('/v1/admin/oncall', offDuty.token)).body;
-    assert.equal(overview.fallback, false);
-    assert.deepEqual(overview.now.map((p: { id: string }) => p.id), [onDuty.id]);
-    assert.equal(overview.now[0].hasConfirmedPhone, true);
-    assert.equal(overview.steps.length, 3);
-
+describe('when an urgent report arrives', () => {
+  it('alerts and emails the admins and the staff of that city who work on reports, never with what the report says', async () => {
+    const mod = await staff('ArrivalMod');
+    const lead = await staff('ArrivalLead');
+    const rome = await staff('ArrivalRome', { city: 'Rome' });
+    const noReports = await staff('ArrivalNoReports', { permissions: ['users', 'content'] });
     const before = mails().length;
-    const sms = h.app.get(SmsService);
-    const smsBefore = sms.outbox.length;
     const r = await report('immediate_danger', 0);
-    const sent = mails().slice(before).filter((m) => /urgent report/i.test(m.subject)); // (sign-up codes for the people in the test are not pages)
-    assert.deepEqual(sent.map((m) => m.to), [onDuty.email], 'only the person on call is emailed');
-    assert.equal(sms.outbox.length - smsBefore, 1);
-    assert.equal(sms.outbox[sms.outbox.length - 1].to, '+39 333 000 1111');
-    assert.ok(!sent[0].text.includes('details'));
-    assert.ok((await alerts(onDuty, 'report_urgent')).some((a: { data: { oncall?: boolean } }) => a.data.oncall), 'and told in the app as the person on call');
-    const paged = await h.prisma.auditEvent.findFirst({ where: { action: 'report.oncall_paged', objectId: r.id } });
-    assert.equal(JSON.parse(paged.metadata).fallback, false);
-
-    // removing the shift: the next page falls back to the trust leads and administrators
-    assert.equal((await h.call('DELETE', `/v1/admin/oncall/${added.body.id}`, adminToken)).status, 200);
-    assert.equal((await h.call('DELETE', `/v1/admin/oncall/${added.body.id}`, adminToken)).status, 404);
-    await h.prisma.onCallShift.deleteMany({});
-    const fallback = (await h.get('/v1/admin/oncall', adminToken)).body;
-    assert.equal(fallback.fallback, true);
-    assert.ok(fallback.now.some((p: { role: string }) => p.role === 'admin'));
+    const sent = mails().slice(before).filter((m) => /urgent report/i.test(m.subject)); // (sign-up codes for the people in the test are not alerts)
+    assert.ok(sent.some((m) => m.to === lead.email));
+    assert.ok(sent.some((m) => m.to === 'admin@example.com'));
+    assert.ok(sent.some((m) => m.to === mod.email));
+    assert.ok(!sent.some((m) => m.to === rome.email), 'staff of another city are not told');
+    assert.ok(!sent.some((m) => m.to === noReports.email), 'nor staff who do not work on reports');
+    assert.equal((await alerts(rome, 'report_urgent')).length, 0);
+    assert.ok(sent.every((m) => !m.text.includes('details')));
+    assert.ok((await alerts(mod, 'report_urgent')).length >= 1);
+    assert.ok(await h.prisma.auditEvent.findFirst({ where: { action: 'report.urgent_alerted', objectId: r.id } }));
   });
 
-  it('pages for a physical-safety report only when nobody is on duty, and never for an ordinary one', async () => {
-    const { OnCallService } = await import('../src/moderation/oncall');
-    const svc = h.app.get(OnCallService);
-    assert.ok(await svc.pageArrival({ id: 'r1', category: 'physical_safety' }, true), 'out of hours');
-    assert.equal(await svc.pageArrival({ id: 'r2', category: 'physical_safety' }, false), null, 'in hours the moderators are working');
-    assert.equal(await svc.pageArrival({ id: 'r3', category: 'harassment' }, true), null);
-    assert.ok(await svc.pageArrival({ id: 'r4', category: 'immediate_danger' }, false), 'immediate danger always');
+  it('says nothing extra for an ordinary report', async () => {
+    const before = mails().length;
+    const r = await report('harassment', 0);
+    assert.equal(mails().slice(before).filter((m) => /urgent report/i.test(m.subject)).length, 0);
+    assert.equal(await h.prisma.auditEvent.count({ where: { action: 'report.urgent_alerted', objectId: r.id } }), 0);
+  });
+
+  it('has no on-call rota any more', async () => {
+    assert.equal((await h.get('/v1/admin/oncall', adminToken)).status, 404);
   });
 });
