@@ -70,5 +70,5 @@ export function checkTotp(secretBase32: string, code: string, lastStep: number |
 }
 
 /** The address an authenticator app reads from a QR code (or that can be opened directly). */
-export const otpauthUri = (account: string, secretBase32: string, issuer = 'HERE & THERE') =>
+export const otpauthUri = (account: string, secretBase32: string, issuer = 'LAMIS') =>
   `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secretBase32}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;

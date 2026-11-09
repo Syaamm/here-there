@@ -291,6 +291,7 @@ model Trip {
   budgetMin               Int
   budgetMax               Int
   budgetIncludesTransport Boolean   @default(false)
+  budgetIncludes          String    @default("") // what the budget covers: food, travel, stay (comma separated, any of them); empty on older trips, which only know the travel flag above
   tags                    String    @default("")
   description             String?
   minCapacity             Int       @default(4)
@@ -306,6 +307,7 @@ model Trip {
   memberships  TripMembership[]
   polls        TripPoll[]
   datesState   String            @default("tentative") // tentative | proposed (final dates put to the group; everyone must confirm)
+  dateChanges  Int               @default(0) // how many times a date poll has replaced the trip's dates (at most MAX_DATE_CHANGES)
   conversation Conversation?
   items        TripItem[]
   favorites    TripFavorite[]
@@ -477,6 +479,9 @@ model Report {
   reporter        User      @relation("reporter", fields: [reporterId], references: [id])
   targetType      String // user | activity | trip | message
   targetId        String
+  // which product it came from: here | there (null = not known, older reports). Every alert about the report (the decision,
+  // a warning given on it, the reporter's updates) goes to that product's inbox only.
+  product         String?
   category        String // harassment | fraud | inappropriate_content | underage | physical_safety | spam | financial_solicitation
   details         String?
   status          String    @default("open") // open | in_review | resolved | dismissed
@@ -628,18 +633,18 @@ model ProofImage {
 }
 
 /**
- * A line of the group's shared plan: a stop or idea for a day (itinerary), or an estimated cost (budget note). Never a payment.
+ * A line of the group's shared plan: a stop or idea for a day (itinerary). Budget notes were removed from the app; rows of kind "budget" and the `amount` column are left over and no longer read.
  */
 model TripItem {
   id          String    @id @default(cuid())
   tripId      String
   trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  kind        String // itinerary | budget
+  kind        String // itinerary (a leftover "budget" kind is no longer used)
   day         DateTime? // itinerary: the day it is planned for (empty = not decided yet)
   startTime   String? // itinerary: the time of day as "HH:MM" (empty = any time that day)
   title       String
   note        String?
-  amount      Int? // budget: estimated cost per person, in the trip's currency
+  amount      Int? // no longer used (was the estimated cost of a budget note)
   createdById String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

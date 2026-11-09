@@ -17,6 +17,8 @@ export type PushMessage = {
   alert?: { type: string; data?: Record<string, unknown> | null };
   /** repeats of the same thing (messages in one chat) push at most once per PUSH_GROUP_SECONDS (default 60) */
   group?: string;
+  /** on the phone: a newer push with the same thread replaces the older one (Android) or joins its stack (iPhone), e.g. one chat */
+  thread?: string;
 };
 
 /**
@@ -93,6 +95,11 @@ export class PushService implements OnModuleInit {
     await this.prisma.pushSubscription.deleteMany({ where: { userId, token } });
   }
 
+  /** A signed-out device: its push address goes, whoever it belonged to (see PushController.forget). */
+  async forget(token: string) {
+    await this.prisma.pushSubscription.deleteMany({ where: { token } });
+  }
+
   /**
    * Queue a push. It goes out from the job worker, so the request that caused it never waits for Expo or a browser's push
    * service, and a device that could not be reached is tried again a few times. Nothing here ever throws into the caller.
@@ -112,8 +119,13 @@ export class PushService implements OnModuleInit {
    * still in the chat and in the alert list.
    */
   sendNow(userId: string, msg: PushMessage) {
-    void this.deliver({ userId, msg, round: 2 }).catch(() => undefined);
+    this.inFlight++;
+    void this.deliver({ userId, msg, round: 2 })
+      .catch(() => undefined)
+      .finally(() => this.inFlight--);
   }
+  /** Chat pushes still on their way (sendNow does not wait for them). Tests wait for 0 instead of guessing a pause. */
+  inFlight = 0;
 
   onModuleInit() {
     this.jobs.handle('push.send', (p: { userId: string; msg: PushMessage; only?: string[]; round: number }) => this.deliver(p));

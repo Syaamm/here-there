@@ -320,7 +320,7 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
     const v = await verified('AllThree');
     me = (await get('/v1/me', v.token)).body;
     assert.deepEqual([me.emailVerified, me.adultVerified, me.eligibility, me.phoneVerified], [true, true, 'verified', false]);
-    assert.ok(new Date(me.verifiedUntil).getTime() > Date.now() + yearMs - 3600 * 1000, 'valid for about a year');
+    assert.equal(me.verifiedUntil, null, 'verification has no end date: it lasts until a moderator asks for a new check');
   });
 
   it('runs a provider session end to end through a signed webhook, and only once', async () => {
@@ -427,13 +427,13 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
     assert.ok((await verificationSvc.expireDue()) >= 1);
     assert.equal((await prisma.user.findUnique({ where: { id: idle.id } })).eligibility, 'expired');
 
-    // verifying again restores everything with a fresh validity period
+    // verifying again restores everything (and, like any verification, with no end date)
     assert.equal((await post('/v1/me/verification', member.token, { consent: true })).body.eligibility, 'pending');
     const check = (await get('/v1/admin/verifications?status=pending', adminToken)).body.items.find((c: any) => c.user.id === member.id);
     await post(`/v1/admin/verifications/${check.id}/decision`, adminToken, { decision: 'verified' });
     const back = (await get('/v1/me', member.token)).body;
     assert.equal(back.eligibility, 'verified');
-    assert.ok(new Date(back.verifiedUntil).getTime() > Date.now() + yearMs - 3600 * 1000);
+    assert.equal(back.verifiedUntil, null);
     assert.equal((await post(`/v1/conversations/${conv.id}/messages`, member.token, { body: 'back again' })).status, 201);
   });
 

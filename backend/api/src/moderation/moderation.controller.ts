@@ -74,6 +74,9 @@ export const removeMessageSchema = z.object({ reason: z.string().trim().min(3).m
 
 type Flag = { flag: boolean; reasons: string[]; warnings: number; reporters: number; suspensions: number };
 
+/** A chat's product: an activity's chat is HERE; a trip's chat and a travel match are THERE. */
+export const scopeProduct = (scopeType: string): 'here' | 'there' => (scopeType === 'activity' ? 'here' : 'there');
+
 /** Reports, messages and warnings: what staff see and can do, and the clock that keeps reports from waiting too long. */
 @Injectable()
 export class ModerationService implements OnModuleInit, OnModuleDestroy {
@@ -109,7 +112,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     const label = danger ? 'someone may be in danger' : 'a physical safety concern';
     const staff = await this.watchers(report.id);
     await this.notifications.notifyMany(staff, 'report_urgent', `Urgent report: ${label}`, 'Open the reports queue now. This one is marked urgent.', { reportId: report.id });
-    const emailed = await this.emailStaff(staff, 'HERE & THERE: urgent report', `An urgent report is waiting (${label}). Please open the admin console, Reports, and take it.`);
+    const emailed = await this.emailStaff(staff, 'LAMIS: urgent report', `An urgent report is waiting (${label}). Please open the admin console, Reports, and take it.`);
     await this.audit.log(null, 'report.urgent_alerted', 'report', report.id, { staff: staff.length, emailed });
   }
 
@@ -212,11 +215,27 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  /**
+   * Which product a report belongs to, so every alert about it goes to that app only: an activity is HERE, a trip is THERE,
+   * a chat message follows its chat (an activity's chat is HERE; a trip's or a travel match's is THERE), and a person is
+   * reported from wherever the reporter was (`hint`, sent by the app). null = not known: the alert shows in both.
+   */
+  async productOfTarget(targetType: string, targetId: string, hint?: 'here' | 'there' | null): Promise<'here' | 'there' | null> {
+    if (targetType === 'activity') return 'here';
+    if (targetType === 'trip') return 'there';
+    if (targetType === 'message') {
+      const m = await this.prisma.message.findUnique({ where: { id: targetId }, select: { conversation: { select: { scopeType: true } } } });
+      return m ? scopeProduct(m.conversation.scopeType) : (hint ?? null);
+    }
+    return hint ?? null;
+  }
+
   /** Tells the person a report about them was decided, so they can read the outcome and ask for a review. */
-  async tellSubject(report: { id: string; category: string; targetType: string; targetId: string; reporterId: string }) {
+  async tellSubject(report: { id: string; category: string; targetType: string; targetId: string; reporterId: string; product?: string | null }) {
     const who = (await this.targetUsers([report])).get(report.id);
     if (!who || who === report.reporterId) return;
-    await this.notifications.notify(who, 'report_decision', 'Action taken on a report about you', 'Tap to see the decision. You can ask for a review.', { reportId: report.id });
+    // in the app (HERE or THERE) the report came from, like every other alert about it
+    await this.notifications.notify(who, 'report_decision', 'Action taken on a report about you', 'Tap to see the decision. You can ask for a review.', { reportId: report.id, ...(report.product && { product: report.product }) });
   }
 
   // ---------------------------------------------------------------- the queue
@@ -403,11 +422,11 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
         const told = await this.watchers(r.id);
         if (urgent) {
           await this.notifications.notifyMany(told, 'report_escalated', 'An urgent report has not been answered', `An urgent report has waited about ${ageMinutes} minutes and nobody has taken it.`, { reportId: r.id, level: 1 });
-          await this.emailStaff(told, 'HERE & THERE: urgent report unanswered', `An urgent report has waited about ${ageMinutes} minutes and nobody has taken it. Please open the admin console, Reports, now.`);
+          await this.emailStaff(told, 'LAMIS: urgent report unanswered', `An urgent report has waited about ${ageMinutes} minutes and nobody has taken it. Please open the admin console, Reports, now.`);
         } else await this.notifications.notifyMany(told, 'report_escalated', 'A report is overdue', `A ${r.category.replace(/_/g, ' ')} report has waited longer than its answer time and has not been resolved.`, { reportId: r.id });
         if (urgent) {
           // the person who reported hears that we are late, and is reminded of the emergency number
-          await this.notifications.notify(r.reporterId, 'report_update', 'We have not answered your report yet', `Your urgent report is still waiting and a senior member of staff has been told. If anyone is in danger right now, call ${EMERGENCY_NUMBER}.`, { reportId: r.id });
+          await this.notifications.notify(r.reporterId, 'report_update', 'We have not answered your report yet', `Your urgent report is still waiting and a senior member of staff has been told. If anyone is in danger right now, call ${EMERGENCY_NUMBER}.`, { reportId: r.id, ...(r.product && { product: r.product }) });
         }
         await this.audit.log(null, 'report.escalated', 'report', r.id, { category: r.category, level: 1, urgent });
         moved++;
@@ -417,7 +436,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
         await this.prisma.report.update({ where: { id: r.id }, data: { escalationLevel: 2, ...(r.escalatedAt ? {} : { escalatedAt: now }) } });
         const admins = await this.prisma.user.findMany({ where: { role: 'admin', state: 'active' }, select: { id: true } });
         await this.notifications.notifyMany(admins.map((a) => a.id), 'report_escalated', 'CRITICAL: nobody has answered an urgent report', `An urgent report has waited about ${ageMinutes} minutes and nobody has taken it.`, { reportId: r.id, level: 2 });
-        await this.emailStaff(admins.map((a) => a.id), 'HERE & THERE: CRITICAL urgent report unanswered', `CRITICAL: an urgent report has waited about ${ageMinutes} minutes and nobody has taken it. Open the admin console, Reports, now.`);
+        await this.emailStaff(admins.map((a) => a.id), 'LAMIS: CRITICAL urgent report unanswered', `CRITICAL: an urgent report has waited about ${ageMinutes} minutes and nobody has taken it. Open the admin console, Reports, now.`);
         await this.audit.log(null, 'report.escalated', 'report', r.id, { category: r.category, level: 2, urgent });
         if (level >= 1) moved++;
       }
@@ -459,13 +478,14 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
   /** Hides a message from the chat (kept for the record, so a report or an appeal can still look at it). The sender is told why. */
   async removeMessage(actor: User, id: string, body: unknown) {
     const { reason } = parse(removeMessageSchema, body);
-    const m = await this.prisma.message.findUnique({ where: { id } });
+    const m = await this.prisma.message.findUnique({ where: { id }, include: { conversation: { select: { scopeType: true } } } });
     if (!m) throw E.notFound('Message');
     if (m.moderationState === 'removed') return { ok: true, state: 'removed' };
     await this.prisma.message.update({ where: { id }, data: { moderationState: 'removed', removedBy: actor.id, removedReason: reason, removedAt: new Date() } });
     await this.settleReports(actor, 'message', id, 'message removed');
     await this.audit.log(actor.id, 'message.removed', 'message', id, { reason, senderId: m.senderId });
-    if (m.senderId !== actor.id) await this.notifications.notify(m.senderId, 'message_removed', 'A moderator removed your message', 'Tap to read why. You can ask for a review.', { messageId: id, reason });
+    // in the app the chat belongs to (an activity's chat: HERE; a trip's or a travel match's: THERE)
+    if (m.senderId !== actor.id) await this.notifications.notify(m.senderId, 'message_removed', 'A moderator removed your message', 'Tap to read why. You can ask for a review.', { messageId: id, reason, product: scopeProduct(m.conversation.scopeType) });
     return { ok: true, state: 'removed' };
   }
 
@@ -487,15 +507,17 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     if (target.role !== 'user' && actor.role !== 'admin') throw E.forbidden('FORBIDDEN', 'Only admins can warn staff');
     // which activity or trip it is about, when the report it was given on (or the message) says so
     const about = await this.planOf(dto.reportId, dto.messageId);
+    // which app the warning shows in: the one its report came from; else the plan or chat it is about; else both
+    const report = dto.reportId ? await this.prisma.report.findUnique({ where: { id: dto.reportId } }) : null;
+    const msgScope = !report && dto.messageId ? (await this.prisma.message.findUnique({ where: { id: dto.messageId }, select: { conversation: { select: { scopeType: true } } } }))?.conversation.scopeType : undefined;
+    const product = (report?.product as 'here' | 'there' | null | undefined) ?? (about ? (about.type === 'activity' ? 'here' : 'there') : msgScope ? scopeProduct(msgScope) : null);
     const w = await this.prisma.userWarning.create({ data: { userId, reason: dto.reason, reportId: dto.reportId, messageId: dto.messageId, createdById: actor.id, aboutType: about?.type, aboutId: about?.id } });
-    await this.notifications.notify(userId, 'warning', 'A moderator warned you', about ? `${about.title} · Tap to read why.` : 'Tap to read why. You can ask for a review.', { warningId: w.id, reason: dto.reason, ...(about && { aboutType: about.type, aboutId: about.id, aboutTitle: about.title }) });
+    await this.notifications.notify(userId, 'warning', 'A moderator warned you', about ? `${about.title} · Tap to read why.` : 'Tap to read why. You can ask for a review.', { warningId: w.id, reason: dto.reason, ...(about && { aboutType: about.type, aboutId: about.id, aboutTitle: about.title }), ...(product && { product }) });
     await this.audit.log(actor.id, 'user.warned', 'user', userId, { warningId: w.id, reason: dto.reason, reportId: dto.reportId });
-    if (dto.reportId) {
-      const r = await this.prisma.report.findUnique({ where: { id: dto.reportId } });
-      if (r && ['open', 'in_review'].includes(r.status)) {
-        await this.prisma.report.update({ where: { id: r.id }, data: { status: 'resolved', resolution: 'Action taken: the person was warned', assignedTo: actor.id, resolvedAt: new Date() } });
-        await this.audit.log(actor.id, 'report.resolved', 'report', r.id, { resolution: 'warned', automatic: true });
-      }
+    if (report) {
+      // the warning settles its report, unless someone decided it meanwhile (one step: only while still open or in review)
+      const closed = await this.prisma.report.updateMany({ where: { id: report.id, status: { in: ['open', 'in_review'] } }, data: { status: 'resolved', resolution: 'Action taken: the person was warned', assignedTo: actor.id, resolvedAt: new Date() } });
+      if (closed.count) await this.audit.log(actor.id, 'report.resolved', 'report', report.id, { resolution: 'warned', automatic: true });
     }
     const flag = (await this.offenderFlags([userId])).get(userId)!;
     return { id: w.id, warningsInLastSixMonths: flag.warnings, repeatOffender: flag };

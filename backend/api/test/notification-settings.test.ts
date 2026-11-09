@@ -17,11 +17,16 @@ after(async () => {
 type Person = { token: string; id: string };
 const put = (u: Person, body: unknown) => h.call('PUT', '/v1/me/notification-settings', u.token, body);
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/** Pushes are sent by the job worker a moment after the request: wait until none are waiting (however slow the machine is). */
+/**
+ * Pushes are sent by the job worker a moment after the request, and chat pushes straight away without the queue: wait until
+ * neither has anything left (however slow the machine is), rather than a fixed pause that a busy machine overruns.
+ */
 async function drain() {
   await pause(250); // let the request's own job reach the queue
+  const { PushService } = await import('../src/common/push.service');
+  const push = h.app.get(PushService);
   for (let i = 0; i < 1200; i++) {
-    if ((await h.prisma.job.count({ where: { type: 'push.send', state: 'queued' } })) === 0) break;
+    if (push.inFlight === 0 && (await h.prisma.job.count({ where: { type: 'push.send', state: 'queued' } })) === 0) break;
     await pause(100);
   }
   await pause(150);
@@ -62,6 +67,10 @@ async function scene() {
   const asked = await h.post(`/v1/activities/${id}/requests`, member.token, {});
   await h.post(`/v1/activities/${id}/requests/${asked.body.id}/decision`, host.token, { decision: 'approve' });
   const conv = (await h.get(`/v1/activities/${id}`, host.token)).body.conversationId as string;
+  // the set-up's own pushes ("You are approved!") must be out before the made-up phones are registered: sent afterwards they
+  // would reach Expo's real service (nothing is stubbed yet), which answers that the phone does not exist, and the server then
+  // rightly forgets the phone, so the next message would have nowhere to go
+  await drain();
   const token = `ExponentPushToken[member${counter}abcdefgh]`;
   assert.equal((await h.post('/v1/push/subscribe', member.token, { kind: 'expo', token })).status, 201);
   const hostToken = `ExponentPushToken[host${counter}abcdefghij]`;

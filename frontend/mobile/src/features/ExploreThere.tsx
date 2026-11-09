@@ -19,6 +19,8 @@ import { ThereFiltersSheet, useThereFilters } from './ThereFilters';
 
 type When = 'any' | 'month' | 'quarter' | 'later';
 const DAY = 864e5;
+/** "Leaving soon" is the next two weeks. */
+export const SOON_DAYS = 14;
 
 /** THERE · Explore: trip proposals from other travelers. Not a travel agency. Budgets are estimates. */
 export function ExploreThere() {
@@ -35,7 +37,9 @@ export function ExploreThere() {
   const f = useThereFilters({ destination: q, setDestination: setQ });
   const [applied, setApplied] = useState('');
 
-  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?limit=50${applied}`), [applied], 60_000, 'feed:there', { keep: true, live: true });
+  // excludeMine: the trips you host, are on or applied to are in Next up / Taking part, never again in the lists below.
+  // The server ranks them (friends going most, then people you follow, then your followers, then leaving sooner).
+  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?limit=50&excludeMine=true${applied}`), [applied], 60_000, 'feed:there', { keep: true, live: true });
   // a trip was proposed, filled or cancelled somewhere: ask again at once
   useLiveEvents((e) => {
     if (e.type === 'feed-changed') void feed.reload();
@@ -47,15 +51,18 @@ export function ExploreThere() {
   // The API searches by destination only, so free text here filters the loaded trips on the device.
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const all = (feed.data?.items ?? []).filter((x) => +new Date(x.dateStart) > Date.now() && (!style || x.tags.includes(style))).sort((a, b) => +new Date(a.dateStart) - +new Date(b.dateStart));
+    // kept in the server's ranked order (not re-sorted by date): within each section the best match for you comes first
+    const all = (feed.data?.items ?? []).filter((x) => +new Date(x.dateStart) > Date.now() && (!style || x.tags.includes(style)));
     return needle ? all.filter((x) => `${x.title} ${x.destination} ${x.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
   }, [feed.data, q, style]);
 
   const now = Date.now();
   const inDays = (t: Trip) => (+new Date(t.dateStart) - now) / DAY;
-  const soon = items.filter((t) => inDays(t) < 30);
-  const season = items.filter((t) => inDays(t) >= 30 && inDays(t) < 90);
-  const later = items.filter((t) => inDays(t) >= 90);
+  // Leaving soon = really soon: the next two weeks (the same edges as the "See all" pages, app/trips.tsx)
+  const mineIds = new Set((mine.data?.items ?? []).map((x) => (x.row === 'joined' ? x.id : x.trip.id)));
+  const soon = items.filter((t) => inDays(t) < SOON_DAYS && !mineIds.has(t.id));
+  const season = items.filter((t) => inDays(t) >= SOON_DAYS && inDays(t) < 90 && !mineIds.has(t.id));
+  const later = items.filter((t) => inDays(t) >= 90 && !mineIds.has(t.id));
 
   // the server sends only trips still ahead, soonest first; a trip already under way counts too
   const mineAll = (mine.data?.items ?? []).map((x) =>
@@ -197,8 +204,8 @@ export function ExploreThere() {
               {(
                 [
                   ['any', 'Everything'],
-                  ['month', 'Next 30 days'],
-                  ['quarter', '1 to 3 months'],
+                  ['month', 'Next 2 weeks'],
+                  ['quarter', '2 weeks to 3 months'],
                   ['later', 'Later than that'],
                 ] as const
               ).map(([k, label]) => (

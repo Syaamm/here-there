@@ -39,6 +39,7 @@ export function DateRangeSheet({
   max,
   maxNights = 90,
   single = false,
+  marks,
   onClose,
   onDone,
 }: {
@@ -53,6 +54,8 @@ export function DateRangeSheet({
   maxNights?: number;
   /** pick one day (an activity) instead of a leaving and a return day: no tabs, and "Done" gives just that day */
   single?: boolean;
+  /** days that already hold a plan of yours ("year-month-day", month from 0): a dot under the number */
+  marks?: Record<string, 'activity' | 'trip'>;
   onClose: () => void;
   onDone: (start: string, end: string) => void;
 }) {
@@ -195,6 +198,7 @@ export function DateRangeSheet({
                 const inside = !!from && !!to && d > from && d < to;
                 const off = disabled(d);
                 const edge = isStart || isEnd;
+                const mark = marks?.[`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`];
                 return (
                   <View key={i} style={{ flex: 1, height: 36, alignItems: 'center', justifyContent: 'center' }}>
                     {/* the band behind a chosen range, joined across the days */}
@@ -203,13 +207,14 @@ export function DateRangeSheet({
                     )}
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`${t(WEEKDAYS[d.getDay()])} ${d.getDate()} ${t(MONTHS[d.getMonth()])} ${d.getFullYear()}${isStart ? t(', leaving') : ''}${isEnd ? t(', returning') : ''}`}
+                      accessibilityLabel={`${t(WEEKDAYS[d.getDay()])} ${d.getDate()} ${t(MONTHS[d.getMonth()])} ${d.getFullYear()}${isStart ? t(', leaving') : ''}${isEnd ? t(', returning') : ''}${mark ? `. ${mark === 'trip' ? t('You are on a trip this day') : t('You have a plan this day')}` : ''}`}
                       accessibilityState={{ selected: edge, disabled: off }}
                       disabled={off}
                       onPress={() => pick(d)}
                       style={({ pressed }) => [{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: edge ? c.forest : 'transparent', borderWidth: same(d, today) && !edge ? 1.5 : 0, borderColor: c.green }, pressed && !edge && { backgroundColor: c.accentSoft }]}
                     >
                       <Text style={{ color: edge ? '#fff' : off ? c.line : c.text, fontWeight: edge ? '800' : '600', fontSize: 13 }}>{d.getDate()}</Text>
+                      {mark ? <View style={{ position: 'absolute', bottom: 2, width: 4, height: 4, borderRadius: 2, backgroundColor: edge ? '#fff' : mark === 'trip' ? c.warnFg : c.badFg }} /> : null}
                     </Pressable>
                   </View>
                 );

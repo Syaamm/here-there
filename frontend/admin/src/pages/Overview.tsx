@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { get } from '../api';
 import { CardHead } from '../charts';
+import { DateField } from '../controls';
 import { TrendChart } from '../trend';
-import { Chip, ErrorBanner, Icon, Loading, Page, Segmented, useLoad } from '../ui';
+import { Chip, CountUp, ErrorBanner, Loading, Page, RefreshButton, Segmented, useLoad, useRefresh } from '../ui';
 
 type Overview = {
   users: number;
@@ -82,7 +83,14 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
   const span = rangeDays(range, custom);
   const { data, error, loading, reload } = useLoad(() => get<Overview>(`/v1/admin/overview?from=${span.from}&to=${span.to}`), [span.from, span.to], 8000);
   const reports = useLoad(() => get<{ items: Report[] }>('/v1/admin/reports'), [], 8000);
-  const refresh = () => (reload(), reports.reload());
+  // the days were just changed and their numbers are still on the way (the background refresh every few seconds never dims)
+  const spanKey = span.from + '|' + span.to;
+  const loadedFor = useRef(spanKey);
+  useEffect(() => {
+    if (!loading) loadedFor.current = spanKey;
+  }, [loading, spanKey]);
+  const changingDays = loading && !!data && loadedFor.current !== spanKey;
+  const refresh = useRefresh(() => Promise.all([reload(), reports.reload()]));
   const now = Date.now();
   const open1 = (id: string) => (openReport ? openReport(id) : go('reports'));
 
@@ -93,7 +101,6 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
   const waiting = useMemo(() => (reports.data?.items ?? []).filter((r) => r.status === 'open' || r.status === 'in_review'), [reports.data]);
   const overdue = waiting.filter((r) => r.overdue || (r.answerBy && +new Date(r.answerBy) < now));
   const next = [...waiting].sort((a, b) => (a.answerBy ? +new Date(a.answerBy) : Infinity) - (b.answerBy ? +new Date(b.answerBy) : Infinity)).slice(0, 5);
-  const top = next[0] ?? null;
 
   // The chart shows only the chosen days. A server that sends a longer span (an older one always sends 30 days) is cut down
   // here, so 7 days and this month are right either way.
@@ -116,55 +123,47 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
     <Page
       title="Dashboard"
       actions={
-        <>
-          <button className="icon-btn" onClick={refresh} disabled={loading} aria-label="Refresh" title="Refresh">
-            <Icon name="refresh" />
-          </button>
-          {top && (
-            <button className="btn primary" onClick={() => open1(top.id)}>
-              Open next report
-            </button>
+        // the days apply to the whole dashboard (the chart and the report categories), so they sit at the top of the page
+        <div className="ov-controls">
+          <Segmented label="Days shown" value={range} onChange={setRange} options={RANGES.map((r) => ({ id: r.id, label: r.label }))} />
+          {range === 'custom' && (
+            <span className="trend-dates">
+              <DateField compact clearable={false} aria-label="From" placeholder="From" value={custom.from} max={custom.to || iso(new Date())} onChange={(v) => setCustom((c) => ({ ...c, from: v }))} />
+              to
+              <DateField compact clearable={false} aria-label="To" placeholder="To" value={custom.to} min={custom.from || undefined} max={iso(new Date())} onChange={(v) => setCustom((c) => ({ ...c, to: v }))} />
+            </span>
           )}
-        </>
+          <RefreshButton r={refresh} />
+        </div>
       }
     >
       <ErrorBanner message={error} onRetry={reload} />
       {!data && !error && <Loading rows={8} />}
       {data && (
-        <>
+        // dimmed while a refresh runs, or while the newly chosen days load (the old numbers stay until the new ones are in)
+        <div className={refresh.busy || changingDays ? 'stack refreshable refreshing' : 'stack refreshable'} aria-busy={refresh.busy || changingDays}>
           <div className="ov-top">
             <div className="ov-tiles">
               <button className={overdue.length ? 'stat hot' : 'stat'} onClick={() => go('reports')}>
                 <span className="label">Reports</span>
-                <span className="value">{rep.in_review + rep.open}</span>
+                <span className="value">
+                  <CountUp value={rep.in_review + rep.open} />
+                </span>
                 <span className="note">
                   {rep.in_review} in review · {rep.open} open{overdue.length ? ` · ${overdue.length} overdue` : ''}
                 </span>
               </button>
               <button className={data.pendingVerifications ? 'stat hot' : 'stat'} onClick={() => go('verifications')}>
                 <span className="label">Verification</span>
-                <span className="value">{data.pendingVerifications}</span>
+                <span className="value">
+                  <CountUp value={data.pendingVerifications} />
+                </span>
                 <span className="note">Pending</span>
               </button>
             </div>
 
             <section className="card" aria-labelledby="ov-trend">
-              <CardHead
-                id="ov-trend"
-                title={`Activity · ${rangeWords(range, span)}`}
-                right={
-                  <div className="trend-range">
-                    <Segmented label="Range" value={range} onChange={setRange} options={RANGES.map((r) => ({ id: r.id, label: r.label }))} />
-                    {range === 'custom' && (
-                      <span className="trend-dates">
-                        <input type="date" aria-label="From" value={custom.from} max={custom.to || undefined} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
-                        to
-                        <input type="date" aria-label="To" value={custom.to} min={custom.from || undefined} max={iso(new Date())} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
-                      </span>
-                    )}
-                  </div>
-                }
-              />
+              <CardHead id="ov-trend" title={`Activity · ${rangeWords(range, span)}`} />
               {s ? (
                 <TrendChart
                   title={`Activity, ${rangeWords(range, span)}`}
@@ -216,7 +215,7 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
             </section>
 
             <section className="card" aria-labelledby="ov-cats">
-              <CardHead id="ov-cats" title="Reports by category" right={<span className="muted small">{sum(all.map((c) => c.count))}</span>} />
+              <CardHead id="ov-cats" title={`Reports by category · ${rangeWords(range, span)}`} right={<span className="muted small">{sum(all.map((c) => c.count))}</span>} />
               {cats.length === 0 ? (
                 <p className="muted">None in {rangeWords(range, span)}.</p>
               ) : (
@@ -236,7 +235,7 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
               )}
             </section>
           </div>
-        </>
+        </div>
       )}
     </Page>
   );

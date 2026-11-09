@@ -1,31 +1,36 @@
 import { PrismaService } from './prisma.service';
 
 /**
- * Who a person cares about, in three tiers (used to put what their circle is going to first):
- *   buddies     people they follow who follow them back (mutual)
+ * Who a person cares about, in tiers (used to put what their circle is going to first), strongest first:
+ *   buddies     people they follow who follow them back (friends, mutual)
  *   following   people they follow who do not follow back
- *   everyone else, including people who follow them but whom they do not follow: no boost
+ *   followers   people who follow them whom they do not follow (owner's decision 2026-11-09: a small boost; it was none)
+ *   everyone else: no boost
  */
-export type Circle = { buddies: Set<string>; following: Set<string> };
+export type Circle = { buddies: Set<string>; following: Set<string>; followers: Set<string> };
 
 export async function circleOf(prisma: PrismaService, meId: string): Promise<Circle> {
-  const out = await prisma.follow.findMany({ where: { followerId: meId }, select: { followingId: true } });
+  const [out, inn] = await Promise.all([
+    prisma.follow.findMany({ where: { followerId: meId }, select: { followingId: true } }),
+    prisma.follow.findMany({ where: { followingId: meId }, select: { followerId: true } }),
+  ]);
   const followed = new Set(out.map((f) => f.followingId));
-  if (followed.size === 0) return { buddies: new Set(), following: new Set() };
-  const back = await prisma.follow.findMany({ where: { followingId: meId, followerId: { in: [...followed] } }, select: { followerId: true } });
-  const buddies = new Set(back.map((f) => f.followerId));
-  return { buddies, following: new Set([...followed].filter((id) => !buddies.has(id))) };
+  const followsMe = new Set(inn.map((f) => f.followerId));
+  const buddies = new Set([...followed].filter((id) => followsMe.has(id)));
+  return { buddies, following: new Set([...followed].filter((id) => !buddies.has(id))), followers: new Set([...followsMe].filter((id) => !buddies.has(id))) };
 }
 
-/** How many of these people are buddies, and how many are people the viewer follows (not buddies). Each person counts once. */
+/** How many of these people are in each tier (each person counts once, in their strongest tier). */
 export function tierCounts(people: Iterable<string>, circle: Circle) {
   let buddies = 0;
   let following = 0;
+  let followers = 0;
   for (const id of new Set(people)) {
     if (circle.buddies.has(id)) buddies++;
     else if (circle.following.has(id)) following++;
+    else if (circle.followers?.has(id)) followers++;
   }
-  return { buddies, following };
+  return { buddies, following, followers };
 }
 
 /** 0 people = 0; 1 = 0.6; 2 = 0.84; 3 = 0.94: the first person matters most, and it never passes 1. */

@@ -31,7 +31,7 @@ function about(a: Appeal) {
   return null;
 }
 
-export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: string) => void }) {
+export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: string, from?: string) => void }) {
   const [view, setView] = useState<View>('open');
   const first = useLoad(() => get<{ items: Appeal[]; nextCursor: string | null }>(`/v1/admin/appeals?state=${view}`), [view], 6000);
   const more = useMore(first.data, (c) => get(`/v1/admin/appeals?state=${view}&cursor=${c}`), view);
@@ -75,7 +75,7 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
                       <div className="person">
                         <Avatar name={name} size="sm" />
                         <span style={{ minWidth: 0 }}>
-                          <button className="link" onClick={() => openUser?.(a.user.id)}>
+                          <button className="link" onClick={() => openUser?.(a.user.id, 'appeals')}>
                             {name}
                           </button>
                           <span className="sub" style={{ display: 'block' }}>

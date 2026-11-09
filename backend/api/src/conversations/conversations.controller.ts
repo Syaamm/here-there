@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { effectiveStatus } from '../activities/activities.service';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser, requireVerified } from '../common/auth';
+import { MAX_DATE_CHANGES } from '../common/constants';
 import { E } from '../common/errors';
 import { EventBus } from '../common/events';
 import { LiveService } from '../common/live.service';
@@ -32,6 +33,12 @@ export const voteSchema = z.object({ vote: z.enum(['accept', 'reject']) });
 const DAY = 24 * 3600e3;
 const fmtDay = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 const fmtRange = (a: Date, b: Date) => (a.toDateString() === b.toDateString() ? fmtDay(a) : `${fmtDay(a)} to ${fmtDay(b)}`);
+
+/** A trip's dates can only change before it starts, and only MAX_DATE_CHANGES times through date polls. */
+function assertDatesCanChange(trip: { dateStart: Date; dateChanges: number }) {
+  if (trip.dateStart <= new Date()) throw E.conflict('TRIP_STARTED', 'This trip has already started, so its dates can no longer be changed');
+  if (trip.dateChanges >= MAX_DATE_CHANGES) throw E.conflict('DATE_CHANGES_USED', `The dates of a trip can only be changed ${MAX_DATE_CHANGES} times, and this trip has used them all`);
+}
 
 @Injectable()
 export class ConversationsService {
@@ -287,6 +294,7 @@ export class ConversationsService {
     const bad = contentProblem(dto.title);
     if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
     if (dto.dateStart) {
+      assertDatesCanChange(trip); // a poll about dates would change nothing once the trip has started or its date changes are used up
       const end = dto.dateEnd ?? dto.dateStart;
       if (dto.dateStart.getTime() < Date.now()) throw E.badRequest('INVALID_SCHEDULE', 'The dates must be in the future');
       if (end < dto.dateStart) throw E.badRequest('INVALID_SCHEDULE', 'The end date is before the start date');
@@ -339,19 +347,25 @@ export class ConversationsService {
 
     if (adopt) {
       if (['cancelled', 'completed'].includes(trip.status)) throw E.conflict('TRIP_CLOSED', 'This trip can no longer change its dates');
+      assertDatesCanChange(trip);
       if (poll.dateStart! <= new Date()) throw E.badRequest('INVALID_DATES', 'These dates are no longer in the future');
       // the same checks as the organizer editing the dates: how far ahead a trip may be planned, and one plan at a time
       await this.regions.assertWithinLimit('there', trip.originCity, poll.dateEnd! > poll.dateStart! ? poll.dateEnd! : poll.dateStart!, 'INVALID_DATES');
       await this.clash.assertFree(me.id, ...tripWindow({ dateStart: poll.dateStart!, dateEnd: poll.dateEnd! }), { kind: 'trip', id: trip.id });
       await this.prisma.$transaction(async (tx) => {
-        await tx.trip.update({ where: { id: trip.id }, data: { dateStart: poll.dateStart!, dateEnd: poll.dateEnd!, dateFlexibility: 'exact', datesState: 'tentative' } });
+        // checked and counted in the same step, so two polls adopted at once can never go past the limit or past the start
+        const moved = await tx.trip.updateMany({
+          where: { id: trip.id, dateChanges: { lt: MAX_DATE_CHANGES }, dateStart: { gt: new Date() } },
+          data: { dateStart: poll.dateStart!, dateEnd: poll.dateEnd!, dateFlexibility: 'exact', datesState: 'tentative', dateChanges: { increment: 1 } },
+        });
+        if (moved.count === 0) throw E.conflict('DATE_CHANGES_USED', 'The dates of this trip can no longer be changed');
         await tx.tripPoll.update({ where: { id: pollId }, data: { state: 'adopted' } });
       });
       const range = fmtRange(poll.dateStart!, poll.dateEnd!);
       await this.postMessage(conv, me, `New dates: ${range}. The trip's dates have been updated for everyone.`, { kind: 'system' });
       const members = (await this.prisma.tripMembership.findMany({ where: { tripId: trip.id, state: 'approved' } })).map((m) => m.userId).filter((u) => u !== me.id);
       await this.notifications.notifyMany(members, 'trip_changed', `New dates: ${trip.title}`, range, { tripId: trip.id });
-      await this.audit.log(me.id, 'trip.dates_set_by_poll', 'trip', trip.id, { pollId, from: trip.dateStart, to: trip.dateEnd, now: [poll.dateStart, poll.dateEnd] });
+      await this.audit.log(me.id, 'trip.dates_set_by_poll', 'trip', trip.id, { pollId, from: trip.dateStart, to: trip.dateEnd, now: [poll.dateStart, poll.dateEnd], change: trip.dateChanges + 1, of: MAX_DATE_CHANGES });
       // the trip's dates changed: every list that shows it (feed, My trips, the trip page) updates at once
       this.events.emit({ type: 'trip.changed', id: trip.id, cities: tripCities(trip) });
     } else {
@@ -427,7 +441,7 @@ export class ConversationsService {
     const tell = async (userId: string) => {
       // push: every message, to everyone not looking at this chat (in the app or not), if their settings and quiet hours allow it;
       // sent straight away, without the job queue (see PushService.sendNow)
-      this.push.sendNow(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}`, alert: { type: 'chat_message' } });
+      this.push.sendNow(userId, { title: title, body: `${name}: ${body.slice(0, 120)}`, url: `/chat/${conv.id}`, alert: { type: 'chat_message' }, thread: `chat-${conv.id}` });
       const prev = unread.get(userId);
       if (prev) {
         // grouped: still one alert for this chat, now with a count and the newest message, moved back to the top of the list

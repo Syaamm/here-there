@@ -59,7 +59,7 @@ export default function Join() {
       <ErrorBanner message={act.error} />
       <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="join" onChanged={() => void clash.reload()} />
       {a.spotsLeft === 0 ? <Banner tone="warn">{t('This activity is full. You can join the waiting list.')}</Banner> : null}
-      {instant ? null : <AuthField label={t('Introduce yourself to the host')} placeholder={t('Say hi')} multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length} / 500`} />}
+      {instant ? null : <AuthField label={t('Introduce yourself to the host')} placeholder={t('Say hi')} multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length}/500`} />}
 
       <View style={{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: c.line, paddingHorizontal: 16, paddingVertical: 8 }}>
         <Text style={{ color: c.text, fontSize: 16, fontWeight: '600', paddingTop: 8 }}>{t('Before joining')}</Text>

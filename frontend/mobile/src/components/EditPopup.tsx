@@ -21,7 +21,7 @@ const easeClose = Easing.bezier(0.4, 0, 0.2, 1);
  * The form is edited live, so closing keeps the changes: Done, a tap on the dimmed page and Android's back button all call
  * `onDone` (which sets `closing`); `onClosed` runs once it has folded away. `header` is the window's top row (Done).
  */
-export function EditPopup({ from, header, onDone, onClosed, closing, children }: { from: Origin; header: ReactNode; onDone: () => void; onClosed: () => void; /** true plays the fold, then onClosed */ closing: boolean; children: ReactNode }) {
+export function EditPopup({ from, header, onDone, onClosed, closing, children, overlay }: { from: Origin; header: ReactNode; onDone: () => void; onClosed: () => void; /** true plays the fold, then onClosed */ closing: boolean; children: ReactNode; /** something that fills the screen over the window (a calendar sheet): it has to live inside this pop-up, since a sheet on the page below would be hidden behind it */ overlay?: ReactNode }) {
   const { c } = useTheme();
   const { width: W, height: H } = useWindowDimensions();
   const { inset: keyboard, box, onLayout } = useKeyboardOverlap(); // the window moves up above the keyboard and shrinks to fit
@@ -101,6 +101,7 @@ export function EditPopup({ from, header, onDone, onClosed, closing, children }:
             </ScrollView>
           </Animated.View>
         </View>
+        {overlay}
       </Animated.View>
     </Modal>
   );

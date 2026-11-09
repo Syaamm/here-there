@@ -49,6 +49,19 @@ describe('phone push through Firebase (FCM)', () => {
     assert.equal((sends[0].init?.headers as Record<string, string>).authorization, 'Bearer tok');
   });
 
+  it('a chat push carries its thread: Android replaces the older one from that chat, iPhone stacks them; other pushes do not', async () => {
+    answer = (url) => (url.includes('oauth2') ? token() : new Response('{}', { status: 200 }));
+    await sendFcm('device-token-1', { ...msg, thread: 'chat-1' });
+    await sendFcm('device-token-1', msg);
+    const [chat, plain] = calls.filter((c) => c.url.includes('fcm.googleapis.com')).map((c) => JSON.parse(String(c.init?.body)).message);
+    assert.equal(chat.android.notification.tag, 'chat-1');
+    assert.equal(chat.android.notification.channel_id, 'alerts');
+    assert.equal(chat.apns.payload.aps['thread-id'], 'chat-1');
+    assert.deepEqual(chat.data, { url: '/chat/1', thread: 'chat-1' });
+    assert.equal(plain.android.notification.tag, undefined);
+    assert.equal(plain.apns.payload.aps['thread-id'], undefined);
+  });
+
   it('says gone for a dead device token, retry for a server fault, and done for a refused message', async () => {
     answer = (url) => (url.includes('oauth2') ? token() : new Response(JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } }), { status: 404 }));
     assert.equal(await sendFcm('dead-device-token', msg), 'gone');

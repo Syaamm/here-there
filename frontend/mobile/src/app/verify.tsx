@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { useEffect, useRef, useState } from 'react';
@@ -16,6 +17,7 @@ import { del, get, post, type Me } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad } from '@/lib/hooks';
 import { localeTag, useT } from '@/lib/i18n';
+import { dateText } from '@/lib/format';
 
 type Eligibility = Me['eligibility'];
 type Status = {
@@ -58,7 +60,7 @@ const IDENTITY_CHIP: Record<string, [string, 'ok' | 'warn' | 'bad' | 'neutral']>
   reverification_required: ['Re-check needed', 'warn'],
   unverified: ['Not started', 'neutral'],
 };
-const date = (iso: string) => new Date(iso).toLocaleDateString(localeTag(), { dateStyle: 'long' });
+const date = (iso: string) => dateText(iso, { weekday: false, year: true });
 
 /**
  * Identity verification (KYC). Browsing never needs it; creating, joining, applying and chatting do.
@@ -161,12 +163,15 @@ export default function Verify() {
 
   return (
     <AcctScreen title={t('Get verified')}>
+      {/* the picture that opens the page: a verified profile on a phone. Drawn from the designer's vector file at 4x (876 x 852), so it
+          stays sharp on every screen; the old 392 px picture was stretched to about twice its size */}
+      <Image source={require('../../assets/illustrations/verified.webp')} contentFit="contain" accessibilityElementsHidden importantForAccessibility="no" style={{ width: '100%', height: 250, marginTop: 4, marginBottom: 8 }} />
 
-      <AcctCard style={{ gap: 4, paddingVertical: 12 }}>
+      <AcctCard style={{ gap: 6, paddingVertical: 18 }}>
         {statusRows.map(([icon, label, tag, tone]) => (
-          <View key={icon} accessible accessibilityLabel={`${label}: ${tag}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 44 }}>
-            <Ionicons name={icon} size={22} color={c.text} />
-            <Text style={{ flex: 1, color: c.text, fontSize: 15, opacity: 0.85 }}>{label}</Text>
+          <View key={icon} accessible accessibilityLabel={`${label}: ${tag}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 52 }}>
+            <Ionicons name={icon} size={28} color={c.text} />
+            <Text style={{ flex: 1, color: c.text, fontSize: 19, opacity: 0.85 }}>{label}</Text>
             <StatusTag label={tag} tone={tone} />
           </View>
         ))}

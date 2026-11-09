@@ -15,8 +15,9 @@ import { SandboxProvider } from './providers/sandbox.provider';
 import type { IdentityProvider, ProviderOutcome, WebhookHeaders } from './providers/types';
 
 const DAY = 24 * 3600 * 1000;
-/** One-time verification: valid for a year by default, then a fresh check is needed. */
-const validForMs = () => Number(process.env.VERIFICATION_VALID_DAYS ?? 365) * DAY;
+// Verification is for life: once someone is verified it has no end date, and it only ends when a moderator asks for a new check
+// (see requireReverification). `verifiedUntil` stays empty for everyone verified; the expiry code below only deals with an old row
+// that still carries a date, which is cleared at start-up.
 
 export type ReverifyReason = 'expired' | 'security' | 'fraud_suspected' | 'provider_required' | 'other';
 
@@ -25,7 +26,7 @@ export type ReverifyReason = 'expired' | 'security' | 'fraud_suspected' | 'provi
  *
  *  - Browsing needs no verification. Creating, joining, applying and chatting do (enforced in requireVerified()).
  *  - It is ONE-TIME. A verified, unexpired user is never asked for a selfie again, however many activities or
- *    trips they create or join. A new check is only needed when the verification expires, staff require it for
+ *    trips they create or join. A new check is only needed when staff require it (verification never runs out by itself), for
  *    a security or fraud concern, or the provider revokes it.
  *  - Email verification, adult (18+) eligibility and identity verification are three separate statuses.
  *  - Data minimisation: we store the outcome, a provider reference and timestamps. Documents, selfies, face data,
@@ -63,6 +64,12 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     if (this.mode === 'persona') (this.providers.persona as PersonaProvider).assertReady(); // a half-set-up provider is refused at start-up
     if (this.mode === 'idenfy') (this.providers.idenfy as IdenfyProvider).assertReady();
     this.jobs.every('verification.expire-due', 3600 * 1000, () => this.expireDue());
+    // verification no longer runs out: anyone still carrying an old end date keeps their badge for good
+    try {
+      void this.prisma.user.updateMany({ where: { eligibility: 'verified', verifiedUntil: { not: null } }, data: { verifiedUntil: null } }).catch(() => undefined);
+    } catch {
+      /* no database to tidy (a bare service in a test) */
+    }
   }
   onModuleDestroy() {}
 
@@ -211,11 +218,10 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     if (check.rejectionReason === 'underage' && actor.role !== 'admin') throw E.forbidden('ADMIN_ONLY', 'Only an admin can overturn an under-18 rejection');
 
     const now = new Date();
-    const until = new Date(+now + validForMs());
     await this.prisma.$transaction([
-      this.prisma.verificationCheck.update({ where: { id: check.id }, data: { eligibility: 'verified', reviewedBy: actor.id, decidedAt: now, expiresAt: until, rejectionReason: null } }),
+      this.prisma.verificationCheck.update({ where: { id: check.id }, data: { eligibility: 'verified', reviewedBy: actor.id, decidedAt: now, expiresAt: null, rejectionReason: null } }),
       // a human reviewer confirmed the person is an adult
-      this.prisma.user.update({ where: { id: userId }, data: { eligibility: 'verified', verifiedUntil: until, adultVerifiedAt: now, reverifyReason: null } }),
+      this.prisma.user.update({ where: { id: userId }, data: { eligibility: 'verified', verifiedUntil: null, adultVerifiedAt: now, reverifyReason: null } }),
     ]);
     await this.audit.log(actor.id, 'verification.rejection_overturned', 'user', userId, { checkId: check.id, previousReason: check.rejectionReason, note });
     await this.notifications.notify(userId, 'verification_result', 'You are verified', 'You can now host, join and chat.');
@@ -238,15 +244,14 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     }
 
     const now = new Date();
-    const until = new Date(+now + validForMs());
     await this.prisma.$transaction([
       this.prisma.verificationCheck.update({
         where: { id: checkId },
-        data: { eligibility: result, reviewedBy: reviewerId, decidedAt: now, expiresAt: result === 'verified' ? until : null, rejectionReason: result === 'rejected' ? (reason ?? 'other') : null },
+        data: { eligibility: result, reviewedBy: reviewerId, decidedAt: now, expiresAt: null, rejectionReason: result === 'rejected' ? (reason ?? 'other') : null },
       }),
       this.prisma.user.update({
         where: { id: check.userId },
-        data: result === 'verified' ? { eligibility: 'verified', verifiedUntil: until, adultVerifiedAt: now, reverifyReason: null } : { eligibility: 'rejected' },
+        data: result === 'verified' ? { eligibility: 'verified', verifiedUntil: null, adultVerifiedAt: now, reverifyReason: null } : { eligibility: 'rejected' },
       }),
     ]);
     await this.audit.log(reviewerId, `verification.${result}`, 'user', check.userId, { checkId, ...(reason ? { reason } : {}) });
@@ -259,7 +264,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
       result === 'verified'
         ? 'You can now host, join and chat in activities and trips. You will not need to do this again until it expires.'
         : reason === 'underage'
-          ? 'HERE & THERE is for adults aged 18 and over, so we could not verify this account.'
+          ? 'LAMIS is for adults aged 18 and over, so we could not verify this account.'
           : 'We could not verify your identity. You can try again.',
     );
 
@@ -319,7 +324,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     return { eligibility: 'reverification_required' };
   }
 
-  /** Verification is one-time but not forever. */
+  /** Only for an old row that still has an end date (verification no longer sets one). */
   async expireUserById(id: string) {
     const r = await this.prisma.user.updateMany({
       where: { id, eligibility: 'verified', verifiedUntil: { lt: new Date() } },

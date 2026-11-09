@@ -1,12 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BackHandler, Keyboard, Platform, Pressable, Switch, View, type HostInstance } from 'react-native';
 import { Text, type InputHandle } from '@/components/ScaledText';
 import { CatPhoto } from '@/components/CatPhoto';
 import { DraftBar } from '@/components/DraftBar';
 import { EditPopup, type Origin } from '@/components/EditPopup';
-import { ClashNotice, tellWithdrawn, useClashes, type Withdrawn } from '@/components/ClashNotice';
+import { ClashNotice, planDays, tellWithdrawn, useClashes, type Withdrawn } from '@/components/ClashNotice';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useClock } from '@/lib/clock';
 import { AuthButton } from '@/components/AuthForm';
@@ -31,6 +31,7 @@ import { scrollToField } from '@/lib/pageScroll';
 import { localeTag, useT } from '@/lib/i18n';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
+import { timeText } from '@/lib/format';
 
 /** the description: one or two light lines, not a paragraph (the server keeps the same limit) */
 const DESC_MAX = 150;
@@ -242,7 +243,10 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const tooSoon = startsAt.getTime() < earliest.getTime();
   // one plan at a time: a plan you host or joined (HERE or THERE) at the chosen time blocks publishing
   const clash = useClashes(startsAt, new Date(+startsAt + f.duration * 3600e3));
-  const busy = clash.firm.length > 0;
+  // only an activity of yours at that time stops you; a trip is just a warning (the person decides)
+  const busy = clash.blocking.length > 0;
+  // the days that already hold a plan of yours get a dot on the calendar (kept the same object until the plans or the minute change)
+  const marks = useMemo(() => planDays(clash.all, Date.now()), [clash.all, Math.floor(clash.now / 60_000)]); // eslint-disable-line react-hooks/exhaustive-deps
   const valid = f.title.trim().length >= 2 && placeOk && publicPlace && !tooSoon && !busy;
 
   const submit = async () => {
@@ -298,7 +302,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const canMove = (d: number) => curMin + d >= 0 && curMin + d <= 24 * 60 - 1 && !(isEarliestDay && curMin + d < earliestMin);
   const move = (d: number) => canMove(d) && setF((p) => ({ ...p, hour: Math.floor((curMin + d) / 60), minute: (curMin + d) % 60 }));
   const endsAt = new Date(+startsAt + f.duration * 3600e3);
-  const clock = (d: Date) => dateFormat(localeTag() ?? 'en', { hour: 'numeric', minute: '2-digit' }).format(d); // one formatter, made once
+  const clock = (d: Date) => timeText(d); // the app's one time format (lib/format)
 
   const [step, setStep] = useState(0);
   // a Continue that found something missing: that field is shown to the person (scrolled to, marked red), no message
@@ -429,8 +433,10 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const whenFields = (
     <>
       <CreateLabel style={{ marginTop: 6 }}>{t('Select a date')}</CreateLabel>
-      <MonthCalendar month={month} onMonth={setMonth} selected={day.d} min={earliest} max={lastDay} onPick={pickDay} />
+      <MonthCalendar month={month} onMonth={setMonth} selected={day.d} min={earliest} max={lastDay} onPick={pickDay} marks={marks} />
       {latest ? <Text style={{ color: c.muted, fontSize: 12 }}>{t('You can plan up to {date}.', { date: shortDay(latest) })}</Text> : null}
+      {/* what you already have at the chosen day and time: right under the calendar, where the day was picked */}
+      <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />
 
       <CreateLabel style={{ marginTop: 10 }}>{t('Select starting time')}</CreateLabel>
       {/* scroll the hour and the minute; − / + beside them nudge by a minute (hold for 5 minutes). Times too soon are greyed and spring back. */}
@@ -504,9 +510,9 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       ) : !f.place && f.venueName.trim().length >= 2 ? (
         <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18 }}>{t('Pick a neighbourhood from the list to continue.')}</Text>
       ) : null}
-      <View ref={publicBox} collapsable={false} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 8, paddingHorizontal: 16, marginTop: 6, borderWidth: tried && step === 2 && placeOk && !publicPlace ? 1.2 : 0, borderColor: c.danger }}>
+      <View ref={publicBox} collapsable={false} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 16, marginTop: 6, borderWidth: tried && step === 2 && placeOk && !publicPlace ? 1.2 : 0, borderColor: c.danger }}>
         <CheckRow checked={publicPlace} onChange={setPublicPlace}>
-          <Text style={{ color: c.text, fontSize: 14, lineHeight: 20, paddingVertical: 8 }}>{t('This is a public place. First meetings never happen at a private home.')}</Text>
+          <Text style={{ color: c.text, fontSize: 14, lineHeight: 24 }}>{t('This is a public place. First meetings never happen at a private home.')}</Text>
         </CheckRow>
       </View>
     </>
@@ -647,9 +653,6 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
           </View>
         )}
         </StepTransition>
-
-        {/* from the time step on: what you already have at the chosen time, and when it ends */}
-        {step >= 1 ? <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} /> : null}
 
         <AuthButton title={step < 3 ? t('Continue') : t('Review')} disabled={step === 2 && placeFar && !!f.place} onPress={next} style={{ marginTop: 10 }} />
         {/* on every step: saving a draft (a draft opened from My drafts loads whichever step is showing) */}

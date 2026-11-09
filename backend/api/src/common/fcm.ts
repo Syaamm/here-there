@@ -74,7 +74,8 @@ function refused(code: string) {
   console.warn(`Phone push refused by Firebase: ${code}${HINT[code] ? ` (${HINT[code]})` : ''}. Nothing was delivered for this message.`);
 }
 
-export async function sendFcm(token: string, msg: { title: string; body: string; url?: string }): Promise<FcmResult> {
+/** `thread`: pushes about the same thing (one chat) replace each other on Android and are stacked together on iPhone. */
+export async function sendFcm(token: string, msg: { title: string; body: string; url?: string; thread?: string }): Promise<FcmResult> {
   const a = fcmAccount();
   if (!a) {
     if (!warned) {
@@ -91,9 +92,10 @@ export async function sendFcm(token: string, msg: { title: string; body: string;
         message: {
           token,
           notification: { title: msg.title, body: msg.body },
-          data: msg.url ? { url: msg.url } : undefined,
-          android: { priority: 'HIGH', notification: { channel_id: 'alerts', sound: 'default' } },
-          apns: { payload: { aps: { sound: 'default' } } },
+          data: msg.url || msg.thread ? { ...(msg.url ? { url: msg.url } : {}), ...(msg.thread ? { thread: msg.thread } : {}) } : undefined,
+          // icon and colour come from the app (the LAMIS mark, set in app.config.ts), so they are not repeated here
+          android: { priority: 'HIGH', notification: { channel_id: 'alerts', sound: 'default', ...(msg.thread ? { tag: msg.thread } : {}) } },
+          apns: { payload: { aps: { sound: 'default', ...(msg.thread ? { 'thread-id': msg.thread } : {}) } } },
         },
       }),
     });

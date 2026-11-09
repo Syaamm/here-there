@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image, type ImageSource } from 'expo-image';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
-import { Animated, Pressable, Text as RNText, View, type ScrollViewInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { Animated, PixelRatio, Pressable, Text as RNText, View, type ScrollViewInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import { get } from '@/lib/api';
 import { localeTag, useT } from '@/lib/i18n';
 import { tick } from '@/lib/haptics';
@@ -11,6 +11,7 @@ import { Text, TextInput, type InputHandle } from './ScaledText';
 import type { Place } from './PlaceSearch';
 import { StepBars, StepLabel } from './StepMotion';
 import { PlainTitle, pressed } from './ui';
+import { dateLang } from '@/lib/format';
 
 /** The four "Host activity" steps (Figma "Host activity 1/4 to 4/4"): back button, title, progress, then the step's content. */
 
@@ -148,7 +149,11 @@ export function SmallPill({ label, spoken, active, onPress }: { label: string; s
   );
 }
 
-const WHEEL_ROW = 40;
+// A row is about 40 dp, nudged so it is a WHOLE number of physical pixels. Android rounds a text line's height to whole pixels but
+// scrolls and snaps in fractions of one: on a screen where 40 dp is e.g. 112.5 px, the one long column of numbers drifted half a pixel
+// per row away from the scroll positions (about three quarters of a row by the middle of the wheel), so the number shown in the
+// middle window was not the one the wheel stopped on. iPhone screens have whole-pixel rows already, so nothing changes there.
+const WHEEL_ROW = Math.round(40 * PixelRatio.get()) / PixelRatio.get();
 const WHEEL_ROWS = 5;
 
 /**
@@ -217,11 +222,43 @@ export function Wheel<T extends string | number>({ items, value, onChange, label
     ticked.current = k;
     return k;
   };
-  // it came to rest on row i: remember it, and report it when it is a new value
+  // true from the moment a finger touches the wheel until it has come to rest. Only then is where it stopped reported: a roll the
+  // screen asked for itself (− / +, AM / PM) can send late or half-way scroll events, and those must never change the value back.
+  const touched = useRef(false);
+  // it came to rest on row i: remember it, and report it when it is a new value. A greyed (not allowed) number is never kept:
+  // the wheel eases to the nearest allowed one and reports that instead (the screen's own correction would not turn it when
+  // the allowed value was already the shown one, which left the wheel resting on a grey number).
   const settle = (offset: number) => {
+    if (!touched.current) {
+      // not turned by a finger: only keep the rows centred, report nothing
+      const j = Math.min(rows.length - 1, Math.max(0, Math.round(offset / WHEEL_ROW)));
+      shown.current = recentre(j);
+      return;
+    }
+    touched.current = false;
     const i = Math.min(rows.length - 1, Math.max(0, Math.round(offset / WHEEL_ROW)));
+    let k = i % n;
+    if (disabled?.(items[k])) {
+      // nearest allowed number in the list (not round the end: 12 o'clock should not jump to 11 at night)
+      let best = -1;
+      for (let j = 0; j < n; j++) {
+        if (disabled(items[j])) continue;
+        if (best < 0 || Math.abs(j - k) < Math.abs(best - k) || (Math.abs(j - k) === Math.abs(best - k) && j > best)) best = j;
+      }
+      if (best >= 0) {
+        const row = i - k + best; // the same copy of the list, so the wheel only moves a little
+        shown.current = row;
+        ticked.current = row;
+        box.current?.scrollTo({ y: row * WHEEL_ROW, animated: true });
+        if (best !== want) onChange(items[best]);
+        idle.current = setTimeout(() => {
+          shown.current = recentre(row);
+        }, 320);
+        return;
+      }
+    }
     shown.current = recentre(i);
-    if (i % n !== want) onChange(items[i % n]);
+    if (k !== want) onChange(items[k]);
   };
   const latest = useRef({ settle });
   latest.current = { settle };
@@ -231,7 +268,7 @@ export function Wheel<T extends string | number>({ items, value, onChange, label
   useEffect(() => () => void (idle.current && clearTimeout(idle.current)), []);
   // if it is still between two numbers (Android sometimes stops there), ease it onto the nearest and report that one
   const toNearestRow = () => {
-    if (dragging.current) return;
+    if (dragging.current || !touched.current) return;
     const row = Math.round(lastY.current / WHEEL_ROW) * WHEEL_ROW;
     if (Math.abs(lastY.current - row) < 1) return;
     box.current?.scrollTo({ y: row, animated: true });
@@ -296,6 +333,7 @@ export function Wheel<T extends string | number>({ items, value, onChange, label
         onScroll={onScroll}
         onScrollBeginDrag={() => {
           dragging.current = true;
+          touched.current = true;
           if (idle.current) clearTimeout(idle.current);
         }}
         onScrollEndDrag={() => {
@@ -373,10 +411,10 @@ export function dateFormat(tag: string, opts: Intl.DateTimeFormatOptions) {
  * A month to pick the day from. Days outside min..max are greyed and cannot be picked. The arrows change the month,
  * only as far as the first and last day that can be picked.
  */
-export function MonthCalendar({ month, onMonth, selected, min, max, onPick }: { month: Date; onMonth: (m: Date) => void; selected: Date; min: Date; max: Date; onPick: (d: Date) => void }) {
+export function MonthCalendar({ month, onMonth, selected, min, max, onPick, marks }: { month: Date; onMonth: (m: Date) => void; selected: Date; min: Date; max: Date; onPick: (d: Date) => void; /** days that already hold a plan of yours ("year-month-day", month from 0): a dot under the number */ marks?: Record<string, 'activity' | 'trip'> }) {
   const { t } = useT();
   const { c } = useTheme();
-  const tag = localeTag() ?? 'en';
+  const tag = dateLang();
   const weekStart = tag.toLowerCase().startsWith('it') ? 1 : 0; // Italian weeks start on Monday
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, i) => dateFormat(tag, { weekday: 'short' }).format(new Date(2023, 0, 1 + ((i + weekStart) % 7)))), [tag, weekStart]);
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -401,23 +439,26 @@ export function MonthCalendar({ month, onMonth, selected, min, max, onPick }: { 
         const d = new Date(month.getFullYear(), month.getMonth(), n);
         const off = d < lo || d > hi;
         const on = +d === +sel;
+        const mark = marks?.[`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`];
         return (
           <View key={i} style={{ width: `${100 / 7}%`, height: 44, alignItems: 'center', justifyContent: 'center' }}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={dateFormat(tag, { weekday: 'long', day: 'numeric', month: 'long' }).format(d)}
+              accessibilityLabel={dateFormat(tag, { weekday: 'long', day: 'numeric', month: 'long' }).format(d) + (mark ? `. ${mark === 'trip' ? t('You are on a trip this day') : t('You have a plan this day')}` : '')}
               accessibilityState={{ selected: on, disabled: off }}
               disabled={off}
               onPress={() => pick.current(d)}
               style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.forest : 'transparent' }}
             >
               <Text style={{ color: on ? '#fff' : off ? c.placeholder : c.text, fontSize: 13, fontWeight: on ? '500' : '400' }}>{n}</Text>
+              {/* a day that already holds a plan of yours: a dot (red for an activity, amber for a trip; also said aloud above) */}
+              {mark ? <View style={{ position: 'absolute', bottom: 5, width: 5, height: 5, borderRadius: 3, backgroundColor: on ? '#fff' : mark === 'trip' ? c.warnFg : c.badFg }} /> : null}
             </Pressable>
           </View>
         );
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [month.getFullYear(), month.getMonth(), +sel, +lo, +hi, tag, c],
+    [month.getFullYear(), month.getMonth(), +sel, +lo, +hi, tag, c, marks],
   );
   return (
     <View style={{ gap: 10 }}>

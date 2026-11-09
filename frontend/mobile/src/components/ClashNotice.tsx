@@ -1,5 +1,6 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { Btn, Chip, ErrorBanner } from '@/components/ui';
 import { del, get, post } from '@/lib/api';
@@ -51,7 +52,29 @@ export function useClashes(from: string | Date | null | undefined, to: string | 
   const tt = to ? +new Date(to) : NaN;
   const ok = !isNaN(f) && !isNaN(tt) && tt > f;
   const live = ok ? (q.data?.items ?? []).filter((x) => +new Date(x.startsAt) < tt && +new Date(x.endsAt) > Math.max(f, now)) : [];
-  return { firm: live.filter((x) => x.firm), pending: live.filter((x) => !x.firm), reload: q.reload, now };
+  const firm = live.filter((x) => x.firm);
+  // Creating: only an ACTIVITY you host or joined stops you. A trip you are on is a warning (the server allows it), the person decides.
+  return { firm, blocking: firm.filter((x) => x.kind === 'activity'), onTrip: firm.filter((x) => x.kind === 'trip'), pending: live.filter((x) => !x.firm), all: q.data?.items ?? [], reload: q.reload, now };
+}
+
+/**
+ * The days that already have a plan holding you, for the calendars: 'activity' or 'trip' (an activity wins when both fall on one day).
+ * Keyed "year-month-day" (month from 0), in the phone's own time.
+ */
+export function planDays(items: Clash[], now: number) {
+  const marks: Record<string, 'activity' | 'trip'> = {};
+  for (const x of items) {
+    if (!x.firm || +new Date(x.endsAt) <= now) continue;
+    let d = new Date(x.startsAt);
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const stop = +new Date(x.endsAt) - 1;
+    for (let guard = 0; +d <= stop && guard < 100; guard++) {
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      if (x.kind === 'activity' || !marks[key]) marks[key] = x.kind;
+      d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+    }
+  }
+  return marks;
 }
 
 /** A request of yours withdrawn by the server because you just got into another plan at the same time (first accepted wins). */
@@ -160,18 +183,63 @@ export function ClashNotice({ firm, pending, now, mode, onChanged }: { firm: Cla
   const action = (x: Clash) =>
     x.role === 'host' ? t('Cancel this activity') : x.role === 'organizer' ? t('Cancel this trip') : x.role === 'going' ? t('Leave this activity') : x.role === 'member' ? t('Leave this trip') : x.kind === 'trip' ? t('Withdraw application') : t('Withdraw request');
 
-  const head = firm.length
-    ? mode === 'create'
-      ? t("You can't create a plan at this time")
-      : mode === 'apply'
-        ? t("You can't apply to this trip yet")
-        : t("You can't join this activity yet")
-    : t('You also asked to join something at this time');
+  // creating: a small card you read at a glance (an icon, the plan's name, when it is), the way to free the time, and for a trip a
+  // plain warning. No chips, no countdown, no long text.
+  if (mode === 'create') {
+    const when1 = (x: Clash) => (x.kind === 'trip' ? `${t('Trip')} · ${shortDate(x.dateStart ?? x.startsAt)} – ${shortDate(x.dateEnd ?? x.endsAt)}` : `${t('Activity')} · ${when(x.startsAt)} – ${hhmm(x.endsAt)}`);
+    const short = (x: Clash) => (x.role === 'host' ? t('Cancel') : x.role === 'going' ? t('Leave') : action(x));
+    const cards = firm.map((x) => {
+      const trip = x.kind === 'trip';
+      const bg = trip ? c.warnBg : c.badBg;
+      const fg = trip ? c.warnFg : c.badFg;
+      const key = `${x.kind}:${x.id}`;
+      return (
+        <View key={key} accessibilityRole="alert" style={{ backgroundColor: bg, borderRadius: 18, padding: 12, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name={trip ? 'airplane' : 'alert-circle'} size={22} color={fg} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text numberOfLines={1} style={{ color: fg, fontSize: 15, lineHeight: 20, fontWeight: '700' }}>{x.title}</Text>
+              <Text numberOfLines={2} style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{trip ? when1(x) : `${t('Already busy then')} · ${when1(x)}`}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={action(x)}
+              disabled={busy === key}
+              hitSlop={8}
+              onPress={() => void free(x)}
+              style={({ pressed }) => [{ minHeight: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.85)', alignItems: 'center', justifyContent: 'center', opacity: busy === key ? 0.5 : pressed ? 0.8 : 1 }]}
+            >
+              <Text style={{ color: fg, fontSize: 13, fontWeight: '700' }}>{busy === key ? '…' : short(x)}</Text>
+            </Pressable>
+          </View>
+          {trip ? <Text style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{t('You are on a trip then. Go on only if you think you can still join or host.')}</Text> : null}
+        </View>
+      );
+    });
+    return (
+      <View style={{ gap: 8 }}>
+        <ErrorBanner message={act.error} />
+        {cards}
+        {pending.length ? (
+          <View style={{ backgroundColor: c.infoBg, borderRadius: 18, padding: 12, gap: 4 }}>
+            <Text style={{ color: c.infoFg, fontSize: 13, fontWeight: '700' }}>{t('Also waiting for an answer at this time:')}</Text>
+            {pending.map((x) => (
+              <Text key={`${x.kind}:${x.id}`} numberOfLines={1} style={{ color: c.infoFg, fontSize: 13, lineHeight: 18 }}>{`${x.title} · ${when1(x)}`}</Text>
+            ))}
+            <Text style={{ color: c.infoFg, fontSize: 12, lineHeight: 17 }}>{t('Publishing withdraws these requests, since you will be busy then.')}</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  // joining or applying (creating is the compact card above)
+  const head = firm.length ? (mode === 'apply' ? t("You can't apply to this trip yet") : t("You can't join this activity yet")) : t('You also asked to join something at this time');
   const body = firm.length
     ? tn(firm.length, 'You can only do this once the plan below has ended or been cancelled.', 'You can only do this once the {n} plans below have ended or been cancelled.')
-    : mode === 'create'
-      ? t('Publishing withdraws these requests, since you will be busy then.')
-      : t('That is fine. Whichever accepts you first wins, and your other requests at this time are withdrawn by themselves.');
+    : t('That is fine. Whichever accepts you first wins, and your other requests at this time are withdrawn by themselves.');
 
   const row = (x: Clash) => (
     <View key={`${x.kind}:${x.id}`} style={{ gap: 6, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.line }}>
@@ -181,7 +249,7 @@ export function ClashNotice({ firm, pending, now, mode, onChanged }: { firm: Cla
         <Chip label={t(ROLE[x.role])} tone={x.firm ? 'ok' : 'warn'} />
         {x.kind === 'trip' ? <Chip label={t('Trip')} tone="neutral" /> : null}
       </View>
-      {x.firm || mode !== 'create' ? <Btn title={action(x)} small variant={x.firm ? 'secondary' : 'ghost'} loading={busy === `${x.kind}:${x.id}`} onPress={() => void free(x)} style={{ alignSelf: 'flex-start' }} /> : null}
+      <Btn title={action(x)} small variant={x.firm ? 'secondary' : 'ghost'} loading={busy === `${x.kind}:${x.id}`} onPress={() => void free(x)} style={{ alignSelf: 'flex-start' }} />
     </View>
   );
 

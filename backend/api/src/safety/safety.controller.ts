@@ -16,6 +16,8 @@ export const reportSchema = z.object({
   targetId: z.string().min(1),
   category: z.enum(REPORT_CATEGORIES),
   details: z.string().trim().max(1000).optional(),
+  /** the app the person was in (HERE or THERE): where the alerts about this report go. Plans and chats decide it themselves. */
+  product: z.enum(['here', 'there']).optional(),
 });
 export const blockSchema = z.object({ userId: z.string().min(1) });
 export const hostAbsentSchema = z.object({ note: z.string().trim().max(1000).optional() });
@@ -39,7 +41,8 @@ export class SafetyController {
     }
     this.limiter.hit(`report:${me.id}`, 20, 24 * 3600 * 1000); // abusive repeat reporters
     const urgent = this.moderation.isUrgent(dto.category);
-    const r = await this.prisma.report.create({ data: { reporterId: me.id, ...dto, priority: urgent ? 'urgent' : 'normal' } });
+    const product = await this.moderation.productOfTarget(dto.targetType, dto.targetId, dto.product);
+    const r = await this.prisma.report.create({ data: { reporterId: me.id, ...dto, product, priority: urgent ? 'urgent' : 'normal' } });
     await this.moderation.onReport(r);
     // what happens next, in plain words, and the emergency number: shown to the person right after they report
     const policy = reportPolicy();

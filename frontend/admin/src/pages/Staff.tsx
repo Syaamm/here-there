@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, get, PERMISSIONS, post, roleLabel, type Permission, type Role, type Session } from '../api';
+import { Select, useBackdropClose } from '../controls';
 import { Avatar, Chip, Empty, errMsg, ErrorBanner, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
 
 type Member = { id: string; email: string; displayName: string | null; photoUrl: string | null; role: Role; regionKey: string | null; permissions: Permission[]; state: string; mfaEnabled: boolean; mustChangePassword: boolean; createdAt: string };
@@ -163,6 +164,7 @@ function StaffDialog({ title, areas, start, onClose, onSave }: { title: string; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => ref.current?.showModal(), []);
+  const backdrop = useBackdropClose(ref, onClose); // a click on the dark area closes it
   const toggle = (p: Permission) => setPerms((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
 
   const submit = async (e: FormEvent) => {
@@ -179,7 +181,7 @@ function StaffDialog({ title, areas, start, onClose, onSave }: { title: string; 
   };
 
   return (
-    <dialog ref={ref} className="dialog" onCancel={(e) => (e.preventDefault(), onClose())} aria-labelledby="staff-dlg">
+    <dialog ref={ref} className="dialog" onCancel={(e) => (e.preventDefault(), onClose())} aria-labelledby="staff-dlg" {...backdrop}>
       <form onSubmit={submit}>
         <h2 id="staff-dlg">{title}</h2>
         <ErrorBanner message={error} />
@@ -197,7 +199,7 @@ function StaffDialog({ title, areas, start, onClose, onSave }: { title: string; 
         )}
         <label>
           Area
-          <select required value={area} onChange={(e) => setArea(e.target.value)}>
+          <Select required value={area} onChange={setArea}>
             <option value="" disabled>
               Choose a city, region or country
             </option>
@@ -206,7 +208,7 @@ function StaffDialog({ title, areas, start, onClose, onSave }: { title: string; 
                 {p.name} ({p.kind})
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 8 }}>
           <legend style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 6 }}>Can use</legend>

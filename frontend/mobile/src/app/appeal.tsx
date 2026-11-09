@@ -11,6 +11,7 @@ import { post, type MyAppeal } from '@/lib/api';
 import { useAction, useRefresh } from '@/lib/hooks';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { localeTag, useT } from '@/lib/i18n';
+import { dateText } from '@/lib/format';
 
 const ASK: Record<string, { title: string; hint: string }> = {
   verification: { title: 'Ask for a review of your identity check', hint: 'Tell us what went wrong.' },
@@ -97,7 +98,7 @@ export default function Appeal() {
                 <Text style={{ color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', flex: 1 }}>{t(a.what.charAt(0).toUpperCase() + a.what.slice(1))}</Text>
                 <StatusTag label={t(STATE[a.state].label)} tone={STATE[a.state].tone} />
               </View>
-              <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Sent {date}', { date: new Date(a.createdAt).toLocaleDateString(localeTag()) })}</Text>
+              <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Sent {date}', { date: dateText(a.createdAt) })}</Text>
               {a.proofs?.length ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{a.proofs.length === 1 ? t('1 photo sent as proof') : t('{n} photos sent as proof', { n: a.proofs.length })}</Text> : null}
               {a.decision ? <Text style={{ color: c.muted, fontSize: 13, lineHeight: 20, marginTop: 6 }}>{a.decision}</Text> : null}
             </View>

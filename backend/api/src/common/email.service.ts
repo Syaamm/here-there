@@ -30,7 +30,7 @@ export class EmailService {
 
   async send(to: string, subject: string, text: string) {
     if (this.transporter) {
-      await this.transporter.sendMail({ from: process.env.EMAIL_FROM ?? 'HERE & THERE <no-reply@herethere.local>', to, subject, text });
+      await this.transporter.sendMail({ from: process.env.EMAIL_FROM ?? 'LAMIS <no-reply@herethere.local>', to, subject, text });
       return;
     }
     if (process.env.NODE_ENV === 'test') {

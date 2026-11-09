@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { can, get, post, roleLabel, type Role, type Session } from '../api';
 import './UserPanel.css';
-import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, RowMenu, Search, Segmented, useAction, useLoad, useMore } from '../ui';
+import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad, useMore } from '../ui';
 
 type U = { adminRegionKey?: string | null; id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
 type Detail = {
@@ -56,11 +56,13 @@ const detailText = (meta: string | null) => {
   }
 };
 
-export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Session; focusId?: string | null; onClearFocus?: () => void; openReport?: (id: string) => void }) {
+export function UsersPage({ me, focusId, onClearFocus, openReport, backLabel, onBack }: { me: Session; focusId?: string | null; onClearFocus?: () => void; openReport?: (id: string) => void; /** "Back to the report" etc.: this person was opened from there */ backLabel?: string | null; onBack?: () => void }) {
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
-  const [view, setView] = useState<View>('all');
-  const [open, setOpen] = useState<string | null>(null);
+  // kept in the address, so a page reload stays on the same view and person
+  const [viewRaw, setView] = useUrlParam<View>('view', 'all');
+  const view: View = viewRaw ?? 'all';
+  const [open, setOpen] = useUrlParam<string>('user');
   const state = view === 'active' || view === 'suspended' ? view : '';
   useEffect(() => {
     const t = setTimeout(() => setTerm(q.trim()), 300);
@@ -75,6 +77,8 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
   const listRef = useRef<HTMLDivElement>(null);
   const selectedId = focusId ?? open ?? rows[0]?.id ?? null;
   const selected = rows.find((u) => u.id === selectedId) ?? null;
+  // on a phone or small tablet: the list, then the person opened from it with a way back (responsive.css reads data-pane)
+  const [pane, setPane] = useState<'list' | 'detail'>(() => (focusId || urlParam('user') ? 'detail' : 'list'));
   const label = (u: U) => u.displayName ?? u.email;
 
   const suspend = async (u: U) => {
@@ -122,9 +126,18 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
       title="People"
       actions={
         focusId ? (
-          <button className="btn small" onClick={onClearFocus}>
-            Show everyone
-          </button>
+          <>
+            {/* opened from a report (or appeals, attendance): straight back to it, in the same place */}
+            {backLabel && onBack && (
+              <button className="btn primary small" onClick={onBack}>
+                <Icon name="back" />
+                {backLabel}
+              </button>
+            )}
+            <button className="btn small" onClick={() => (setPane('list'), onClearFocus?.())}>
+              Show everyone
+            </button>
+          </>
         ) : (
           <Segmented
             label="Show"
@@ -143,7 +156,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
       <ErrorBanner message={users.error ?? act.error} onRetry={users.reload} />
       {users.loading && !users.data && <Loading rows={6} />}
       {users.data && (
-        <div className="split">
+        <div className="split" data-pane={focusId ? 'detail' : pane}>
           <section className="split-list" aria-label="People">
             {!focusId && (
               <div className="split-tools">
@@ -154,7 +167,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
               <ul className="items">
                 {shown.map((u) => (
                   <li key={u.id}>
-                    <button data-id={u.id} className={u.id === selectedId ? 'list-item active' : 'list-item'} aria-current={u.id === selectedId} onClick={() => (setOpen(u.id), window.innerWidth < 1100 && setTimeout(() => document.querySelector('.split-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60))}>
+                    <button data-id={u.id} className={u.id === selectedId ? 'list-item active' : 'list-item'} aria-current={u.id === selectedId} onClick={() => (setOpen(u.id), setPane('detail'))}>
                       <Avatar name={label(u)} photo={u.photoUrl} />
                       <span className="body">
                         <span className="title">{nameOf(u)}</span>
@@ -178,6 +191,13 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
             </div>
           </section>
           <section className="split-detail" aria-label="Person">
+            {/* a person opened from a report has its own way back in the page's top bar */}
+            {!focusId && (
+              <button type="button" className="btn small split-back" onClick={() => (setPane('list'), setOpen(null))}>
+                <Icon name="back" />
+                All people
+              </button>
+            )}
             {selected ? (
               <UserPanel key={selected.id} u={selected} me={me} busy={act.busy} onSuspend={suspend} onRestore={restore} onWarn={warn} onReverify={reverify} onReset={reset} onOverturn={overturn} onResetMfa={resetMfa} openReport={openReport} />
             ) : (

@@ -19,3 +19,6 @@ export const REPORT_CATEGORIES = [
 export const URGENT_CATEGORIES: string[] = ['immediate_danger', 'physical_safety'];
 export const REPORT_TARGETS = ['user', 'activity', 'trip', 'message'] as const;
 export type Role = 'user' | 'guest' | (typeof STAFF_ROLES)[number];
+
+/** How many times the dates of one trip can be changed through date polls. After that its dates stay as they are. */
+export const MAX_DATE_CHANGES = 5;

@@ -121,7 +121,7 @@ export default function Settings() {
 
       <GroupLabel>{t('About')}</GroupLabel>
       <RoundCard>
-        <AccountRow icon="information-circle-outline" title="HERE & THERE" subtitle={t('Version {v}', { v: Constants.expoConfig?.version ?? '0.1.0' })} last />
+        <AccountRow icon="information-circle-outline" title="LAMIS" subtitle={t('Version {v}', { v: Constants.expoConfig?.version ?? '0.1.0' })} last />
       </RoundCard>
 
       <AuthButton title={t('Sign out')} onPress={() => void signOut()} />

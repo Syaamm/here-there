@@ -9,6 +9,7 @@ import { useAction, useRefresh } from '@/lib/hooks';
 import { localeTag, useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
+import { dateText } from '@/lib/format';
 
 type AboutMe = { id: string; category: string; targetType: string; decidedAt: string | null; decision: string | null; canAppeal: boolean; appeal: { id: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null } | null };
 type Blocked = { userId: string; displayName?: string };
@@ -58,7 +59,7 @@ export default function ReportsAndBlocked() {
                     <Text style={{ color: c.text, fontSize: 15, lineHeight: 21, fontWeight: '500', flex: 1 }}>{x.category === 'host_no_show' ? t('Host did not show up') : x.category.replace(/_/g, ' ')} · {x.targetType}</Text>
                     {x.appeal ? <StatusTag label={t(STATE[x.appeal.state].label)} tone={STATE[x.appeal.state].tone} /> : null}
                   </View>
-                  {x.decidedAt ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Decided {date}', { date: new Date(x.decidedAt).toLocaleDateString(localeTag()) })}</Text> : null}
+                  {x.decidedAt ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Decided {date}', { date: dateText(x.decidedAt) })}</Text> : null}
                   {x.decision ? <Text style={{ color: c.text, fontSize: 14, lineHeight: 20 }}>{x.decision}</Text> : null}
                   {x.appeal?.decision ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Review: {text}', { text: x.appeal.decision })}</Text> : null}
                   {x.canAppeal ? <Btn title={t('Ask for a review')} variant="secondary" small onPress={() => r.push(`/appeal?kind=report&targetId=${x.id}` as never)} style={{ alignSelf: 'flex-start', marginTop: 4 }} /> : null}

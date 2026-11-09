@@ -1,18 +1,19 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BackHandler, Keyboard, Platform, Pressable, View, type HostInstance } from 'react-native';
+import { EditPopup, type Origin } from '@/components/EditPopup';
 import { AuthButton } from '@/components/AuthForm';
 import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
 import { DraftBar } from '@/components/DraftBar';
-import { WizardActions } from '@/components/CreateParts';
-import { ClashNotice, tellWithdrawn, useClashes, type Withdrawn } from '@/components/ClashNotice';
+import { CountPill, RoundPhoto, WizardActions } from '@/components/CreateParts';
+import { ClashNotice, planDays, tellWithdrawn, useClashes, type Withdrawn } from '@/components/ClashNotice';
 import { Text, TextInput, type InputHandle } from '@/components/ScaledText';
 import { StepTransition } from '@/components/StepMotion';
 import { DestinationResults, TRIP_WHITE, TripAmount, TripCard, TripField, TripHeading, TripInput, TripLabel, TripPill, TripRoundDark, TripTop, TripValue } from '@/components/TripCreateParts';
 import { Banner, CheckRow, Chip, ErrorBanner, Screen, Txt, useGo } from '@/components/ui';
 import { get, post, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
-import { GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
+import { TRIP_TAGS } from '@/lib/constants';
 import { FLEX } from '@/lib/constants';
 import { money, parseDay } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
@@ -25,6 +26,57 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
 const STEPS = 4;
+/** "About the trip": the server's limit (trips.service), shown under the box as "120/300" */
+const DESC_MAX = 300;
+
+/** One part of the review page: its name, an Edit pill and what was chosen. Edit reports where the card is, so a pop-up can grow out of it. */
+function ReviewCard({ title, onEdit, children }: { title: string; onEdit: (from: Origin) => void; children: React.ReactNode }) {
+  const { c } = useTheme();
+  const { t } = useT();
+  const box = useRef<HostInstance>(null);
+  return (
+    <View ref={box} collapsable={false} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ color: c.text, fontSize: 14, fontWeight: '700' }}>{title}</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('Edit {section}', { section: title })}
+          hitSlop={8}
+          onPress={() => {
+            tap('Medium');
+            box.current?.measureInWindow((x, y, width, height) => onEdit({ x, y, width, height }));
+          }}
+          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 30, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] }]}
+        >
+          <Ionicons name="pencil" size={13} color={c.forest} />
+          <Text style={{ color: c.forest, fontSize: 13, fontWeight: '600' }}>{t('Edit')}</Text>
+        </Pressable>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+/** The pop-up's "Done". */
+function DonePill({ onPress }: { onPress: () => void }) {
+  const { c } = useTheme();
+  const { t } = useT();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t('Done')}
+      hitSlop={8}
+      onPress={() => {
+        tap('Medium');
+        onPress();
+      }}
+      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 30, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.forest }, pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] }]}
+    >
+      <Ionicons name="checkmark" size={13} color="#fff" />
+      <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{t('Done')}</Text>
+    </Pressable>
+  );
+}
 /** The four date choices. */
 const FLEX_CHOICES: readonly (readonly [string, string])[] = [
   ['exact', 'Exact'],
@@ -32,9 +84,20 @@ const FLEX_CHOICES: readonly (readonly [string, string])[] = [
   ['plus_minus_3', '±3 days'],
   ['plus_minus_7', '±1 wk'],
 ];
-const GROUP_CHOICES: readonly (readonly [string, string])[] = GROUP_SIZES.map(([v]) => [v, v === '10+' ? '10 - 20' : v.replace('-', ' - ')] as const);
+/** What the budget covers: three choices, each one chosen by tapping it and cleared by tapping it again (like the categories in HERE). */
+const INCLUDES = [
+  ['food', 'Food', require('../../assets/includes/food.webp')],
+  ['travel', 'Travel', require('../../assets/includes/travel.webp')],
+  ['stay', 'Stay', require('../../assets/includes/stay.webp')],
+] as const;
 
-type Draft = { destination: string; originCity: string; description: string; start: string; end: string; flex: string; min: string; max: string; transport: boolean; tags: string[]; size: string };
+/** The exact number of people (you included), chosen like in HERE. */
+const MIN_PEOPLE = 2;
+const MAX_PEOPLE = 20;
+/** Drafts saved before the counter hold a range; the top of it becomes the number. */
+const RANGE_TOP: Record<string, number> = { '2-3': 3, '4-6': 6, '7-10': 10, '10+': 20 };
+
+type Draft = { destination: string; originCity: string; description: string; start: string; end: string; flex: string; min: string; max: string; includes: string[]; tags: string[]; capacity: number };
 
 /** A bordered tile with a small label above the value, like the route and date boxes (also used by the trip search). */
 export function Tile({ label, children, style }: { label: string; children: ReactNode; style?: object }) {
@@ -73,15 +136,28 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const destRef = useRef<InputHandle>(null);
   const maxRef = useRef<InputHandle>(null);
   const aboutRef = useRef<InputHandle>(null);
-  const [f, setF] = useState<Draft>({ destination: '', originCity: me?.profile?.homeCity ?? '', description: '', start: '', end: '', flex: 'plus_minus_3', min: '', max: '', transport: true, tags: [], size: '4-6' });
+  const [f, setF] = useState<Draft>({ destination: '', originCity: me?.profile?.homeCity ?? '', description: '', start: '', end: '', flex: 'plus_minus_3', min: '', max: '', includes: [], tags: [], capacity: 6 });
   const [agree, setAgree] = useState(false);
   const [tried, setTried] = useState(false);
+  // the review page: the card being edited in a pop-up that grows out of it and folds back into it on Done (as in HERE)
+  const [pop, setPop] = useState<null | { card: 'route' | 'budget' | 'group' | 'about'; from: Origin }>(null);
+  const [closing, setClosing] = useState(false);
+  const openPop = (card: 'route' | 'budget' | 'group' | 'about', from: Origin) => {
+    Keyboard.dismiss();
+    setClosing(false);
+    setPop({ card, from });
+  };
+  useEffect(() => setPop(null), [step]);
+  const aboutBox = useRef<HostInstance>(null);
   const [calendar, setCalendar] = useState<null | 'start' | 'end'>(null);
   const [destFocus, setDestFocus] = useState(false); // the destination field has the cursor
   const [destTyped, setDestTyped] = useState(false); // and its text was changed since: only then are suggestions looked up (tapping it again, or a place just picked, shows none)
   const act = useAction();
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((p) => ({ ...p, [k]: v }));
-  const loadDraft = useCallback((d: Record<string, unknown>) => setF((p) => ({ ...p, ...(d as Partial<Draft>) })), []);
+  const loadDraft = useCallback((d: Record<string, unknown>) => {
+    const { size, transport, ...rest } = d; // `size` is the old range and `transport` the old "travel included" flag; the number and the list replace them
+    setF((p) => ({ ...p, ...(rest as Partial<Draft>), includes: Array.isArray(rest.includes) ? (rest.includes as string[]) : typeof transport === 'boolean' ? (transport ? ['travel'] : []) : p.includes, capacity: typeof rest.capacity === 'number' ? Math.min(MAX_PEOPLE, Math.max(MIN_PEOPLE, rest.capacity)) : typeof size === 'string' ? (RANGE_TOP[size] ?? p.capacity) : p.capacity }));
+  }, []);
   // saving a draft when the app is left, "Clear all", and starting over after publishing: shared with the activity form
   const { posted, clearAll, stashNow, restart } = useFormDraft('trip', f, hasContent, onReset);
 
@@ -114,7 +190,9 @@ function TripForm({ onReset }: { onReset: () => void }) {
   ].filter(Boolean) as string[];
   // one plan at a time: a trip or activity you are in on these days blocks the trip (it holds its whole days)
   const clash = useClashes(start, start && end && end >= start ? new Date(+end + 864e5) : null);
-  const busy = clash.firm.length > 0;
+  // only an activity of yours on those days stops the trip; a trip you are on is just a warning (the person decides)
+  const busy = clash.blocking.length > 0;
+  const marks = useMemo(() => planDays(clash.all, Date.now()), [clash.all, Math.floor(clash.now / 60_000)]); // eslint-disable-line react-hooks/exhaustive-deps
   const publishProblems = [...routeProblems, ...budgetProblems, !agree && t('the guidelines ticked')].filter(Boolean) as string[];
   const verified = me?.eligibility === 'verified';
 
@@ -183,9 +261,10 @@ function TripForm({ onReset }: { onReset: () => void }) {
         budgetCurrency: 'EUR',
         budgetMin: Math.floor(min),
         budgetMax: Math.floor(max),
-        budgetIncludesTransport: f.transport,
+        budgetIncludesTransport: f.includes.includes('travel'),
+        budgetIncludes: f.includes,
         tags: f.tags,
-        groupSize: f.size,
+        capacity: f.capacity,
       }),
     );
     if (created) {
@@ -199,7 +278,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
 
   const stepNames = [t('Destination & Vibe'), t('Budget & Preferences'), t('Travel Preferences'), t('Review & publish')];
   const flexLabel = t(FLEX.find(([v]) => v === f.flex)?.[1] ?? '');
-  const groupLabel = t(GROUP_SIZES.find(([v]) => v === f.size)?.[1] ?? '');
+  const groupLabel = t('{n} people', { n: f.capacity });
   const dayText = (d: Date | null) => (d ? `${shortDay(d)}, ${d.getFullYear()}` : '');
   const budgetBad = (k: 'min' | 'max') => tried && step === 1 && (!f[k] || (k === 'max' && !!f.min && max <= min));
 
@@ -219,6 +298,152 @@ function TripForm({ onReset }: { onReset: () => void }) {
       </View>
     );
   };
+
+  // ---- the fields, written once: steps 1 and 2 show them, and the review page opens them inside its cards (Edit)
+  const routeFields = (
+    <>
+      <View style={{ gap: 4 }}>
+        <View ref={originBox} collapsable={false}>
+          <TripField label={t('Departing from')} invalid={tried && step === 0 && originBad}>
+            <TripInput label={t('Departing from')} autoCapitalize="words" placeholder={t('Milan, Italy')} value={f.originCity} onChangeText={(v) => set('originCity', v)} maxLength={60} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => destRef.current?.focus()} />
+          </TripField>
+        </View>
+        <View ref={destBox} collapsable={false}>
+          <TripField label={t('Destination')} invalid={tried && step === 0 && destBad}>
+            <TripInput ref={destRef} label={t('Destination')} autoCapitalize="words" placeholder={t('Tokyo & Kyoto, Japan')} value={f.destination} onChangeText={(v) => { set('destination', v); setDestTyped(true); }} onFocus={() => { setDestFocus(true); setDestTyped(false); }} onBlur={() => setTimeout(() => setDestFocus(false), 200)} maxLength={100} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => (start && end ? nextFromKeyboard() : (Keyboard.dismiss(), setCalendar(start ? 'end' : 'start')))} />
+          </TripField>
+        </View>
+      </View>
+      {/* any place in the world, named with its country ("Milan, Italy", "Kerala, India"): tap one to use it */}
+      <DestinationResults text={f.destination} active={destFocus && destTyped} onPick={(label) => { set('destination', label); setDestTyped(false); Keyboard.dismiss(); }} />
+    </>
+  );
+  const dateFields = (
+    <View style={{ gap: 4 }}>
+      {dateField('start')}
+      {dateField('end')}
+      <View style={{ position: 'absolute', right: 12, top: '50%', marginTop: -22 }}>
+        <TripRoundDark icon="calendar-outline" label={t('Open the calendar')} onPress={() => setCalendar('start')} />
+      </View>
+    </View>
+  );
+  const flexFields = (
+    <View accessibilityRole="radiogroup" accessibilityLabel={t('How flexible are your dates?')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {FLEX_CHOICES.map(([v, l]) => (
+        <TripPill key={v} label={t(l)} active={f.flex === v} onPress={() => set('flex', v)} />
+      ))}
+    </View>
+  );
+  const budgetFields = (
+    <>
+      <View ref={budgetBox} collapsable={false} style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {(['min', 'max'] as const).map((k, i) => (
+          <Fragment key={k}>
+            {/* its own slot between the two pills, centred in it, so it is exactly halfway between them */}
+            {i === 1 ? <Text accessibilityElementsHidden importantForAccessibility="no" style={{ width: 28, textAlign: 'center', color: c.muted, fontSize: 14 }}>–</Text> : null}
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', borderRadius: 32, borderWidth: budgetBad(k) ? 1.2 : 0, borderColor: c.danger }}>
+              <TripAmount ref={k === 'max' ? maxRef : undefined} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => (k === 'min' ? maxRef.current?.focus() : step === 1 ? aboutRef.current?.focus() : Keyboard.dismiss())} label={k === 'min' ? t('Budget minimum in euros') : t('Budget maximum in euros')} placeholder={k === 'min' ? t('Min') : t('Max')} placeholderTextColor={c.placeholder} value={f[k]} onChangeText={(v) => set(k, v.replace(/\D/g, '').slice(0, 6))} />
+            </View>
+          </Fragment>
+        ))}
+      </View>
+      {tried && step === 1 && !!f.min && !!f.max && max <= min ? <Text style={{ color: c.muted, fontSize: 12 }}>{t('The maximum has to be higher than the minimum.')}</Text> : null}
+    </>
+  );
+  const includesFields = (
+    <View accessibilityLabel={t('Includes')} style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+      {INCLUDES.map(([k, label, photo]) => {
+        const on = f.includes.includes(k);
+        return (
+          <Pressable
+            key={k}
+            accessibilityRole="button"
+            accessibilityLabel={t(label)}
+            accessibilityState={{ selected: on }}
+            hitSlop={{ top: 4, bottom: 4 }}
+            onPress={() => {
+              tap();
+              set('includes', on ? f.includes.filter((x) => x !== k) : [...f.includes, k]);
+            }}
+            style={({ pressed: p }) => [{ minHeight: 48, borderRadius: 999, backgroundColor: on ? c.forest : TRIP_WHITE, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 6, paddingRight: 16 }, p && { opacity: 0.85 }]}
+          >
+            <RoundPhoto source={photo} size={36} ring={on} />
+            <Text style={{ color: on ? '#fff' : c.text, fontSize: 14, fontWeight: '500' }}>{t(label)}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+  const sizeFields = (
+    <>
+      <CountPill
+        value={f.capacity}
+        minusLabel={t('Fewer people')}
+        plusLabel={t('More people')}
+        canMinus={f.capacity > MIN_PEOPLE}
+        canPlus={f.capacity < MAX_PEOPLE}
+        onMinus={() => set('capacity', Math.max(MIN_PEOPLE, f.capacity - 1))}
+        onPlus={() => set('capacity', Math.min(MAX_PEOPLE, f.capacity + 1))}
+      />
+      <Text style={{ color: c.muted, fontSize: 12, textAlign: 'center' }}>{`${t('Including you')} · ${tn(f.capacity - 1, 'You + {n} spot', 'You + {n} spots')}`}</Text>
+    </>
+  );
+  const tagFields = (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {TRIP_TAGS.map((tag) => {
+        const on = f.tags.includes(tag);
+        return <TripPill key={tag} label={t(cap(tag))} active={on} onPress={() => set('tags', on ? f.tags.filter((x) => x !== tag) : [...f.tags, tag])} />;
+      })}
+    </View>
+  );
+  const aboutField = (
+    // the whole box (counter included) is scrolled clear of the keyboard once it is up, not just the line being typed
+    <View ref={aboutBox} collapsable={false} style={{ backgroundColor: TRIP_WHITE, borderRadius: 32, paddingHorizontal: 22, paddingVertical: 16 }}>
+      {/* its return key moves on to the next step (so it takes no new lines) */}
+      <TextInput
+        ref={aboutRef}
+        returnKeyType={step === 1 ? 'next' : 'done'}
+        submitBehavior="submit"
+        onSubmitEditing={step === 1 ? nextFromKeyboard : () => Keyboard.dismiss()}
+        onFocus={() => setTimeout(() => scrollToField(aboutBox), 320)}
+        accessibilityLabel={t('About the trip')}
+        placeholder={t('Culture, food, city walks and local experiences.')}
+        placeholderTextColor={c.placeholder}
+        selectionColor={c.forest}
+        cursorColor={c.forest}
+        underlineColorAndroid="transparent"
+        multiline
+        value={f.description}
+        onChangeText={(v) => set('description', v)}
+        maxLength={DESC_MAX}
+        style={{ minHeight: 76, color: c.text, fontSize: 14, lineHeight: 20, textAlignVertical: 'top', paddingVertical: 0, includeFontPadding: false }}
+      />
+      <Text style={{ color: c.muted, fontSize: 12, textAlign: 'right' }}>{`${f.description.length}/${DESC_MAX}`}</Text>
+    </View>
+  );
+
+  // closing the pop-up: the keyboard and an open calendar go first, then it folds back into its card
+  const donePop = () => {
+    Keyboard.dismiss();
+    setCalendar(null);
+    setClosing(true);
+  };
+  const calendarSheet = (
+    <DateRangeSheet
+      visible={calendar !== null}
+      focus={calendar ?? 'start'}
+      start={f.start}
+      end={f.end}
+      min={tomorrow}
+      max={lastDay}
+      marks={marks}
+      onClose={() => setCalendar(null)}
+      onDone={(s, e) => {
+        setF((p) => ({ ...p, start: s, end: e }));
+        setCalendar(null);
+      }}
+    />
+  );
 
   return (
     <View style={{ flex: 1 }}>
@@ -240,36 +465,14 @@ function TripForm({ onReset }: { onReset: () => void }) {
             <TripHeading title={t('Where do you want to go?')} subtitle={t('Choose where you leave from and where you are heading, then the dates.')} />
             {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
             <TripLabel style={{ marginTop: 8 }}>{t('Route')}</TripLabel>
-            <View style={{ gap: 4 }}>
-              <View ref={originBox} collapsable={false}>
-              <TripField label={t('Departing from')} invalid={tried && step === 0 && originBad}>
-                <TripInput label={t('Departing from')} autoCapitalize="words" placeholder={t('Milan, Italy')} value={f.originCity} onChangeText={(v) => set('originCity', v)} maxLength={60} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => destRef.current?.focus()} />
-              </TripField>
-              </View>
-              <View ref={destBox} collapsable={false}>
-              <TripField label={t('Destination')} invalid={tried && step === 0 && destBad}>
-                <TripInput ref={destRef} label={t('Destination')} autoCapitalize="words" placeholder={t('Tokyo & Kyoto, Japan')} value={f.destination} onChangeText={(v) => { set('destination', v); setDestTyped(true); }} onFocus={() => { setDestFocus(true); setDestTyped(false); }} onBlur={() => setTimeout(() => setDestFocus(false), 200)} maxLength={100} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => (start && end ? nextFromKeyboard() : (Keyboard.dismiss(), setCalendar(start ? 'end' : 'start')))} />
-              </TripField>
-              </View>
-            </View>
-
-            {/* any place in the world, named with its country ("Milan, Italy", "Kerala, India"): tap one to use it */}
-            <DestinationResults text={f.destination} active={destFocus && destTyped} onPick={(label) => { set('destination', label); setDestTyped(false); Keyboard.dismiss(); }} />
+            {routeFields}
 
             <TripLabel style={{ marginTop: 14 }} right={nights !== null && nights >= 0 ? tn(nights, '{n} night', '{n} nights') : undefined}>{t('When would you like to go?')}</TripLabel>
-            <View style={{ gap: 4 }}>
-              {dateField('start')}
-              {dateField('end')}
-              <View style={{ position: 'absolute', right: 12, top: '50%', marginTop: -22 }}>
-                <TripRoundDark icon="calendar-outline" label={t('Open the calendar')} onPress={() => setCalendar('start')} />
-              </View>
-            </View>
+            {dateFields}
+            {/* what you already have on the chosen days: right under the dates (an activity blocks, a trip only warns) */}
+            <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />
             <TripLabel style={{ marginTop: 10 }}>{t('How flexible are your dates?')}</TripLabel>
-            <View accessibilityRole="radiogroup" accessibilityLabel={t('How flexible are your dates?')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {FLEX_CHOICES.map(([v, l]) => (
-                <TripPill key={v} label={t(l)} active={f.flex === v} onPress={() => set('flex', v)} />
-              ))}
-            </View>
+            {flexFields}
             <ErrorBanner message={act.error} />
           </>
         )}
@@ -278,65 +481,20 @@ function TripForm({ onReset }: { onReset: () => void }) {
           <>
             <TripHeading title={t('What kind of trip are you planning?')} subtitle={t('Set a budget range per person, what it covers and how big the group should be.')} />
             <TripLabel style={{ marginTop: 10 }}>{t('Budget per person')}</TripLabel>
-            <View ref={budgetBox} collapsable={false} style={{ flexDirection: 'row', alignItems: 'center' }}>
-              {(['min', 'max'] as const).map((k, i) => (
-                <Fragment key={k}>
-                  {/* its own slot between the two pills, centred in it, so it is exactly halfway between them */}
-                  {i === 1 ? <Text accessibilityElementsHidden importantForAccessibility="no" style={{ width: 28, textAlign: 'center', color: c.muted, fontSize: 14 }}>–</Text> : null}
-                  <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', borderRadius: 32, borderWidth: budgetBad(k) ? 1.2 : 0, borderColor: c.danger }}>
-                  <TripAmount ref={k === 'max' ? maxRef : undefined} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => (k === 'min' ? maxRef : aboutRef).current?.focus()} label={k === 'min' ? t('Budget minimum in euros') : t('Budget maximum in euros')} placeholder={k === 'min' ? t('Min') : t('Max')} placeholderTextColor={c.placeholder} value={f[k]} onChangeText={(v) => set(k, v.replace(/\D/g, '').slice(0, 6))} />
-                  </View>
-                </Fragment>
-              ))}
-            </View>
-            {tried && step === 1 && !!f.min && !!f.max && max <= min ? <Text style={{ color: c.muted, fontSize: 12 }}>{t('The maximum has to be higher than the minimum.')}</Text> : null}
+            {budgetFields}
             <Text style={{ color: c.muted, fontSize: 12 }}>{t('Shown as an estimate, never a price.')}</Text>
 
             <TripLabel style={{ marginTop: 10 }}>{t('Includes')}</TripLabel>
-            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-              {([[true, 'Incl. travel', 'Budget incl. travel'], [false, 'Excl. travel', 'Budget excl. travel']] as const).map(([v, l, spoken]) => (
-                <TripPill key={l} label={t(l)} spoken={t(spoken)} active={f.transport === v} icon="checkmark" onPress={() => set('transport', v)} />
-              ))}
-            </View>
+            {includesFields}
 
             <TripLabel style={{ marginTop: 10 }}>{t('How big should the group be?')}</TripLabel>
-            <View accessibilityRole="radiogroup" accessibilityLabel={t('Group size, including you')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-              {GROUP_CHOICES.map(([v, l]) => (
-                <TripPill key={v} wide label={l} spoken={t(GROUP_SIZES.find(([x]) => x === v)?.[1] ?? l)} active={f.size === v} onPress={() => set('size', v)} />
-              ))}
-            </View>
-            <Text style={{ color: c.muted, fontSize: 12 }}>{t('Group size, including you')}</Text>
+            {sizeFields}
 
-            <TripLabel style={{ marginTop: 10 }} right={f.tags.length ? t('{n} selected', { n: f.tags.length }) : undefined}>{t('Travel interests')}</TripLabel>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {TRIP_TAGS.map((tag) => {
-                const on = f.tags.includes(tag);
-                return <TripPill key={tag} label={t(cap(tag))} active={on} icon="checkmark" onPress={() => set('tags', on ? f.tags.filter((x) => x !== tag) : [...f.tags, tag])} />;
-              })}
-            </View>
+            <TripLabel style={{ marginTop: 10 }}>{t('Travel interests')}</TripLabel>
+            {tagFields}
 
             <TripLabel style={{ marginTop: 10 }}>{t('About the trip')}</TripLabel>
-            <View style={{ backgroundColor: TRIP_WHITE, borderRadius: 32, paddingHorizontal: 22, paddingVertical: 16 }}>
-              {/* its return key moves on to the next step (so it takes no new lines) */}
-              <TextInput
-                ref={aboutRef}
-                returnKeyType="next"
-                submitBehavior="submit"
-                onSubmitEditing={nextFromKeyboard}
-                accessibilityLabel={t('About the trip')}
-                placeholder={t('Culture, food, city walks and local experiences.')}
-                placeholderTextColor={c.placeholder}
-                selectionColor={c.forest}
-                cursorColor={c.forest}
-                underlineColorAndroid="transparent"
-                multiline
-                value={f.description}
-                onChangeText={(v) => set('description', v)}
-                maxLength={300}
-                style={{ minHeight: 76, color: c.text, fontSize: 14, lineHeight: 20, textAlignVertical: 'top', paddingVertical: 0, includeFontPadding: false }}
-              />
-              <Text style={{ color: c.muted, fontSize: 12, textAlign: 'right' }}>{f.description.length} / 300</Text>
-            </View>
+            {aboutField}
           </>
         )}
 
@@ -363,62 +521,40 @@ function TripForm({ onReset }: { onReset: () => void }) {
             <TripHeading title={t('Review Your Trip')} subtitle={t('Check everything before your trip goes live.')} />
             {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
             <ErrorBanner message={act.error} />
-            <TripCard style={{ marginTop: 6 }}>
+            {/* every part can be changed from here: Edit opens its fields in a pop-up that grows out of the card, Done folds it back */}
+            <ReviewCard title={t('Route and dates')} onEdit={(from) => openPop('route', from)}>
               <Txt variant="h3" style={{ fontSize: 18, lineHeight: 24 }}>{f.originCity || '—'} → {f.destination || '—'}</Txt>
-              <Text style={{ color: c.muted, fontSize: 13 }}>{nights !== null ? tn(nights, '{n} night', '{n} nights') : '—'}{' · '}{groupLabel}</Text>
-              <Text style={{ color: c.muted, fontSize: 13 }}>{t('Dates: {flex}', { flex: flexLabel })}</Text>
-            </TripCard>
+              <Text style={{ color: c.text, fontSize: 14 }}>{start && end ? `${dayText(start)} – ${dayText(end)}` : '—'}</Text>
+              <Text style={{ color: c.muted, fontSize: 13 }}>{nights !== null ? tn(nights, '{n} night', '{n} nights') : '—'}{' · '}{t('Dates: {flex}', { flex: flexLabel })}</Text>
+            </ReviewCard>
 
-            <TripLabel style={{ marginTop: 10 }}>{t('Travel dates')}</TripLabel>
-            <View style={{ gap: 4 }}>
-              <TripField label={t('Departure date')}><TripValue placeholder="—">{dayText(start)}</TripValue></TripField>
-              <TripField label={t('Return date')}><TripValue placeholder="—">{dayText(end)}</TripValue></TripField>
-            </View>
-
-            <TripLabel style={{ marginTop: 10 }}>{t('Budget')}</TripLabel>
-            <TripCard>
+            <ReviewCard title={t('Budget')} onEdit={(from) => openPop('budget', from)}>
               <Text style={{ color: c.text, fontSize: 16, fontWeight: '500' }}>{t('{range} per person', { range: `${money(min || 0, 'EUR')}–${money(max || 0, 'EUR')}` })}</Text>
-              <Text style={{ color: c.muted, fontSize: 13 }}>{f.transport ? t('Including travel') : t('Excluding travel')}</Text>
-            </TripCard>
+              <Text style={{ color: c.muted, fontSize: 13 }}>{f.includes.length ? INCLUDES.filter(([k]) => f.includes.includes(k)).map(([, label]) => t(label)).join(' · ') : t('Nothing included')}</Text>
+            </ReviewCard>
 
-            {f.tags.length ? (
-              <>
-                <TripLabel style={{ marginTop: 10 }}>{t('Travel interests')}</TripLabel>
+            <ReviewCard title={t('Group and interests')} onEdit={(from) => openPop('group', from)}>
+              <Text style={{ color: c.text, fontSize: 15 }}>{groupLabel}</Text>
+              {f.tags.length ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                   {f.tags.map((tag) => (
                     <Chip key={tag} label={t(cap(tag))} tone="neutral" />
                   ))}
                 </View>
-              </>
-            ) : null}
-            {f.description.trim() ? (
-              <>
-                <TripLabel style={{ marginTop: 10 }}>{t('About the trip')}</TripLabel>
-                <TripCard><Text style={{ color: c.text, fontSize: 14, lineHeight: 20 }}>{f.description.trim()}</Text></TripCard>
-              </>
-            ) : null}
+              ) : (
+                <Text style={{ color: c.muted, fontSize: 13 }}>{t('No interests chosen')}</Text>
+              )}
+            </ReviewCard>
 
-            <TripLabel style={{ marginTop: 10 }}>{t('What happens next')}</TripLabel>
-            <TripCard style={{ gap: 12 }}>
-              {(
-                [
-                  ['person-add-outline', 'People apply to join. You read each introduction and approve who comes.'],
-                  ['chatbubbles-outline', 'The group chat opens only for approved members.'],
-                  ['calendar-outline', 'In the chat you can run a date poll, then ask everyone to confirm the final dates.'],
-                ] as const
-              ).map(([icon, text]) => (
-                <View key={text} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
-                  <Ionicons accessibilityElementsHidden name={icon} size={20} color={c.forest} style={{ marginTop: 1 }} />
-                  <Text style={{ flex: 1, color: c.text, fontSize: 13, lineHeight: 19 }}>{t(text)}</Text>
-                </View>
-              ))}
-            </TripCard>
+            <ReviewCard title={t('About the trip')} onEdit={(from) => openPop('about', from)}>
+              <Text style={{ color: f.description.trim() ? c.text : c.muted, fontSize: 14, lineHeight: 20 }}>{f.description.trim() || t('Nothing written yet')}</Text>
+            </ReviewCard>
           </>
         )}
         </StepTransition>
 
-        {/* once dates are chosen: what you already have on those days, and when it ends */}
-        <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />
+        {/* on the last step, next to Publish: what stops it (the same card as under the dates) */}
+        {step === STEPS - 1 ? <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} /> : null}
 
         <AuthButton
           title={step < STEPS - 1 ? t('Continue') : t('Publish trip')}
@@ -430,20 +566,42 @@ function TripForm({ onReset }: { onReset: () => void }) {
         {/* on every step: saving a draft (a draft opened from My drafts loads whichever step is showing) */}
         <DraftBar kind="trip" data={f} onLoad={loadDraft} beforeLoad={stashNow} showMyDrafts={step === 0} named={f.destination.trim().length > 0} />
       </Screen>
-      {/* the calendar sits just above the dock, outside the scrolling page */}
-      <DateRangeSheet
-        visible={calendar !== null}
-        focus={calendar ?? 'start'}
-        start={f.start}
-        end={f.end}
-        min={tomorrow}
-        max={lastDay}
-        onClose={() => setCalendar(null)}
-        onDone={(s, e) => {
-          setF((p) => ({ ...p, start: s, end: e }));
-          setCalendar(null);
-        }}
-      />
+      {/* the calendar sits just above the dock, outside the scrolling page (inside the pop-up while one is open: the page below would be hidden by it) */}
+      {!pop ? calendarSheet : null}
+      {pop ? (
+        <EditPopup
+          from={pop.from}
+          closing={closing}
+          onDone={donePop}
+          onClosed={() => setPop(null)}
+          header={
+            <View style={{ alignItems: 'flex-end' }}>
+              <DonePill onPress={donePop} />
+            </View>
+          }
+          overlay={calendarSheet}
+        >
+          {pop.card === 'route' ? (
+            <>
+              {routeFields}
+              {dateFields}
+              {flexFields}
+            </>
+          ) : pop.card === 'budget' ? (
+            <>
+              {budgetFields}
+              {includesFields}
+            </>
+          ) : pop.card === 'group' ? (
+            <>
+              {sizeFields}
+              {tagFields}
+            </>
+          ) : (
+            aboutField
+          )}
+        </EditPopup>
+      ) : null}
     </View>
   );
 }

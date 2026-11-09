@@ -5,7 +5,7 @@ import { Pressable, View } from 'react-native';
 import { Text } from './ScaledText';
 import type { Activity, Trip } from '@/lib/api';
 import { catColor, CATS } from '@/lib/constants';
-import { circleLine, dateSpan, money, when } from '@/lib/format';
+import { circleLine, dateSpan, money, timeText, when } from '@/lib/format';
 import { localeTag, t as tr, tn as trn, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { CatPhoto } from './CatPhoto';
@@ -15,7 +15,7 @@ import { Avatar, Btn, Card, Chip, Row, Txt, useGo } from './ui';
 /** Android adds invisible space above and below text; off, text sits centred in pills and badges like on iPhone. */
 const FLAT = { includeFontPadding: false } as const;
 
-const clock = (iso: string) => new Date(iso).toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' });
+const clock = (iso: string) => timeText(iso); // the app's one time format (lib/format)
 /** The category's name for display; the server's own value stays untouched. */
 const catLabel = (category: string) => tr(CATS[category]?.label ?? category);
 /** "Title, when, venue, 3 of 6 going, 2 spots left" for screen readers (the words differ only at the end). */

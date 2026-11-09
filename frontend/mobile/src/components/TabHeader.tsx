@@ -99,11 +99,6 @@ export function Brand({ light }: { light?: boolean } = {}) {
   );
 }
 
-/** Kept for the splash screen. */
-export function Logo({ size = 28, light }: { size?: number; light?: boolean }) {
-  return <Wordmark size={size} light={light} />;
-}
-
 /**
  * Top of the five main tabs: the wordmark and the HERE | THERE switch (Profile lives in the tab bar), with an optional
  * line underneath (the city picker in HERE, a tagline elsewhere).

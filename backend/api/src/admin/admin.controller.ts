@@ -304,6 +304,8 @@ export class AdminController {
     if (target.role !== 'user' && actor.role !== 'admin') throw E.forbidden('FORBIDDEN', 'Only admins can suspend staff');
     const until = days ? new Date(Date.now() + days * 864e5) : null;
     await this.prisma.user.update({ where: { id }, data: { state: 'suspended', suspendedUntil: until } });
+    // a suspended account is signed out everywhere, so its phones stop getting its pushes (they register again after a sign-in)
+    await this.prisma.pushSubscription.deleteMany({ where: { userId: id } });
     await this.settleReports(actor, 'user', id, days ? `suspended for ${days} ${days === 1 ? 'day' : 'days'}` : 'suspended until staff restore the account');
     // suspended until staff restore it = a ban: remember the email, number and device so a new account cannot start from them
     const remembered = days ? 0 : await banIdentities(this.prisma, target, reason);
@@ -547,15 +549,21 @@ export class AdminController {
     const report = await this.prisma.report.findUnique({ where: { id } });
     if (!report) throw E.notFound('Report');
     await this.moderation.assertReportInScope(await this.regions.scopeOf(actor), report);
-    await this.prisma.report.update({
-      where: { id },
-      data: {
-        status: dto.status,
-        resolution: dto.resolution,
-        assignedTo: actor.id,
-        resolvedAt: dto.status === 'in_review' ? null : new Date(),
-      },
-    });
+    const data = { status: dto.status, resolution: dto.resolution, assignedTo: actor.id, resolvedAt: dto.status === 'in_review' ? null : new Date() };
+    if (dto.status === 'in_review') {
+      await this.prisma.report.update({ where: { id }, data });
+    } else {
+      // Any staff member who sees a report may decide it. Two deciding at the same moment: the check and the write are one
+      // statement (only while the report is still open or in review), so exactly one decision counts. The other gets a clear
+      // answer and nothing runs twice (one audit entry, one message to the person, one reliability note).
+      const won = await this.prisma.report.updateMany({ where: { id, status: { in: ['open', 'in_review'] } }, data });
+      if (won.count === 0) {
+        const now = await this.prisma.report.findUnique({ where: { id }, select: { status: true, assignedTo: true } });
+        const by = now?.assignedTo ? await this.prisma.profile.findUnique({ where: { userId: now.assignedTo }, select: { displayName: true } }) : null;
+        const verb = now?.status === 'dismissed' ? 'dismissed' : 'resolved';
+        throw E.conflict('REPORT_ALREADY_DECIDED', by?.displayName ? `Already ${verb} by ${by.displayName}.` : `This report was already ${verb}.`, { status: now?.status ?? null });
+      }
+    }
     await this.audit.log(actor.id, `report.${dto.status}`, 'report', id, { resolution: dto.resolution });
     // a decision was taken about someone: they can read it and ask for a review once
     if (dto.status === 'resolved' && report.status !== 'resolved') await this.moderation.tellSubject(report).catch(() => undefined);

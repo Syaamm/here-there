@@ -18,7 +18,7 @@ import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
 import { catColor, CATS } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
-import { hhmm, when as whenLabel } from '@/lib/format';
+import { dayWord, hhmm } from '@/lib/format';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
@@ -36,7 +36,7 @@ function startsIn(a: Activity): { text: string; tone: 'info' | 'ok' | 'warn' | '
     const h = Math.round(m / 60);
     return { text: tn(h, 'Starts in {n} hr', 'Starts in {n} hrs'), tone: 'warn' };
   }
-  return { text: whenLabel(a.startsAt).replace(/\s\d{1,2}:\d{2}.*$/, ''), tone: 'warn' };
+  return { text: dayWord(a.startsAt), tone: 'warn' };
 }
 
 /** HERE · Activity detail. The join button always reflects server-side state, never a client guess. */
@@ -112,7 +112,7 @@ export default function ActivityDetail() {
   ];
 
   // "Today, 01:05 PM – 03:05 PM" and how long it lasts
-  const day = whenLabel(a.startsAt).replace(/\s\d{1,2}:\d{2}.*$/, '');
+  const day = dayWord(a.startsAt);
   const timeText = `${day}, ${hhmm(a.startsAt)} – ${hhmm(a.endsAt)}`;
   const mins = Math.max(0, Math.round((+new Date(a.endsAt) - +new Date(a.startsAt)) / 60000));
   const length = mins >= 60 ? `${tn(Math.floor(mins / 60), '{n} hour', '{n} hours')}${mins % 60 ? ` ${t('{m} min', { m: mins % 60 })}` : ''}` : t('{m} min', { m: mins });

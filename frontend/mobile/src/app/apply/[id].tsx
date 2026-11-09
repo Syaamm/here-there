@@ -1,13 +1,13 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useState } from 'react';
-import { View } from 'react-native';
-import { Banner, Btn, Card, CheckRow, ErrorBanner, Field, Pill, PillRow, Screen, Txt, useGo } from '@/components/ui';
+import { useRef, useState } from 'react';
+import { type TextInput, View } from 'react-native';
+import { appAlert } from '@/components/AppDialog';
+import { Btn, Card, CheckRow, ErrorBanner, Field, Pill, PillRow, Screen, Txt, useGo } from '@/components/ui';
 import { get, post, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { EXPERIENCE } from '@/lib/constants';
-import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, money } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
@@ -30,7 +30,7 @@ export default function Apply() {
   const [datesOk, setDatesOk] = useState(false);
   const [guidelines, setGuidelines] = useState(false);
   const act = useAction();
-  const [tried, setTried] = useState(false); // after the first tap on Send: show what is still missing
+  const introRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   // One plan at a time: a trip or activity you are in on these days blocks applying (a trip holds its whole days)
   const clash = useClashes(trip?.dateStart, trip ? new Date(+new Date(trip.dateEnd) + 864e5) : null, trip ? `trip:${trip.id}` : undefined);
 
@@ -39,22 +39,19 @@ export default function Apply() {
 
   const adult = !!me?.adultConfirmed;
   const verified = me?.eligibility === 'verified';
-  // everything still missing, so the button can say so instead of just sitting there greyed out
-  const problems = [
-    !adult && t('confirm you are 18 or older'),
-    !verified && t('verify your identity'),
-    intro.trim().length < 10 && t('write a short introduction (at least 10 characters)'),
-    !budgetOk && t('tick "My budget is compatible"'),
-    !datesOk && t('tick "I can travel within the date window"'),
-    !guidelines && t('tick "I agree to the group guidelines"'),
-  ].filter(Boolean) as string[];
+  // Send stays grey until the three boxes are ticked (and the person is 18+ and verified, with nothing clashing); then it
+  // turns green. The introduction is not part of that: tapping Send without one simply takes you to its box.
+  const ready = budgetOk && datesOk && guidelines && adult && verified && clash.firm.length === 0;
 
   const submit = async () => {
+    if (intro.trim().length < 10) {
+      // no message: the page scrolls to the introduction and opens the keyboard there
+      introRef.current?.focus();
+      return;
+    }
     const r = await act.run(() => post(`/v1/trips/${id}/applications`, { intro: intro.trim(), experience: exp, confirmBudget: true, confirmDates: true, confirmGuidelines: true }));
-    if (r) {
-      await confirmAsync(t('Application sent'), t("The organizer will review it. You'll get a notification with their decision."), t('OK'));
-      router.back();
-    } else void clash.reload(); // refused because of a clash: show what is in the way
+    if (r) appAlert(t('Application sent'), t("The organizer will review it. You'll get a notification with their decision."), [{ text: t('OK'), onPress: () => router.back() }], { cancelable: false });
+    else void clash.reload(); // refused because of a clash: show what is in the way
   };
 
   return (
@@ -69,7 +66,7 @@ export default function Apply() {
       </View>
       <ErrorBanner message={act.error} />
       <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="apply" onChanged={() => void clash.reload()} />
-      <Field label={t('Introduce yourself to the organizer')} placeholder={t("Hello! I'd love to join.")} multiline value={intro} onChangeText={setIntro} maxLength={1000} hint={intro.trim().length < 10 ? t('At least 10 characters') : `${intro.length}/1000`} error={tried && intro.trim().length < 10 ? t('Write at least 10 characters') : null} />
+      <Field inputRef={introRef} label={t('Introduce yourself to the organizer')} placeholder={t("Hello! I'd love to join.")} multiline value={intro} onChangeText={setIntro} maxLength={1000} />
       <Txt variant="label">{t('Your travel experience')}</Txt>
       <PillRow>
         {EXPERIENCE.map(([v, l]) => (
@@ -94,9 +91,8 @@ export default function Apply() {
         </CheckRow>
       </Card>
 
-      {tried && problems.length ? <Banner tone="bad">{t('Before you can send: {list}.', { list: problems.join(', ') })}</Banner> : null}
-      <Btn title={t('Send application')} onPress={() => (problems.length ? setTried(true) : void submit())} loading={act.busy} disabled={clash.firm.length > 0} />
-      <Banner>{t("Actual membership requires organizer approval. Don't send money or documents to anyone through the app.")}</Banner>
+      {/* grey until ready, then green; no list of what is missing and no fine print under it */}
+      <Btn title={t('Send application')} variant={ready ? 'accent' : 'off'} onPress={() => void submit()} loading={act.busy} disabled={!ready} />
     </Screen>
   );
 }

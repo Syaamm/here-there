@@ -9,7 +9,9 @@
  *  - the plan stops blocking once it is cancelled, left, or has ended; back-to-back plans are fine;
  *  - several requests still waiting may overlap, and the first one you are accepted into wins: the others are withdrawn;
  *  - a host cannot approve someone who is busy by then (APPLICANT_BUSY), and the waiting list skips them;
- *  - trips: the same rules over whole days, and trips and activities block each other;
+ *  - trips: the same rules over whole days; an activity you host or joined blocks a trip, and a trip blocks joining and
+ *    applying and moving, but CREATING a trip or an activity on days you are already on a trip is allowed (9 Nov 2026: the app
+ *    only warns, "go on only if you can join or host");
  *  - GET /v1/me/clashes lists what is in the way.
  */
 import assert from 'node:assert/strict';
@@ -267,10 +269,10 @@ describe('one plan at a time: trips, and trips with activities', () => {
     assert.match(approved.body, new RegExp(`Your application for "${t1.title}" was withdrawn`));
   });
 
-  it('refuses creating a trip over days you organise or joined a trip, or moving it there', async () => {
+  it('allows creating a trip over a trip you are on (the app only warns), but refuses moving a trip there', async () => {
     const me = await h.verified('Me');
     await createTrip(me, tripBody(30, 33));
-    assert.equal((await h.post('/v1/trips', me.token, tripBody(33, 35))).body.code, 'TIME_CLASH');
+    assert.equal((await h.post('/v1/trips', me.token, tripBody(33, 35))).status, 201, 'a trip over a trip is only a warning in the app');
     const t = await createTrip(me, tripBody(40, 42));
     assert.equal((await h.call('PATCH', `/v1/trips/${t.id}`, me.token, { dateStart: day(31), dateEnd: day(41) })).body.code, 'TIME_CLASH');
   });
@@ -284,6 +286,8 @@ describe('one plan at a time: trips, and trips with activities', () => {
     assert.equal(r.body.code, 'TIME_CLASH', 'a trip cannot cover the day of an activity you joined');
     assert.equal(r.body.details.clashes[0].kind, 'activity');
     await createTrip(me, tripBody(6, 8)); // later days are free
+    // creating an activity on a day of a trip you are on is allowed (the app only warns: "you are on a trip then")
+    await create(me, act(24 * 6 + 16, 24 * 6 + 18));
     const during = await create(host, act(24 * 6 + 12, 24 * 6 + 14, { joinPolicy: 'instant' })); // inside the trip
     const j = await join(me, during.id);
     assert.equal(j.body.code, 'TIME_CLASH', 'an activity cannot fall on a day of your trip');
@@ -293,8 +297,10 @@ describe('one plan at a time: trips, and trips with activities', () => {
   it('a cancelled trip no longer blocks', async () => {
     const me = await h.verified('Me');
     const t = await createTrip(me, tripBody(60, 62));
-    assert.equal((await h.post('/v1/trips', me.token, tripBody(61, 63))).body.code, 'TIME_CLASH');
+    const other = await createTrip(me, tripBody(70, 72));
+    const move = () => h.call('PATCH', `/v1/trips/${other.id}`, me.token, { dateStart: day(61), dateEnd: day(63) });
+    assert.equal((await move()).body.code, 'TIME_CLASH');
     assert.equal((await h.post(`/v1/trips/${t.id}/cancel`, me.token)).status, 201);
-    await createTrip(me, tripBody(61, 63));
+    assert.equal((await move()).status, 200);
   });
 });

@@ -89,6 +89,22 @@ export class ClashService {
     throw E.conflict('TIME_CLASH', message, { clashes: holding });
   }
 
+  /**
+   * Creating a new activity or trip (owner's change, 9 Nov 2026): only an ACTIVITY you host or joined blocks it (409 TIME_CLASH).
+   * A trip you are on at that time does not: the app warns about it ("you are on a trip then, go on only if you can join or
+   * host") and leaves the decision to the person. Joining, applying and moving still use assertFree (a trip blocks those).
+   */
+  async assertFreeToCreate(userId: string, from: Date, to: Date) {
+    const holding = (await this.find(userId, from, to)).filter((x) => x.firm && x.kind === 'activity');
+    if (holding.length === 0) return;
+    const first = holding[0];
+    const message =
+      holding.length === 1
+        ? `You already have "${first.title}" at that time. You can create another plan once it has ended or is cancelled.`
+        : `You already have ${holding.length} activities at that time. You can create another plan once they have ended or are cancelled.`;
+    throw E.conflict('TIME_CLASH', message, { clashes: holding });
+  }
+
   /** The host's side of the same rule: the person asking is in another plan at that time by now (409 APPLICANT_BUSY). */
   async assertApplicantFree(userId: string, from: Date, to: Date, exclude: PlanRef) {
     const holding = (await this.find(userId, from, to, exclude)).filter((x) => x.firm);

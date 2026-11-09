@@ -5,7 +5,7 @@ const { existsSync } = require('fs') as { existsSync(p: string): boolean };
 const path = require('path') as { resolve(...parts: string[]): string };
 
 /**
- * One app, two products: HERE and THERE are modes inside this binary ("HERE & THERE").
+ * One app, two products: HERE and THERE are modes inside this binary (LAMIS).
  *
  * IDs below are placeholders. Replace `io.herethere.app` with an identifier your company owns
  * BEFORE the first store build. Store listings are tied to it permanently.
@@ -47,7 +47,7 @@ const hasFirebase = hasAndroidFirebase || hasIosFirebase;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'HERE & THERE',
+  name: 'LAMIS',
   slug: 'here-there',
   owner: 'cloudhouse-production',
   scheme: 'herethere',
@@ -55,7 +55,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: (require('./package.json') as { version: string }).version,
   // Raise runtimeVersion whenever native code changes (new library, permission, icon, push setup). A code-only change is sent as an
   // update (OTA) to builds with the same runtimeVersion. The app asks first (see components/UpdatePrompt), so checkAutomatically is off.
-  runtimeVersion: '2',
+  runtimeVersion: '3', // 3: LAMIS app icons and the Android notification icon
   updates: {
     url: `https://u.expo.dev/${process.env.EAS_PROJECT_ID ?? '4005c1f6-33e1-4757-b262-cfa7643b5b9b'}`,
     checkAutomatically: 'NEVER',
@@ -85,7 +85,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     permissions: ['android.permission.POST_NOTIFICATIONS', 'android.permission.VIBRATE', 'android.permission.RECEIVE_BOOT_COMPLETED'],
     ...(hasAndroidFirebase ? { googleServicesFile: androidFirebase } : {}),
     adaptiveIcon: {
-      backgroundColor: '#102F29',
+      backgroundColor: '#0B322A', // LAMIS deep green, the same as the icon
       foregroundImage: './assets/android-icon-foreground.png',
       backgroundImage: './assets/android-icon-background.png',
       monochromeImage: './assets/android-icon-monochrome.png',
@@ -115,12 +115,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     './plugins/with-notification-color-override.js',
     // release APKs (production, preview) carry only real-phone processor code: smaller download; development keeps emulator code
     ...(isRelease ? ['./plugins/with-phone-abis.js'] : []),
-    ['expo-notifications', { color: '#102F29' }],
+    // Android's status-bar icon must be one flat white shape (the LAMIS mark); without it Android shows a blank square.
+    // It is also used for Firebase pushes (the plugin writes Firebase's default icon entry too).
+    ['expo-notifications', { icon: './assets/notification-icon.png', color: '#0B322A' }],
     [
       'expo-location',
       {
         locationWhenInUsePermission:
-          'HERE & THERE uses your approximate location only when you tap "Near me" or "Use my location", to show activities close to you and to find your city. It is never shared with other people.',
+          'LAMIS uses your approximate location only when you tap "Near me" or "Use my location", to show activities close to you and to find your city. It is never shared with other people.',
       },
     ],
     // Plain HTTP to a dev machine is blocked on Android by default. Allowed only outside production.
@@ -131,7 +133,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         {
           name: 'There',
           ios: './assets/icons/there/icon.png',
-          android: { foregroundImage: './assets/icons/there/android-icon-foreground.png', backgroundColor: '#0B3226' },
+          // the light LAMIS icon (ivory, deep green mark), so the two home-screen choices are the logo's dark and light versions
+          android: { foregroundImage: './assets/icons/there/android-icon-foreground.png', backgroundColor: '#F2EADF' },
         },
       ],
     ],

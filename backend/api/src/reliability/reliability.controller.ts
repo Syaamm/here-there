@@ -38,6 +38,9 @@ const LEVEL_LINE: Record<Level, string> = {
 /** A person's level, shown to other verified members: just the level and its words, never the events behind it. */
 export type PublicLevel = { level: Level; label: string };
 
+/** Which app an attendance note's alerts show in: one about an activity in HERE, one about a trip in THERE. */
+const markProduct = (m: { kind: string }) => (m.kind === 'activity' ? 'here' : 'there');
+
 @Injectable()
 export class ReliabilityService {
   constructor(
@@ -279,7 +282,7 @@ export class ReliabilityService {
     if (m.state !== 'marked') throw E.conflict('MARK_LOCKED', 'This note is already being looked at by a moderator');
     await this.prisma.attendanceMark.delete({ where: { id: m.id } });
     await this.audit.log(me.id, 'attendance.unmarked', kind, id, { userId });
-    await this.notifications.notify(userId, 'attendance_decided', 'Note taken back', `${p.title}: the host took it back.`, { markId: m.id });
+    await this.notifications.notify(userId, 'attendance_decided', 'Note taken back', `${p.title}: the host took it back.`, { markId: m.id, product: markProduct(m) });
     return { ok: true };
   }
 
@@ -359,8 +362,8 @@ export class ReliabilityService {
     await this.prisma.attendanceMark.update({ where: { id: m.id }, data: { state, decidedById: actor.id, decidedAt: new Date(), decisionNote: note } });
     await this.audit.log(actor.id, `attendance.${state}`, m.kind, m.targetId, { markId: m.id, userId: m.userId, note });
     const text = decision === 'uphold' ? 'A moderator confirmed it.' : 'A moderator overturned it.';
-    await this.notifications.notify(m.userId, 'attendance_decided', decision === 'uphold' ? 'Note confirmed' : 'Note overturned', `${m.title}: ${text}`, { markId: m.id });
-    await this.notifications.notify(m.markedById, 'attendance_decided', decision === 'uphold' ? 'Your note was confirmed' : 'Your note was overturned', `${m.title}: a moderator ${decision === 'uphold' ? 'confirmed' : 'overturned'} your note.`, { markId: m.id });
+    await this.notifications.notify(m.userId, 'attendance_decided', decision === 'uphold' ? 'Note confirmed' : 'Note overturned', `${m.title}: ${text}`, { markId: m.id, product: markProduct(m) });
+    await this.notifications.notify(m.markedById, 'attendance_decided', decision === 'uphold' ? 'Your note was confirmed' : 'Your note was overturned', `${m.title}: a moderator ${decision === 'uphold' ? 'confirmed' : 'overturned'} your note.`, { markId: m.id, product: markProduct(m) });
     await this.reviewHost(m.markedById).catch(() => undefined); // a string of overturned notes is a reason to look at the host
     return { id: m.id, state };
   }
@@ -387,7 +390,7 @@ export class ReliabilityService {
     const existing = await this.prisma.report.findFirst({ where: { reporterId: me.id, targetType: kind, targetId: id, category: 'host_no_show' } });
     if (existing) return { id: existing.id, status: existing.status, priority: existing.priority };
     this.limiter.hit(`host-absent:${me.id}`, 10, DAY);
-    const r = await this.prisma.report.create({ data: { reporterId: me.id, targetType: kind, targetId: id, category: 'host_no_show', details: note || undefined, priority: 'normal' } });
+    const r = await this.prisma.report.create({ data: { reporterId: me.id, targetType: kind, targetId: id, category: 'host_no_show', details: note || undefined, priority: 'normal', product: kind === 'activity' ? 'here' : 'there' } });
     await this.audit.log(me.id, 'attendance.host_absent_reported', kind, id, { reportId: r.id });
     // the host is told, in neutral words: it is a report, not a decision
     await this.notifications.notify(p.hostId, 'host_absence_reported', 'A member says you did not show up', `${p.title} · A moderator will look at it.`, { reportId: r.id, ...(kind === 'activity' ? { activityId: id } : { tripId: id }) });
@@ -434,9 +437,9 @@ export class ReliabilityService {
     for (const m of notes) {
       await this.prisma.attendanceMark.update({ where: { id: m.id }, data: { state: 'overturned', decidedById: actor.id, decidedAt: new Date(), decisionNote: 'Cancelled: a moderator confirmed the host did not show up to this plan.' } });
       await this.audit.log(actor.id, 'attendance.overturned', kind, report.targetId, { markId: m.id, userId: m.userId, because: 'host_absent', reportId: report.id });
-      await this.notifications.notify(m.userId, 'attendance_decided', 'Note cancelled', `${m.title}: the host's note about you was cancelled.`, { markId: m.id });
+      await this.notifications.notify(m.userId, 'attendance_decided', 'Note cancelled', `${m.title}: the host's note about you was cancelled.`, { markId: m.id, product: markProduct(m) });
     }
-    await this.notifications.notify(p.hostId, 'host_absence_decided', 'A moderator confirmed a report about you', `${p.title} · Tap to ask for a review.`, { reportId: report.id });
+    await this.notifications.notify(p.hostId, 'host_absence_decided', 'A moderator confirmed a report about you', `${p.title} · Tap to ask for a review.`, { reportId: report.id, product: report.targetType === 'activity' ? 'here' : 'there' });
   }
 
   // ---------------------------------------------------------------- hosts who say many people did not come

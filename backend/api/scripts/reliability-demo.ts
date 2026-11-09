@@ -12,7 +12,7 @@ const H = 3600 * 1000;
 const ago = (hours: number) => new Date(Date.now() - hours * H);
 
 async function person(email: string, name: string) {
-  const data = { eligibility: 'verified', adultConfirmed: true, emailVerifiedAt: new Date(), adultVerifiedAt: new Date(), verifiedUntil: new Date(Date.now() + 365 * 24 * H) };
+  const data = { eligibility: 'verified', adultConfirmed: true, emailVerifiedAt: new Date(), adultVerifiedAt: new Date(), verifiedUntil: null };
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return prisma.user.update({ where: { id: existing.id }, data });
   return prisma.user.create({

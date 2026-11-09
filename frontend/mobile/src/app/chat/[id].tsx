@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useIsFocused, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, Keyboard, Linking, Platform, Pressable, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,7 @@ import { ReportSheet } from '@/components/ReportSheet';
 import { CatPhoto } from '@/components/CatPhoto';
 import { SkeletonChat } from '@/components/Skeleton';
 import { Appear, setInView } from '@/components/Pop';
+import { planDays, useClashes } from '@/components/ClashNotice';
 import { MonthCalendar } from '@/components/CreateParts';
 import { lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
 import { Avatar, Banner, Btn, Empty, ErrorBanner, Field, Screen, Sheet, Txt, useGo } from '@/components/ui';
@@ -17,7 +18,8 @@ import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, dayLabel, hhmm, isoDay, parseDay } from '@/lib/format';
 import { useKeyboardOverlap, useKeyboardShown, keyboardTaps } from '@/lib/keyboard';
-import { cursorDeps, patchCache, useAction, useLoad } from '@/lib/hooks';
+import { cursorDeps, errMsg, isOutage, patchCache, useAction, useLoad } from '@/lib/hooks';
+import { showToast } from '@/lib/toast';
 import { BackArrow } from '@/components/TabHeader';
 import { statusTop } from '@/lib/layout';
 import { clearOpenChat, setOpenChat, useLiveEvents } from '@/lib/live';
@@ -37,20 +39,23 @@ const hostOf = (url: string) => {
 };
 
 /** A date poll in the chat: everyone answers accept or reject; the organizer can turn the dates into the trip's final dates. */
-function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolean; busy: boolean; onVote: (v: 'accept' | 'reject') => void; onClose: (adopt: boolean) => void }) {
+function PollCard({ m, amHost, busy, voting, error, datesLocked, onVote, onClose }: { m: Msg; amHost: boolean; busy: boolean; voting: boolean; error: string | null; datesLocked: string | null; onVote: (v: 'accept' | 'reject') => void; onClose: (adopt: boolean) => void }) {
   const { t } = useT();
   const { c } = useTheme();
   const p = m.poll;
   if (!p) return null;
   const open = p.state === 'open';
+  // dates that have already passed (or a trip that can no longer change its dates) are not offered: said here, in the card, not as an error afterwards
+  const passed = !!p.dateStart && new Date(p.dateStart) <= new Date();
+  const why = passed ? t('These dates have already passed, so they cannot be used.') : datesLocked;
   const choice = (v: 'accept' | 'reject', label: string, icon: React.ComponentProps<typeof Ionicons>['name']) => {
     const on = p.myVote === v;
     return (
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={t('{label}. {n} so far', { label, n: v === 'accept' ? p.accept : p.reject })}
-        accessibilityState={{ selected: on, disabled: !open || busy }}
-        disabled={!open || busy}
+        accessibilityState={{ selected: on, disabled: !open || busy || voting }}
+        disabled={!open || busy || voting}
         onPress={() => onVote(v)}
         hitSlop={{ top: 3, bottom: 3 }}
         style={({ pressed }) => [{ flex: 1, height: 38, borderRadius: 999, borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: open ? 1 : 0.6 }, pressed && { opacity: 0.85 }]}
@@ -78,10 +83,13 @@ function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolea
       </View>
       {amHost && open ? (
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          {p.dateStart && p.dateEnd ? <Btn title={t('Use these dates')} small onPress={() => onClose(true)} loading={busy} style={{ flex: 1 }} /> : null}
+          {p.dateStart && p.dateEnd && !why ? <Btn title={t('Use these dates')} small onPress={() => onClose(true)} loading={busy} style={{ flex: 1 }} /> : null}
           <Btn title={t('Close poll')} small variant="secondary" onPress={() => onClose(false)} loading={busy} style={{ flex: 1 }} />
         </View>
       ) : null}
+      {amHost && open && p.dateStart && p.dateEnd && why ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{why}</Text> : null}
+      {/* an answer that did not go through is said here, inside this poll, and never as a message in the chat */}
+      {error ? <Text accessibilityRole="alert" style={{ color: c.danger, fontSize: 12, lineHeight: 17, fontWeight: '600' }}>{error}</Text> : null}
     </View>
   );
 }
@@ -89,7 +97,7 @@ function PollCard({ m, amHost, busy, onVote, onClose }: { m: Msg; amHost: boolea
 /** Opens an outside address, after a safety notice. */
 async function openLink(url: string) {
   const full = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-  if (await confirmAsync(t('Leave HERE & THERE?'), t("This opens {site} in your browser. We don't check outside websites. Never send money, deposits or ID documents to anyone you met through the app, and book travel only with suppliers you trust.", { site: hostOf(full) }), t('Open link'))) void Linking.openURL(full);
+  if (await confirmAsync(t('Leave LAMIS?'), t("This opens {site} in your browser. We don't check outside websites. Never send money, deposits or ID documents to anyone you met through the app, and book travel only with suppliers you trust.", { site: hostOf(full) }), t('Open link'))) void Linking.openURL(full);
 }
 
 /** A message's text, with any web address in it pressable (it shows the safety notice before it opens). */
@@ -148,7 +156,7 @@ const Bubble = memo(
           delayLongPress={350}
           style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8, ...(Platform.OS === 'android' ? null : { shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: mine ? 0 : 1 }) }}
         >
-          <Text selectable={mine} style={{ color: mine ? '#fff' : c.text, fontSize: 15, lineHeight: 23 }}>
+          <Text style={{ color: mine ? '#fff' : c.text, fontSize: 15, lineHeight: 23 }}>
             <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
           </Text>
           {/* a message with a web address carries its own caution, before anyone taps it */}
@@ -200,7 +208,8 @@ function Chat({ id }: { id: string }) {
       return;
     }
     if (e.type === 'ready') void msgs.reload();
-    if (e.type === 'group-changed' && e.kind === 'trip' && e.id === groupScope.current?.id) void msgs.reload(); // a poll was answered or closed
+    // a poll was answered or closed: reload, except for the echo of your own vote (already shown in its card)
+    if (e.type === 'group-changed' && e.kind === 'trip' && e.id === groupScope.current?.id && Date.now() - ownVoteAt.current > 3000) void msgs.reload();
   });
   // opening the chat reads its alert on the server: ask for the new badge number once. Messages that arrive while it is open
   // make no alert (the server knows the chat is open), so there is nothing more to ask for.
@@ -295,6 +304,9 @@ function Chat({ id }: { id: string }) {
   // THERE: the trip itself, for the final-dates confirmation under the chat's title
   const tripId = info.data?.scope === 'trip' ? info.data.scopeId : undefined;
   const trip = useLoad(() => (tripId ? get<Trip>(`/v1/trips/${tripId}`) : Promise.resolve(null)), [tripId], undefined, 'chat:trip', { animate: true });
+  // the days that already hold another plan of yours (this trip itself left out), dotted on the date poll's calendar like on the create forms
+  const planClashes = useClashes(null, null, tripId);
+  const planMarks = useMemo(() => planDays(planClashes.all, Date.now()), [planClashes.all, Math.floor(planClashes.now / 60_000)]); // eslint-disable-line react-hooks/exhaustive-deps
   // the dates banner is asked again when the number of messages changes (a note that dates were confirmed arrives as one)
   const seenCount = useRef(-1);
   useEffect(() => {
@@ -346,12 +358,63 @@ function Chat({ id }: { id: string }) {
       setPollPick(null);
     }
   };
-  const vote = (pollId: string, v: 'accept' | 'reject') => void plan.run(() => post(`/v1/polls/${pollId}/vote`, { vote: v }));
-  const closePoll = async (pollId: string, adopt: boolean) => {
-    if (adopt && !(await confirmAsync(t('Use these dates?'), t("The trip's dates change right away, for everyone, and every member is told."), t('Use dates')))) return;
-    void plan.run(() => post(`/v1/polls/${pollId}/close`, { adopt }));
+  // a poll's own answers (vote, close, use the dates): if one does not go through, the reason shows inside that poll's card
+  const [pollError, setPollError] = useState<{ id: string; message: string } | null>(null);
+  const [pollBusy, setPollBusy] = useState<string | null>(null);
+  const pollAction = async (pollId: string, fn: () => Promise<unknown>) => {
+    setPollBusy(pollId);
+    setPollError(null);
+    try {
+      await fn();
+      void msgs.reload();
+      void trip.reload();
+    } catch (e) {
+      if (isOutage(e)) showToast(t('Something went wrong. Please try again after some time.'), 'warn', 5000);
+      else {
+        setPollError({ id: pollId, message: errMsg(e) });
+        void msgs.reload(); // the poll may have changed under us (closed, or its dates passed): show it as it is now
+        void trip.reload();
+      }
+    } finally {
+      setVoting(null);
+    }
   };
-  const confirmDates = () => tripId && void plan.run(() => post(`/v1/trips/${tripId}/confirm-dates`));
+  // A vote changes only its own poll: the answer (the new counts and your vote) is put straight into that card, with no reload
+  // of the chat, so the other polls on screen do not redraw or flicker. Only a vote that fails reloads (pollAction below).
+  const ownVoteAt = useRef(0);
+  const [voting, setVoting] = useState<string | null>(null); // a vote in flight: only the Accept / Reject buttons care, never "Use these dates" or "Close poll"
+  const vote = async (pollId: string, v: 'accept' | 'reject') => {
+    setVoting(pollId);
+    setPollError(null);
+    ownVoteAt.current = Date.now();
+    try {
+      const r = await post<{ accept: number; reject: number; myVote: 'accept' | 'reject' }>(`/v1/polls/${pollId}/vote`, { vote: v });
+      patchCache<NonNullable<typeof msgs.data>>('chat:msgs', [id], (old) => ({ ...old, items: old.items.map((x) => (x.poll?.id === pollId ? { ...x, poll: { ...x.poll, accept: r.accept, reject: r.reject, myVote: r.myVote } } : x)) }));
+    } catch (e) {
+      if (isOutage(e)) showToast(t('Something went wrong. Please try again after some time.'), 'warn', 5000);
+      else {
+        setPollError({ id: pollId, message: errMsg(e) });
+        void msgs.reload(); // the poll may have changed under us (closed, or its dates passed): show it as it is now
+      }
+    } finally {
+      setPollBusy(null);
+    }
+  };
+  const closePoll = async (pollId: string, adopt: boolean) => {
+    if (adopt) {
+      // the organizer is told, before anything changes, that a trip's dates can only be changed a few times in all
+      const left = trip.data?.dateChangesLeft;
+      const max = trip.data?.dateChangesMax ?? 5;
+      const warning = left != null ? t("The trip's dates change right away, for everyone, and every member is told. A trip's dates can only be changed {max} times in all: you have {left} left, and {after} after this one.", { max, left, after: Math.max(0, left - 1) }) : t("The trip's dates change right away, for everyone, and every member is told.");
+      if (!(await confirmAsync(t('Use these dates?'), warning, t('Use dates')))) return;
+    }
+    void pollAction(pollId, () => post(`/v1/polls/${pollId}/close`, { adopt }));
+  };
+  const confirmAct = useAction(() => {
+    void msgs.reload();
+    void trip.reload();
+  });
+  const confirmDates = () => tripId && void confirmAct.run(() => post(`/v1/trips/${tripId}/confirm-dates`));
   const safety = useAction(() => void msgs.reload());
   const list = useRef<FlatList<Msg>>(null);
   // the rows on screen, so earlier messages fade in as the reader reaches them
@@ -450,6 +513,8 @@ function Chat({ id }: { id: string }) {
     );
 
   const amHost = !!info.data?.members.find((m) => m.isMe && m.role === 'host');
+  // the trip's dates can only change before it starts, and only a few times in all: when they cannot, no poll offers its dates
+  const datesLocked = !trip.data ? null : new Date(trip.data.dateStart) <= new Date() ? t('The trip has started, so its dates can no longer be changed.') : trip.data.dateChangesLeft === 0 ? t('The dates of this trip have been changed {max} times already, which is the most allowed.', { max: trip.data.dateChangesMax ?? 5 }) : null;
   const them = info.data?.members.find((m) => !m.isMe);
   const endMatch = async () => {
     if (await confirmAsync(t('End this chat?'), t('It closes for both of you and cannot be reopened.'), t('End chat'), true)) {
@@ -606,7 +671,7 @@ function Chat({ id }: { id: string }) {
             return (
               <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
                 {day}
-                <PollCard m={m} amHost={amHost} busy={plan.busy} onVote={(v) => vote(m.poll!.id, v)} onClose={(adopt) => void closePoll(m.poll!.id, adopt)} />
+                <PollCard m={m} amHost={amHost} busy={!!m.poll && pollBusy === m.poll.id} voting={!!m.poll && voting === m.poll.id} error={m.poll && pollError?.id === m.poll.id ? pollError.message : null} datesLocked={datesLocked} onVote={(v) => void vote(m.poll!.id, v)} onClose={(adopt) => void closePoll(m.poll!.id, adopt)} />
               </Appear>
             );
           return (
@@ -619,7 +684,7 @@ function Chat({ id }: { id: string }) {
       />
 
       <View style={{ paddingHorizontal: 16 }}>
-        <ErrorBanner message={send.error ?? safety.error ?? plan.error ?? (msgs.error && !locked ? msgs.error.message : null)} />
+        <ErrorBanner message={send.error ?? safety.error ?? confirmAct.error ?? (msgs.error && !locked ? msgs.error.message : null)} />
       </View>
       {msgs.data && !msgs.data.writable ? (
         <View style={{ padding: 16, paddingBottom: bottomGap + 16 }}>
@@ -662,9 +727,13 @@ function Chat({ id }: { id: string }) {
       <ReportSheet target={reportMsg ? { type: 'message', id: reportMsg.id, category: reportMsg.category } : null} onClose={() => setReportMsg(null)} />
       <Sheet visible={adding === 'poll'} title={t('Date poll')} onClose={() => { setAdding(null); setPollPick(null); }}>
         <Field label={t('Question')} placeholder={t('Can everyone travel on these dates?')} value={pollTitle} onChangeText={setPollTitle} maxLength={120} />
+        {/* the organizer is told, here and before choosing dates, that a trip's dates can only change a few times in all */}
+        <Banner tone="warn">
+          {datesLocked ?? t("You can only change this trip's dates {max} times in all, and only until it starts. You have {left} left.", { max: trip.data?.dateChangesMax ?? 5, left: trip.data?.dateChangesLeft ?? trip.data?.dateChangesMax ?? 5 })}
+        </Banner>
         {/* the dates are picked on a calendar (both optional): tap From or To */}
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          {([['from', t('From (optional)'), pFrom, false], ['to', t('To (optional)'), pTo, !pFrom]] as const).map(([k, label, d, locked]) => (
+          {([['from', t('From (optional)'), pFrom, datesLocked !== null], ['to', t('To (optional)'), pTo, !pFrom || datesLocked !== null]] as const).map(([k, label, d, locked]) => (
             <Pressable
               key={k}
               accessibilityRole="button"
@@ -680,7 +749,7 @@ function Chat({ id }: { id: string }) {
           ))}
         </View>
         {pollPick ? (
-          <MonthCalendar month={pollMonth} onMonth={setPollMonth} selected={(pollPick === 'to' ? pTo : pFrom) ?? new Date(0)} min={pollPick === 'to' && pFrom ? pFrom : tomorrow} max={lastPlanningDay(12)} onPick={pickDay} />
+          <MonthCalendar month={pollMonth} onMonth={setPollMonth} selected={(pollPick === 'to' ? pTo : pFrom) ?? new Date(0)} min={pollPick === 'to' && pFrom ? pFrom : tomorrow} max={lastPlanningDay(12)} onPick={pickDay} marks={planMarks} />
         ) : null}
         {pFrom ? <Btn title={t('Clear the dates')} variant="ghost" small onPress={() => { setPollFrom(''); setPollTo(''); setPollPick(null); }} /> : null}
         <ErrorBanner message={plan.error} />

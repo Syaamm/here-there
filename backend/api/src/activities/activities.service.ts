@@ -570,8 +570,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         (norm(o.venueName) === norm(dto.venueName) && Math.abs(+o.startsAt - +dto.startsAt) < HOUR),
     );
     if (dup) throw E.conflict('DUPLICATE_ACTIVITY', 'You already have an activity like this at that time. Change it instead of posting it again.');
-    // one plan at a time: nothing you host or joined (HERE or THERE) may overlap the new one
-    await this.clash.assertFree(me.id, dto.startsAt, dto.endsAt);
+    // one plan at a time: no activity you host or joined may overlap the new one (a trip you are on only gets a warning in the app)
+    await this.clash.assertFreeToCreate(me.id, dto.startsAt, dto.endsAt);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const a = await tx.activity.create({

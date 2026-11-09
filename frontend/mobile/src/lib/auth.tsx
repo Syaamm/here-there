@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { clearLoadCache } from './hooks';
 import { ApiError, get, getRefreshToken, loadRefreshToken, loadToken, post, saveRefreshToken, saveToken, setRefreshToken, setToken, setUnauthorizedHandler, type Me } from './api';
 import { success, tap } from './haptics';
+import { forgetPushDevice, pushTokenForSignOut } from './push';
 
 type SignInOptions = {
   /** true right after registering: show the onboarding steps (confirm email, set up profile) once */
@@ -55,9 +56,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback((why?: string) => {
     clearLoadCache(); // nothing the last person saw is kept for the next one
-    // a sign-out the person chose also ends this sign-in on the server (best effort: with no connection it simply ends here)
+    // a sign-out the person chose also ends this sign-in on the server (best effort: with no connection it simply ends here),
+    // and takes this phone off the account's push list, so its lock screen stops showing the account's messages. A sign-out
+    // the app makes on its own (expired sign-in, suspended account) does that too, without a sign-in (forgetPushDevice).
+    const pushToken = pushTokenForSignOut();
+    void forgetPushDevice(pushToken);
     if (typeof why !== 'string') {
-      void post('/v1/auth/logout', { refreshToken: getRefreshToken() ?? undefined }).catch(() => undefined);
+      void post('/v1/auth/logout', { refreshToken: getRefreshToken() ?? undefined, pushToken }).catch(() => undefined);
       tap('Medium'); // signed out: a firm tap
     }
     setToken(null);

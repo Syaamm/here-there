@@ -9,7 +9,8 @@ export function installWebScrolling() {
   (window as any).__htScroll = true;
 
   const style = document.createElement('style');
-  style.textContent = '*{scrollbar-width:none;-ms-overflow-style:none}*::-webkit-scrollbar{display:none;width:0;height:0}';
+  // (3) text is not selectable, as in a phone app; only what is typed in a field is
+  style.textContent = '*{scrollbar-width:none;-ms-overflow-style:none}*::-webkit-scrollbar{display:none;width:0;height:0}body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}input,textarea,[contenteditable="true"]{-webkit-user-select:text;user-select:text}';
   document.head.appendChild(style);
 
   const scroller = (start: EventTarget | null): HTMLElement | null => {

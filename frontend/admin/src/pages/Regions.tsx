@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, can, get, post, type Session } from '../api';
+import { Select, useBackdropClose } from '../controls';
 import { Empty, ErrorBanner, Icon, Loading, Page, RowMenu, useAction, useLoad, Chip } from '../ui';
 
 type Place = {
@@ -92,14 +93,14 @@ export function RegionsPage({ me }: { me: Session }) {
     if (admin && p.canEdit)
       return (
         <div style={{ display: 'grid', gap: 3, justifyItems: 'start' }}>
-        <select aria-label={`${here ? 'Activities' : 'Trips'} limit for ${p.name}`} value={drafts[p.key]?.[which] ?? (own === null ? '' : String(own))} onChange={(e) => draft(p, which, e.target.value)} disabled={act.busy} style={{ width: 'auto', minWidth: 130, ...(drafts[p.key]?.[which] !== undefined ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : {}) }}>
+        <Select aria-label={`${here ? 'Activities' : 'Trips'} limit for ${p.name}`} value={drafts[p.key]?.[which] ?? (own === null ? '' : String(own))} onChange={(v) => draft(p, which, v)} disabled={act.busy} highlight={drafts[p.key]?.[which] !== undefined} style={{ width: 172 }}>
           {p.kind !== 'global' && <option value="">Inherit ({months(eff)})</option>}
           {options(here ? data.ranges.here : data.ranges.there).map((n) => (
             <option key={n} value={n}>
               {months(n)}
             </option>
           ))}
-        </select>
+        </Select>
         {inherited && <span className="muted small">Same as {from ?? 'Whole service'}</span>}
         </div>
       );
@@ -244,6 +245,7 @@ export function RegionsPage({ me }: { me: Session }) {
 function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, error, onClose, onAdd }: { data: Reply; parents: Place[]; wholeService: boolean; cityKey: string; busy: boolean; error: string | null; onClose: () => void; onAdd: (body: Record<string, unknown>) => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => ref.current?.showModal(), []);
+  const backdrop = useBackdropClose(ref, onClose); // a click on the dark area closes it
   const [kind, setKind] = useState<'country' | 'region' | 'city'>('city');
   const [name, setName] = useState(preset ? title(preset) : '');
   const [cityKey, setCityKey] = useState(preset);
@@ -267,39 +269,39 @@ function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, err
   const monthSelect = (value: string, set: (v: string) => void, range: Range, label: string) => (
     <label>
       {label}
-      <select value={value} onChange={(e) => set(e.target.value)} disabled={busy}>
+      <Select value={value} onChange={set} disabled={busy}>
         <option value="">Same as {called(parentPlace)}</option>
         {options(range).map((n) => (
           <option key={n} value={n}>
             {months(n)}
           </option>
         ))}
-      </select>
+      </Select>
     </label>
   );
   return (
-    <dialog ref={ref} className="dialog" aria-labelledby="add-place-h" onCancel={(e) => (e.preventDefault(), onClose())}>
+    <dialog ref={ref} className="dialog" aria-labelledby="add-place-h" onCancel={(e) => (e.preventDefault(), onClose())} {...backdrop}>
       <form onSubmit={submit}>
         <h2 id="add-place-h">Add place</h2>
         <ErrorBanner message={error} />
         <div className="grid-2">
           <label>
             Kind
-            <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} disabled={busy}>
+            <Select value={kind} onChange={(v) => setKind(v as typeof kind)} disabled={busy}>
               {wholeService && <option value="country">Country</option>}
               <option value="region">Region</option>
               <option value="city">City</option>
-            </select>
+            </Select>
           </label>
           <label>
             Inside
-            <select value={parentKey} onChange={(e) => setParent(e.target.value)} disabled={busy}>
+            <Select value={parentKey} onChange={setParent} disabled={busy}>
               {parents.map((p) => (
                 <option key={p.key} value={p.key}>
                   {p.kind === 'global' ? 'Whole service' : p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         </div>
         <label>

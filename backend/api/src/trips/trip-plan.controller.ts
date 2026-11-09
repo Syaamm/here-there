@@ -12,41 +12,33 @@ import { decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { contentProblem, parse } from '../common/validate';
 
 const DAY = 24 * 3600 * 1000;
-/** Most lines one trip plan can hold, per kind. */
+/** Most lines one trip plan can hold. */
 export const MAX_PLAN_ITEMS = 60;
-const MAX_AMOUNT = 100_000;
-/** How many ideas and budget notes the plan itself carries; the rest is read with `GET .../plan/items`. */
+/** How many ideas the plan itself carries; the rest is read with `GET .../plan/items`. */
 const PREVIEW = 3;
 
 /** A time of day as 24-hour "HH:MM". */
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use 24-hour time like 09:30');
 
-export const itemSchema = z
-  .object({
-    kind: z.enum(['itinerary', 'budget']),
-    title: z.string().trim().min(2).max(100),
-    note: z.string().trim().max(500).optional(),
-    day: z.coerce.date().optional(),
-    time: timeOfDay.optional(),
-    amount: z.number().int().min(0).max(MAX_AMOUNT).optional(),
-  })
-  .refine((v) => v.kind === 'itinerary' || v.day === undefined, { message: 'Budget notes have no day', path: ['day'] })
-  .refine((v) => v.kind === 'itinerary' || v.time === undefined, { message: 'Budget notes have no time', path: ['time'] })
-  .refine((v) => v.kind === 'budget' || v.amount === undefined, { message: 'Only budget notes have an amount', path: ['amount'] });
+export const itemSchema = z.object({
+  // the plan holds the itinerary only (budget notes were removed); the field stays so earlier app versions, which send it, keep working
+  kind: z.literal('itinerary').default('itinerary'),
+  title: z.string().trim().min(2).max(100),
+  note: z.string().trim().max(500).optional(),
+  day: z.coerce.date().optional(),
+  time: timeOfDay.optional(),
+});
 export const itemUpdateSchema = z.object({
   title: z.string().trim().min(2).max(100).optional(),
   note: z.string().trim().max(500).nullable().optional(),
   day: z.coerce.date().nullable().optional(),
   time: timeOfDay.nullable().optional(),
-  amount: z.number().int().min(0).max(MAX_AMOUNT).nullable().optional(),
 });
 
 const DAY_PASSED = 'That day has already passed, so its plan can no longer be changed';
-const BUDGET_NOTE =
-  'Budget notes are estimates for planning together. HERE & THERE never collects or holds money: everyone books and pays suppliers directly.';
 
 /**
- * The group's shared plan for a trip (spec 7.2): a day-by-day itinerary and a list of estimated costs. Only people approved
+ * The group's shared plan for a trip (spec 7.2): a day-by-day itinerary. Only people approved
  * for the trip can see or change it. Any member can add a line; its author and the organizer can change or remove it.
  */
 @Injectable()
@@ -102,7 +94,6 @@ export class TripPlanService {
       note: r.note,
       day: r.day,
       time: r.startTime,
-      amount: r.amount,
       addedBy: names.get(r.createdById) ?? 'A member',
       canEdit: open && (r.createdById === me.id || trip.hostId === me.id) && !(r.kind === 'itinerary' && this.passed(trip, r.day)),
     }));
@@ -110,28 +101,24 @@ export class TripPlanService {
 
   /**
    * The plan. The days of the itinerary come in full (the calendar needs them all, and a plan holds a limited number of lines),
-   * but the ideas (no day yet) and the budget notes only as a first few with their totals: the rest is read a page at a time
-   * with `GET .../plan/items`, so opening the plan stays light however long those lists grow.
+   * but the ideas (no day yet) only as a first few with their total: the rest is read a page at a time with
+   * `GET .../plan/items`, so opening the plan stays light however long that list grows.
    */
   async get(me: User, tripId: string) {
     const trip = await this.member(me, tripId);
     const inOrder = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
     const ideaWhere = { tripId, kind: 'itinerary', day: null };
-    const budgetWhere = { tripId, kind: 'budget' };
-    const [dated, ideas, ideasTotal, budget, sum] = await Promise.all([
+    const [dated, ideas, ideasTotal] = await Promise.all([
       this.prisma.tripItem.findMany({ where: { tripId, kind: 'itinerary', day: { not: null } }, orderBy: [{ day: 'asc' }, { createdAt: 'asc' }] }),
       this.prisma.tripItem.findMany({ where: ideaWhere, orderBy: inOrder, take: PREVIEW }),
       this.prisma.tripItem.count({ where: ideaWhere }),
-      this.prisma.tripItem.findMany({ where: budgetWhere, orderBy: inOrder, take: PREVIEW }),
-      this.prisma.tripItem.aggregate({ where: budgetWhere, _sum: { amount: true }, _count: true }),
     ]);
     const open = !['cancelled', 'completed'].includes(trip.status) && trip.dateEnd.getTime() >= Date.now();
     // inside a day the lines run in the order of the day: anything with no time first, then by the clock (ties keep the order they were added)
     const keys = [...new Set(dated.map((r) => r.day!.toISOString().slice(0, 10)))].sort();
     const groups = keys.map((d) => ({ day: d, rows: dated.filter((r) => r.day!.toISOString().slice(0, 10) === d).sort((x, y) => (x.startTime ?? '').localeCompare(y.startTime ?? '')) }));
-    const made = new Map((await this.lines(me, trip, [...groups.flatMap((g) => g.rows), ...ideas, ...budget])).map((l) => [l.id, l]));
+    const made = new Map((await this.lines(me, trip, [...groups.flatMap((g) => g.rows), ...ideas])).map((l) => [l.id, l]));
     const some = (rows: TripItem[]) => rows.map((r) => made.get(r.id)!);
-    const perPerson = sum._sum.amount ?? 0;
     return {
       editable: open,
       itinerary: {
@@ -139,31 +126,17 @@ export class TripPlanService {
         // lines without a day: the first few, and how many there are in all
         ideas: { items: some(ideas), total: ideasTotal },
       },
-      budget: {
-        label: 'Estimated personal budget',
-        currency: trip.budgetCurrency,
-        // what the trip's own range covers, so the notes are read against the right thing (travel in or out)
-        includesTransport: trip.budgetIncludesTransport,
-        items: some(budget),
-        total: sum._count,
-        perPersonTotal: perPerson,
-        statedMin: trip.budgetMin,
-        statedMax: trip.budgetMax,
-        // plain words, no verdicts: how the notes compare with what the trip said it would cost
-        comparison: sum._count === 0 ? null : perPerson > trip.budgetMax ? 'over' : perPerson < trip.budgetMin ? 'under' : 'within',
-        note: BUDGET_NOTE,
-      },
     };
   }
 
-  /** Every idea (`kind=ideas`) or budget note (`kind=budget`), oldest first, a page at a time. */
+  /** Every idea (`kind=ideas`: lines with no day yet), oldest first, a page at a time. */
   async page(me: User, tripId: string, kindRaw?: string, limitRaw?: string, cursorRaw?: string) {
     const trip = await this.member(me, tripId);
-    if (kindRaw !== 'ideas' && kindRaw !== 'budget') throw E.badRequest('VALIDATION_FAILED', 'kind must be ideas or budget');
+    if (kindRaw !== 'ideas') throw E.badRequest('VALIDATION_FAILED', 'kind must be ideas');
     const limit = pageLimit(limitRaw, 20);
     const cur = decodeKeyset(cursorRaw);
     const rows = await this.prisma.tripItem.findMany({
-      where: { tripId, ...(kindRaw === 'budget' ? { kind: 'budget' } : { kind: 'itinerary', day: null }), ...(cur && { OR: [{ createdAt: { gt: cur.at } }, { createdAt: cur.at, id: { gt: cur.id } }] }) },
+      where: { tripId, kind: 'itinerary', day: null, ...(cur && { OR: [{ createdAt: { gt: cur.at } }, { createdAt: cur.at, id: { gt: cur.id } }] }) },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: limit + 1,
     });
@@ -180,9 +153,9 @@ export class TripPlanService {
     this.dayOk(trip, dto.day);
     if (dto.kind === 'itinerary' && this.passed(trip, dto.day)) throw E.conflict('DAY_PASSED', DAY_PASSED);
     this.limiter.hit(`trip-plan:${me.id}`, 60, DAY);
-    if ((await this.prisma.tripItem.count({ where: { tripId, kind: dto.kind } })) >= MAX_PLAN_ITEMS) throw E.conflict('PLAN_FULL', `A plan can hold up to ${MAX_PLAN_ITEMS} lines of each kind`);
+    if ((await this.prisma.tripItem.count({ where: { tripId, kind: dto.kind } })) >= MAX_PLAN_ITEMS) throw E.conflict('PLAN_FULL', `A plan can hold up to ${MAX_PLAN_ITEMS} lines`);
     const item = await this.prisma.tripItem.create({
-      data: { tripId, kind: dto.kind, title: dto.title, note: dto.note || null, day: dto.day ?? null, startTime: dto.time ?? null, amount: dto.amount ?? null, createdById: me.id },
+      data: { tripId, kind: dto.kind, title: dto.title, note: dto.note || null, day: dto.day ?? null, startTime: dto.time ?? null, createdById: me.id },
     });
     await this.audit.log(me.id, 'trip.plan_added', 'trip', tripId, { itemId: item.id, kind: dto.kind });
     this.events.emit({ type: 'trip.plan_changed', id: tripId });
@@ -205,12 +178,9 @@ export class TripPlanService {
     this.dayOk(trip, dto.day);
     // a line on a day that has passed stays as it was, and nothing can be moved onto such a day
     if (item.kind === 'itinerary' && (this.passed(trip, item.day) || this.passed(trip, dto.day))) throw E.conflict('DAY_PASSED', DAY_PASSED);
-    if (item.kind === 'budget' && dto.day) throw E.badRequest('VALIDATION_FAILED', 'Budget notes have no day');
-    if (item.kind === 'budget' && dto.time) throw E.badRequest('VALIDATION_FAILED', 'Budget notes have no time');
-    if (item.kind === 'itinerary' && dto.amount) throw E.badRequest('VALIDATION_FAILED', 'Only budget notes have an amount');
     await this.prisma.tripItem.update({
       where: { id: itemId },
-      data: { ...(dto.title !== undefined && { title: dto.title }), ...(dto.note !== undefined && { note: dto.note || null }), ...(dto.day !== undefined && { day: dto.day }), ...(dto.time !== undefined && { startTime: dto.time }), ...(dto.amount !== undefined && { amount: dto.amount }) },
+      data: { ...(dto.title !== undefined && { title: dto.title }), ...(dto.note !== undefined && { note: dto.note || null }), ...(dto.day !== undefined && { day: dto.day }), ...(dto.time !== undefined && { startTime: dto.time }) },
     });
     this.events.emit({ type: 'trip.plan_changed', id: tripId });
     return { ok: true };

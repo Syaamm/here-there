@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useIsFocused, useRoute, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { Children, createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Modal, type NativeScrollEvent, type NativeSyntheticEvent, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Modal, type NativeScrollEvent, type NativeSyntheticEvent, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInput as RNTextInputType, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
@@ -248,6 +248,13 @@ export function Screen({
   // a fixed-picture page feeds the scroll position straight to the native side (Animated.event with the native driver), so the picture's
   // grow and dim follow the finger on the UI thread and never wait for the JS thread (which is what lags on a weaker Android)
   const ScrollBox = (fixedHero ? Animated.ScrollView : ScrollView) as typeof ScrollView;
+  // every pull-to-refresh in the app comes through here: a light tap the moment the pull is let go and the refresh starts
+  const pullRefresh = onRefresh
+    ? () => {
+        tap('Light');
+        onRefresh();
+      }
+    : undefined;
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     scrolled.current = e.nativeEvent.contentOffset.y;
     const m = e.nativeEvent;
@@ -283,13 +290,13 @@ export function Screen({
       // more) is enough, with the page's own spinner fading in at the top of the card as it is pulled. Android: its pull circle,
       // placed at the top of the card instead of over the photo.
       refreshControl={
-        onRefresh && !(fixedHero && Platform.OS === 'ios') ? (
-          <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} {...(fixedHero ? { colors: [c.forest], progressViewOffset: Math.max(0, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop) } : null)} />
+        pullRefresh && !(fixedHero && Platform.OS === 'ios') ? (
+          <RefreshControl refreshing={!!refreshing} onRefresh={pullRefresh} {...(fixedHero ? { colors: [c.forest], progressViewOffset: Math.max(0, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop) } : null)} />
         ) : undefined
       }
       // only a pull that started at the very top counts (a flick back up from further down never refreshes), and only past the line
       onScrollBeginDrag={fixedHero && Platform.OS === 'ios' && onRefresh ? (e) => void (pullFromTop.current = e.nativeEvent.contentOffset.y <= 1) : undefined}
-      onScrollEndDrag={fixedHero && Platform.OS === 'ios' && onRefresh ? (e) => void (!refreshing && pullFromTop.current && e.nativeEvent.contentOffset.y < -PULL_TO_REFRESH && onRefresh()) : undefined}
+      onScrollEndDrag={fixedHero && Platform.OS === 'ios' && onRefresh ? (e) => void (!refreshing && pullFromTop.current && e.nativeEvent.contentOffset.y < -PULL_TO_REFRESH && pullRefresh?.()) : undefined}
     >
       {/* an array, not a fragment: the ScrollView counts its direct children to find the sticky one */}
       {stickyHero ? [
@@ -459,7 +466,7 @@ export function BottomBar({ children, onHeight }: { children: ReactNode; onHeigh
   );
 }
 
-type BtnVariant = 'primary' | 'accent' | 'secondary' | 'danger' | 'ghost' | 'light' | 'mint' | 'outlineLight' | 'ghostLight';
+type BtnVariant = 'primary' | 'accent' | 'secondary' | 'danger' | 'ghost' | 'light' | 'mint' | 'outlineLight' | 'ghostLight' | 'off';
 export function Btn({ title, onPress, variant = 'primary', disabled, loading, small, style }: { title: string; onPress?: () => void; variant?: BtnVariant; disabled?: boolean; loading?: boolean; small?: boolean; style?: StyleProp<ViewStyle> }) {
   const { c } = useTheme();
   const look: Record<BtnVariant, { bg: string; fg: string; border: string }> = {
@@ -472,6 +479,8 @@ export function Btn({ title, onPress, variant = 'primary', disabled, loading, sm
     mint: { bg: '#A6E1C8', fg: c.forest, border: '#A6E1C8' },
     outlineLight: { bg: 'transparent', fg: '#fff', border: '#8FB3A8' },
     ghostLight: { bg: 'transparent', fg: '#B9CFC8', border: 'transparent' },
+    // not ready yet: plainly grey (not a faded green), so it reads as "not yet" at a glance
+    off: { bg: '#E3E3E0', fg: '#9A9F9C', border: '#E3E3E0' },
   };
   const v = look[variant];
   const off = disabled || loading;
@@ -485,20 +494,21 @@ export function Btn({ title, onPress, variant = 'primary', disabled, loading, sm
         tap(variant === 'primary' || variant === 'accent' || variant === 'light' || variant === 'mint' ? 'Medium' : 'Light');
         onPress?.();
       }}
-      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { minHeight: sc(small ? 34 : 42) }, android.btn, small && android.btnSmall, { backgroundColor: v.bg, borderColor: v.border, opacity: off ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
+      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { minHeight: sc(small ? 34 : 42) }, android.btn, small && android.btnSmall, { backgroundColor: v.bg, borderColor: v.border, opacity: off && variant !== 'off' ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
     >
       {loading ? <ActivityIndicator color={v.fg} /> : <Text numberOfLines={2} style={{ color: v.fg, fontWeight: '700', fontSize: small ? 13 : 14, textAlign: 'center' }}>{title}</Text>}
     </Pressable>
   );
 }
 
-export function Field({ label, hint, error, icon, style, ...rest }: TextInputProps & { label: string; hint?: string; error?: string | null; icon?: React.ComponentProps<typeof Ionicons>['name'] }) {
+export function Field({ label, hint, error, icon, style, inputRef, ...rest }: TextInputProps & { label: string; hint?: string; error?: string | null; icon?: React.ComponentProps<typeof Ionicons>['name']; /** to focus the field from outside (the page then scrolls it into view) */ inputRef?: React.Ref<React.ComponentRef<typeof RNTextInputType>> }) {
   const { c } = useTheme();
   return (
     <View style={{ gap: 4 }}>
       <Txt variant="label">{label}</Txt>
       <View>
         <TextInput
+          ref={inputRef}
           accessibilityLabel={label}
           placeholderTextColor={c.placeholder}
           {...rest}
@@ -509,6 +519,12 @@ export function Field({ label, hint, error, icon, style, ...rest }: TextInputPro
       </View>
       {hint && !error ? <Txt variant="small">{hint}</Txt> : null}
       {error ? <Txt variant="small" color={c.danger}>{error}</Txt> : null}
+      {/* every longer text box says its real limit, the same way everywhere ("120/500"): the limit is the server's */}
+      {rest.multiline && rest.maxLength && !hint && !error ? (
+        <Txt variant="small" style={{ alignSelf: 'flex-end', marginRight: 6 }} color={(rest.value ?? '').length >= rest.maxLength ? c.text : c.muted}>
+          {`${(rest.value ?? '').length}/${rest.maxLength}`}
+        </Txt>
+      ) : null}
     </View>
   );
 }
@@ -621,7 +637,8 @@ export function PillRow({ children }: { children: ReactNode }) {
 export function CheckRow({ checked, onChange, children, disabled }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode; disabled?: boolean }) {
   const { c } = useTheme();
   return (
-    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start', opacity: disabled ? 0.6 : 1 }}>
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: disabled ? 0.6 : 1 }}>
+      {/* the box is centred on its text (one line or several), so it always sits level with what it confirms */}
       <View style={[s.check, { borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : 'transparent' }]}>{checked ? <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>✓</Text> : null}</View>
       <View style={{ flex: 1 }}>{children}</View>
     </Pressable>
@@ -831,7 +848,7 @@ const s = StyleSheet.create({
   btnSmall: { minHeight: 34, paddingVertical: 5, paddingHorizontal: 12 },
   input: { minHeight: 42, borderWidth: 1.5, borderRadius: 11, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
   pill: { minHeight: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  check: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  check: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 42, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12 },
   stepBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   stepTxt: { fontSize: 22, fontWeight: '700' },

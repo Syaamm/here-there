@@ -230,7 +230,7 @@ describe('THERE: trips, applications, approval, chat', () => {
     assert.equal((await get('/v1/me/trips/page?cursor=junk', org.token)).status, 400);
   });
 
-  it('ranks trips the same three ways: buddies going first, then people you follow, then everyone else', async () => {
+  it('ranks trips by the circle: friends going first, then people you follow, then your followers, then everyone else', async () => {
     const viewer = await verified('TTierViewer');
     const buddy = await verified('TTierBuddy');
     const followed = await verified('TTierFollowed');
@@ -247,7 +247,8 @@ describe('THERE: trips, applications, approval, chat', () => {
     const order = r.body.items.map((x: { id: string }) => x.id);
     assert.equal(order[0], ids.buddy);
     assert.equal(order[1], ids.followed);
-    assert.deepEqual(order.slice(2).sort(), [ids.follower, ids.stranger].sort());
+    // owner's rule 2026-11-09: a follower (who you do not follow back) now counts a little, so ahead of a stranger
+    assert.deepEqual(order.slice(2), [ids.follower, ids.stranger]);
     const by = (id: string) => r.body.items.find((x: { id: string }) => x.id === id);
     assert.deepEqual([by(ids.buddy).buddiesGoing, by(ids.buddy).followingGoing], [1, 0]);
     assert.deepEqual([by(ids.followed).buddiesGoing, by(ids.followed).followingGoing], [0, 1]);
@@ -265,6 +266,14 @@ describe('THERE: trips, applications, approval, chat', () => {
     }
     assert.deepEqual(seen, order);
     assert.equal((await get('/v1/trips?destination=tierland&cursor=junk', viewer.token)).status, 400);
+
+    // Home's lists leave out your own trips (they are in Next up): hosted, joined or applied to
+    const mineTrip = (await post('/v1/trips', viewer.token, tripBody({ title: 'My own trip', destination: 'Tierland' }))).body.id;
+    const all = (await get('/v1/trips?destination=tierland', viewer.token)).body.items.map((x: { id: string }) => x.id);
+    assert.ok(all.includes(mineTrip), 'search still finds your own trip');
+    const home = (await get('/v1/trips?destination=tierland&excludeMine=true', viewer.token)).body.items.map((x: { id: string }) => x.id);
+    assert.ok(!home.includes(mineTrip), 'Home leaves out a trip you host');
+    assert.deepEqual(home, [ids.buddy, ids.followed, ids.follower, ids.stranger], 'and keeps the ranking for the rest');
   });
 
   it('gates the group chat behind organizer approval', async () => {
@@ -349,6 +358,58 @@ describe('THERE: trips, applications, approval, chat', () => {
     const done = (await get(`/v1/conversations/${conv.id}/messages`, org.token)).body.items.filter((x: any) => x.kind === 'system');
     assert.ok(done.some((x: any) => /New dates/.test(x.body)));
     assert.equal((await post(`/v1/polls/${made.body.id}/vote`, m1.token, { vote: 'accept' })).body.code, 'POLL_CLOSED');
+  });
+
+  it('lets a trip\'s dates change through polls only five times, and only until the trip starts', async () => {
+    const org = await verified('LimitOrg');
+    const t = (await post('/v1/trips', org.token, tripBody({ groupSize: '2-3' }))).body;
+    const conv = await prisma.conversation.findUnique({ where: { tripId: t.id } });
+    const day = 24 * 3600e3;
+    const window = (n: number) => ({ title: `Dates ${n}`, dateStart: new Date(Date.now() + (60 + n * 10) * day).toISOString(), dateEnd: new Date(Date.now() + (63 + n * 10) * day).toISOString() });
+    assert.equal((await get(`/v1/trips/${t.id}`, org.token)).body.dateChangesLeft, 5, 'five changes at the start');
+
+    // five polls can each change the dates
+    for (let n = 1; n <= 5; n++) {
+      const made = await post(`/v1/conversations/${conv.id}/polls`, org.token, window(n));
+      assert.equal(made.status, 201, JSON.stringify(made.body));
+      assert.equal((await post(`/v1/polls/${made.body.id}/close`, org.token, { adopt: true })).status, 201, `change ${n}`);
+      assert.equal((await get(`/v1/trips/${t.id}`, org.token)).body.dateChangesLeft, 5 - n);
+    }
+
+    // the sixth is refused, whether the poll is started or its dates are used; a poll with no dates is still fine
+    assert.equal((await post(`/v1/conversations/${conv.id}/polls`, org.token, window(6))).body.code, 'DATE_CHANGES_USED');
+    assert.equal((await post(`/v1/conversations/${conv.id}/polls`, org.token, { title: 'Where shall we eat?' })).status, 201);
+    const asked = await prisma.tripPoll.create({ data: { tripId: t.id, createdById: org.id, title: 'Late one', dateStart: new Date(Date.now() + 300 * day), dateEnd: new Date(Date.now() + 303 * day) } });
+    assert.equal((await post(`/v1/polls/${asked.id}/close`, org.token, { adopt: true })).body.code, 'DATE_CHANGES_USED', 'using the dates of an older poll counts too');
+    assert.equal((await prisma.trip.findUnique({ where: { id: t.id } })).dateChanges, 5);
+
+    // once the trip has started, its dates cannot change at all
+    const t2 = (await post('/v1/trips', org.token, tripBody({ groupSize: '2-3', dateStart: new Date(Date.now() + 120 * day).toISOString(), dateEnd: new Date(Date.now() + 124 * day).toISOString() }))).body;
+    const conv2 = await prisma.conversation.findUnique({ where: { tripId: t2.id } });
+    const pending = await prisma.tripPoll.create({ data: { tripId: t2.id, createdById: org.id, title: 'Too late', dateStart: new Date(Date.now() + 130 * day), dateEnd: new Date(Date.now() + 133 * day) } });
+    await prisma.trip.update({ where: { id: t2.id }, data: { dateStart: new Date(Date.now() - day), dateEnd: new Date(Date.now() + 2 * day) } });
+    assert.equal((await post(`/v1/polls/${pending.id}/close`, org.token, { adopt: true })).body.code, 'TRIP_STARTED');
+    assert.equal((await post(`/v1/conversations/${conv2.id}/polls`, org.token, window(1))).body.code, 'TRIP_STARTED');
+    assert.equal((await prisma.trip.findUnique({ where: { id: t2.id } })).dateChanges, 0, 'nothing was counted');
+  });
+
+  it('takes what the budget covers as food, travel and stay, chosen one by one', async () => {
+    const org = await verified('IncludesOrg');
+    const make = async (over: Record<string, unknown>) => (await post('/v1/trips', org.token, tripBody({ groupSize: '2-3', ...over }))).body;
+    const a = await make({ budgetIncludesTransport: false, budgetIncludes: ['food', 'stay'] });
+    assert.deepEqual((await get(`/v1/trips/${a.id}`, org.token)).body.budget.includes, ['food', 'stay']);
+    assert.equal((await get(`/v1/trips/${a.id}`, org.token)).body.budget.includesTransport, false, 'no travel in the list, no travel flag');
+    await post(`/v1/trips/${a.id}/cancel`, org.token); // one plan at a time: free the dates for the next trip
+    const b = await make({ budgetIncludesTransport: false, budgetIncludes: ['travel'] });
+    const bb = (await get(`/v1/trips/${b.id}`, org.token)).body.budget;
+    assert.deepEqual([bb.includes, bb.includesTransport], [['travel'], true], 'the travel flag follows the list');
+    await post(`/v1/trips/${b.id}/cancel`, org.token);
+    const c2 = await make({ budgetIncludesTransport: true });
+    assert.deepEqual((await get(`/v1/trips/${c2.id}`, org.token)).body.budget.includes, ['travel'], 'an older client that only knows the travel flag still works');
+    await post(`/v1/trips/${c2.id}/cancel`, org.token);
+    assert.equal((await post('/v1/trips', org.token, tripBody({ budgetIncludes: ['wine'] }))).status, 400);
+    const none = await make({ budgetIncludes: [], budgetIncludesTransport: true });
+    assert.deepEqual((await get(`/v1/trips/${none.id}`, org.token)).body.budget.includes, [], 'nothing chosen is allowed');
   });
 
   it('cannot be approved by someone other than the organizer and a decline keeps chat closed', async () => {

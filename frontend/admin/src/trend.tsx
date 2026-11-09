@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSize } from './charts';
+import { CountUp } from './ui';
 import './trend.css';
 
 /** One line on the dashboard trend: its values per day, the total and the change against the period before (when known). */
@@ -55,6 +56,8 @@ function smooth(pts: [number, number][]) {
 export function TrendChart({ days, lines, title }: { days: string[]; lines: Trend[]; title: string }) {
   const [pick, setPick] = useState(lines[0]?.key);
   const [at, setAt] = useState<number | null>(null);
+  // where the hover readout sits; kept after the pointer leaves, so it fades out in place instead of jumping away
+  const [last, setLast] = useState(0);
   const { ref, w, h } = useSize<HTMLDivElement>();
   const line = lines.find((l) => l.key === pick) ?? lines[0];
   const W = Math.max(280, w);
@@ -78,9 +81,18 @@ export function TrendChart({ days, lines, title }: { days: string[]; lines: Tren
     const r = ref.current?.getBoundingClientRect();
     if (!r || !r.width) return;
     const i = n === 1 ? 0 : Math.round(((clientX - r.left - m.l) / (W - m.l - m.r)) * (n - 1));
-    setAt(i < 0 || i >= n ? null : i);
+    const inside = i >= 0 && i < n;
+    setAt(inside ? i : null);
+    if (inside) setLast(i);
   };
-  const tipLeft = at == null ? 0 : x(at) / W;
+  // The guide line, the dot and the readout are always drawn and glide to the hovered day (CSS transitions on transform), so
+  // moving along the chart is one smooth movement instead of a jump per day; they fade in and out rather than appear.
+  const showing = at != null;
+  const cur = Math.min(at ?? last, n - 1);
+  const px = x(cur);
+  const py = y(values[cur] ?? 0);
+  const flip = px / W > 0.62; // near the right edge the readout sits to the left of the line
+  const tipY = Math.min(Math.max(py - 40, 0), H - m.b - 66);
 
   return (
     <div className="trend">
@@ -91,7 +103,9 @@ export function TrendChart({ days, lines, title }: { days: string[]; lines: Tren
             <button key={l.key} type="button" className={on ? 'trend-key on' : 'trend-key'} aria-pressed={on} onClick={() => (setPick(l.key), setAt(null))} style={{ ['--c' as string]: l.color }}>
               <i className="trend-dot" />
               <span className="trend-name">{l.label}</span>
-              <strong className="trend-total">{l.total.toLocaleString()}</strong>
+              <strong className="trend-total">
+                <CountUp value={l.total} />
+              </strong>
               {l.change != null && <span className={l.change > 0 ? 'trend-change up' : 'trend-change'}>{`${l.change > 0 ? '+' : ''}${l.change}%`}</span>}
             </button>
           );
@@ -119,24 +133,28 @@ export function TrendChart({ days, lines, title }: { days: string[]; lines: Tren
             </text>
           ))}
           <g key={`${days[0]}|${n}|${line?.key}`} className="trend-draw">
-            {area && <path d={area} fill="url(#trend-fill)" />}
-            <path d={path} fill="none" stroke={line?.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            {area && <path d={area} fill="url(#trend-fill)" className="trend-area" />}
+            {/* pathLength 1: the line draws itself from left to right when it first shows */}
+            <path d={path} pathLength={1} fill="none" stroke={line?.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="trend-line" />
             {n === 1 && <circle cx={pts[0][0]} cy={pts[0][1]} r="4" fill={line?.color} />}
           </g>
-          {at != null && (
-            <g>
-              <line x1={x(at)} x2={x(at)} y1={m.t} y2={H - m.b} className="trend-guide" />
-              <circle cx={x(at)} cy={y(values[at])} r="5" fill="#fff" stroke={line?.color} strokeWidth="2.5" />
-            </g>
-          )}
+          <g className={showing ? 'trend-hover on' : 'trend-hover'} aria-hidden="true">
+            <line x1={0} x2={0} y1={m.t} y2={H - m.b} className="trend-guide trend-glide" style={{ transform: `translateX(${px}px)` }} />
+            <circle cx={0} cy={0} r="5" fill="#fff" stroke={line?.color} strokeWidth="2.5" className="trend-glide" style={{ transform: `translate(${px}px, ${py}px)` }} />
+          </g>
         </svg>
-        {at != null && (
-          <div className="tip" style={{ left: `${tipLeft * 100}%`, transform: `translateX(${tipLeft > 0.7 ? '-105%' : '12px'})` }} role="status">
-            <b>{longDay(days[at])}</b>
+        {days.length > 0 && (
+          <div
+            className={showing ? 'tip trend-tip on' : 'tip trend-tip'}
+            style={{ transform: `translate3d(${px}px, ${tipY}px, 0) translateX(${flip ? 'calc(-100% - 14px)' : '14px'})` }}
+            role="status"
+            aria-hidden={!showing}
+          >
+            <b>{longDay(days[cur])}</b>
             <div>
               <i style={{ background: line?.color }} />
               {line?.label}
-              <span>{values[at]}</span>
+              <span>{values[cur]}</span>
             </div>
           </div>
         )}

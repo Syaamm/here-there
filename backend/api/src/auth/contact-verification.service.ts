@@ -10,6 +10,7 @@ import { isBanned } from '../common/identity';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
 import { SmsService } from '../common/sms.service';
+import { fixedCodeFor } from '../common/test-codes';
 import { parse } from '../common/validate';
 import { blindIndex, decryptField, encryptField, isEncrypted } from '../common/vault';
 
@@ -71,7 +72,7 @@ export class ContactVerificationService implements OnModuleInit {
       this.limiter.hit(`${channel}-hourly:${user.id}`, 5, 60 * 60 * 1000); // and five per hour
     }
 
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const code = fixedCodeFor(channel) ?? String(randomInt(0, 1_000_000)).padStart(6, '0'); // fixed test code: common/test-codes.ts
     await this.prisma.contactCode.updateMany({ where: { userId: user.id, channel, usedAt: null }, data: { usedAt: new Date() } });
     await this.prisma.contactCode.create({
       data: { userId: user.id, channel, target, codeHash: this.hash(user.id, channel, code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
@@ -105,7 +106,7 @@ export class ContactVerificationService implements OnModuleInit {
   /** Emails a code to the NEW address. Only when it is entered does the account's email change. */
   async sendEmailChangeCode(user: User, newEmail: string): Promise<{ devCode?: string }> {
     return this.issue(user, 'email_change', newEmail, (code) =>
-      this.email.send(newEmail, 'Confirm your new HERE & THERE email', `Your confirmation code is ${code}.\n\nIt expires in 15 minutes. If you did not ask to use this address for HERE & THERE, you can ignore this email.`),
+      this.email.send(newEmail, 'Confirm your new LAMIS email', `Your confirmation code is ${code}.\n\nIt expires in 15 minutes. If you did not ask to use this address for LAMIS, you can ignore this email.`),
     );
   }
 
@@ -123,7 +124,7 @@ export class ContactVerificationService implements OnModuleInit {
       (code) =>
         this.email.send(
           user.email,
-          'Reset your HERE & THERE password',
+          'Reset your LAMIS password',
           `Your password reset code is ${code}.\n\nIt expires in 15 minutes. If you did not ask to reset your password, you can ignore this email: your password has not changed.`,
         ),
       false,
@@ -146,8 +147,8 @@ export class ContactVerificationService implements OnModuleInit {
     return this.issue(user, 'email', null, (code) =>
       this.email.send(
         user.email,
-        'Your HERE & THERE verification code',
-        `Your verification code is ${code}.\n\nIt expires in 15 minutes. If you did not create a HERE & THERE account, you can ignore this email.`,
+        'Your LAMIS verification code',
+        `Your verification code is ${code}.\n\nIt expires in 15 minutes. If you did not create a LAMIS account, you can ignore this email.`,
       ),
     );
   }
@@ -168,7 +169,7 @@ export class ContactVerificationService implements OnModuleInit {
     const { phone } = parse(phoneSchema, body);
     await this.assertPhoneFree(phone, user.id);
     // the number waits next to the code, so it is stored encrypted like everywhere else
-    return this.issue(user, 'phone', encryptField(phone), (code) => this.sms.send(phone, `Your HERE & THERE code is ${code}. It expires in 15 minutes.`));
+    return this.issue(user, 'phone', encryptField(phone), (code) => this.sms.send(phone, `Your LAMIS code is ${code}. It expires in 15 minutes.`));
   }
 
   async verifyPhone(user: User, body: unknown) {

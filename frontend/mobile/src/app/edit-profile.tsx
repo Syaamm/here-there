@@ -1,7 +1,8 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, View } from 'react-native';
+import { BackHandler, View } from 'react-native';
+import { appAlert } from '@/components/AppDialog';
 import { CityField } from '@/components/OnboardingParts';
 import { AuthButton, AuthField } from '@/components/AuthForm';
 import { SmallPill, TogglePill } from '@/components/ProfileParts';
@@ -54,7 +55,7 @@ export default function EditProfile() {
     router.canGoBack() ? router.back() : router.replace('/settings' as never);
   };
   const ask = () =>
-    Alert.alert(t('Unsaved changes'), t('You changed your profile. Save the changes before leaving, or discard them?'), [
+    appAlert(t('Unsaved changes'), t('You changed your profile. Save the changes before leaving, or discard them?'), [
       { text: t('Keep editing'), style: 'cancel' },
       { text: t('Discard'), style: 'destructive', onPress: leave },
       { text: t('Save changes'), onPress: () => void save.run(() => patch('/v1/me/profile', latest.current.body())) },

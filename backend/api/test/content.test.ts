@@ -13,10 +13,10 @@ describe('content rules for titles, descriptions and chat', () => {
       assert.equal(contentProblem(bad), 'Please keep the language respectful', bad);
   });
 
-  it('still catches spam links, repetition, shouting, scams and requests for money', () => {
+  it('still catches spam links, scams and requests for money, and lets repetition through', () => {
     assert.equal(contentProblem('see www.a.com and https://b.com'), 'Too many links');
-    assert.equal(contentProblem('aaaaaaaaaaaa'), 'Spam-like repetition');
-    assert.equal(contentProblem('buy now buy now buy now buy now buy now buy now'), 'Spam-like repetition');
+    assert.equal(contentProblem('hahahahahahahaha'), null, 'repetition is not a problem');
+    assert.equal(contentProblem('yes yes yes yes yes yes see you there'), null, 'repeated words are not a problem');
     assert.equal(contentProblem('JOIN US TONIGHT FOR A GREAT NIGHT OUT'), null, 'writing in capitals is allowed');
     assert.equal(contentProblem('please send me money'), 'Financial solicitation is not allowed');
     assert.equal(contentProblem('click here for free followers'), 'This looks like spam');

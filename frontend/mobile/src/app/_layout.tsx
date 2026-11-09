@@ -3,8 +3,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { InnerHeader, Logo } from '@/components/TabHeader';
+import { InnerHeader } from '@/components/TabHeader';
+import { LamisMark } from '@/components/LamisMark';
 import { AlertBanner } from '@/components/AlertBanner';
+import { DialogHost } from '@/components/AppDialog';
 import { Toast } from '@/components/Toast';
 import { UpdatePrompt } from '@/components/UpdatePrompt';
 import { AuthProvider, useMe } from '@/lib/auth';
@@ -74,10 +76,10 @@ function Gate() {
   if (!ready || (me && remembered !== me.id))
     return (
       <WebFrame>
-        {/* the splash sits on the mode's band: light clock on HERE's dark green, dark on THERE's sand */}
+        {/* the splash sits on the mode's band: light clock on HERE's dark green, dark on THERE's sand; the LAMIS mark as on the app icon */}
         <StatusBar style={c.bandIsDark ? 'light' : 'dark'} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.band, gap: 16 }}>
-          <Logo size={40} light />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.band, gap: 20 }}>
+          <LamisMark size={56} ink={c.onBand} />
           <ActivityIndicator color={c.onBand} />
         </View>
       </WebFrame>
@@ -151,6 +153,8 @@ function Gate() {
       {/* phones show alerts as their own banners (lib/push); the browser keeps this in-app strip */}
       {me && Platform.OS === 'web' ? <AlertBanner /> : null}
       <Toast />
+      {/* pop-ups in the app's own look on Android (iPhone keeps its system alert) */}
+      <DialogHost />
       <UpdatePrompt />
     </WebFrame>
   );

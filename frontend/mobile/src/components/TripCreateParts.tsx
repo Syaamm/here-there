@@ -201,7 +201,8 @@ export function TripPill({ label, spoken, active, onPress, wide, icon }: { label
       style={({ pressed: p }) => [{ minHeight: 44, minWidth: wide ? 96 : undefined, paddingHorizontal: 22, borderRadius: 32, backgroundColor: active ? c.forest : WHITE, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }, pressed(p)]}
     >
       {icon && active ? <Ionicons name={icon} size={15} color="#fff" /> : null}
-      <Text style={{ color: active ? '#fff' : c.text, fontSize: 14, fontWeight: active ? '600' : '400' }}>{label}</Text>
+      {/* the same weight selected or not, so choosing a pill only turns it green and never changes its width */}
+      <Text style={{ color: active ? '#fff' : c.text, fontSize: 14, fontWeight: '500' }}>{label}</Text>
     </Pressable>
   );
 }

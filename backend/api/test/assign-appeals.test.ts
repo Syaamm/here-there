@@ -19,6 +19,76 @@ async function reportAbout(targetId: string) {
   return r.body.id as string;
 }
 
+describe('any staff member can decide a report, and two at once never both count', () => {
+  it('a staff member who never took the report can resolve it', async () => {
+    const anyStaff = await h.staff('AnyStaff');
+    const target = await h.verified('TargetAny');
+    const id = await reportAbout(target.id);
+    const r = await h.post(`/v1/admin/reports/${id}/resolve`, anyStaff.token, { status: 'resolved', resolution: 'Rude messages confirmed' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal((await h.prisma.report.findUnique({ where: { id } })).status, 'resolved');
+  });
+
+  it('two staff resolving at the same moment: exactly one decision counts, the other is told who decided', async () => {
+    const one = await h.staff('FirstDecider');
+    const two = await h.staff('SecondDecider');
+    const target = await h.verified('TargetRace');
+    const id = await reportAbout(target.id);
+    const [a, b] = await Promise.all([
+      h.post(`/v1/admin/reports/${id}/resolve`, one.token, { status: 'resolved', resolution: 'Confirmed by first' }),
+      h.post(`/v1/admin/reports/${id}/resolve`, two.token, { status: 'dismissed', resolution: 'Nothing found by second' }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    assert.deepEqual(statuses, [201, 409], `one wins, one is refused: ${JSON.stringify([a.body, b.body])}`);
+    const lost = a.status === 409 ? a : b;
+    assert.equal(lost.body.code, 'REPORT_ALREADY_DECIDED');
+    assert.match(lost.body.message, /^Already (resolved|dismissed) by /);
+    // one decision on record, one audit entry, one message to the reported person
+    const row = await h.prisma.report.findUnique({ where: { id } });
+    assert.equal(row.assignedTo, a.status === 201 ? one.id : two.id, 'the report names whoever decided first');
+    const decisions = await h.prisma.auditEvent.count({ where: { objectId: id, action: { in: ['report.resolved', 'report.dismissed'] } } });
+    assert.equal(decisions, 1);
+    // and deciding again later is refused the same way (nothing is decided twice)
+    const again = await h.post(`/v1/admin/reports/${id}/resolve`, one.token, { status: 'dismissed' });
+    assert.equal(again.status, 409);
+  });
+});
+
+describe('alerts about a report go to the app it came from', () => {
+  const inbox = async (token: string, product: 'here' | 'there') => ((await h.get(`/v1/notifications?product=${product}`, token)).body.items as { type: string }[]).map((n) => n.type);
+
+  it('a person reported in THERE: the warning given on that report shows in THERE only, the same way it would in HERE', async () => {
+    const by = await h.verified('ThereReporter');
+    const target = await h.verified('ThereTarget');
+    const r = await h.post('/v1/reports', by.token, { targetType: 'user', targetId: target.id, category: 'harassment', details: 'rude in a trip chat', product: 'there' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal((await h.prisma.report.findUnique({ where: { id: r.body.id } })).product, 'there');
+    assert.equal((await h.post(`/v1/admin/users/${target.id}/warn`, h.adminToken, { reason: 'Please keep the trip chat friendly', reportId: r.body.id })).status, 201);
+    assert.ok((await inbox(target.token, 'there')).includes('warning'), 'in THERE');
+    assert.ok(!(await inbox(target.token, 'here')).includes('warning'), 'not in HERE');
+  });
+
+  it('a report about a HERE activity is HERE whatever the app says, and its decision shows in HERE only', async () => {
+    const host = await h.verified('HereHostReported');
+    const by = await h.verified('HereReporter');
+    const act = await h.post('/v1/activities', host.token, h.activityBody({ title: 'Reported coffee' }));
+    const r = await h.post('/v1/reports', by.token, { targetType: 'activity', targetId: act.body.id, category: 'spam', product: 'there' });
+    assert.equal((await h.prisma.report.findUnique({ where: { id: r.body.id } })).product, 'here', 'an activity is always HERE');
+    assert.equal((await h.post(`/v1/admin/reports/${r.body.id}/resolve`, h.adminToken, { status: 'resolved', resolution: 'Listing was spam' })).status, 201);
+    assert.ok((await inbox(host.token, 'here')).includes('report_decision'), 'in HERE');
+    assert.ok(!(await inbox(host.token, 'there')).includes('report_decision'), 'not in THERE');
+  });
+
+  it('a report without a product (an older app) still reaches the person, in both apps', async () => {
+    const by = await h.verified('OldAppReporter');
+    const target = await h.verified('OldAppTarget');
+    const r = await h.post('/v1/reports', by.token, { targetType: 'user', targetId: target.id, category: 'spam' });
+    await h.post(`/v1/admin/users/${target.id}/warn`, h.adminToken, { reason: 'No spam in chats please', reportId: r.body.id });
+    assert.ok((await inbox(target.token, 'here')).includes('warning'));
+    assert.ok((await inbox(target.token, 'there')).includes('warning'));
+  });
+});
+
 describe('giving a report to someone', () => {
   it('lets an admin give a report to any staff member of its area, and staff only take reports themselves', async () => {
     const milan = await h.staff('MilanStaff');

@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { can, get, post, type Session } from '../api';
-import { askText, Avatar, Chip, Empty, ErrorBanner, fmt, Loading, Page, Segmented, shortId, useAction, useLoad, useMore } from '../ui';
+import { useEffect, useState } from 'react';
+import { ApiError, can, get, post, type Session } from '../api';
+import { Select } from '../controls';
+import { askText, Avatar, Chip, Empty, ErrorBanner, fmt, urlParam, Icon, Loading, Page, Segmented, shortId, useAction, useUrlParam, useLoad, useMore } from '../ui';
 
 type R = {
   id: string;
@@ -48,15 +49,69 @@ function due(iso: string) {
   const t = span(Math.abs(ms) / 3600000);
   return ms >= 0 ? { late: false, text: `${t} left` } : { late: true, text: `Overdue ${t}` };
 }
+type Person = {
+  id: string;
+  state?: string;
+  suspendedUntil?: string | null;
+  eligibility?: string; // the identity check: verified | pending | rejected | unverified | expired
+  createdAt?: string;
+  profile?: { displayName?: string | null; photoUrl?: string | null; homeCity?: string | null } | null;
+  stats?: { reportsAgainst: number; hosted: number; joined: number };
+};
+const monthYear = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+
+/**
+ * One of the two people in a report (the reported person, the person who reported), as a small profile: photo, name, account
+ * state, identity check, city, joined, and their record (reports against them, plans hosted and joined), with a button to the
+ * full profile under People. Staff who may not open People (no "users" permission, or the person is outside their area) see
+ * the name only.
+ */
+function PersonCard({ title, id, name, canOpen, onOpen, note }: { title: string; id: string | null; name: string; canOpen: boolean; onOpen?: () => void; note?: string | null }) {
+  const p = useLoad(() => (id && canOpen ? get<Person>(`/v1/admin/users/${id}`).catch(() => null) : Promise.resolve(null)), [id, canOpen]);
+  const u = p.data;
+  const shown = u?.profile?.displayName ?? name;
+  const facts = [u?.profile?.homeCity, u?.createdAt ? `Joined ${monthYear(u.createdAt)}` : null].filter(Boolean).join(' · ');
+  return (
+    <div className="box person-card">
+      <span className="label">{title}</span>
+      <div className="person">
+        <Avatar name={shown} photo={u?.profile?.photoUrl ?? null} />
+        <span style={{ minWidth: 0, display: 'grid', gap: 2 }}>
+          <span className="name">{shown}</span>
+          {facts && <span className="small muted">{facts}</span>}
+        </span>
+      </div>
+      {u && (
+        <div className="row wrap" style={{ gap: 6 }}>
+          <Chip value={u.state === 'suspended' ? (u.suspendedUntil ? `Suspended until ${fmt(u.suspendedUntil)}` : 'Suspended') : 'Active'} tone={u.state === 'suspended' ? 'dark' : 'plain'} />
+          <Chip value={u.eligibility === 'verified' ? 'Identity verified' : u.eligibility === 'pending' ? 'Identity check pending' : u.eligibility === 'rejected' ? 'Identity rejected' : 'Not verified'} tone={u.eligibility === 'verified' ? 'line' : 'plain'} />
+        </div>
+      )}
+      {u?.stats && (
+        <span className="small muted">
+          {u.stats.reportsAgainst} {u.stats.reportsAgainst === 1 ? 'report' : 'reports'} against · hosted {u.stats.hosted} · joined {u.stats.joined}
+        </span>
+      )}
+      {note && <span className="small muted">{note}</span>}
+      {id && canOpen && onOpen && (
+        <button className="btn small" onClick={onOpen} style={{ justifySelf: 'start' }}>
+          Open full profile
+        </button>
+      )}
+    </div>
+  );
+}
+
 const nameOf = (r: R) => r.subject?.displayName ?? `A ${r.targetType}`;
 const byOf = (r: R) => r.reporter.profile?.displayName ?? shortId(r.reporter.id);
 const activeOf = (r: R) => ['open', 'in_review'].includes(r.status);
 
-export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Session; openUser?: (id: string) => void; focusId?: string | null; onClearFocus?: () => void }) {
+export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Session; openUser?: (id: string, from?: string) => void; focusId?: string | null; onClearFocus?: () => void }) {
   // Waiting = every open or in-review report in one list, latest first. Finished reports (resolved, dismissed) come a page at a time.
-  const [status, setStatus] = useState<'waiting' | 'resolved' | 'dismissed'>('waiting');
+  // kept in the address, so a page reload stays on the same list and report
+  const [statusRaw, setStatus] = useUrlParam<'waiting' | 'resolved' | 'dismissed'>('status', 'waiting');
+  const status = statusRaw ?? 'waiting';
   const [category, setCategory] = useState('');
-  const [who, setWho] = useState<'anyone' | 'unassigned' | 'me'>('anyone');
   const waiting = status === 'waiting' && !focusId;
   const cat = category ? '&category=' + category : '';
   const params = new URLSearchParams({ ...(!focusId && { status }), ...(category && { category }) });
@@ -64,28 +119,29 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   const more = useMore(data, (c) => get('/v1/admin/reports?' + params + '&cursor=' + c), status + '|' + category + '|' + focusId);
   const review = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=in_review' + cat), [category], 6000);
   const open = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=open' + cat), [category], 6000);
-  const act = useAction(() => (more.reset(), reload(), open.reload(), review.reload()));
-  const team = useLoad(
-    () =>
-      can.admin(me.role)
-        ? get<{ items: { id: string; displayName: string | null; email: string; role: string; state: string; permissions: string[] }[] }>('/v1/admin/staff').then((r) =>
-            r.items.filter((m) => m.state === 'active' && (m.role === 'admin' || m.permissions.includes('reports'))).map((m) => ({ id: m.id, name: m.displayName ?? m.email, role: m.role })),
-          )
-        : Promise.resolve(null),
-    [me.role],
-  );
+  const refreshAll = () => (more.reset(), reload(), open.reload(), review.reload());
+  const act = useAction(refreshAll);
   const mod = can.moderate(me.role);
   const regional = !!me.scope;
-  const mine = (list: R[]) => list.filter((r) => (who === 'unassigned' ? !r.assignedTo : who === 'me' ? r.assignedName === me.name : true));
 
+  // no assigning: any staff member who sees a report can decide it (the server makes sure only one decision counts)
   const groups: { title: string; items: R[] }[] = waiting
-    ? [{ title: '', items: mine([...(review.data?.items ?? []), ...(open.data?.items ?? [])]).sort((x, y) => +new Date(y.createdAt) - +new Date(x.createdAt)) }]
-    : [{ title: '', items: mine(focusId ? more.items.filter((r) => r.id === focusId) : more.items) }];
+    ? [{ title: '', items: [...(review.data?.items ?? []), ...(open.data?.items ?? [])].sort((x, y) => +new Date(y.createdAt) - +new Date(x.createdAt)) }]
+    : [{ title: '', items: focusId ? more.items.filter((r) => r.id === focusId) : more.items }];
   const items = groups.flatMap((g) => g.items);
   const ready = waiting ? !!(review.data && open.data) : !!data;
   const failed = waiting ? (review.error ?? open.error) : error;
 
-  const resolve = (r: R, s: 'resolved' | 'dismissed', resolution: string) => act.run(() => post('/v1/admin/reports/' + r.id + '/resolve', { status: s, resolution }));
+  const resolve = (r: R, s: 'resolved' | 'dismissed', resolution: string) =>
+    act.run(async () => {
+      try {
+        await post('/v1/admin/reports/' + r.id + '/resolve', { status: s, resolution });
+      } catch (e) {
+        // someone else decided it a moment earlier: say who ("Already resolved by Priya.") and show the report as it is now
+        if (e instanceof ApiError && e.code === 'REPORT_ALREADY_DECIDED') refreshAll();
+        throw e;
+      }
+    });
   const hide = async (r: R) => {
     const reason = await askText('Hide message', { label: 'Reason (shown to the sender)', confirm: 'Hide' });
     if (reason) act.run(() => post('/v1/admin/messages/' + r.message!.id + '/remove', { reason }));
@@ -96,8 +152,15 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
     if (reason) act.run(() => post('/v1/admin/users/' + r.subject!.userId + '/warn', { reason, reportId: r.id }));
   };
 
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useUrlParam<string>('report');
   const selected = items.find((r) => r.id === sel) ?? items[0] ?? null;
+  // On a phone or small tablet the list and the report are one pane each (responsive.css reads data-pane): tapping a report opens
+  // it, "All reports" comes back. A report you were on when the page was reloaded (or opened from the audit log) opens at once.
+  const [pane, setPane] = useState<'list' | 'detail'>(() => (focusId || urlParam('report') ? 'detail' : 'list'));
+  useEffect(() => {
+    // the report on screen is no longer in the list (it was just resolved): back to the list, not to some other report
+    if (pane === 'detail' && ready && sel && !items.some((r) => r.id === sel)) (setPane('list'), setSel(null));
+  }, [pane, ready, sel, items]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Page fill title="Reports">
@@ -120,26 +183,21 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
               { id: 'dismissed', label: 'Dismissed' },
             ]}
           />
-          <select aria-label="Category" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <Select aria-label="Category" value={category} onChange={setCategory}>
             <option value="">All categories</option>
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
                 {label(c)}
               </option>
             ))}
-          </select>
-          <select aria-label="Assigned to" value={who} onChange={(e) => setWho(e.target.value as typeof who)}>
-            <option value="anyone">Anyone</option>
-            <option value="unassigned">Unassigned</option>
-            <option value="me">Mine</option>
-          </select>
+          </Select>
         </div>
       )}
       <ErrorBanner message={failed ?? act.error} onRetry={() => (reload(), review.reload(), open.reload())} />
       {(waiting ? !ready && (review.loading || open.loading) : loading && !data) && <Loading rows={6} />}
       {ready && items.length === 0 && <Empty>{focusId ? 'Report not found.' : 'No reports.'}</Empty>}
       {items.length > 0 && (
-        <div className="split">
+        <div className="split" data-pane={pane}>
           <section className="split-list" aria-label="Reports">
             <div className="list-scroll">
               {groups.map((g) =>
@@ -158,7 +216,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
                         const hot = active && (d?.late || r.priority === 'urgent');
                         return (
                           <li key={r.id}>
-                            <button className={r.id === selected?.id ? 'list-item active' : 'list-item'} aria-current={r.id === selected?.id} onClick={() => setSel(r.id)}>
+                            <button className={r.id === selected?.id ? 'list-item active' : 'list-item'} aria-current={r.id === selected?.id} onClick={() => (setSel(r.id), setPane('detail'))}>
                               <span className="body">
                                 <span className="title">{r.details || label(r.category)}</span>
                                 <span className="meta">
@@ -178,7 +236,11 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
             </div>
           </section>
           <section className="split-detail" aria-label="Report">
-            {selected && <Detail key={selected.id} r={selected} mod={mod} regional={regional} busy={act.busy} openUser={openUser} me={me} team={team.data} onAssign={(userId?: string) => act.run(() => post('/v1/admin/reports/' + selected.id + '/assign', userId ? { userId } : {}))} onResolve={resolve} onHide={hide} onRestore={restore} onWarn={warn} />}
+            <button type="button" className="btn small split-back" onClick={() => (setPane('list'), setSel(null))}>
+              <Icon name="back" />
+              All reports
+            </button>
+            {selected &&<Detail key={selected.id} r={selected} mod={mod} regional={regional} busy={act.busy} openUser={openUser} from={`report:${selected.id}:${status}`} canSeePeople={me.role === 'admin' || !!me.permissions?.includes('users')} me={me} onResolve={resolve} onHide={hide} onRestore={restore} onWarn={warn} />}
           </section>
         </div>
       )}
@@ -186,7 +248,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   );
 }
 
-function Detail(p: { r: R; me: Session; team: { id: string; name: string; role: string }[] | null; mod: boolean; regional: boolean; busy: boolean; openUser?: (id: string) => void; onAssign: (userId?: string) => void; onResolve: (r: R, s: 'resolved' | 'dismissed', note: string) => void; onHide: (r: R) => void; onRestore: (r: R) => void; onWarn: (r: R) => void }) {
+function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: boolean; openUser?: (id: string, from?: string) => void; from: string; canSeePeople: boolean; onResolve: (r: R, s: 'resolved' | 'dismissed', note: string) => void; onHide: (r: R) => void; onRestore: (r: R) => void; onWarn: (r: R) => void }) {
   const { r, mod, regional, busy } = p;
   const [note, setNote] = useState('');
   const active = activeOf(r);
@@ -197,8 +259,8 @@ function Detail(p: { r: R; me: Session; team: { id: string; name: string; role: 
   const escalated = (r.escalationLevel ?? 0) > 0 || r.escalated;
   const history: { at: string; text: string }[] = [{ at: r.createdAt, text: `Filed by ${byOf(r)}` }];
   if (escalated && r.answerBy) history.push({ at: r.answerBy, text: 'Escalated to on-call' });
-  if (r.assignedName) history.push({ at: r.createdAt, text: `Assigned to ${r.assignedName}` });
-  if (!active) history.push({ at: r.createdAt, text: `${r.status === 'resolved' ? 'Resolved' : 'Dismissed'}${r.resolution ? `: ${r.resolution}` : ''}` });
+  // a decided report names who decided it (the server records the decider on the report)
+  if (!active) history.push({ at: r.createdAt, text: `${r.status === 'resolved' ? 'Resolved' : 'Dismissed'}${r.assignedName ? ` by ${r.assignedName}` : ''}${r.resolution ? `: ${r.resolution}` : ''}` });
 
   return (
     <div className="detail-scroll">
@@ -214,33 +276,13 @@ function Detail(p: { r: R; me: Session; team: { id: string; name: string; role: 
         <p className="small muted">
           {fmt(r.createdAt)}
           {d && ` · ${d.text}`}
-          {r.assignedName ? ` · ${r.assignedName}` : active ? ' · Unassigned' : ''}
         </p>
       </div>
 
+      {/* both people in the report, each as a small profile with a way to their full one (and back to this report) */}
       <div className="grid-2">
-        <div className="box">
-          <span className="label">Reported</span>
-          <div className="person">
-            <Avatar name={nameOf(r)} size="sm" />
-            <span style={{ minWidth: 0 }}>
-              <span className="name">{nameOf(r)}</span>
-            </span>
-          </div>
-          {r.repeatOffender?.flag && <span className="small muted">{r.repeatOffender.reasons.join('; ')}</span>}
-          {person && p.openUser && (
-            <button className="link small" onClick={() => p.openUser!(person)}>
-              Open profile
-            </button>
-          )}
-        </div>
-        <div className="box">
-          <span className="label">Reported by</span>
-          <div className="person">
-            <Avatar name={byOf(r)} size="sm" />
-            <span className="name">{byOf(r)}</span>
-          </div>
-        </div>
+        <PersonCard title="Reported" id={person} name={nameOf(r)} canOpen={p.canSeePeople} onOpen={person && p.openUser ? () => p.openUser!(person, p.from) : undefined} note={r.repeatOffender?.flag ? r.repeatOffender.reasons.join('; ') : null} />
+        <PersonCard title="Reported by" id={r.reporter.id} name={byOf(r)} canOpen={p.canSeePeople} onOpen={p.openUser ? () => p.openUser!(r.reporter.id, p.from) : undefined} />
       </div>
 
       {r.evidence ? (
@@ -271,25 +313,6 @@ function Detail(p: { r: R; me: Session; team: { id: string; name: string; role: 
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason" maxLength={500} />
           </label>
           <div className="actions-bar">
-            {p.team ? (
-              <select aria-label="Assign to" value={r.assignedTo ?? ''} onChange={(e) => e.target.value && p.onAssign(e.target.value)} disabled={busy} style={{ width: 'auto', minHeight: 38 }}>
-                <option value="" disabled>
-                  Assign to…
-                </option>
-                {p.team.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                    {m.role === 'admin' ? ' (admin)' : ''}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              r.assignedName !== p.me.name && (
-                <button className="btn" onClick={() => p.onAssign()} disabled={busy}>
-                  Take this report
-                </button>
-              )
-            )}
             {r.message && r.message.moderationState !== 'removed' && (
               <button className="btn" onClick={() => p.onHide(r)} disabled={busy}>
                 Hide message

@@ -39,7 +39,7 @@ const VIEWS: { id: View; label: string }[] = [
 const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
 /** Missed attendance: a host said a member did not attend. Disputed ones wait here for a decision. */
-export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: string) => void }) {
+export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: string, from?: string) => void }) {
   const [view, setView] = useState<View>('disputed');
   const { data, error, loading, reload } = useLoad(() => get<{ items: Note[] }>(`/v1/admin/no-shows?state=${view}`), [view], 6000);
   // always on: only hosts who mark unusually many people absent (half or more of their guests, or marks that keep being overturned)
@@ -54,7 +54,7 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
   };
   const person = (p?: Person) =>
     p ? (
-      <button className="ns-link" onClick={() => openUser?.(p.id)}>
+      <button className="ns-link" onClick={() => openUser?.(p.id, 'noshows')}>
         {p.displayName}
       </button>
     ) : (
@@ -157,7 +157,7 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
             {(hosts.data?.items ?? []).map((h) => (
               <li key={h.hostId} className="ns-host">
                 <span style={{ minWidth: 0 }}>
-                  <button className="ns-link strong" onClick={() => openUser?.(h.hostId)}>
+                  <button className="ns-link strong" onClick={() => openUser?.(h.hostId, 'noshows')}>
                     {h.name}
                   </button>
                   <span className="ns-host-sub">

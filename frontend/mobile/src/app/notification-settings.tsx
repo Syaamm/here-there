@@ -9,6 +9,7 @@ import { errMsg, useLoad, useRefresh } from '@/lib/hooks';
 import { localeTag, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { showToast } from '@/lib/toast';
+import { timeText } from '@/lib/format';
 
 type Group = { key: string; label: string; text: string; push: boolean };
 type Quiet = { enabled: boolean; start: string; end: string; timezone: string };
@@ -36,7 +37,7 @@ const deviceZone = () => {
 const shown = (v: string) => {
   const m = toMin(v);
   const d = new Date(2000, 0, 1, Math.floor(m / 60), m % 60);
-  return d.toLocaleTimeString(localeTag(), { hour: 'numeric', minute: '2-digit' });
+  return timeText(d);
 };
 
 /**

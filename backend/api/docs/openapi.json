@@ -4519,7 +4519,7 @@
         ],
         "summary": "Resolve, dismiss or mark a report in review",
         "operationId": "Admin_resolve",
-        "description": "Staff only. Roles: staff, admin.",
+        "description": "Any staff member who can see the report may decide it. If two decide at the same moment, only the first counts; the other gets REPORT_ALREADY_DECIDED.\n\nStaff only. Roles: staff, admin.",
         "x-staff-roles": [
           "staff",
           "admin"
@@ -4597,6 +4597,16 @@
           },
           "404": {
             "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `REPORT_ALREADY_DECIDED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -6776,7 +6786,7 @@
         ],
         "summary": "Sign out of this device",
         "operationId": "Auth_logout",
-        "description": "Optional body: { refreshToken }.",
+        "description": "Optional body: { refreshToken, pushToken }. pushToken is this device's push address: it stops getting this account's notifications.",
         "responses": {
           "200": {
             "description": "{ ok: true }. This sign-in cannot be refreshed any more; its access token ends within 15 minutes."
@@ -8026,7 +8036,7 @@
         "tags": [
           "Chat and date polls"
         ],
-        "summary": "Organizer starts a date poll in a trip chat",
+        "summary": "Organizer starts a date poll in a trip chat (a poll with dates needs a trip that has not started and has date changes left)",
         "operationId": "Conversations_createPoll",
         "description": "Needs a **verified adult**.",
         "parameters": [
@@ -8112,7 +8122,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `TOO_MANY_OPEN_POLLS`, `TRIP_CLOSED`",
+            "description": "Conflicts with the current state. Codes: `DATE_CHANGES_USED`, `TOO_MANY_OPEN_POLLS`, `TRIP_CLOSED`, `TRIP_STARTED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -11564,7 +11574,7 @@
         "operationId": "Auth_logoutAll",
         "responses": {
           "200": {
-            "description": "{ ok: true }. Every access token and refresh token of the account stops working immediately."
+            "description": "{ ok: true }. Every access token and refresh token of the account stops working immediately, and no device gets its push notifications until it signs in again."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -12843,7 +12853,7 @@
         "tags": [
           "Chat and date polls"
         ],
-        "summary": "Organizer closes a poll, optionally making its dates the proposed final dates",
+        "summary": "Organizer closes a poll, optionally making its dates the dates of the trip at once (only before the trip starts, and at most 5 times for one trip)",
         "operationId": "Conversations_closePoll",
         "description": "Needs a **verified adult**.",
         "parameters": [
@@ -12917,7 +12927,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `POLL_CLOSED`",
+            "description": "Conflicts with the current state. Codes: `DATE_CHANGES_USED`, `POLL_CLOSED`, `TRIP_STARTED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -13163,6 +13173,72 @@
           },
           "403": {
             "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/push/forget": {
+      "post": {
+        "tags": [
+          "Notifications and push"
+        ],
+        "summary": "A signed-out device stops getting pushes (no sign-in needed)",
+        "operationId": "Push_forget",
+        "description": "Used when the app signs out, including on its own (expired sign-in, suspended account). Deletes the push address whoever it belonged to.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 4000
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -13515,6 +13591,13 @@
                   "details": {
                     "type": "string",
                     "maxLength": 1000
+                  },
+                  "product": {
+                    "type": "string",
+                    "enum": [
+                      "here",
+                      "there"
+                    ]
                   }
                 },
                 "required": [
@@ -13748,6 +13831,18 @@
             }
           },
           {
+            "name": "excludeMine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -13898,6 +13993,18 @@
                   "budgetIncludesTransport": {
                     "type": "boolean"
                   },
+                  "budgetIncludes": {
+                    "maxItems": 3,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "food",
+                        "travel",
+                        "stay"
+                      ]
+                    }
+                  },
                   "tags": {
                     "default": [],
                     "maxItems": 8,
@@ -13911,6 +14018,11 @@
                   "description": {
                     "type": "string",
                     "maxLength": 300
+                  },
+                  "capacity": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 20
                   },
                   "groupSize": {
                     "default": "4-6",
@@ -15628,7 +15740,7 @@
         "tags": [
           "THERE trips"
         ],
-        "summary": "The group shared plan: itinerary by day and estimated costs (members only)",
+        "summary": "The group shared plan: the itinerary by day (members only)",
         "operationId": "TripPlan_get",
         "parameters": [
           {
@@ -15642,7 +15754,7 @@
         ],
         "responses": {
           "200": {
-            "description": "{ editable, itinerary: { days: [{ day, items }] }, budget: { label, currency, items, perPersonTotal, statedMin, statedMax, comparison, note } }. Lines carry canEdit. Budget notes are estimates, never payments."
+            "description": "{ editable, itinerary: { days: [{ day, locked, items }], ideas: { items, total } } }. Lines carry canEdit."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -15702,7 +15814,7 @@
         "tags": [
           "THERE trips"
         ],
-        "summary": "All ideas (kind=ideas) or budget notes (kind=budget) of the plan, a page at a time",
+        "summary": "All ideas (kind=ideas: lines with no day yet) of the plan, a page at a time",
         "operationId": "TripPlan_page",
         "parameters": [
           {
@@ -15784,7 +15896,7 @@
         "tags": [
           "THERE trips"
         ],
-        "summary": "Add an itinerary line or a budget note (any member)",
+        "summary": "Add an itinerary line (any member)",
         "operationId": "TripPlan_add",
         "description": "Needs a **verified adult**.",
         "parameters": [
@@ -15805,11 +15917,9 @@
                 "type": "object",
                 "properties": {
                   "kind": {
+                    "default": "itinerary",
                     "type": "string",
-                    "enum": [
-                      "itinerary",
-                      "budget"
-                    ]
+                    "const": "itinerary"
                   },
                   "title": {
                     "type": "string",
@@ -15827,15 +15937,9 @@
                   "time": {
                     "type": "string",
                     "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-                  },
-                  "amount": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
                   }
                 },
                 "required": [
-                  "kind",
                   "title"
                 ]
               }
@@ -16073,18 +16177,6 @@
                       {
                         "type": "string",
                         "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "amount": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 100000
                       },
                       {
                         "type": "null"
@@ -16530,6 +16622,7 @@
               "CONSENT_REQUIRED",
               "CONTENT_REJECTED",
               "CONVERSATION_CLOSED",
+              "DATE_CHANGES_USED",
               "DAY_OUT_OF_RANGE",
               "DAY_PASSED",
               "DISPUTE_CLOSED",
@@ -16615,6 +16708,7 @@
               "REFRESH_IN_PROGRESS",
               "REFRESH_TOKEN_REUSED",
               "REGISTRATION_BLOCKED",
+              "REPORT_ALREADY_DECIDED",
               "REQUEST_FAILED",
               "REQUEST_IN_PROGRESS",
               "REQUEST_WITHDRAWN",
@@ -16634,6 +16728,7 @@
               "TOO_MANY_PROOFS",
               "TRIP_CLOSED",
               "TRIP_FULL",
+              "TRIP_STARTED",
               "UNAUTHENTICATED",
               "UNSUPPORTED_MEDIA_TYPE",
               "VALIDATION_FAILED",
@@ -16690,7 +16785,7 @@
     {
       "code": "CONTENT_REJECTED",
       "status": 400,
-      "meaning": "The text broke a content rule (spam links, repetition, or a request for money). `message` says which.",
+      "meaning": "The text broke a content rule (spam links, a request for money or bank details, or strong language). `message` says which.",
       "clientShould": "Show the message and let the person edit the text."
     },
     {
@@ -17252,6 +17347,12 @@
       "clientShould": "Show the chat as read-only."
     },
     {
+      "code": "DATE_CHANGES_USED",
+      "status": 409,
+      "meaning": "The trip has used all the date changes it is allowed (5, through date polls).",
+      "clientShould": "Do not offer \"use these dates\"; tell the organizer why. The trip's `dateChangesLeft` says how many remain."
+    },
+    {
       "code": "DAY_PASSED",
       "status": 409,
       "meaning": "The itinerary line is on a day that has already passed (the trip has started), so it cannot be added, changed, moved or removed.",
@@ -17432,6 +17533,12 @@
       "clientShould": "Try again in a moment; keep one refresh at a time in the app."
     },
     {
+      "code": "REPORT_ALREADY_DECIDED",
+      "status": 409,
+      "meaning": "Someone else resolved or dismissed this report a moment earlier; the message says who.",
+      "clientShould": "Show the message and refresh the report."
+    },
+    {
       "code": "REQUEST_IN_PROGRESS",
       "status": 409,
       "meaning": "The first try of this request (same Idempotency-Key) is still being handled.",
@@ -17446,7 +17553,7 @@
     {
       "code": "TIME_CLASH",
       "status": 409,
-      "meaning": "You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this.",
+      "meaning": "You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity or trip, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead).",
       "clientShould": "Show the clashing plans with when each ends, and offer to leave, cancel or withdraw them, or pick another time."
     },
     {
@@ -17478,6 +17585,12 @@
       "status": 409,
       "meaning": "The group is full.",
       "clientShould": "Show \"full\" or the waiting-list option."
+    },
+    {
+      "code": "TRIP_STARTED",
+      "status": 409,
+      "meaning": "The trip has already started, so its dates can no longer be changed.",
+      "clientShould": "Do not offer a date poll or \"use these dates\" for it."
     },
     {
       "code": "PAYLOAD_TOO_LARGE",

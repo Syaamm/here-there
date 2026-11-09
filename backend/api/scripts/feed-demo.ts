@@ -21,7 +21,7 @@ async function person(email: string, name: string, interests = 'coffee,culture,t
       adultConfirmed: true,
       emailVerifiedAt: new Date(),
       adultVerifiedAt: new Date(),
-      verifiedUntil: new Date(Date.now() + 365 * 24 * H),
+      verifiedUntil: null,
       eligibility: 'verified',
       profile: { create: { displayName: name, homeCity: 'Milan', languages: 'English,Italian', interests } },
     },

@@ -95,7 +95,7 @@ async function main() {
         phoneVerifiedAt: p.phone ? ago(250) : null,
         mfaEnabledAt: p.mfa ? ago(120) : null,
         eligibility: p.eligibility ?? 'verified',
-        verifiedUntil: verified ? ahead(24 * 300) : null,
+        verifiedUntil: null,
         reverifyReason: p.eligibility === 'reverification_required' ? 'security' : null,
         createdAt: ago(24 * (60 - n * 3)),
         profile: { create: { displayName: p.name, homeCity: p.city, homeCityKey: p.city.toLowerCase(), languages: 'English,Italian', interests: 'coffee,culture,travel', bio: p.bio ?? null } },

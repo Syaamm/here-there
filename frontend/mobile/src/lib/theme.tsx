@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ModeTransition } from '@/components/ModeTransition';
+import { closeKeyboard } from '@/lib/keyboard';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export type Mode = 'here' | 'there';
@@ -189,6 +190,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         then?.();
         return;
       }
+      closeKeyboard(); // an open keyboard must not stay over the other product
       movingRef.current = m;
       afterRef.current = then ?? null;
       setMoving(m);

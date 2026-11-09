@@ -100,20 +100,20 @@ export function renderSharePage(kind: 'activity' | 'trip', id: string, item: Sha
     platform === 'other'
       ? cfg.appStoreUrl || cfg.playStoreUrl
         ? 'Open this link on your phone to see it in the app.'
-        : 'HERE &amp; THERE is coming soon to the App Store and Google Play.'
+        : 'LAMIS is coming soon to the App Store and Google Play.'
       : store
         ? `Taking you to ${platform === 'ios' ? 'the App Store' : 'Google Play'} in a moment…`
-        : 'HERE &amp; THERE is coming soon to the App Store and Google Play.';
+        : 'LAMIS is coming soon to the App Store and Google Play.';
 
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · HERE &amp; THERE</title>
+<title>${esc(title)} · LAMIS</title>
 <meta name="robots" content="noindex">
 <meta name="referrer" content="no-referrer">
-<meta property="og:site_name" content="HERE &amp; THERE"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${item ? esc(lines.join(' · ')) : 'Meet people in HERE &amp; THERE.'}">
+<meta property="og:site_name" content="LAMIS"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${item ? esc(lines.join(' · ')) : 'Meet people on LAMIS.'}">
 ${item && store ? `<meta http-equiv="refresh" content="2;url=${esc(store)}">` : ''}
 <style>${STYLE}</style></head>
-<body><main><p class="brand">HERE &amp; THERE</p>
+<body><main><p class="brand">LAMIS</p>
 <div class="card"><span class="kind">${kindLabel}</span><h1>${esc(title)}</h1>${lines.map((l) => `<p class="muted">${esc(l)}</p>`).join('')}
 <div class="btns">${buttons.join('')}</div><p class="small">${note}</p></div></main></body></html>`;
   return { status: item ? 200 : 404, html };

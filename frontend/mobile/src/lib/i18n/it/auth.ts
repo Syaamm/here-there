@@ -53,7 +53,7 @@ export const auth: Record<string, string> = {
   'Already have an account?': 'Hai già un account?',
   'Welcome back': 'Bentornato',
   'Your password has been changed. Log in with the new one.': 'La tua password è stata cambiata. Accedi con quella nuova.',
-  'Open your authenticator app and type the 6-digit code for HERE & THERE. Lost your phone? Use a recovery code instead.': 'Apri la tua app di autenticazione e inserisci il codice a 6 cifre di HERE & THERE. Hai perso il telefono? Usa un codice di recupero.',
+  'Open your authenticator app and type the 6-digit code for LAMIS. Lost your phone? Use a recovery code instead.': 'Apri la tua app di autenticazione e inserisci il codice a 6 cifre di LAMIS. Hai perso il telefono? Usa un codice di recupero.',
   'Code': 'Codice',
   'Log in': 'Accedi',
   'Appeal this suspension': 'Contesta questa sospensione',

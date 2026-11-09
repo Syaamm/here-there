@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { get } from '../api';
+import { useBackdropClose } from '../controls';
 import { ErrorBanner, Icon, Loading, useLoad } from '../ui';
 
 type Place = { key: string; name: string; kind: 'global' | 'country' | 'region' | 'city'; parentKey: string | null };
@@ -12,6 +13,7 @@ export function PlaceSwitcher({ current, onPick, onClose }: { current: string; o
   useEffect(() => {
     ref.current?.showModal();
   }, []);
+  const backdrop = useBackdropClose(ref, onClose); // a click on the dark area closes it
   const items = data?.items ?? [];
   const byKey = new Map(items.map((p) => [p.key, p]));
   const isRoot = (p: Place) => !p.parentKey || !byKey.has(p.parentKey) || byKey.get(p.parentKey)!.kind === 'global';
@@ -35,7 +37,7 @@ export function PlaceSwitcher({ current, onPick, onClose }: { current: string; o
   );
 
   return (
-    <dialog ref={ref} className="dialog" aria-labelledby="place-h" onCancel={(e) => (e.preventDefault(), onClose())} onClick={(e) => e.target === ref.current && onClose()}>
+    <dialog ref={ref} className="dialog" aria-labelledby="place-h" onCancel={(e) => (e.preventDefault(), onClose())} {...backdrop}>
       <div className="dialog-body">
         <h2 id="place-h">Change place</h2>
         <label className="search">

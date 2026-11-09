@@ -32,15 +32,40 @@
 .trend-plot .grid { stroke: var(--line); stroke-dasharray: none; }
 .trend-guide { stroke: var(--line-2); stroke-dasharray: 3 4; }
 
-/* the range picker in the card's heading */
+/* hover readout: always there, faded in and out; the line, dot and box glide to the hovered day */
+.trend-hover { opacity: 0; transition: opacity 0.18s ease; pointer-events: none; }
+.trend-hover.on { opacity: 1; }
+.trend-tip { left: 0; top: 0; opacity: 0; will-change: transform, opacity; transition: opacity 0.18s ease; }
+.trend-tip.on { opacity: 1; }
+.trend-tip b, .trend-tip span { font-variant-numeric: tabular-nums; }
+
+/* the days picker and Refresh at the top of the dashboard: they apply to the whole page */
+.ov-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
 .trend-range { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .trend-dates { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted); }
 .trend-dates input[type='date'] { width: auto; min-height: 36px; padding: 4px 10px; font-size: 0.84rem; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .trend-draw { animation: trend-fade 0.35s ease-out; }
   .trend-dates { animation: trend-fade 0.2s ease-out; }
   @keyframes trend-fade { from { opacity: 0; } to { opacity: 1; } }
+  /* the line draws itself from left to right, the soft fill under it fades in behind */
+  .trend-line { stroke-dasharray: 1; animation: trend-draw 0.9s cubic-bezier(0.22, 0.61, 0.36, 1) backwards; }
+  .trend-area { animation: trend-fade 0.6s ease-out 0.25s backwards; }
+  @keyframes trend-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+  /* hover: glide, eased, a little under a quarter of a second */
+  .trend-glide { transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1); }
+  .trend-tip { transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.18s ease; animation: none; }
+  .trend-key { transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease; }
+  .trend-key:active { transform: scale(0.97); }
+
+  /* the dashboard loading in: the two counters, the chart, then the lower cards step up one after another */
+  .ov-tiles > *, .ov-top > .card, .ov-bottom > * { animation: mo-rise 0.45s var(--mo-ease) backwards; }
+  .ov-tiles > :nth-child(2) { animation-delay: 60ms; }
+  .ov-top > .card { animation-delay: 110ms; }
+  .ov-bottom > :nth-child(1) { animation-delay: 170ms; }
+  .ov-bottom > :nth-child(2) { animation-delay: 220ms; }
+  /* report category bars grow from the left */
+  .bar > i { transform-origin: left center; animation: mo-grow-x 0.7s var(--mo-ease) 0.3s backwards; }
 }
 @media (max-width: 1100px) {
   .ov-top { grid-template-columns: minmax(0, 1fr); }
@@ -50,5 +75,5 @@
 @media (max-width: 800px) {
   .ov-tiles { grid-template-columns: minmax(0, 1fr); }
   .trend-plot { height: 180px; }
-  .trend-range { justify-content: flex-start; }
+  .trend-range, .ov-controls { justify-content: flex-start; }
 }

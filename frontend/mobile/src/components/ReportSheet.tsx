@@ -4,11 +4,13 @@ import { post } from '@/lib/api';
 import { REPORT_CATEGORIES } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { useTheme } from '@/lib/theme';
 import { Btn, ErrorBanner, Field, Pill, Sheet, Txt } from './ui';
 
 /** Report a user, activity, trip or message. Reports land in the staff moderation queue. */
 export function ReportSheet({ target, onClose }: { target: { type: 'user' | 'activity' | 'trip' | 'message'; id: string; category?: string } | null; onClose: () => void }) {
   const { t } = useT();
+  const { mode } = useTheme();
   const [picked, setCategory] = useState('harassment');
   // a report can open on a reason chosen elsewhere ("Report as spam"), until the person picks another
   const [touched, setTouched] = useState(false);
@@ -26,7 +28,8 @@ export function ReportSheet({ target, onClose }: { target: { type: 'user' | 'act
   };
   const submit = async () => {
     if (!target) return;
-    const r = await act.run(() => post<{ expectedWithin: string; coverage: string; emergency: { number: string; text: string }; priority: string }>('/v1/reports', { targetType: target.type, targetId: target.id, category, details: details.trim() || undefined }));
+    // `product`: the app the person is in, so the alerts about this report (the decision, a warning) go to that app only
+    const r = await act.run(() => post<{ expectedWithin: string; coverage: string; emergency: { number: string; text: string }; priority: string }>('/v1/reports', { targetType: target.type, targetId: target.id, category, details: details.trim() || undefined, product: mode }));
     if (r) setSent(r);
   };
 

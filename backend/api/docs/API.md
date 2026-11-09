@@ -26,7 +26,7 @@ Request bodies and query strings are generated from the same validation rules th
 - [Chat and date polls](#chat-and-date-polls) (8)
 - [Profile and photo](#profile-and-photo) (15)
 - [THERE trips](#there-trips) (32)
-- [Notifications and push](#notifications-and-push) (8)
+- [Notifications and push](#notifications-and-push) (9)
 - [Identity verification](#identity-verification) (6)
 - [API description](#api-description) (1)
 - [Error codes](#error-codes)
@@ -1360,6 +1360,8 @@ Responses
 
 Access: signed in (`Authorization: Bearer <token>`).
 
+Any staff member who can see the report may decide it. If two decide at the same moment, only the first counts; the other gets REPORT_ALREADY_DECIDED.
+
 Staff only. Roles: staff, admin.
 
 Parameters
@@ -1382,6 +1384,7 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `REPORT_ALREADY_DECIDED`
 
 ### `GET /v1/admin/reports/workload`
 
@@ -1967,7 +1970,7 @@ Responses
 
 Access: signed in (`Authorization: Bearer <token>`).
 
-Optional body: { refreshToken }.
+Optional body: { refreshToken, pushToken }. pushToken is this device's push address: it stops getting this account's notifications.
 
 Responses
 
@@ -2466,7 +2469,7 @@ Access: signed in (`Authorization: Bearer <token>`).
 
 Responses
 
-- **200**: { ok: true }. Every access token and refresh token of the account stops working immediately.
+- **200**: { ok: true }. Every access token and refresh token of the account stops working immediately, and no device gets its push notifications until it signs in again.
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
@@ -2694,6 +2697,7 @@ Request body (JSON)
 | `targetId` | string (1 or more characters) | yes |  |
 | `category` | one of: `harassment`, `fraud`, `inappropriate_content`, `underage`, `physical_safety`, `spam`, `financial_solicitation`, `immediate_danger`, `host_no_show` | yes |  |
 | `details` | string (0 to 1000 characters) | no |  |
+| `product` | one of: `here`, `there` | no |  |
 
 Responses
 
@@ -2795,7 +2799,7 @@ Responses
 
 ### `POST /v1/conversations/{id}/polls`
 
-**Organizer starts a date poll in a trip chat**
+**Organizer starts a date poll in a trip chat (a poll with dates needs a trip that has not started and has date changes left)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -2822,7 +2826,7 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_ORGANIZER`, `VERIFICATION_REQUIRED`
 - **404**: Not found. Codes: `NOT_FOUND`
-- **409**: Conflicts with the current state. Codes: `TOO_MANY_OPEN_POLLS`, `TRIP_CLOSED`
+- **409**: Conflicts with the current state. Codes: `DATE_CHANGES_USED`, `TOO_MANY_OPEN_POLLS`, `TRIP_CLOSED`, `TRIP_STARTED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `POST /v1/conversations/{id}/read`
@@ -2862,7 +2866,7 @@ Responses
 
 ### `POST /v1/polls/{pollId}/close`
 
-**Organizer closes a poll, optionally making its dates the proposed final dates**
+**Organizer closes a poll, optionally making its dates the dates of the trip at once (only before the trip starts, and at most 5 times for one trip)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -2887,7 +2891,7 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_ORGANIZER`, `VERIFICATION_REQUIRED`
 - **404**: Not found. Codes: `NOT_FOUND`
-- **409**: Conflicts with the current state. Codes: `POLL_CLOSED`
+- **409**: Conflicts with the current state. Codes: `DATE_CHANGES_USED`, `POLL_CLOSED`, `TRIP_STARTED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `POST /v1/polls/{pollId}/vote`
@@ -3362,6 +3366,7 @@ Parameters
 | `tags` | query | string | no |  |
 | `groupSize` | query | one of: `2-3`, `4-6`, `7-10`, `10+` | no |  |
 | `openOnly` | query | one of: `true`, `false` | no |  |
+| `excludeMine` | query | one of: `true`, `false` | no |  |
 | `cursor` | query | string | no |  |
 | `limit` | query | number (1 to 50) | no | default `20` |
 
@@ -3397,8 +3402,10 @@ Request body (JSON)
 | `budgetMin` | integer (0 to 1000000) | yes |  |
 | `budgetMax` | integer (0 to 1000000) | yes |  |
 | `budgetIncludesTransport` | boolean | yes |  |
+| `budgetIncludes` | array of one of: `food`, `travel`, `stay` | no |  |
 | `tags` | array of string (1 to 24 characters) | no | default `[]` |
 | `description` | string (0 to 300 characters) | no |  |
+| `capacity` | integer (2 to 20) | no |  |
 | `groupSize` | one of: `2-3`, `4-6`, `7-10`, `10+` | no | default `"4-6"` |
 | `visibility` | one of: `public`, `invite_only` | no | default `"public"` |
 
@@ -3824,7 +3831,7 @@ Responses
 
 ### `GET /v1/trips/{id}/plan`
 
-**The group shared plan: itinerary by day and estimated costs (members only)**
+**The group shared plan: the itinerary by day (members only)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -3836,7 +3843,7 @@ Parameters
 
 Responses
 
-- **200**: { editable, itinerary: { days: [{ day, items }] }, budget: { label, currency, items, perPersonTotal, statedMin, statedMax, comparison, note } }. Lines carry canEdit. Budget notes are estimates, never payments.
+- **200**: { editable, itinerary: { days: [{ day, locked, items }], ideas: { items, total } } }. Lines carry canEdit.
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`
 - **404**: Not found. Codes: `NOT_FOUND`
@@ -3844,7 +3851,7 @@ Responses
 
 ### `GET /v1/trips/{id}/plan/items`
 
-**All ideas (kind=ideas) or budget notes (kind=budget) of the plan, a page at a time**
+**All ideas (kind=ideas: lines with no day yet) of the plan, a page at a time**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -3865,7 +3872,7 @@ Responses
 
 ### `POST /v1/trips/{id}/plan/items`
 
-**Add an itinerary line or a budget note (any member)**
+**Add an itinerary line (any member)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -3881,12 +3888,11 @@ Request body (JSON)
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `kind` | one of: `itinerary`, `budget` | yes |  |
+| `kind` | `"itinerary"` | no | default `"itinerary"` |
 | `title` | string (2 to 100 characters) | yes |  |
 | `note` | string (0 to 500 characters) | no |  |
 | `day` | string (date-time) | no |  |
 | `time` | string | no |  |
-| `amount` | integer (0 to 100000) | no |  |
 
 Responses
 
@@ -3941,7 +3947,6 @@ Request body (JSON)
 | `note` | string (0 to 500 characters) or null | no |  |
 | `day` | string (date-time) or null | no |  |
 | `time` | string or null | no |  |
-| `amount` | integer (0 to 100000) or null | no |  |
 
 Responses
 
@@ -4050,6 +4055,26 @@ Responses
 - **200**: Done.
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/push/forget`
+
+**A signed-out device stops getting pushes (no sign-in needed)**
+
+Access: public (no token needed).
+
+Used when the app signs out, including on its own (expired sign-in, suspended account). Deletes the push address whoever it belonged to.
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `token` | string (10 to 4000 characters) | yes |  |
+
+Responses
+
+- **200**: { ok: true }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `POST /v1/push/subscribe`
@@ -4226,7 +4251,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `BAD_REQUEST` | 400 | The request body could not be read (for example malformed JSON). | Fix the request; do not retry unchanged. |
 | `CODE_EXPIRED` | 400 | The confirmation code has expired. | Start the step again. |
 | `CONSENT_REQUIRED` | 400 | The person has not agreed to the identity document and facial check. | Show the consent screen before starting. |
-| `CONTENT_REJECTED` | 400 | The text broke a content rule (spam links, repetition, or a request for money). `message` says which. | Show the message and let the person edit the text. |
+| `CONTENT_REJECTED` | 400 | The text broke a content rule (spam links, a request for money or bank details, or strong language). `message` says which. | Show the message and let the person edit the text. |
 | `DAY_OUT_OF_RANGE` | 400 | The day of a plan line is more than a week outside the dates of the trip. | Let the person pick a day inside the trip. |
 | `DRAFT_NEEDS_NAME` | 400 | A draft needs its name: the activity name, or where the trip goes. | Ask for the name first; keep Save draft off until there is one. |
 | `DRAFT_TOO_LARGE` | 400 | The draft is far longer than any real form. | Ask the person to shorten it. |
@@ -4320,6 +4345,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `CAPACITY_BELOW_MEMBERS` | 409 | The new capacity is lower than the number of approved members. | Show the minimum allowed. |
 | `CITY_ALREADY_ASSIGNED` | 409 | That city name already belongs to another place. | Show which place has it; change that one instead. |
 | `CONVERSATION_CLOSED` | 409 | The chat is read-only (24 hours after the end, or the activity or trip was cancelled). | Show the chat as read-only. |
+| `DATE_CHANGES_USED` | 409 | The trip has used all the date changes it is allowed (5, through date polls). | Do not offer "use these dates"; tell the organizer why. The trip's `dateChangesLeft` says how many remain. |
 | `DAY_PASSED` | 409 | The itinerary line is on a day that has already passed (the trip has started), so it cannot be added, changed, moved or removed. | Only offer days from today on, and hide Edit and Remove on lines whose canEdit is false. |
 | `DISPUTE_CLOSED` | 409 | The 7 days to dispute the note have passed. | Hide the Dispute button. |
 | `DUPLICATE_ACTIVITY` | 409 | The host already has the same activity at that time or place. | Offer to edit the existing one. |
@@ -4350,14 +4376,16 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `PLAN_FULL` | 409 | The trip plan already holds the most lines allowed of that kind (60). | Ask the group to tidy the plan first. |
 | `POLL_CLOSED` | 409 | The poll is closed; votes are no longer taken. | Show the final result. |
 | `REFRESH_IN_PROGRESS` | 409 | Two refreshes of the same sign-in ran at the same moment. | Try again in a moment; keep one refresh at a time in the app. |
+| `REPORT_ALREADY_DECIDED` | 409 | Someone else resolved or dismissed this report a moment earlier; the message says who. | Show the message and refresh the report. |
 | `REQUEST_IN_PROGRESS` | 409 | The first try of this request (same Idempotency-Key) is still being handled. | Wait a moment and send it again with the same key. |
 | `REQUEST_WITHDRAWN` | 409 | The applicant withdrew this request before the decision. | Refresh the list of requests. |
-| `TIME_CLASH` | 409 | You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. | Show the clashing plans with when each ends, and offer to leave, cancel or withdraw them, or pick another time. |
+| `TIME_CLASH` | 409 | You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity or trip, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead). | Show the clashing plans with when each ends, and offer to leave, cancel or withdraw them, or pick another time. |
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (10). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
 | `TRIP_CLOSED` | 409 | The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over). | Hide the edit, apply, favourite and share actions. |
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |
+| `TRIP_STARTED` | 409 | The trip has already started, so its dates can no longer be changed. | Do not offer a date poll or "use these dates" for it. |
 | `PAYLOAD_TOO_LARGE` | 413 | The request is larger than allowed. | Send less data. |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | The content type is not accepted here. | Fix the client. |
 | `IDEMPOTENCY_KEY_REUSED` | 422 | This Idempotency-Key was already used for a different request. | Use a new key for every new action; reuse a key only to retry the same one. |

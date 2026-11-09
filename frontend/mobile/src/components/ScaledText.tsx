@@ -1,4 +1,4 @@
-import type { Ref } from 'react';
+import { useState, type Ref } from 'react';
 import { Platform, StyleSheet, Text as RNText, TextInput as RNTextInput, type TextInputProps, type TextProps } from 'react-native';
 import { notifyInputFocus } from '@/lib/keyboard';
 import { scaleText, useScale } from '@/lib/scale';
@@ -34,7 +34,8 @@ function withLineHeight(style: TextProps['style']): TextProps['style'] {
 export function Text(props: TextProps) {
   const k = useScale();
   const style = withLineHeight(scaleText(props.style, k));
-  return <RNText maxFontSizeMultiplier={MAX_FONT_SCALE} {...props} style={androidText ? [androidText, style] : style} />;
+  // text on screen is never selectable (only what is typed in a field is), whatever a screen passes
+  return <RNText maxFontSizeMultiplier={MAX_FONT_SCALE} {...props} selectable={false} style={androidText ? [androidText, style] : style} />;
 }
 
 /** What a ref to a TextInput here gives you (focus, blur, clear...). */
@@ -43,16 +44,24 @@ export type InputHandle = { focus: () => void; blur: () => void; clear: () => vo
 /** `ref` is passed on to the real input (React 19 hands it over as a prop). */
 export function TextInput(props: TextInputProps & { ref?: Ref<any> }) {
   const k = useScale();
+  // the faded hint ("Say something...") goes away the moment the field is tapped and the keyboard comes up, not only once something is typed
+  const [focused, setFocused] = useState(false);
   return (
     <RNTextInput
       maxFontSizeMultiplier={MAX_FONT_SCALE}
       underlineColorAndroid="transparent"
       cursorColor={FOREST}
       {...props}
+      placeholder={focused ? undefined : props.placeholder}
       selectionColor={softSelection(props.selectionColor)}
       onFocus={(e) => {
+        setFocused(true);
         notifyInputFocus(); // a page may need to scroll this field above the keyboard
         props.onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        setFocused(false);
+        props.onBlur?.(e);
       }}
       style={androidText ? [{ includeFontPadding: false }, scaleText(props.style, k)] : scaleText(props.style, k)}
     />

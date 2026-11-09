@@ -78,13 +78,44 @@ function keyBytes(key: string) {
   return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
 }
 
+/**
+ * This device's push address as last given to the server, so signing out can take it back. Kept on the phone too, so it is
+ * known even when the app signs out right after starting (an expired sign-in), before it registered again.
+ */
+let registered: string | null = null;
+const TOKEN_KEY = 'ht_push_token';
+async function register(kind: 'web' | 'fcm' | 'expo', token: string) {
+  await api('POST', '/v1/push/subscribe', { kind, token });
+  registered = token;
+  void AsyncStorage.setItem(TOKEN_KEY, token).catch(() => undefined);
+}
+
+/** For a sign-out the person chose: this device's push address, sent with the sign-out itself (it still has a valid sign-in). */
+export function pushTokenForSignOut(): string | undefined {
+  const t = registered ?? undefined;
+  registered = null;
+  return t;
+}
+
+/**
+ * Every sign-out, chosen or not (expired sign-in, suspended account): the server forgets this device's push address, so a
+ * signed-out phone never shows the account's messages on its lock screen. Needs no sign-in (POST /v1/push/forget).
+ * Signing in again registers the device again.
+ */
+export async function forgetPushDevice(known?: string) {
+  registered = null;
+  const token = known ?? (await AsyncStorage.getItem(TOKEN_KEY).catch(() => null)) ?? undefined;
+  await AsyncStorage.removeItem(TOKEN_KEY).catch(() => undefined);
+  if (token) await api('POST', '/v1/push/forget', { token }).catch(() => undefined);
+}
+
 /** Browser: register the service worker (/sw.js, which shows the notification) and give the server this browser's address. */
 async function subscribeWeb() {
   const reg = await navigator.serviceWorker.register('/sw.js');
   await navigator.serviceWorker.ready;
   const { publicKey } = await api<{ publicKey: string }>('GET', '/v1/push/config');
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) as BufferSource }));
-  await api('POST', '/v1/push/subscribe', { kind: 'web', token: JSON.stringify(sub) });
+  await register('web', JSON.stringify(sub));
 }
 
 /**
@@ -103,14 +134,14 @@ async function subscribeNative() {
   if (fb) {
     // the channel Firebase messages arrive on (Android 8 and later): high importance, so they drop down as a banner
     if (Platform.OS === 'android') await alertsChannel(Notifications);
-    await api('POST', '/v1/push/subscribe', { kind: 'fcm', token: await fb.getToken(fb.getMessaging()) });
+    await register('fcm', await fb.getToken(fb.getMessaging()));
     return;
   }
   if (!Notifications) return;
   if (Platform.OS === 'android') await alertsChannel(Notifications);
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
   const pushToken = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
-  await api('POST', '/v1/push/subscribe', { kind: 'expo', token: pushToken.data });
+  await register('expo', pushToken.data);
 }
 
 /** Ask permission (must follow a tap) and, if given, register this device. Returns where things stand now. */
@@ -197,6 +228,11 @@ function showBannersInApp(Notifications: NotificationsModule) {
   });
 }
 
+// One tap can be reported twice (the phone's notification module and Firebase both pass it on), and the notification that started
+// the app is reported again whenever this hook mounts again (after signing out and in): each is opened once only.
+let lastOpened = { url: '', at: 0 };
+const openedMessages = new Set<string>();
+
 /** On phones: banners with the app open, and tapping a notification opens the chat or activity it is about. */
 export function usePushTaps() {
   const router = useRouter();
@@ -204,8 +240,16 @@ export function usePushTaps() {
     if (Platform.OS === 'web') return;
     const Notifications = loadNotifications();
     const fb = loadFirebase();
-    const open = (url: unknown) => {
-      if (typeof url === 'string' && url.startsWith('/')) router.push(url as never);
+    const open = (url: unknown, messageId?: string) => {
+      if (typeof url !== 'string' || !url.startsWith('/')) return;
+      if (messageId) {
+        if (openedMessages.has(messageId)) return;
+        openedMessages.add(messageId);
+      }
+      const now = Date.now();
+      if (lastOpened.url === url && now - lastOpened.at < 2000) return;
+      lastOpened = { url, at: now };
+      router.push(url as never);
     };
     const stops: (() => void)[] = [];
     try {
@@ -218,9 +262,9 @@ export function usePushTaps() {
       if (fb) {
         // Firebase: the notification tapped while the app was in the background, the one that started the app, a changed token
         const m = fb.getMessaging();
-        void fb.getInitialNotification(m).then((msg) => open(msg?.data?.url), () => undefined);
-        stops.push(fb.onNotificationOpenedApp(m, (msg) => open(msg?.data?.url)));
-        stops.push(fb.onTokenRefresh(m, (token) => void api('POST', '/v1/push/subscribe', { kind: 'fcm', token }).catch(() => undefined)));
+        void fb.getInitialNotification(m).then((msg) => open(msg?.data?.url, msg?.messageId), () => undefined);
+        stops.push(fb.onNotificationOpenedApp(m, (msg) => open(msg?.data?.url, msg?.messageId)));
+        stops.push(fb.onTokenRefresh(m, (token) => void register('fcm', token).catch(() => undefined)));
         // with the app open, Firebase hands the message to the app instead of showing it: show it as a banner (a moment later,
         // so one the phone already showed through the handler above is not shown twice)
         stops.push(
@@ -228,10 +272,13 @@ export function usePushTaps() {
             const title = msg.notification?.title ?? '';
             const body = msg.notification?.body ?? '';
             const url = msg.data?.url;
+            const thread = typeof msg.data?.thread === 'string' ? msg.data.thread : undefined;
             if (!Notifications || (!title && !body) || isOpenChat(url)) return;
             setTimeout(() => {
               if (alreadyShown(title, body)) return;
               void Notifications.scheduleNotificationAsync({
+                // the same thread (one chat) reuses one notification, as the pushes do: the newest message replaces the last
+                ...(thread ? { identifier: thread } : {}),
                 content: { title, body, data: { url }, sound: 'default' },
                 trigger: Platform.OS === 'android' ? { channelId: 'alerts' } : null,
               }).catch(() => undefined);

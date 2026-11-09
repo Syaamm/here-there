@@ -1,24 +1,16 @@
 import { useState } from 'react';
-import { can, get, post, type Session } from '../api';
-import { Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, Segmented, useAction, useLoad, useMore } from '../ui';
+import { get, type Session } from '../api';
+import { Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, Segmented, useLoad, useMore } from '../ui';
 
 type V = { id: string; method?: string; providerRef: string; eligibility: string; createdAt: string; user: { id: string; email: string; displayName?: string; homeCity?: string } };
-type Status = 'pending' | 'verified' | 'rejected';
+// the identity provider decides every check, so there is no "pending" list and nothing here is approved by hand: this page is a record
+type Status = 'verified' | 'rejected';
 
-const waited = (iso: string) => {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);
-  return days < 1 ? 'Today' : `${days}d`;
-};
-
-export function VerificationsPage({ me }: { me: Session }) {
-  const [status, setStatus] = useState<Status>('pending');
+export function VerificationsPage({ me: _me }: { me: Session }) {
+  const [status, setStatus] = useState<Status>('verified');
   const first = useLoad(() => get<{ items: V[]; nextCursor: string | null }>(`/v1/admin/verifications?status=${status}`), [status], 6000);
   const more = useMore(first.data, (c) => get(`/v1/admin/verifications?status=${status}&cursor=${c}`), status);
   const reload = () => (more.reset(), first.reload());
-  const pending = useLoad(() => get<{ items: V[] }>('/v1/admin/verifications?status=pending'), [status], 6000);
-  const act = useAction(() => (reload(), pending.reload()));
-  const decide = (id: string, decision: 'verified' | 'rejected') => act.run(() => post(`/v1/admin/verifications/${id}/decision`, { decision }));
-  const canDecide = can.verify(me.role);
   const copy = (t: string) => navigator.clipboard?.writeText(t).catch(() => {});
 
   return (
@@ -31,14 +23,13 @@ export function VerificationsPage({ me }: { me: Session }) {
           value={status}
           onChange={setStatus}
           options={[
-            { id: 'pending', label: 'Pending', count: pending.data?.items.length },
             { id: 'verified', label: 'Verified' },
             { id: 'rejected', label: 'Rejected' },
           ]}
         />
       }
     >
-      <ErrorBanner message={first.error ?? act.error} onRetry={reload} />
+      <ErrorBanner message={first.error} onRetry={reload} />
       {first.loading && !first.data && <Loading rows={5} />}
       {first.data && (
         <div className="scroll-card">
@@ -65,19 +56,9 @@ export function VerificationsPage({ me }: { me: Session }) {
                       {v.method === 'document' && <Chip value="Document" tone="plain" />}
                     </div>
                     <span className="small muted nowrap" title={fmt(v.createdAt)}>
-                      {v.eligibility === 'pending' ? waited(v.createdAt) : fmt(v.createdAt)}
+                      {fmt(v.createdAt)}
                     </span>
-                    {v.eligibility !== 'pending' && <Chip value={v.eligibility} />}
-                    {canDecide && v.eligibility === 'pending' && (
-                      <div className="cell-actions">
-                        <button type="button" className="btn small" onClick={() => decide(v.id, 'rejected')} disabled={act.busy}>
-                          Reject
-                        </button>
-                        <button type="button" className="btn small primary" onClick={() => decide(v.id, 'verified')} disabled={act.busy}>
-                          Approve
-                        </button>
-                      </div>
-                    )}
+                    <Chip value={v.eligibility} />
                   </li>
                 ))}
               </ul>

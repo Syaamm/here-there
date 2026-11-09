@@ -128,8 +128,8 @@ export default function TripDetail() {
       >
         <Stack.Screen options={{ headerShown: false }} />
 
+        {/* kept slim like an activity: the essentials only (owner, 2026-11-09) */}
         <Row style={{ gap: 8, flexWrap: 'wrap' }}>
-          <Chip label={t('Trip proposal')} tone="ok" />
           {trip.status === 'cancelled' ? <Chip label={t('Cancelled')} tone="bad" /> : trip.status === 'completed' ? <Chip label={t('Completed')} tone="neutral" /> : trip.status === 'confirmed' ? <Chip label={t('Confirmed')} tone="ok" /> : full ? <Chip label={t('Group full')} tone="warn" /> : <Chip label={tn(trip.spotsLeft, '{n} place open', '{n} places open')} tone="warn" />}
         </Row>
         <View style={{ gap: 10 }}>
@@ -153,7 +153,7 @@ export default function TripDetail() {
         <View style={{ gap: 22, paddingTop: 4 }}>
           <InfoRow icon="location-outline" title={trip.destination} sub={t('From {city}', { city: trip.originCity })} />
           <InfoRow icon="calendar-outline" title={dateSpan(trip.dateStart, trip.dateEnd)} sub={t(flex)} />
-          <InfoRow icon="wallet-outline" title={`${money(trip.budget.min, trip.budget.currency)}–${money(trip.budget.max, trip.budget.currency)} ${t('per person')}`} sub={`${trip.budget.label}. ${trip.budget.scope}`} />
+          <InfoRow icon="wallet-outline" title={`${money(trip.budget.min, trip.budget.currency)}–${money(trip.budget.max, trip.budget.currency)} ${t('pp (estimate)')}`} sub={trip.budget.scope} />
         </View>
 
         {trip.tags.length ? (
@@ -177,13 +177,7 @@ export default function TripDetail() {
             people={going.map((p) => ({ id: p.id, name: p.displayName, uri: p.photoUrl, host: p.role === 'organizer' || p.role === 'host' }))}
             a11y={`${t('{going} of {capacity} going', { going: trip.members, capacity: trip.maxCapacity })}. ${t('Going: {names}', { names: going.map((p) => p.displayName).join(', ') })}`}
           />
-          <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18 }}>{t('{going} of {capacity} going · goes ahead with {min}+', { going: trip.members, capacity: trip.maxCapacity, min: trip.minCapacity })}</Text>
         </View>
-
-        <Row style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, gap: 10, alignItems: 'flex-start' }}>
-          <Ionicons name="lock-closed-outline" size={16} color={c.forest} />
-          <Txt variant="small" style={{ flex: 1, color: c.text, lineHeight: 17 }}>{t('Your exact location stays private. The group chat and private plans open once the organizer approves your application.')}</Txt>
-        </Row>
 
         {trip.datesState === 'proposed' && !closed ? (
           <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
@@ -200,8 +194,6 @@ export default function TripDetail() {
           </View>
         ) : null}
 
-        <Banner>{trip.disclaimer}</Banner>
-
         {/* the lesser actions; the main one is in the bar below */}
         {trip.isHost ? (
           <View style={{ gap: 10 }}>
@@ -214,7 +206,6 @@ export default function TripDetail() {
           </View>
         ) : trip.isMember ? (
           <View style={{ gap: 10 }}>
-            <Banner tone="ok">{t("You're in the group.")}</Banner>
             <Btn title={t('Trip Plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
             {trip.isMember && !trip.isHost && trip.status !== 'cancelled' && hostNoShowOpen(trip.dateStart, trip.dateEnd) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
             {canLeave ? <Btn title={t('Leave trip')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this trip?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/trips/${id}/leave`))} /> : null}

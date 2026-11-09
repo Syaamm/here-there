@@ -461,7 +461,10 @@ export type Trip = {
   dateFlexibility: string;
   /** tentative, or proposed: the final dates were put to the group and every member must still confirm them */
   datesState?: string;
-  budget: { label: string; currency: string; min: number; max: number; includesTransport: boolean; scope: string };
+  /** how many more times a date poll may change the trip's dates, out of how many in all (the organizer is warned) */
+  dateChangesLeft?: number;
+  dateChangesMax?: number;
+  budget: { label: string; currency: string; min: number; max: number; includesTransport: boolean; /** what the budget covers: any of food, travel, stay */ includes?: string[]; scope: string };
   tags: string[];
   description: string | null;
   minCapacity: number;

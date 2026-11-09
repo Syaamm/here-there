@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { can, get, post, type Session } from '../api';
 import { DayCard, dayKey, DayLog } from '../DayLog';
+import { Select } from '../controls';
 import { askText, Chip, Empty, ErrorBanner, Loading, Page, RowMenu, Search, Segmented, useAction, useLoad, useMore, Icon } from '../ui';
 
 type A = { id: string; title: string; status: string; city: string; venueName: string; startsAt: string; capacity: number; going: number; host: { id: string; displayName?: string } };
@@ -81,14 +82,14 @@ export function ContentPage({ me }: { me: Session }) {
         <div className="grow">
           <Search label="Search" placeholder="Search titles, places or hosts" value={q} onChange={setQ} />
         </div>
-        <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <Select aria-label="Status" value={status} onChange={setStatus}>
           <option value="">All statuses</option>
           {STATUSES.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="toolbar" role="group" aria-label="Month">
         <button type="button" className="btn small" onClick={() => setMonth((m) => m - 1)} aria-label="Previous month">

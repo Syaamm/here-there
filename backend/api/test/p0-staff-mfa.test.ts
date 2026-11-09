@@ -189,7 +189,7 @@ describe('two-step sign-in for staff', () => {
     const setup = await post('/v1/me/mfa/setup', s.token);
     assert.equal(setup.status, 201, JSON.stringify(setup.body));
     assert.match(setup.body.secret, /^[A-Z2-7]{32}$/);
-    assert.match(setup.body.otpauthUri, /^otpauth:\/\/totp\/HERE%20%26%20THERE:/);
+    assert.match(setup.body.otpauthUri, /^otpauth:\/\/totp\/LAMIS:/);
     const stored = await prisma.user.findUnique({ where: { id: s.id } });
     assert.match(stored.mfaSecret, /^enc1:/, 'the secret is stored encrypted');
     assert.equal(stored.mfaEnabledAt, null, 'nothing is on until a code is confirmed');

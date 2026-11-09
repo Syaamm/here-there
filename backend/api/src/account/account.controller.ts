@@ -85,8 +85,8 @@ export class AccountService {
     await this.audit.log(me.id, 'account.exported', 'user', me.id);
     const note =
       lang === 'it'
-        ? 'HERE & THERE: la tua copia dei dati\r\n\r\nmy-data.json contiene tutto ciò che conserviamo su di te: account, profilo, piani, messaggi, avvisi e cronologia. Non include la tua password né i dati privati di altre persone. Tienilo al sicuro.\r\n'
-        : "HERE & THERE: your copy of your data\r\n\r\nmy-data.json holds everything we keep about you: account, profile, plans, messages, alerts and history. It does not include your password or other people's private details. Keep it safe.\r\n";
+        ? 'LAMIS: la tua copia dei dati\r\n\r\nmy-data.json contiene tutto ciò che conserviamo su di te: account, profilo, piani, messaggi, avvisi e cronologia. Non include la tua password né i dati privati di altre persone. Tienilo al sicuro.\r\n'
+        : "LAMIS: your copy of your data\r\n\r\nmy-data.json holds everything we keep about you: account, profile, plans, messages, alerts and history. It does not include your password or other people's private details. Keep it safe.\r\n";
     return Buffer.from(zipSync({ 'my-data.json': strToU8(JSON.stringify(data, null, 2)), 'README.txt': strToU8(note) }, { level: 6 }));
   }
 
@@ -117,7 +117,7 @@ export class AccountService {
     return {
       format: 'herethere-export-v1',
       exportedAt: new Date().toISOString(),
-      note: 'Everything HERE & THERE holds about you, except your password (we only keep a scrambled form of it) and other people\'s private details. Safety reports about you, and the records staff keep of their own decisions, are not included.',
+      note: 'Everything LAMIS holds about you, except your password (we only keep a scrambled form of it) and other people\'s private details. Safety reports about you, and the records staff keep of their own decisions, are not included.',
       account: {
         id: user.id,
         email: user.email,
@@ -194,7 +194,7 @@ export class AccountService {
     }
     await this.audit.log(me.id, 'email.changed', 'user', me.id);
     // the old address is told, so a stranger who got in cannot quietly take the account over
-    await this.email.send(old, 'Your HERE & THERE email address was changed', `The email address of your HERE & THERE account was changed to ${row.target}.\n\nIf this was not you, reset your password straight away and contact support.`).catch(() => undefined);
+    await this.email.send(old, 'Your LAMIS email address was changed', `The email address of your LAMIS account was changed to ${row.target}.\n\nIf this was not you, reset your password straight away and contact support.`).catch(() => undefined);
     return { ok: true, email: row.target };
   }
 
@@ -271,7 +271,7 @@ export class AccountService {
     this.live.dropUser(id);
     this.events.emit({ type: 'feed.refresh' });
     // a last note to the address they used, so nobody can delete an account unnoticed
-    await this.email.send(me.email, 'Your HERE & THERE account was deleted', 'Your HERE & THERE account has been deleted, and your personal details have been erased.\n\nIf this was not you, contact support right away.').catch(() => undefined);
+    await this.email.send(me.email, 'Your LAMIS account was deleted', 'Your LAMIS account has been deleted, and your personal details have been erased.\n\nIf this was not you, contact support right away.').catch(() => undefined);
     return { ok: true };
   }
 }

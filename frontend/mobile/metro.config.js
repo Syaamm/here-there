@@ -24,7 +24,8 @@ function startLive() {
         appType: 'spa',
         clearScreen: false,
         // middleware mode: no port of its own for pages. Only the small live-update socket needs one (it cannot share Metro's).
-        server: { middlewareMode: true, hmr: { port: 24678 } },
+        // allowedHosts: Vite refuses any address other than localhost; Cloudflare quick tunnels (a new random name each start) must be allowed.
+        server: { middlewareMode: true, hmr: { port: 24678 }, allowedHosts: ['.trycloudflare.com'] },
       }),
     )
     .then((server) => {
