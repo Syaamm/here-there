@@ -2,8 +2,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { Text } from '@/components/ScaledText';
+import { Animated, Easing, LayoutAnimation, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CatPhoto } from '@/components/CatPhoto';
 import { Reveal } from '@/components/Reveal';
@@ -11,13 +11,15 @@ import { Avatar, Banner, Btn, ErrorBanner, Field, Pill, PillRow, Row, Sheet, Txt
 import { useMe } from '@/lib/auth';
 import { statusTop } from '@/lib/layout';
 import { get, type Activity } from '@/lib/api';
-import { useCity, useNear } from '@/lib/city';
+import { CITY_AREA_KM, cityQuery, type Near, useCity, useCityPos, useNear } from '@/lib/city';
+import { CitySearch } from '@/components/CitySearch';
 import { useDockSpace } from '@/lib/dock';
 import { catColor, CATS, CITY_CENTERS } from '@/lib/constants';
 import { feedRange } from '@/lib/feed';
 import { when } from '@/lib/format';
 import { useLoad } from '@/lib/hooks';
 import { t as tr, useT } from '@/lib/i18n';
+import { keyboardTaps } from '@/lib/keyboard';
 import { useTheme } from '@/lib/theme';
 
 export type Pin = Activity & { lat: number; lng: number };
@@ -31,10 +33,10 @@ export type Fix = { lat: number; lng: number };
  * (the system only shows a prompt when it needs to), the fix is a single low-accuracy reading rounded to about 1 km,
  * and there is no tracking: nothing watches, stores or sends the position.
  */
-export async function approximateFix(): Promise<({ ok: true } & Fix) | { ok: false; reason: 'denied' | 'error' }> {
+export async function approximateFix(): Promise<({ ok: true } & Fix) | { ok: false; reason: 'denied' | 'error'; /** false when the phone will not ask again: only its settings can allow it */ canAskAgain?: boolean }> {
   try {
     const perm = await Location.requestForegroundPermissionsAsync();
-    if (perm.status !== 'granted') return { ok: false, reason: 'denied' };
+    if (perm.status !== 'granted') return { ok: false, reason: 'denied', canAskAgain: perm.canAskAgain };
     const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
     return { ok: true, lat: Math.round(pos.coords.latitude * 100) / 100, lng: Math.round(pos.coords.longitude * 100) / 100 };
   } catch {
@@ -59,12 +61,12 @@ const foundCenters = new Map<string, [number, number] | null>(); // cities alrea
  * Where a city is on the map. A few are known; any other city the person types is looked up once through our place search
  * (the first result is the city itself). Until it is found, or when it cannot be, this is null.
  */
-function useCityCenter(city: string): { at: [number, number] | null; looking: boolean } {
+export function useCityCenter(city: string, picked: { lat: number; lng: number } | null): { at: [number, number] | null; looking: boolean } {
   const key = city.trim().toLowerCase();
   const known = CITY_CENTERS[key];
   const [found, setFound] = useState<{ key: string; at: [number, number] | null } | null>(null);
   useEffect(() => {
-    if (known || key.length < 3) return;
+    if (picked || known || key.length < 3) return; // a city picked from the search already brought its position
     if (foundCenters.has(key)) {
       setFound({ key, at: foundCenters.get(key) ?? null });
       return;
@@ -80,8 +82,9 @@ function useCityCenter(city: string): { at: [number, number] | null; looking: bo
     return () => {
       live = false;
     };
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, !!picked]); // eslint-disable-line react-hooks/exhaustive-deps
   const done = found?.key === key;
+  if (picked) return { at: [picked.lat, picked.lng], looking: false };
   return { at: known ?? (done ? found.at : null), looking: !known && key.length >= 3 && !done };
 }
 
@@ -89,6 +92,7 @@ function useCityCenter(city: string): { at: [number, number] | null; looking: bo
 export function useMapData() {
   const { t } = useT();
   const [city, setCity] = useCity();
+  const cityPos = useCityPos();
   const [near, setNear] = useNear(); // kept across screens and app restarts until the person picks a city or taps "Whole city"
   const [cat, setCat] = useState(''); // '' = every category
   // zoom buttons: each press is a new command the map screen carries out (+1 in, -1 out)
@@ -110,7 +114,8 @@ export function useMapData() {
   const feed = useLoad(
     () => {
       const [from, to] = feedRange();
-      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', ...(cat && { category: cat }) });
+      // the city's area (or, with "Near me", 3 km around the person inside the city)
+      const p = new URLSearchParams({ ...(near ? { city } : cityQuery(city, cityPos)), from: from.toISOString(), to: to.toISOString(), limit: '50', ...(cat && { category: cat }) });
       if (near) {
         p.set('lat', String(near.lat));
         p.set('lng', String(near.lng));
@@ -118,7 +123,7 @@ export function useMapData() {
       }
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
-    [city, near, cat],
+    [city, cityPos, near, cat],
     60_000,
   );
   // only rebuilt when the loaded activities change, so selecting a pin or closing the sheet never touches the map's markers
@@ -135,7 +140,7 @@ export function useMapData() {
     for (const g of by.values()) g.items.sort((x, y) => +new Date(x.startsAt) - +new Date(y.startsAt));
     return [...by.values()];
   }, [pins]);
-  const { at: cityCenter, looking: findingCity } = useCityCenter(city);
+  const { at: cityCenter, looking: findingCity } = useCityCenter(city, cityPos);
   const selected = groups.find((g) => g.key === selectedKey) ?? null;
   const setSelected = (g: Group | null) => {
     setSelectedKey(g?.key ?? null);
@@ -201,18 +206,44 @@ export function useMapData() {
     return () => clearTimeout(t);
   }, [geoMsg]);
 
+  /**
+   * "Near me": asks for the location (and the permission), finds the town or city you are in, and makes it the app's city, on
+   * the map and on Home, until you pick another. Tapping it again only checks again: in the same city nothing changes, in
+   * another one the city moves there. It never flips back to the previous city.
+   */
   const locate = async () => {
     setGeoMsg(null);
     setLocating(true);
-    const r = await approximateFix();
-    setLocating(false);
-    if (!r.ok) {
-      setGeoMsg(r.reason === 'denied' ? t('Location is off. Showing the whole city.') : t('No location. Showing the whole city.'));
-      return;
+    try {
+      const r = await approximateFix();
+      if (!r.ok) {
+        setGeoMsg(r.reason === 'denied' ? t('Location is off. Turn it on in your phone settings to use Near me.') : t('Could not find your location. Try again in a moment.'));
+        return;
+      }
+      const here = await get<{ name: string; lat: number; lng: number } | null>(`/v1/places/reverse?${new URLSearchParams({ lat: String(r.lat), lng: String(r.lng) })}`).catch(() => null);
+      if (!here) {
+        setGeoMsg(t('Could not tell which city you are in. Try again in a moment.'));
+        return;
+      }
+      const same = here.name.trim().toLowerCase() === city.trim().toLowerCase() || (cityCenterRef.current && kmBetween({ lat: cityCenterRef.current[0], lng: cityCenterRef.current[1] }, here) < 5);
+      if (same) {
+        setGeoMsg(t("You're in {city}.", { city }));
+        if (cityCenterRef.current) setTarget({ lat: cityCenterRef.current[0], lng: cityCenterRef.current[1], zoom: 'city' });
+        return;
+      }
+      setCity(here.name, { lat: here.lat, lng: here.lng });
+      setTarget({ lat: here.lat, lng: here.lng, zoom: 'city' });
+      setGeoMsg(t('Now showing {city}, where you are.', { city: here.name }));
+    } finally {
+      setLocating(false);
     }
-    setNear({ lat: r.lat, lng: r.lng });
-    setTarget({ lat: r.lat, lng: r.lng, zoom: 'near' });
   };
+  // a "Near me" area saved by an older version (3 km around you) is dropped: Near me now picks the city you are in
+  useEffect(() => {
+    if (near) setNear(null);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  /** The map flies to a place picked in the map's search. */
+  const flyTo = (at: Fix) => setTarget({ lat: at.lat, lng: at.lng, zoom: 'near' });
 
   // Ask for the position (and the permission) again every time, so the person always decides; also used by Refresh.
   const measure = async () => {
@@ -221,7 +252,7 @@ export function useMapData() {
     setDist(r.ok ? { status: 'done', me: { lat: r.lat, lng: r.lng } } : { status: r.reason });
   };
 
-  return { city, setCity, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
+  return { city, setCity, cityCenter, flyTo, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
 }
 
 /** The teardrop pin's width: a little bigger for a place with more activities. */
@@ -245,7 +276,7 @@ function RoundTool({ icon, label, onPress }: { icon: React.ComponentProps<typeof
       accessibilityLabel={label}
       onPress={onPress}
       hitSlop={4}
-      style={({ pressed }) => [{ width: 46, height: 46, borderRadius: 23, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { opacity: 0.85, transform: [{ scale: 0.94 }] }]}
+      style={({ pressed }) => [{ width: 46, height: 46, borderRadius: 23, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { transform: [{ scale: 0.94 }] }]}
     >
       <Ionicons name={icon} size={22} color={c.text} />
     </Pressable>
@@ -256,41 +287,145 @@ function RoundTool({ icon, label, onPress }: { icon: React.ComponentProps<typeof
 function TopTool({ icon, label, onPress, on }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void; on?: boolean }) {
   const { c } = useTheme();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={on === undefined ? undefined : { selected: on }} onPress={onPress} hitSlop={4} style={({ pressed }) => [{ width: 58, height: 58, borderRadius: 29, backgroundColor: on ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { opacity: 0.85 }]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={on === undefined ? undefined : { selected: on }} onPress={onPress} hitSlop={4} style={({ pressed }) => [{ width: 58, height: 58, borderRadius: 29, backgroundColor: on ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { transform: [{ scale: 0.94 }] }]}>
       <Ionicons name={icon} size={26} color={on ? '#fff' : c.text} />
     </Pressable>
   );
 }
 
 /** "Hi, Alex / Milan": your face, a greeting and the city; tapping it picks another city. */
-function GreetingPill({ city, onPick }: { city: string; onPick: (c: string) => void }) {
+function GreetingPill({ city, onPick, compact }: { city: string; onPick: (c: string, at?: Near) => void; /** just the round face (the map search is open beside it) */ compact?: boolean }) {
   const { t } = useT();
   const { c } = useTheme();
   const { me } = useMe();
   const [open, setOpen] = useState(false);
-  const [v, setV] = useState(city);
+  const cityPos = useCityPos(); // places near the chosen city are listed first
   const name = me?.profile?.displayName?.split(' ')[0];
+  // 0 = the full pill, 1 = just the face. The words fade out/in on the native side; the pill itself narrows and widens through the
+  // system's layout animation (started by the map, together with the search field), so both move as one, off the JS thread.
+  const v = useRef(new Animated.Value(compact ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(v, { toValue: compact ? 1 : 0, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [compact]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => (setV(city), setOpen(true))} style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 58, paddingLeft: 6, paddingRight: 22, borderRadius: 32, backgroundColor: c.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
+      <View style={[{ flexShrink: 1, minHeight: 58, borderRadius: 32, backgroundColor: c.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, compact && { width: 58, flexShrink: 0 }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 58, paddingLeft: 6, overflow: 'hidden', borderRadius: 32 }}>
         <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={46} />
-        <View style={{ flexShrink: 1 }}>
+        <Animated.View style={{ flexShrink: 1, marginLeft: 12, paddingRight: 22, opacity: v.interpolate({ inputRange: [0, 0.6], outputRange: [1, 0], extrapolate: 'clamp' }) }}>
           {name ? <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Hi, {name}', { name })}</Text> : null}
           <Text numberOfLines={1} style={{ color: c.muted, fontSize: 14, lineHeight: 18 }}>{city}</Text>
-        </View>
+        </Animated.View>
       </Pressable>
+      </View>
       <Sheet visible={open} title={t('Choose your city')} onClose={() => setOpen(false)}>
-        <Field label={t('City')} value={v} onChangeText={setV} autoFocus />
-        <Btn
-          title={t('Use this city')}
-          disabled={v.trim().length < 2}
-          onPress={() => {
-            onPick(v.trim());
+        <CitySearch
+          near={cityPos}
+          onPick={(name, at) => {
+            onPick(name, at);
             setOpen(false);
           }}
         />
       </Sheet>
     </>
+  );
+}
+
+/**
+ * The map's search: type a neighbourhood or area of the city shown, pick it, and the map flies there. Only places within the
+ * city's area (CITY_AREA_KM of its centre) are offered, the same area the map and Home show.
+ */
+function MapSearchField({ city, centre, onPick, closing, onClose, onClosed }: { city: string; centre: [number, number] | null; onPick: (at: Fix) => void; /** set while it plays its closing animation */ closing: boolean; /** asks to close (the face grows back at once) */ onClose: () => void; /** the closing animation has finished */ onClosed: () => void }) {
+  const { t } = useT();
+  const { c } = useTheme();
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState<{ id: string; name: string; address: string; lat: number; lng: number }[] | null>(null);
+  const [far, setFar] = useState(0); // how many results were left out for being outside the city's area
+  const [state, setState] = useState<'idle' | 'searching' | 'done' | 'error'>('idle');
+  const latest = useRef(0);
+  // it slides in from the search button on the right, growing leftwards, and fades up (native driver: smooth on Android too)
+  const grow = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(grow, { toValue: 1, duration: 300, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true }).start();
+  }, [grow]);
+  // closing: the same movement backwards (shrinks to the right and fades), then it goes
+  useEffect(() => {
+    if (closing) Animated.timing(grow, { toValue: 0, duration: 240, easing: Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: true }).start(() => onClosed());
+  }, [closing]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const text = q.trim();
+    const mine = ++latest.current;
+    if (text.length < 2) {
+      setFound(null);
+      setState('idle');
+      return;
+    }
+    setState('searching');
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q: text, kind: 'area', ...(centre ? { lat: String(centre[0]), lng: String(centre[1]) } : { city }) });
+        const r = await get<{ items: { id: string; name: string; address: string; lat: number; lng: number }[] }>(`/v1/places/search?${params}`);
+        if (mine !== latest.current) return;
+        const inside = centre ? r.items.filter((x) => kmBetween({ lat: centre[0], lng: centre[1] }, x) <= CITY_AREA_KM) : r.items;
+        setFar(r.items.length - inside.length);
+        setFound(inside);
+        setState('done');
+      } catch {
+        if (mine === latest.current) setState('error');
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Animated.View style={{ flex: 1, opacity: grow.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0.9, 1] }), transform: [{ translateX: grow.interpolate({ inputRange: [0, 1], outputRange: [36, 0] }) }] }}>
+      <View style={{ height: 58, borderRadius: 29, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 16, paddingRight: 6, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
+        <Ionicons name="search-outline" size={20} color={c.muted} />
+        <TextInput
+          accessibilityLabel={t('Search a neighbourhood')}
+          autoFocus
+          value={q}
+          onChangeText={setQ}
+          placeholder={t('Neighbourhood in {city}', { city })}
+          placeholderTextColor={c.placeholder}
+          returnKeyType="search"
+          autoCorrect={false}
+          style={{ flex: 1, color: c.text, fontSize: 15, paddingVertical: 0 }}
+        />
+        {/* ✕ first clears what was typed; with the field empty it closes the search */}
+        <Pressable accessibilityRole="button" accessibilityLabel={q ? t('Clear the search') : t('Close the search')} hitSlop={8} onPress={() => (q ? setQ('') : onClose())} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="close" size={20} color={c.text} />
+        </Pressable>
+      </View>
+      {state !== 'idle' && !closing ? (
+        <View style={{ position: 'absolute', top: 64, left: 0, right: -68, backgroundColor: c.surface, borderRadius: 20, paddingVertical: 6, elevation: 4, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } }}>
+          {state === 'searching' && !found ? <Text style={{ color: c.muted, fontSize: 13, paddingHorizontal: 16, paddingVertical: 10 }}>{t('Searching…')}</Text> : null}
+          {state === 'error' ? <Text style={{ color: c.muted, fontSize: 13, paddingHorizontal: 16, paddingVertical: 10 }}>{t('Search is not available right now. Try again in a moment.')}</Text> : null}
+          {found?.map((x) => (
+            <Pressable
+              key={x.id}
+              accessibilityRole="button"
+              accessibilityLabel={x.address ? `${x.name}, ${x.address}` : x.name}
+              onPress={() => {
+                onPick({ lat: x.lat, lng: x.lng });
+                onClose();
+              }}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 }, pressed && { backgroundColor: c.bg }]}
+            >
+              <Ionicons name="location-outline" size={18} color={c.forest} />
+              <View style={{ flex: 1 }}>
+                <Text numberOfLines={1} style={{ color: c.text, fontSize: 15, fontWeight: '600' }}>{x.name}</Text>
+                {x.address ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{x.address}</Text> : null}
+              </View>
+            </Pressable>
+          ))}
+          {state === 'done' && found?.length === 0 ? (
+            <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18, paddingHorizontal: 16, paddingVertical: 10 }}>
+              {far > 0 ? t('Nothing with that name within {km} km of {city}. Change the city to look further away.', { km: CITY_AREA_KM, city }) : t('No neighbourhood found with that name.')}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -325,7 +460,13 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const dock = useDockSpace();
   const { height: screenH } = useWindowDimensions();
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const { city, setCity, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected, activeId, feed, pins, dist, measure } = data;
+  const { city, setCity, cityCenter, flyTo, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected, activeId, feed, pins, dist, measure } = data;
+  const [search, setSearchNow] = useState<'closed' | 'open' | 'closing'>('closed');
+  // the pill narrows/widens and the field makes room in ONE native layout animation, so nothing jumps and nothing runs on the JS thread
+  const setSearch = (next: 'closed' | 'open' | 'closing') => {
+    LayoutAnimation.configureNext({ duration: next === 'open' ? 300 : 240, update: { type: LayoutAnimation.Types.easeInEaseOut } });
+    setSearchNow(next);
+  };
 
   // what the pulled-up list shows: the activities at the tapped pin, or every pin's, soonest first
   const rows = selected ? selected.items : [...pins].sort((x, y) => +new Date(x.startsAt) - +new Date(y.startsAt));
@@ -401,9 +542,11 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
       {/* top: your greeting and the city on the left, search and filters on the right; the category chips open under the filter button */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top: statusTop(insets.top) + 8, left: 16, right: 16, gap: 10, alignItems: 'center' }}>
         <View style={{ width: '100%', maxWidth: 560, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <GreetingPill city={city} onPick={setCity} />
+          <GreetingPill city={city} onPick={setCity} compact={search === 'open'} />
+          {search !== 'closed' ? <MapSearchField city={city} centre={cityCenter} closing={search === 'closing'} onClose={() => setSearch('closing')} onClosed={() => setSearch('closed')} onPick={(at) => flyTo(at)} /> : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <TopTool icon="search-outline" label={t('Search activities')} onPress={() => go('/activities?from=map')} />
+            {/* search: a field opens here, from your face to the filter button, to find a neighbourhood of this city on the map */}
+            {search !== 'closed' ? null : <TopTool icon="search-outline" label={t('Search a neighbourhood')} onPress={() => setSearch('open')} />}
             <TopTool icon="options-outline" label={cat ? t('Filters, on') : t('Filters')} on={filtersOpen || cat !== ''} onPress={() => setFiltersOpen((v) => !v)} />
           </View>
         </View>
@@ -423,11 +566,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
 
       {/* tools: "Near me" bottom left, zoom bottom right; they ride up with the sheet */}
       <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: baseH + 12 + dock + listMax, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', transform: [{ translateY: sheetY }] }}>
-        {near ? (
-          <PillButton icon="close-circle-outline" title={t('Whole city')} onPress={() => setNear(null)} />
-        ) : (
-          <PillButton icon="locate-outline" title={t('Near me')} onPress={locate} disabled={locating} />
-        )}
+        <PillButton icon="locate-outline" title={locating ? t('Finding you…') : t('Near me')} onPress={locate} disabled={locating} />
         <View style={{ gap: 8 }}>
           <RoundTool icon="add" label={t('Zoom in')} onPress={() => zoom(1)} />
           <RoundTool icon="remove" label={t('Zoom out')} onPress={() => zoom(-1)} />
@@ -483,7 +622,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
 
         {/* the list: its height follows the pull, rows ease in one after another each time the list changes */}
         <Animated.View pointerEvents={isOpen ? 'auto' : 'none'} style={{ width: '100%', maxWidth: 560, height: listMax, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
-          <ScrollView style={{ marginTop: 10 }} contentContainerStyle={{ gap: 10, paddingBottom: 4 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ marginTop: 10 }} contentContainerStyle={{ gap: 10, paddingBottom: 4 }} nestedScrollEnabled showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
             {rows.map((a, i) => (
               <Reveal key={`${key}:${a.id}`} index={i}>
                 <Pressable

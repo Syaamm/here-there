@@ -22,9 +22,10 @@ model User {
   sessionsRevokedAt  DateTime?
   // Staff made by an administrator start with a temporary password: true until they choose their own (any password change clears it, so it is asked once and never again).
   mustChangePassword Boolean   @default(false)
-  role               String    @default("user") // user | support | moderator | trust_lead | admin
+  role               String    @default("user") // user | guest | staff | admin
   // Staff only: the account works only inside this region and everything under it (a city, a region or a whole country). Empty = the whole service.
   adminRegionKey     String?
+  staffPermissions   String[]  @default([]) // staff only: which parts of the console they may use (reports, verification, users, content); admins have all
   state              String    @default("active") // active | suspended | deleted (a bare tombstone: nothing personal is kept)
   deletedAt          DateTime?
   // A timed suspension ends by itself at this moment; empty while suspended means until staff restore the account.
@@ -89,9 +90,9 @@ model User {
   travelMatchPref     TravelMatchPref?
   warnings            UserWarning[]
   appeals             Appeal[]
+  proofImages         ProofImage[]
   socialIdentities    SocialIdentity[]
   notificationPref    NotificationPref?
-  onCallShifts        OnCallShift[]
 
   @@index([registeredDevice])
 }
@@ -290,6 +291,7 @@ model Trip {
   budgetMin               Int
   budgetMax               Int
   budgetIncludesTransport Boolean   @default(false)
+  budgetIncludes          String    @default("") // what the budget covers: food, travel, stay (comma separated, any of them); empty on older trips, which only know the travel flag above
   tags                    String    @default("")
   description             String?
   minCapacity             Int       @default(4)
@@ -305,6 +307,7 @@ model Trip {
   memberships  TripMembership[]
   polls        TripPoll[]
   datesState   String            @default("tentative") // tentative | proposed (final dates put to the group; everyone must confirm)
+  dateChanges  Int               @default(0) // how many times a date poll has replaced the trip's dates (at most MAX_DATE_CHANGES)
   conversation Conversation?
   items        TripItem[]
   favorites    TripFavorite[]
@@ -476,6 +479,9 @@ model Report {
   reporter        User      @relation("reporter", fields: [reporterId], references: [id])
   targetType      String // user | activity | trip | message
   targetId        String
+  // which product it came from: here | there (null = not known, older reports). Every alert about the report (the decision,
+  // a warning given on it, the reporter's updates) goes to that product's inbox only.
+  product         String?
   category        String // harassment | fraud | inappropriate_content | underage | physical_safety | spam | financial_solicitation
   details         String?
   status          String    @default("open") // open | in_review | resolved | dismissed
@@ -546,6 +552,7 @@ model AttendanceMark {
   decidedById  String?
   decidedAt    DateTime?
   decisionNote String?
+  proofs       ProofImage[]
 
   @@unique([kind, targetId, userId])
   @@index([userId])
@@ -597,24 +604,47 @@ model Appeal {
   decision   String? // staff note, shown to the person
   createdAt  DateTime  @default(now())
   decidedAt  DateTime?
+  proofs     ProofImage[]
 
   @@index([state, createdAt])
   @@index([userId, createdAt])
 }
 
 /**
- * A line of the group's shared plan: a stop or idea for a day (itinerary), or an estimated cost (budget note). Never a payment.
+ * A photo sent as proof with an appeal or with a dispute of a "did not come" note (a screenshot of a chat, say). Shrunk to
+ * 1280 px and stored as webp. Private: only the person who sent it and the staff who handle it can open it. It belongs to the
+ * appeal or the note once sent, and is deleted 30 days after that is decided (or a day after it was added, if never sent).
+ */
+model ProofImage {
+  id        String          @id @default(cuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appealId  String?
+  appeal    Appeal?         @relation(fields: [appealId], references: [id], onDelete: Cascade)
+  markId    String?
+  mark      AttendanceMark? @relation(fields: [markId], references: [id], onDelete: Cascade)
+  data      Bytes
+  mime      String          @default("image/webp")
+  createdAt DateTime        @default(now())
+
+  @@index([appealId])
+  @@index([markId])
+  @@index([userId, createdAt])
+}
+
+/**
+ * A line of the group's shared plan: a stop or idea for a day (itinerary). Budget notes were removed from the app; rows of kind "budget" and the `amount` column are left over and no longer read.
  */
 model TripItem {
   id          String    @id @default(cuid())
   tripId      String
   trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  kind        String // itinerary | budget
+  kind        String // itinerary (a leftover "budget" kind is no longer used)
   day         DateTime? // itinerary: the day it is planned for (empty = not decided yet)
   startTime   String? // itinerary: the time of day as "HH:MM" (empty = any time that day)
   title       String
   note        String?
-  amount      Int? // budget: estimated cost per person, in the trip's currency
+  amount      Int? // no longer used (was the estimated cost of a budget note)
   createdById String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -665,6 +695,8 @@ model UserWarning {
   messageId   String?
   createdById String
   withdrawnAt DateTime? // set when an appeal succeeded
+  aboutType   String? // activity | trip: the plan the warning is about, known when it was given on a report (empty otherwise)
+  aboutId     String?
   createdAt   DateTime  @default(now())
 
   @@index([userId, createdAt])
@@ -682,20 +714,6 @@ model NotificationPref {
   updatedAt  DateTime @updatedAt
 }
 
-/// Who is on call for urgent reports between two moments. When nobody's shift covers a moment, the trust leads and administrators are the fallback.
-model OnCallShift {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  startsAt  DateTime
-  endsAt    DateTime
-  note      String?
-  createdBy String?
-  createdAt DateTime @default(now())
-
-  @@index([startsAt, endsAt])
-  @@index([userId])
-}
 
 /// One sign-in on one device. The app holds a short-lived access token and a long-lived refresh token; only a hash of the
 /// refresh token is kept here. Using a refresh token swaps it for a new one; using an old one again means it was copied,

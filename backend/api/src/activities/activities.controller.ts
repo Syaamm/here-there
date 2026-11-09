@@ -32,6 +32,11 @@ export class ActivitiesController {
     return this.activities.cancel(me, id);
   }
 
+  @Post('activities/:id/complete')
+  complete(@CurrentUser() me: User, @Param('id') id: string) {
+    return this.activities.complete(me, id);
+  }
+
   @Post('activities/:id/reconfirm')
   reconfirm(@CurrentUser() me: User, @Param('id') id: string) {
     return this.activities.reconfirm(me, id);

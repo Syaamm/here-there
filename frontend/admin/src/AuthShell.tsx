@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Icon } from './ui';
+import lamisLogo from './assets/lamis-logo-light.svg';
 import './Login.css';
 
 /**
@@ -10,12 +11,12 @@ import './Login.css';
 export function AuthShell({ headline, sub, children }: { headline: ReactNode; sub: string; children: ReactNode }) {
   return (
     <div className="lg-split">
-      <aside className="lg-panel" aria-label="HERE and THERE admin console">
+      <aside className="lg-panel" aria-label="LAMIS admin console">
         <div className="lg-glow" aria-hidden="true" />
         <div className="lg-rings" aria-hidden="true" />
         <div className="lg-dots" aria-hidden="true" />
         <div className="lg-mark">
-          HERE<span>.</span> / THERE<span>.</span>
+          <img src={lamisLogo} alt="LAMIS" />
         </div>
         <div className="lg-pitch">
           <p className="lg-eyebrow">Admin console</p>
@@ -32,7 +33,7 @@ export function AuthShell({ headline, sub, children }: { headline: ReactNode; su
             ))}
           </ul>
         </div>
-        <p className="lg-foot">Staff only · HERE &amp; THERE</p>
+        <p className="lg-foot">Staff only · LAMIS</p>
       </aside>
       <main className="lg-right">{children}</main>
     </div>

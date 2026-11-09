@@ -9,6 +9,7 @@ process.env.ARGON2_MEMORY_KIB = '8';
 process.env.ARGON2_PASSES = '1';
 process.env.TRUST_PROXY = '1';
 process.env.ACCESS_TOKEN_MINUTES = '600'; // a slow test run must not outlive the real 15-minute sign-in
+process.env.REGION_CACHE_MS = '0'; // places made straight in the database show at once
 
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -148,9 +149,12 @@ async function exportOf(u: { token: string }, lang = 'en') {
 }
 
 describe('safety: blocks in group chats, message actions, warnings, urgent reports, workload and appeals', () => {
-  const staff = async (name: string, role = 'moderator') => {
+  /** Staff for Milan (where everyone in these tests lives) with every permission; or a second admin. */
+  const staff = async (name: string, role: 'staff' | 'admin' = 'staff') => {
     const s = await signup(name);
-    await prisma.user.update({ where: { id: s.id }, data: { role } });
+    await prisma.region.upsert({ where: { key: 'global' }, update: {}, create: { key: 'global', name: 'Whole service', kind: 'global' } });
+    await prisma.region.upsert({ where: { key: 'milan' }, update: {}, create: { key: 'milan', name: 'Milan', kind: 'city', parentKey: 'global', cityKey: 'milan' } });
+    await prisma.user.update({ where: { id: s.id }, data: role === 'admin' ? { role } : { role, adminRegionKey: 'milan', staffPermissions: ['reports', 'verification', 'users', 'content'] } });
     return s;
   };
   const notified = async (u: { token: string }, type: string) => (await get('/v1/notifications', u.token)).body.items.filter((n: { type: string }) => n.type === type);
@@ -206,9 +210,9 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     assert.equal(await unread(), 0, 'the alert is read, with no message page fetched');
   });
 
-  it('treats a report of immediate danger as urgent: first in the queue, every moderator alerted, emergency number shown', async () => {
+  it('treats a report of immediate danger as urgent: first in the queue, the staff of the city alerted, emergency number shown', async () => {
     const mod = await staff('UrgMod');
-    const lead = await staff('UrgLead', 'trust_lead');
+    const lead = await staff('UrgLead');
     const reporter = await verified('UrgReporter');
     const target = await verified('UrgTarget');
     const policy = await get('/v1/reports/policy');
@@ -222,7 +226,7 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     const urgent = await post('/v1/reports', reporter.token, { targetType: 'user', targetId: target.id, category: 'immediate_danger', details: 'threatened me tonight' });
     assert.equal(urgent.status, 201, JSON.stringify(urgent.body));
     assert.deepEqual([urgent.body.priority, urgent.body.expectedWithin, urgent.body.emergency.number], ['urgent', '1 hour', '112']);
-    assert.ok((await notified(mod, 'report_urgent')).length >= 1, 'moderators are told at once');
+    assert.ok((await notified(mod, 'report_urgent')).length >= 1, 'the staff of the city are told at once');
     assert.ok((await notified(lead, 'report_urgent')).length >= 1);
 
     const queue = (await get('/v1/admin/reports?status=open', mod.token)).body.items;
@@ -236,7 +240,7 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
   it('escalates a report that waited past its answer time, once, and shows the workload', async () => {
     const { ModerationService } = await import('../src/moderation/moderation.controller');
     const mod = await staff('EscMod');
-    const lead = await staff('EscLead', 'trust_lead');
+    const lead = await staff('EscLead');
     const reporter = await verified('EscReporter');
     const target = await verified('EscTarget');
     const fresh = (await post('/v1/reports', reporter.token, { targetType: 'user', targetId: target.id, category: 'harassment' })).body.id;
@@ -251,7 +255,8 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     assert.equal((await get('/v1/admin/reports?status=open', mod.token)).body.items.find((r: any) => r.id === old).escalated, true);
 
     await post(`/v1/admin/reports/${old}/assign`, mod.token);
-    const w = (await get('/v1/admin/reports/workload', mod.token)).body;
+    assert.equal((await get('/v1/admin/reports/workload', mod.token)).status, 403, 'the workload page is for an admin');
+    const w = (await get('/v1/admin/reports/workload', adminToken)).body;
     const me = w.moderators.find((m: any) => m.id === mod.id);
     assert.equal(me.assigned, 1);
     assert.equal(me.oldestHours >= 29, true);
@@ -281,7 +286,10 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     assert.equal((await texts(host, conv)).includes('You are all boring people'), false, 'gone from the chat');
     assert.equal((await texts(bad, conv)).includes('You are all boring people'), false);
     assert.equal((await prisma.report.findUnique({ where: { id: rep } })).status, 'resolved');
-    assert.match((await notified(bad, 'message_removed'))[0].body, /Insulting the group/);
+    // a short alert; the moderator's words travel with it and show when it is opened
+    const removedAlert = (await notified(bad, 'message_removed'))[0];
+    assert.equal(removedAlert.title, 'A moderator removed your message');
+    assert.equal(removedAlert.data.reason, 'Insulting the group');
     assert.equal((await post(`/v1/admin/messages/${nasty}/restore`, mod.token)).body.state, 'ok');
     assert.equal((await texts(host, conv)).includes('You are all boring people'), true, 'restored');
 
@@ -291,7 +299,7 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     assert.equal(w1.body.repeatOffender.flag, false);
     assert.equal((await notified(bad, 'warning')).length, 1);
     assert.equal((await post(`/v1/admin/users/${bad.id}/warn`, mod.token, { reason: 'sh' })).status, 400, 'a real reason is needed');
-    assert.equal((await post(`/v1/admin/users/${mod.id}/warn`, mod.token, { reason: 'Warning myself is silly' })).body.code, 'INVALID_TARGET');
+    assert.equal((await post(`/v1/admin/users/${mod.id}/warn`, mod.token, { reason: 'Warning myself is silly' })).body.code, 'OUT_OF_SCOPE', 'staff never act on staff, themselves included');
     const w2 = await post(`/v1/admin/users/${bad.id}/warn`, mod.token, { reason: 'This is the second time this month.' });
     assert.equal(w2.body.repeatOffender.flag, true);
     assert.match(w2.body.repeatOffender.reasons[0], /2 warnings/);
@@ -311,7 +319,7 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
 
   it('lets people appeal a warning, a removed message and a dismissed report, with a second reviewer', async () => {
     const mod = await staff('ApMod');
-    const mod2 = await staff('ApMod2');
+    const mod2 = { token: adminToken }; // appeals are decided by an admin
     const { members: [bad, reporter], conv } = await group(['ApBad', 'ApReporter']);
     const msg = (await say(bad, conv, 'A harsh joke that was not meant badly')).body.id;
     await post(`/v1/admin/messages/${msg}/remove`, mod.token, { reason: 'Looked like an insult' });
@@ -323,8 +331,8 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     assert.equal((await post('/v1/me/appeals', reporter.token, { kind: 'message', targetId: msg, message: text })).body.code, 'NOTHING_TO_APPEAL');
     const a1 = await post('/v1/me/appeals', bad.token, { kind: 'warning', targetId: warn.body.id, message: text });
     assert.equal(a1.status, 201, JSON.stringify(a1.body));
-    // the moderator who warned cannot decide it, another can
-    assert.equal((await post(`/v1/admin/appeals/${a1.body.id}/decision`, mod.token, { decision: 'uphold', note: 'Fine by me' })).body.code, 'SECOND_REVIEWER');
+    // staff do not decide appeals; an admin does
+    assert.equal((await post(`/v1/admin/appeals/${a1.body.id}/decision`, mod.token, { decision: 'uphold', note: 'Fine by me' })).status, 403);
     const ok = await post(`/v1/admin/appeals/${a1.body.id}/decision`, mod2.token, { decision: 'uphold', note: 'We agree it was a joke.' });
     assert.equal(ok.body.state, 'upheld', JSON.stringify(ok.body));
     assert.equal((await get(`/v1/admin/users/${bad.id}/offender`, mod.token)).body.warnings, 0, 'the warning is withdrawn');
@@ -359,7 +367,7 @@ describe('safety: blocks in group chats, message actions, warnings, urgent repor
     assert.equal((await post('/v1/me/appeals', reporter.token, { kind: 'report', targetId: rep2, message: 'I reported it myself, let me appeal.' })).body.code, 'NOTHING_TO_APPEAL');
     const a3 = await post('/v1/me/appeals', bad.token, { kind: 'report', targetId: rep2, message: 'That was a joke between friends, not harassment.' });
     assert.equal(a3.status, 201, JSON.stringify(a3.body));
-    assert.equal((await post(`/v1/admin/appeals/${a3.body.id}/decision`, mod.token, { decision: 'uphold', note: 'x second look' })).body.code, 'SECOND_REVIEWER', 'the moderator who decided cannot review it');
+    assert.equal((await post(`/v1/admin/appeals/${a3.body.id}/decision`, mod.token, { decision: 'uphold', note: 'x second look' })).status, 403, 'the staff member who decided cannot review it: an admin does');
     assert.equal((await post(`/v1/admin/appeals/${a3.body.id}/decision`, mod2.token, { decision: 'uphold', note: 'Reopened for a fresh review.' })).body.state, 'upheld');
     const back = await prisma.report.findUnique({ where: { id: rep2 } });
     assert.deepEqual([back.status, back.assignedTo, !!back.reopenedAt], ['open', null, true]);

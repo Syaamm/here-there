@@ -20,10 +20,11 @@ import { TRIP_PHOTOS, tripStyle } from '@/components/Cards';
 import { FLEX } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, money } from '@/lib/format';
-import { useAction, useLoad } from '@/lib/hooks';
+import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
+import { ReadMore } from '@/components/ReadMore';
 
 /** THERE · Trip detail. A proposal with an estimated budget. Never a booking, never a guaranteed departure. Laid out like an activity. */
 export default function TripDetail() {
@@ -37,9 +38,9 @@ export default function TripDetail() {
   const insets = useSafeAreaInsets();
   const HERO = c.heroBlock;
   const { gutter } = useLayout();
-  const [expanded, setExpanded] = useState(false);
   const [barH, setBarH] = useState(0); // the fixed bottom bar's measured height
   const { data: trip, error, loading, reload } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
+  const { refreshing, onRefresh } = useRefresh(reload); // pull down to refresh, like Home
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'trip' | 'user'; id: string } | null>(null);
   const [noShow, setNoShow] = useState<'closed' | 'open' | 'confirm' | 'sent'>('closed'); // "the host did not show up": sheet closed, open, showing its thank-you, or sent and closed
@@ -79,7 +80,7 @@ export default function TripDetail() {
     ? []
     : [
         { label: t('Report this trip'), onSelect: () => setReport({ type: 'trip', id: trip.id }) },
-        { label: t('Report {name}', { name: trip.host.displayName }), onSelect: () => setReport({ type: 'user', id: trip.host.id }) },
+        // a person is reported from their profile (its ⋯ menu), not from their activity
         {
           label: t('Block {name}', { name: trip.host.displayName }),
           danger: true,
@@ -94,7 +95,6 @@ export default function TripDetail() {
 
   // the link opens this trip in the app, or sends the person to the App Store / Google Play when they have not got it
   const share = () => void Share.share({ message: `${t('{title}, {dates}, from {city}', { title: trip.title, dates: dateSpan(trip.dateStart, trip.dateEnd), city: trip.originCity })}\n${shareLink('trip', trip.id)}` }).catch(() => undefined);
-  const longText = (trip.description?.length ?? 0) > 130;
   const flex = FLEX.find(([v]) => v === trip.dateFlexibility)?.[1] ?? trip.dateFlexibility;
 
   const top = statusTop(insets.top) + 8;
@@ -121,28 +121,22 @@ export default function TripDetail() {
   return (
     <View style={{ flex: 1 }}>
       <Screen
+        onRefresh={onRefresh}
+        refreshing={refreshing}
         bottomRoom={primary ? barH : undefined}
         fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} /> }}
       >
         <Stack.Screen options={{ headerShown: false }} />
 
+        {/* kept slim like an activity: the essentials only (owner, 2026-11-09) */}
         <Row style={{ gap: 8, flexWrap: 'wrap' }}>
-          <Chip label={t('Trip proposal')} tone="ok" />
           {trip.status === 'cancelled' ? <Chip label={t('Cancelled')} tone="bad" /> : trip.status === 'completed' ? <Chip label={t('Completed')} tone="neutral" /> : trip.status === 'confirmed' ? <Chip label={t('Confirmed')} tone="ok" /> : full ? <Chip label={t('Group full')} tone="warn" /> : <Chip label={tn(trip.spotsLeft, '{n} place open', '{n} places open')} tone="warn" />}
         </Row>
         <View style={{ gap: 10 }}>
           <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{trip.title}</Text>
           {trip.description ? (
-            <View style={{ gap: 4 }}>
-              <Text numberOfLines={expanded ? undefined : 3} style={{ color: c.muted, fontSize: 15, lineHeight: 27 }}>
-                {trip.description}
-              </Text>
-              {longText ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={expanded ? t('Read less') : t('Read more')} onPress={() => setExpanded((v) => !v)} hitSlop={8} style={{ minHeight: 32, justifyContent: 'center' }}>
-                  <Text style={{ color: c.green, fontSize: 14, fontWeight: '600' }}>{expanded ? t('read less') : t('read more')}</Text>
-                </Pressable>
-              ) : null}
-            </View>
+            // "read more" when it really runs past three lines (bullet points too), not by its number of characters
+            <ReadMore text={trip.description} style={{ color: c.muted, fontSize: 15, lineHeight: 27 }} />
           ) : null}
         </View>
 
@@ -159,7 +153,7 @@ export default function TripDetail() {
         <View style={{ gap: 22, paddingTop: 4 }}>
           <InfoRow icon="location-outline" title={trip.destination} sub={t('From {city}', { city: trip.originCity })} />
           <InfoRow icon="calendar-outline" title={dateSpan(trip.dateStart, trip.dateEnd)} sub={t(flex)} />
-          <InfoRow icon="wallet-outline" title={`${money(trip.budget.min, trip.budget.currency)}–${money(trip.budget.max, trip.budget.currency)} ${t('per person')}`} sub={`${trip.budget.label}. ${trip.budget.scope}`} />
+          <InfoRow icon="wallet-outline" title={`${money(trip.budget.min, trip.budget.currency)}–${money(trip.budget.max, trip.budget.currency)} ${t('pp (estimate)')}`} sub={trip.budget.scope} />
         </View>
 
         {trip.tags.length ? (
@@ -183,13 +177,7 @@ export default function TripDetail() {
             people={going.map((p) => ({ id: p.id, name: p.displayName, uri: p.photoUrl, host: p.role === 'organizer' || p.role === 'host' }))}
             a11y={`${t('{going} of {capacity} going', { going: trip.members, capacity: trip.maxCapacity })}. ${t('Going: {names}', { names: going.map((p) => p.displayName).join(', ') })}`}
           />
-          <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18 }}>{t('{going} of {capacity} going · goes ahead with {min}+', { going: trip.members, capacity: trip.maxCapacity, min: trip.minCapacity })}</Text>
         </View>
-
-        <Row style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, gap: 10, alignItems: 'flex-start' }}>
-          <Ionicons name="lock-closed-outline" size={16} color={c.forest} />
-          <Txt variant="small" style={{ flex: 1, color: c.text, lineHeight: 17 }}>{t('Your exact location stays private. The group chat and private plans open once the organizer approves your application.')}</Txt>
-        </Row>
 
         {trip.datesState === 'proposed' && !closed ? (
           <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
@@ -206,8 +194,6 @@ export default function TripDetail() {
           </View>
         ) : null}
 
-        <Banner>{trip.disclaimer}</Banner>
-
         {/* the lesser actions; the main one is in the bar below */}
         {trip.isHost ? (
           <View style={{ gap: 10 }}>
@@ -220,7 +206,6 @@ export default function TripDetail() {
           </View>
         ) : trip.isMember ? (
           <View style={{ gap: 10 }}>
-            <Banner tone="ok">{t("You're in the group.")}</Banner>
             <Btn title={t('Trip Plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
             {trip.isMember && !trip.isHost && trip.status !== 'cancelled' && hostNoShowOpen(trip.dateStart, trip.dateEnd) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
             {canLeave ? <Btn title={t('Leave trip')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this trip?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/trips/${id}/leave`))} /> : null}

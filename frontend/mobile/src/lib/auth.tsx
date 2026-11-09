@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AppState } from 'react-native';
 import { clearLoadCache } from './hooks';
 import { ApiError, get, getRefreshToken, loadRefreshToken, loadToken, post, saveRefreshToken, saveToken, setRefreshToken, setToken, setUnauthorizedHandler, type Me } from './api';
+import { success, tap } from './haptics';
+import { forgetPushDevice, pushTokenForSignOut } from './push';
 
 type SignInOptions = {
   /** true right after registering: show the onboarding steps (confirm email, set up profile) once */
@@ -18,6 +20,8 @@ type AuthState = {
   isGuest: boolean;
   ready: boolean;
   notice: string | null;
+  /** takes the notice off the login page (it has been read) */
+  clearNotice: () => void;
   onboarding: boolean;
   devCode: string | null;
   setDevCode: (c: string | null) => void;
@@ -32,6 +36,7 @@ const Ctx = createContext<AuthState>({
   isGuest: false,
   ready: false,
   notice: null,
+  clearNotice: () => {},
   onboarding: false,
   devCode: null,
   setDevCode: () => {},
@@ -51,8 +56,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback((why?: string) => {
     clearLoadCache(); // nothing the last person saw is kept for the next one
-    // a sign-out the person chose also ends this sign-in on the server (best effort: with no connection it simply ends here)
-    if (typeof why !== 'string') void post('/v1/auth/logout', { refreshToken: getRefreshToken() ?? undefined }).catch(() => undefined);
+    // a sign-out the person chose also ends this sign-in on the server (best effort: with no connection it simply ends here),
+    // and takes this phone off the account's push list, so its lock screen stops showing the account's messages. A sign-out
+    // the app makes on its own (expired sign-in, suspended account) does that too, without a sign-in (forgetPushDevice).
+    const pushToken = pushTokenForSignOut();
+    void forgetPushDevice(pushToken);
+    if (typeof why !== 'string') {
+      void post('/v1/auth/logout', { refreshToken: getRefreshToken() ?? undefined, pushToken }).catch(() => undefined);
+      tap('Medium'); // signed out: a firm tap
+    }
     setToken(null);
     setRefreshToken(null);
     void saveToken(null);
@@ -100,12 +112,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // saved in the background: signing in never waits on the keychain for more than a moment
       await Promise.race([Promise.all([saveToken(token), saveRefreshToken(refreshToken ?? null)]), new Promise((done) => setTimeout(done, 3000))]);
       // signed in on the server, but the account could not be read: say why on the login page instead of staying silent
-      if ((await load()) === 'offline') throw new Error(`Signed in, but your account could not be loaded (${lastFail.current}). Trying again...`);
+      const loaded = await load();
+      if (loaded === 'ok') success(); // signed in
+      if (loaded === 'offline') throw new Error(`Signed in, but your account could not be loaded (${lastFail.current}). Trying again...`);
     },
     [load],
   );
 
   const finishOnboarding = useCallback(() => setOnboarding(false), []);
+  const clearNotice = useCallback(() => setNotice(null), []);
 
   // restore a saved session on launch
   useEffect(() => {
@@ -191,5 +206,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [signedIn, reload]);
 
-  return <Ctx.Provider value={{ me, isGuest: me?.role === 'guest', ready, notice, onboarding, devCode, setDevCode, finishOnboarding, reload, signIn, logout }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ me, isGuest: me?.role === 'guest', ready, notice, clearNotice, onboarding, devCode, setDevCode, finishOnboarding, reload, signIn, logout }}>{children}</Ctx.Provider>;
 }

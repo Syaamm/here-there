@@ -297,14 +297,15 @@ export const photoSrc = (p?: string | null, px?: number) => {
 };
 
 /** The server keeps a 384-pixel picture, so a phone photo of several megapixels is cut to 768 on the long side first (about 100 KB, not several MB). Falls back to the original if the phone cannot do it. */
-async function shrinkPhoto(uri: string): Promise<string> {
+async function shrinkPhoto(uri: string, long = 768): Promise<string> {
   try {
     const { ImageManipulator, SaveFormat } = await import('expo-image-manipulator');
     const ctx = ImageManipulator.manipulate(uri);
     const img = await ctx.renderAsync();
     const long = Math.max(img.width, img.height);
-    if (long <= 768) return uri;
-    const small = await (img.width >= img.height ? ImageManipulator.manipulate(uri).resize({ width: 768 }) : ImageManipulator.manipulate(uri).resize({ height: 768 })).renderAsync();
+    const side = Math.max(img.width, img.height);
+    if (side <= long) return uri;
+    const small = await (img.width >= img.height ? ImageManipulator.manipulate(uri).resize({ width: long }) : ImageManipulator.manipulate(uri).resize({ height: long })).renderAsync();
     return (await small.saveAsync({ format: SaveFormat.JPEG, compress: 0.8 })).uri;
   } catch {
     return uri;
@@ -326,6 +327,24 @@ export async function uploadPhoto(uri: string): Promise<{ photoUrl: string }> {
   return data;
 }
 
+/**
+ * Sends a proof photo (a screenshot of a chat, say) for an appeal or a dispute. It is cut to 1280 px on the long side on the phone
+ * (readable text, a few hundred KB), and the server shrinks it again and stores it privately. Gives its id, to send with the form.
+ */
+export async function uploadProof(uri: string): Promise<{ id: string }> {
+  const blob = await (await fetch(await shrinkPhoto(uri, 1280))).blob();
+  let res: Response;
+  try {
+    res = await fetch(API_URL + '/v1/me/proofs', { method: 'PUT', headers: { 'content-type': blob.type || 'image/jpeg', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: blob });
+  } catch {
+    throw new ApiError(0, 'NETWORK', t("Can't reach the server right now. Check your connection and try again."));
+  }
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new ApiError(res.status, data?.code ?? 'ERROR', t(data?.message ?? 'Could not add that photo.'));
+  return data;
+}
+
 export const patch = <T = any>(p: string, b: unknown = {}) => api<T>('PATCH', p, b);
 export const del = <T = any>(p: string) => api<T>('DELETE', p);
 export const put = <T = any>(p: string, b: unknown = {}) => api<T>('PUT', p, b);
@@ -333,7 +352,7 @@ export const put = <T = any>(p: string, b: unknown = {}) => api<T>('PUT', p, b);
 /** An activity or trip saved for later. `data` is the form as the person left it. */
 export type ServerDraft = { id: string; kind: 'activity' | 'trip'; title: string | null; data: Record<string, unknown>; updatedAt: string };
 /** A person's request to have a decision looked at again. */
-export type MyAppeal = { id: string; kind: 'verification' | 'suspension' | 'removal' | 'report' | 'warning' | 'message'; what: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null; message: string; createdAt: string; decidedAt: string | null };
+export type MyAppeal = { proofs?: string[]; targetId?: string | null; id: string; kind: 'verification' | 'suspension' | 'removal' | 'report' | 'warning' | 'message'; what: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null; message: string; createdAt: string; decidedAt: string | null };
 
 // ---------------------------------------------------------------- shared types
 /** One row of "my trips" from the server: a trip you organise or are in, or one you applied to. */
@@ -378,7 +397,7 @@ export type Me = {
 };
 
 type HostInfo = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean };
-type Participant = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean; role: string; /** trips, while final dates wait for everyone: has this person said yes */ datesConfirmed?: boolean };
+type Participant = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean; role: string; /** a friend of yours (you follow each other) */ friend?: boolean; /** after it ended: has this person said whether they were there */ answered?: boolean; /** after it ended: what they said */ attendance?: 'attended' | 'no_show' | 'unknown'; /** trips, while final dates wait for everyone: has this person said yes */ datesConfirmed?: boolean };
 
 export type Activity = {
   id: string;
@@ -415,6 +434,8 @@ export type Activity = {
   isMember?: boolean;
   /** staff removed it and the host can still ask for a review */
   canAppealRemoval?: boolean;
+  /** your part in it, on the feed's cards: host, going, requested or waitlisted (null: none) */
+  mine?: 'host' | 'going' | 'requested' | 'waitlisted' | null;
   myRequest?: { id: string; state: string; /** a declined request can be asked about once more */ canAppeal?: boolean; /** 1 = first in line, when state is waitlisted */ position?: number } | null;
   conversationId?: string | null;
   participants?: Participant[];
@@ -440,7 +461,10 @@ export type Trip = {
   dateFlexibility: string;
   /** tentative, or proposed: the final dates were put to the group and every member must still confirm them */
   datesState?: string;
-  budget: { label: string; currency: string; min: number; max: number; includesTransport: boolean; scope: string };
+  /** how many more times a date poll may change the trip's dates, out of how many in all (the organizer is warned) */
+  dateChangesLeft?: number;
+  dateChangesMax?: number;
+  budget: { label: string; currency: string; min: number; max: number; includesTransport: boolean; /** what the budget covers: any of food, travel, stay */ includes?: string[]; scope: string };
   tags: string[];
   description: string | null;
   minCapacity: number;

@@ -1,10 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, type NativeScrollEvent, type NativeSyntheticEvent, Pressable, View } from 'react-native';
+import { tick } from '@/lib/haptics';
 import { localeTag, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { reducedMotion, SOFT } from './Pop';
 import { Text } from './ScaledText';
+import { keyboardTaps } from '@/lib/keyboard';
+import { dateLang } from '@/lib/format';
 
 const CARD = 58;
 const GAP = 8;
@@ -14,7 +17,7 @@ const HEIGHT = 70;
 const GLIDE = { damping: 22, stiffness: 95, mass: 1 } as const;
 
 /** A calendar day is kept as "YYYY-MM-DD" and read at noon UTC, so it is the same day in every time zone. */
-const part = (key: string, o: Intl.DateTimeFormatOptions) => new Date(`${key}T12:00:00Z`).toLocaleDateString(localeTag(), { ...o, timeZone: 'UTC' });
+const part = (key: string, o: Intl.DateTimeFormatOptions) => new Date(`${key}T12:00:00Z`).toLocaleDateString(dateLang(), { ...o, timeZone: 'UTC' });
 
 /**
  * A day picker that works like a dial: a soft green frame stays fixed in the middle and the row of dates slides underneath
@@ -61,6 +64,14 @@ export function DayStrip({ days, value, onChange, dayNumber }: { days: string[];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width]);
 
+  // a faint click each time a day passes under the frame, like a picker wheel (it starts on the chosen day, so opening is silent)
+  const clicked = useRef(indexOf(value));
+  const click = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const i = Math.min(items.length - 1, Math.max(0, Math.round(e.nativeEvent.contentOffset.x / STEP)));
+    if (i === clicked.current) return;
+    clicked.current = i;
+    tick();
+  };
   const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const i = Math.min(items.length - 1, Math.max(0, Math.round(e.nativeEvent.contentOffset.x / STEP)));
     at.current = i;
@@ -84,12 +95,13 @@ export function DayStrip({ days, value, onChange, dayNumber }: { days: string[];
             // the ref only ever needs scrollTo
             ref={ref as never}
             horizontal
+            overScrollMode="never"
             showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps={keyboardTaps}
             snapToInterval={STEP}
             decelerationRate="fast"
             scrollEventThrottle={16}
-            onScroll={Animated.event([{ nativeEvent: { contentOffset: { x } } }], { useNativeDriver: true })}
+            onScroll={Animated.event([{ nativeEvent: { contentOffset: { x } } }], { useNativeDriver: true, listener: click as never })}
             onMomentumScrollEnd={settle}
             onScrollEndDrag={(e) => {
               // released without a fling: it settles at once
@@ -210,12 +222,14 @@ function Segment({ on, label, hint, icon, onPress, height }: { on: boolean; labe
       accessibilityLabel={hint ? `${t(label)}, ${t(hint)}` : t(label)}
       accessibilityState={{ selected: on }}
       onPress={onPress}
-      style={({ pressed }) => [{ flex: 1, minHeight: height, borderRadius: 13, alignItems: 'center', justifyContent: 'center', gap: 3 }, pressed && !on && { opacity: 0.7 }]}
+      // an exact height (not a minimum), so the green frame behind always sits exactly on it, on Android as on iPhone
+      style={({ pressed }) => [{ flex: 1, height, borderRadius: 13, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 2 }, pressed && !on && { opacity: 0.7 }]}
     >
       <Animated.View style={{ transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -2] }) }, { scale: lift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }] }}>
         <Ionicons name={icon} size={18} color={on ? c.green : c.forest} />
       </Animated.View>
-      <Text style={{ color: c.text, fontSize: 11, fontWeight: on ? '800' : '700' }}>{t(label)}</Text>
+      {/* one line, shrinking a little if a language or the phone's font size is wide: never wrapping into a taller bar */}
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: c.text, fontSize: 11, fontWeight: '700' }}>{t(label)}</Text>
     </Pressable>
   );
 }

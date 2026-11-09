@@ -34,8 +34,9 @@ export const PAGE_TITLES: Record<string, string> = {
   verify: 'Verify your identity',
 };
 
-/** Of those pages, the ones that use the plain Figma header (round back button + centred title on the page's own background) instead of the band: Settings and every page inside it. */
+/** Of those pages, the ones that use the plain Figma header (round back button + centred title on the page's own background) instead of the band: Settings and every page inside it, Request to join and All activities (HERE), Apply to join and All trips (THERE). */
 export const PLAIN_PAGES = new Set<string>([
+  'join/[id]', 'activities', 'apply/[id]', 'trips',
   'settings', 'safety', 'edit-profile', 'change-password', 'change-email', 'delete-account', 'my-data', 'retention', 'reliability',
   'notification-settings', 'reports-blocked', 'travel-match', 'appeal', 'verify',
   'host/[id]', 'review/[id]', 'user/[id]', 'my-activities', 'my-trips', 'drafts', 'trip-plan/[id]', 'favourites', 'connections', 'no-shows/[kind]/[id]',

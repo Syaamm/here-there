@@ -27,7 +27,8 @@ export function SearchThere() {
   return (
     // the calendar sits just above the dock, outside the scrolling page, so this fills the tab like the create form does
     <View style={{ flex: 1 }}>
-      <Screen tabBar header={<ThereBrand />} style={{ paddingTop: 22 }}>
+      {/* plain: the wordmark on the ivory page, no sand band (only THERE Home and Profile keep their band) */}
+      <Screen tabBar plain header={<ThereBrand />} style={{ paddingTop: 22 }}>
         <ThereSearchField
           inline
           value={destination}

@@ -254,7 +254,7 @@ describe('your data: export, a new email address, and deleting the account', () 
 
   it('does not let a staff account delete itself from the app', async () => {
     const s = await signup('StaffMember');
-    await prisma.user.update({ where: { id: s.id }, data: { role: 'moderator' } });
+    await prisma.user.update({ where: { id: s.id }, data: { role: 'staff' } });
     assert.equal((await post('/v1/me/delete', s.token, { password: 'a-long-password-1', confirm: 'DELETE' })).body.code, 'STAFF_ACCOUNT');
   });
 });

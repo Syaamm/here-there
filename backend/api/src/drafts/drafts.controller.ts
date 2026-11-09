@@ -52,6 +52,9 @@ export class DraftsController {
   @Put()
   async save(@CurrentUser() me: User, @Body() body: unknown) {
     const { id, kind, data } = parse(saveSchema, body);
+    // a draft needs at least its name: an activity's title, or where a trip goes (an empty form is not kept as "Untitled")
+    const name = kind === 'trip' ? data.destination : data.title;
+    if (typeof name !== 'string' || !name.trim()) throw E.badRequest('DRAFT_NEEDS_NAME', kind === 'trip' ? 'Add where the trip goes before saving a draft' : 'Add the activity name before saving a draft');
     const json = JSON.stringify(data);
     if (json.length > MAX_BYTES) throw E.badRequest('DRAFT_TOO_LARGE', 'This draft is too long to save');
     if (id) {

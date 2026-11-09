@@ -14,6 +14,7 @@ import { useAction } from '@/lib/hooks';
 import { useTheme, type Mode } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
 import { INTRO_KEY } from './intro';
+import { tracking } from '@/lib/scale';
 
 const FOREST = '#102F29';
 const IVORY = '#E9E5DD';
@@ -95,11 +96,11 @@ function Page({ mode, active, onSwitch, sheetH }: { mode: Mode; active: boolean;
         {/* the name, then the line under it */}
         <View style={{ paddingHorizontal: 20, marginBottom: 50 }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-            <Text accessibilityRole="header" style={{ color: look.nameColor, fontSize: 62, lineHeight: 68, fontWeight: '700', letterSpacing: -2.5 }}>{look.name}</Text>
+            <Text accessibilityRole="header" style={{ color: look.nameColor, fontSize: 62, lineHeight: 68, fontWeight: '700', letterSpacing: tracking(-2.5) }}>{look.name}</Text>
             <View style={{ width: 13, height: 13, borderRadius: 7, backgroundColor: look.dot, marginLeft: 8, marginRight: 16, marginBottom: 14 }} />
             {/* the faint name of the other product: tapping it switches */}
             <Pressable accessibilityRole="button" accessibilityLabel={t('Switch to {name}', { name: look.other })} hitSlop={14} onPress={onSwitch} style={{ marginBottom: 10 }}>
-              <Text style={{ color: look.otherColor, fontSize: 30, lineHeight: 36, fontWeight: '700', letterSpacing: -1.2 }}>{look.other}</Text>
+              <Text style={{ color: look.otherColor, fontSize: 30, lineHeight: 36, fontWeight: '700', letterSpacing: tracking(-1.2) }}>{look.other}</Text>
             </Pressable>
           </View>
           <Text style={{ color: look.taglineColor, fontSize: 16, fontWeight: '500', marginTop: 10 }}>{t(look.tagline)}</Text>

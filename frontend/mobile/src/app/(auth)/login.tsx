@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { AuthBack, AuthButton, AuthField, AuthHeading, AuthSwitch, type InputHandle } from '@/components/AuthForm';
 import { Banner, Btn, ErrorBanner, Screen } from '@/components/ui';
@@ -14,7 +14,7 @@ export default function Login() {
   const { t } = useT();
   const { mode } = useTheme();
   const { reset } = useLocalSearchParams<{ reset?: string }>(); // arriving after a password reset
-  const { signIn, notice } = useMe();
+  const { signIn, notice, clearNotice } = useMe();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const act = useAction();
@@ -23,6 +23,15 @@ export default function Login() {
   // staff accounts with two-step sign-in: after the password, a code from their authenticator app
   const [pass, setPass] = useState<string | null>(null);
   const [code, setCode] = useState('');
+
+  // "You were signed out…" is only news: calm colour, gone after 4 seconds or as soon as typing starts. A suspended account's
+  // message stays, since it is something to act on.
+  const fades = !!notice && !/suspended/i.test(notice);
+  useEffect(() => {
+    if (!fades) return;
+    const timer = setTimeout(clearNotice, 4000);
+    return () => clearTimeout(timer);
+  }, [fades, notice, clearNotice]);
 
   const submit = () =>
     act.run(async () => {
@@ -43,7 +52,8 @@ export default function Login() {
         <AuthHeading title={t('Welcome back')} subtitle={pass ? t('Enter your 6-digit code or a recovery code.') : t('Join a space where real sparks happen.')} />
       </View>
       {reset ? <Banner tone="ok">{t('Password changed. Log in.')}</Banner> : null}
-      <ErrorBanner message={act.error ?? notice} />
+      <ErrorBanner message={act.error} />
+      {!act.error && notice ? <Banner tone={fades ? 'info' : 'bad'}>{notice}</Banner> : null}
       {pass ? (
         <View style={{ gap: 18 }}>
           <AuthField label={t('Code')} placeholder={t('6-digit code')} value={code} onChangeText={setCode} autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" returnKeyType="go" onSubmitEditing={submit} />
@@ -52,8 +62,8 @@ export default function Login() {
         </View>
       ) : (
         <View style={{ gap: 18 }}>
-          <AuthField label={t('Email')} placeholder={t('Enter your email')} value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => pwRef.current?.focus()} />
-          <AuthField label={t('Password')} placeholder={t('Enter your password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" returnKeyType="go" inputRef={pwRef} onSubmitEditing={submit} />
+          <AuthField label={t('Email')} placeholder={t('Enter your email')} value={email} onChangeText={(v) => { setEmail(v); if (fades) clearNotice(); }} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => pwRef.current?.focus()} />
+          <AuthField label={t('Password')} placeholder={t('Enter your password')} value={password} onChangeText={(v) => { setPassword(v); if (fades) clearNotice(); }} secureTextEntry autoComplete="current-password" textContentType="password" returnKeyType="go" inputRef={pwRef} onSubmitEditing={submit} />
           <Btn title={t('Forgot password?')} variant="ghost" small onPress={() => router.push('/forgot-password')} style={{ alignSelf: 'flex-end', marginTop: -10 }} />
           <AuthButton title={t('Log in')} onPress={submit} loading={act.busy} disabled={!email || !password} />
         </View>

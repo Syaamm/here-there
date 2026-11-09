@@ -3,13 +3,15 @@ import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { AuthButton } from '@/components/AuthForm';
 import { EmailVerifyCard } from '@/components/EmailVerifyCard';
-import { ChoiceRow, CitySearch, InterestTile, OnboardingHeading, OnboardingTop, RadioRow } from '@/components/OnboardingParts';
+import { useCity } from '@/lib/city';
+import { ChoiceRow, CityField, InterestTile, OnboardingHeading, OnboardingTop, RadioRow } from '@/components/OnboardingParts';
 import { Btn, ErrorBanner, Screen, Txt } from '@/components/ui';
 import { patch } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
+import { keyboardTaps } from '@/lib/keyboard';
 
 type Step = 'email' | 'wishlist' | 'window' | 'companions' | 'interests' | 'city' | 'languages';
 
@@ -75,6 +77,7 @@ export default function Onboarding() {
   const [step, setStep] = useState<Step>(me?.emailVerified ? first : 'email');
   const [interests, setInterests] = useState<string[]>(me?.profile?.interests ?? []);
   const [city, setCity] = useState(me?.profile?.homeCity ?? '');
+  const [, pickCity] = useCity(); // the city picked here is also the app's city (with its place on the map) for this account
   const [wishlist, setWishlist] = useState<string[]>(me?.profile?.travelWishlist ?? []);
   const [window, setWindow] = useState<string | null>(me?.profile?.travelWindow ?? null);
   const [companions, setCompanions] = useState<string | null>(me?.profile?.travelCompanions ?? null);
@@ -124,8 +127,8 @@ export default function Onboarding() {
 
   return (
     <Screen scroll={false} maxWidth={600}>
-      <OnboardingTop progress={progress} onBack={at > 0 ? () => setStep(order[at - 1]) : undefined} onSkip={next} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24, paddingBottom: 12 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <OnboardingTop progress={progress} onBack={at > 0 ? () => setStep(order[at - 1]) : undefined} onSkip={step === 'city' ? undefined : next} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24, paddingBottom: 12 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
         {step === 'wishlist' && (
           <>
             <OnboardingHeading title={t('Where would you love to go?')} subtitle={t('Choose a few destinations on your travel wishlist.')} />
@@ -169,7 +172,8 @@ export default function Onboarding() {
         {step === 'city' && (
           <>
             <OnboardingHeading title={t('Which city are you usually in?')} subtitle={t('This helps us find relevant local activities and nearby people.')} />
-            <CitySearch value={city} onChange={setCity} />
+            {/* picked from the search or found from the phone's location (never typed by hand); the question cannot be skipped */}
+            <CityField value={city} onPick={(name, at) => { setCity(name); pickCity(name, at); }} />
           </>
         )}
         {step === 'languages' && (

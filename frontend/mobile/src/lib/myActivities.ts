@@ -16,14 +16,22 @@ const HOUR = 3600e3;
 const FINISHED = ['cancelled', 'completed', 'archived'];
 
 /**
- * What is coming up for the person: happening right now, or starting within `hours`. Soonest start first; at the same
- * start, what they host comes before what they are going to, and that before what they have only asked for.
+ * What is coming up for the person: starting within `hours`, not yet started (what is on now is in happeningNow). Soonest
+ * start first; at the same start, what they host comes before what they are going to, and that before what they asked for.
  */
 export function comingUp(d: MyActivitiesData | null | undefined, now = Date.now(), hours = 3): MyActivityItem[] {
   const rank = (x: MyActivityItem) => (x.label === 'You host this' ? 0 : x.kind === 'mine' ? 1 : 2);
   return myActivityItems(d)
-    .filter((x) => x.kind !== 'rejected' && !FINISHED.includes(x.activity.status) && +new Date(x.activity.endsAt) > now && +new Date(x.activity.startsAt) <= now + hours * HOUR)
+    // only what you host or are going to: a request shows there once the host accepts it (until then its card says Request pending)
+    .filter((x) => x.kind === 'mine' && !FINISHED.includes(x.activity.status) && +new Date(x.activity.startsAt) > now && +new Date(x.activity.startsAt) <= now + hours * HOUR)
     .sort((x, y) => +new Date(x.activity.startsAt) - +new Date(y.activity.startsAt) || rank(x) - rank(y));
+}
+
+/** What the person is at right now: hosting or going, started and not over. Ends soonest first. */
+export function happeningNow(d: MyActivitiesData | null | undefined, now = Date.now()): MyActivityItem[] {
+  return myActivityItems(d)
+    .filter((x) => x.kind === 'mine' && !FINISHED.includes(x.activity.status) && +new Date(x.activity.startsAt) <= now && +new Date(x.activity.endsAt) > now)
+    .sort((x, y) => +new Date(x.activity.endsAt) - +new Date(y.activity.endsAt));
 }
 
 /** The plans the person already has (hosting, going, or asked) whose time overlaps this activity's. */
@@ -39,7 +47,7 @@ export function clashesWith(d: MyActivitiesData | null | undefined, a: Pick<Acti
 export function myActivityItems(d: MyActivitiesData | null | undefined): MyActivityItem[] {
   if (!d) return [];
   const items: MyActivityItem[] = [
-    ...d.joined.map((a): MyActivityItem => ({ key: `j-${a.id}`, activity: a, kind: 'mine', label: a.role === 'host' ? 'You host this' : 'Going', tone: 'ok', hostOf: a.role === 'host' && !['completed', 'archived', 'cancelled', 'in_progress'].includes(a.status) })),
+    ...d.joined.map((a): MyActivityItem => ({ key: `j-${a.id}`, activity: a, kind: 'mine', label: a.role === 'host' ? 'You host this' : "You're going", tone: 'ok', hostOf: a.role === 'host' && !['completed', 'archived', 'cancelled', 'in_progress'].includes(a.status) })),
     ...d.requests
       .filter((r) => r.state === 'requested' || r.state === 'waitlisted' || r.state === 'declined')
       .map((r): MyActivityItem => ({

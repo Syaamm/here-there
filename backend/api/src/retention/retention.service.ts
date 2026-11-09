@@ -26,6 +26,7 @@ export const retention = () => ({
   drafts: days('RETENTION_DRAFTS_DAYS', 90), // saved-for-later activities and trips, counted from the last change
   matching: days('RETENTION_MATCHING_DAYS', 90), // travel-matching answers and finished matching wishes, counted from the last change; match-chat messages from when they were sent
   appeals: days('RETENTION_APPEALS_DAYS', 730), // decided appeals, counted from the decision
+  proofs: days('RETENTION_PROOFS_DAYS', 30), // photos sent as proof with an appeal or a dispute, counted from the decision
   reliability: days('RETENTION_RELIABILITY_DAYS', 730), // no-show notes and level history, counted from the plan's end / the change
 });
 
@@ -43,6 +44,7 @@ export function retentionSchedule() {
     { what: 'Drafts (activities and trips you saved for later)', kept: `${d(r.drafts)} after you last changed them`, why: 'So you can finish them; they are private to you and never shown to anyone.' },
     { what: 'Travel matching (where and when you want to travel, and your yes or pass answers)', kept: `${d(r.matching)} after the last change, or as soon as your dates have passed`, why: 'Only used to suggest travelers to each other. You can switch it off any time.' },
     { what: 'Messages in a private travel-match chat', kept: `${d(r.matching)} after they were sent`, why: 'So the two of you can look back while planning.' },
+    { what: 'Photos sent as proof (with an appeal or a dispute)', kept: `${d(r.proofs)} after the decision; a photo you added but never sent is removed after a day`, why: 'They can show other people\'s messages, so only you and the staff who handle your case can see them, and they do not stay.' },
     { what: 'Appeals', kept: `${d(r.appeals)} after the decision`, why: 'So staff can show how a decision was reviewed.' },
     { what: 'Reliability history', kept: d(r.reliability), why: 'Used to work out your level.' },
     { what: 'Sign-in and confirmation codes', kept: `${d(r.codes)} after they are used or expire`, why: 'Short-lived by design.' },
@@ -91,6 +93,10 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
     const warnings = await this.prisma.userWarning.deleteMany({ where: { createdAt: { lt: ago(r.audit) } } });
     const drafts = await this.prisma.draft.deleteMany({ where: { updatedAt: { lt: ago(r.drafts) } } });
     const appeals = await this.prisma.appeal.deleteMany({ where: { state: { not: 'open' }, decidedAt: { lt: ago(r.appeals) } } });
+    // proof photos: gone a month after the case was decided, or a day after being added if never sent with anything
+    const proofs = await this.prisma.proofImage.deleteMany({
+      where: { OR: [{ appeal: { decidedAt: { lt: ago(r.proofs) } } }, { mark: { decidedAt: { lt: ago(r.proofs) } } }, { appealId: null, markId: null, createdAt: { lt: ago(1) } }] },
+    });
     const codes = await this.prisma.contactCode.deleteMany({ where: { OR: [{ usedAt: { lt: ago(r.codes) } }, { expiresAt: { lt: ago(r.codes) } }] } });
 
     // identity checks: old results go, but the newest check of each person stays (it is what their status rests on)
@@ -106,7 +112,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       checks = (await this.prisma.verificationCheck.deleteMany({ where: { id: { in: doomed } } })).count;
     }
 
-    const counts = { messages: messages.count, alertsRead: alertsRead.count, alertsUnread: alertsUnread.count, reports: reports.count, audit: audit.count, identityChecks: checks, codes: codes.count, attendanceNotes: marks.count, drafts: drafts.count, warnings: warnings.count, matching: matchWishes.count + matchAnswers.count, matchMessages: matchMessages.count, appeals: appeals.count, levelHistory: levelHistory.count };
+    const counts = { messages: messages.count, alertsRead: alertsRead.count, alertsUnread: alertsUnread.count, reports: reports.count, audit: audit.count, identityChecks: checks, codes: codes.count, attendanceNotes: marks.count, drafts: drafts.count, warnings: warnings.count, matching: matchWishes.count + matchAnswers.count, matchMessages: matchMessages.count, appeals: appeals.count, proofPhotos: proofs.count, levelHistory: levelHistory.count };
     if (Object.values(counts).some((n) => n > 0)) await this.audit.log(null, 'retention.purged', 'system', 'retention', counts);
     return counts;
   }

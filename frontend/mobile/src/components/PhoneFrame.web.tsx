@@ -62,7 +62,7 @@ export function PhoneFrame({ children }: { children: ReactNode }) {
     <div style={{ position: 'fixed', inset: 0, background: '#E6EBE8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, fontFamily: 'system-ui, sans-serif' }}>
       {button}
       <div style={{ width: PHONE_W + 20, height: h + 20, padding: 10, boxSizing: 'border-box', background: '#0B1B17', borderRadius: 44, boxShadow: '0 24px 60px rgba(0,0,0,0.28)' }}>
-        <iframe title="HERE & THERE in a phone" src={url.toString()} style={{ width: '100%', height: '100%', border: 0, borderRadius: 34, background: '#fff', display: 'block' }} allow="geolocation" />
+        <iframe title="LAMIS in a phone" src={url.toString()} style={{ width: '100%', height: '100%', border: 0, borderRadius: 34, background: '#fff', display: 'block' }} allow="geolocation" />
       </div>
       <div style={{ fontSize: 12, color: '#5B6B66' }}>Phone view · {PHONE_W} × {Math.round(h)}</div>
     </div>

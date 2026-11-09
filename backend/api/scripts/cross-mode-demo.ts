@@ -31,7 +31,7 @@ async function nina() {
       adultConfirmed: true,
       emailVerifiedAt: new Date(),
       adultVerifiedAt: new Date(),
-      verifiedUntil: new Date(Date.now() + 365 * 24 * 3600 * 1000),
+      verifiedUntil: null,
       eligibility: 'verified',
       profile: { create: { displayName: 'Nina', homeCity: 'Milan', languages: 'English,Italian', interests: 'coffee,drinks' } },
     },

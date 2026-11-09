@@ -1,12 +1,18 @@
 /*
- * Motion for the whole console, in one place. Subtle and quick: things ease in when they appear, respond when touched, and
- * never hold anyone up (nothing waits for an animation to finish, and each one is a few tenths of a second).
- * Everything here is inside prefers-reduced-motion: no-preference, so a person who asked their system for less motion gets none.
- * Only opacity and transform are animated, so nothing reflows. The sign-in and place screens have their own (Login.css, PlacePicker.css).
+ * Motion for the console, kept deliberately small (owner, 2026-11-09: switching pages, tabs and lists must not flash).
+ *
+ *   - Moving to another page, tab or list never animates: the new content is simply there. (Before, a page fade, rising cards,
+ *     stepping rows, fading chips and a fading detail pane all played at once on every switch, which read as a flash.)
+ *   - Things respond to a hand: hover and press feedback, the focus ring, the sliding highlight of a segmented switch.
+ *   - Things that open (pop-ups, menus, drop-downs) ease in quickly, because they are new on screen, not a change of page.
+ *   - The dashboard draws its chart in the first time it loads (trend.css).
+ *
+ * Everything is inside prefers-reduced-motion: no-preference, so a person who asked their system for less motion gets none.
  */
 @media (prefers-reduced-motion: no-preference) {
   :root { --mo-ease: cubic-bezier(0.22, 0.61, 0.36, 1); --mo-spring: cubic-bezier(0.34, 1.4, 0.64, 1); }
 
+  /* named here for the few places that use them (the dashboard, pop-ups, drop-downs) */
   @keyframes mo-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
   @keyframes mo-fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes mo-pop { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
@@ -16,66 +22,36 @@
   @keyframes mo-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
   @keyframes mo-shake { 0%, 100% { transform: none; } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 
-  /* ---- a page appears: the page rises in, then its blocks follow one after another */
-  .page { animation: mo-rise 0.32s var(--mo-ease) backwards; }
-  .cards > *, .kpis > *, .panels > *, .health-grid > *, .dash-col > *, .dash-pair > *, .oncall-cols > *, .detail-grid > * { animation: mo-rise 0.4s var(--mo-ease) backwards; }
-  .cards > :nth-child(2), .kpis > :nth-child(2), .panels > :nth-child(2), .health-grid > :nth-child(2), .dash-col > :nth-child(2), .dash-pair > :nth-child(2), .oncall-cols > :nth-child(2), .detail-grid > :nth-child(2) { animation-delay: 50ms; }
-  .cards > :nth-child(3), .kpis > :nth-child(3), .panels > :nth-child(3), .health-grid > :nth-child(3), .dash-col > :nth-child(3), .oncall-cols > :nth-child(3), .detail-grid > :nth-child(3) { animation-delay: 100ms; }
-  .cards > :nth-child(4), .kpis > :nth-child(4), .panels > :nth-child(4), .health-grid > :nth-child(4), .dash-col > :nth-child(4) { animation-delay: 150ms; }
-  .cards > :nth-child(n + 5), .kpis > :nth-child(n + 5), .panels > :nth-child(n + 5), .health-grid > :nth-child(n + 5), .dash-col > :nth-child(n + 5) { animation-delay: 200ms; }
-
-  /* ---- lists and tables: the first rows step in (later rows simply appear, so a long list never feels slow) */
-  .list-item, .audit-row, .tl-row, .data-table tbody tr, .report, .rows > *, .timeline-inner > * { animation: mo-fade 0.3s var(--mo-ease) backwards; }
-  .list-scroll > :nth-child(2), .data-table tbody tr:nth-child(2), .audit-row:nth-child(2) { animation-delay: 25ms; }
-  .list-scroll > :nth-child(3), .data-table tbody tr:nth-child(3), .audit-row:nth-child(3) { animation-delay: 50ms; }
-  .list-scroll > :nth-child(4), .data-table tbody tr:nth-child(4), .audit-row:nth-child(4) { animation-delay: 75ms; }
-  .list-scroll > :nth-child(5), .data-table tbody tr:nth-child(5), .audit-row:nth-child(5) { animation-delay: 100ms; }
-  .list-scroll > :nth-child(6), .data-table tbody tr:nth-child(6), .audit-row:nth-child(6) { animation-delay: 125ms; }
-  .list-scroll > :nth-child(n + 7), .data-table tbody tr:nth-child(n + 7), .audit-row:nth-child(n + 7) { animation-delay: 150ms; }
-
-  /* ---- the detail beside a list: swapping person or report fades the new one in */
-  .detail-head, .detail-scroll > *, .detail-empty { animation: mo-fade 0.28s var(--mo-ease) backwards; }
-
   /* ---- things that open */
-  .dialog[open] { animation: mo-dialog 0.24s var(--mo-ease) backwards; }
-  .dialog[open]::backdrop { animation: mo-fade 0.24s ease backwards; }
+  .dialog[open] { animation: mo-dialog 0.2s var(--mo-ease) backwards; }
+  .dialog[open]::backdrop { animation: mo-fade 0.2s ease backwards; }
   .scrim { animation: mo-fade 0.2s ease backwards; }
-  .menu { animation: mo-pop 0.16s var(--mo-ease) backwards; transform-origin: top; }
+  .menu { animation: mo-pop 0.14s var(--mo-ease) backwards; transform-origin: top; }
   .tip { animation: mo-fade 0.12s ease backwards; }
-  .banner.error, .warn-note, .note { animation: mo-rise 0.28s var(--mo-ease) backwards; }
-  .banner.error { animation-name: mo-rise, mo-shake; animation-duration: 0.28s, 0.3s; animation-delay: 0s, 0.28s; animation-fill-mode: backwards, none; }
-  .empty { animation: mo-rise 0.36s var(--mo-ease) backwards; }
-
-  /* ---- bars and meters grow from their base the first time they show */
-  .progress i, .meter-bar, .load-bar i, .tl-bar, .chart-fill { transform-origin: left center; animation: mo-grow-x 0.7s var(--mo-ease) backwards; }
-  .bars i, .minibars i, .bar-slot i { transform-origin: center bottom; animation: mo-grow-y 0.6s var(--mo-ease) backwards; }
+  /* an error appears with one short shake so it is noticed */
+  .banner.error { animation: mo-shake 0.3s ease; }
 
   /* ---- touch: everything clickable answers at once */
   .btn, .icon-btn, .nav, .tab, .seg, .chip, .list-item, .card.stat, .rowlink, .menu button, .menu-btn, .avatar { transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.18s ease, transform 0.15s var(--mo-ease), opacity 0.15s ease; }
   .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(18, 48, 43, 0.1); }
   .btn:active:not(:disabled), .icon-btn:active, .seg:active, .tab:active, .nav:active { transform: scale(0.97); box-shadow: none; }
-  .card.stat:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(18, 48, 43, 0.09); }
-  .card.stat:active { transform: scale(0.99); }
-  .list-item:hover { transform: translateX(2px); }
+  .card.stat:hover, button.stat:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(18, 48, 43, 0.09); }
+  .card.stat:active, button.stat:active { transform: scale(0.99); box-shadow: none; }
+  .stat.hot:hover { box-shadow: 0 10px 24px rgba(18, 48, 43, 0.22); }
   .nav .icon { transition: transform 0.2s var(--mo-spring); }
   .nav:hover .icon { transform: scale(1.12); }
   .nav.active .icon { transform: scale(1.08); }
   .data-table tbody tr { transition: background-color 0.15s ease; }
   .data-table tbody tr:hover { background: var(--surface-2); }
-  .tab { transition: color 0.15s ease, border-color 0.2s ease; }
-  .chip { animation: mo-fade 0.25s ease backwards; }
+  .page-tabs .tab { transition: color 0.15s ease, border-color 0.2s ease; }
+  .seg { transition: background-color 0.2s var(--mo-ease), color 0.15s ease; }
   .menu button:active { transform: scale(0.98); }
 
   /* ---- fields: the focus ring eases in instead of snapping */
   input, select, textarea { transition: border-color 0.15s ease, box-shadow 0.18s ease, background-color 0.15s ease; }
 
-  /* ---- the sidebar and the drawer's veil */
-  .side-user, .side-search, .brand { animation: mo-slide-in 0.4s var(--mo-ease) backwards; }
-  .nav-group { animation: mo-fade 0.5s ease backwards; }
-  .nav { animation: mo-slide-in 0.35s var(--mo-ease) backwards; }
-  .nav-group + .nav, .nav:nth-child(2) { animation-delay: 30ms; }
-  .nav:nth-child(3) { animation-delay: 60ms; }
-  .nav:nth-child(4) { animation-delay: 90ms; }
-  .nav:nth-child(n + 5) { animation-delay: 120ms; }
   .spinner { animation-duration: 0.7s; }
 }
+
+/* a page opened from memory shows its dashboard cards and chart as they are (the dashboard animates in the first time only) */
+.page-body.from-cache *:not(.spinner):not(.skeleton i) { animation: none !important; }

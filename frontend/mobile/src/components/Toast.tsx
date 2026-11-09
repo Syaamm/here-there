@@ -34,6 +34,7 @@ export function Toast() {
 
   if (!t) return null;
   const bad = t.tone === 'error';
+  const calm = t.tone === 'warn'; // a failure on our side: a soft amber note, not a red error
   return (
     <View pointerEvents="none" style={{ position: 'absolute', top: insets.top + 8, left: 16, right: 16, alignItems: 'center', zIndex: 1000, elevation: 20 }}>
       <Animated.View
@@ -48,15 +49,16 @@ export function Toast() {
           paddingVertical: 8,
           paddingHorizontal: 14,
           borderRadius: 999,
-          backgroundColor: bad ? c.danger : c.forest,
+          backgroundColor: bad ? c.danger : calm ? c.warnBg : c.forest,
           shadowColor: '#000',
           shadowOpacity: 0.18,
           shadowRadius: 8,
           shadowOffset: { width: 0, height: 3 },
+          elevation: 6,
         }}
       >
-        <Ionicons name={bad ? 'alert-circle-outline' : 'checkmark-circle-outline'} size={16} color="#fff" />
-        <Txt variant="h3" color="#fff" style={{ fontSize: 12, lineHeight: 16, flexShrink: 1 }}>{t.text}</Txt>
+        <Ionicons name={bad ? 'alert-circle-outline' : calm ? 'time-outline' : 'checkmark-circle-outline'} size={16} color={calm ? c.warnFg : '#fff'} />
+        <Txt variant="h3" color={calm ? c.warnFg : '#fff'} style={{ fontSize: 12, lineHeight: 16, flexShrink: 1 }}>{t.text}</Txt>
       </Animated.View>
     </View>
   );

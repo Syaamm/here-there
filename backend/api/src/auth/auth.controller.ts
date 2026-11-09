@@ -165,7 +165,7 @@ export class AuthController {
     const passwordHash = await hashPassword(dto.password); // the same work for a new address and a known one
     if (await this.prisma.user.findUnique({ where: { email: dto.email } })) {
       await this.email
-        .send(dto.email, 'Someone tried to sign up with your email', 'Someone tried to create a HERE & THERE account with this email address, but you already have one.\n\nIf it was you, sign in, or use "Forgot password" if you do not remember it. If it was not you, you can ignore this message; nothing was changed.')
+        .send(dto.email, 'Someone tried to sign up with your email', 'Someone tried to create a LAMIS account with this email address, but you already have one.\n\nIf it was you, sign in, or use "Forgot password" if you do not remember it. If it was not you, you can ignore this message; nothing was changed.')
         .catch(() => undefined);
       return { pending: true, email: dto.email, ticket: randomBytes(32).toString('base64url') };
     }
@@ -425,7 +425,7 @@ export class AuthController {
   /** A notice to the address, so someone who did not do this finds out. A failed email never undoes the change. */
   private async tellPasswordChanged(user: User) {
     await this.email
-      .send(user.email, 'Your HERE & THERE password was changed', 'The password for your HERE & THERE account was just changed, and any other device was signed out.\n\nIf this was not you, reset your password straight away and contact support.')
+      .send(user.email, 'Your LAMIS password was changed', 'The password for your LAMIS account was just changed, and any other device was signed out.\n\nIf this was not you, reset your password straight away and contact support.')
       .catch(() => undefined);
   }
 
@@ -438,10 +438,12 @@ export class AuthController {
     return this.sessions.refresh(refreshToken);
   }
 
-  /** Sign out of this device. Body (optional): { refreshToken }. */
+  /** Sign out of this device. Body (optional): { refreshToken, pushToken }. */
   @Post('auth/logout')
-  async logout(@CurrentUser() u: User, @Req() req: Request & { sessionId?: string }, @Body() body: { refreshToken?: unknown } | undefined) {
+  async logout(@CurrentUser() u: User, @Req() req: Request & { sessionId?: string }, @Body() body: { refreshToken?: unknown; pushToken?: unknown } | undefined) {
     await this.sessions.end(u.id, req.sessionId, body?.refreshToken);
+    // the phone's push address goes too: a signed-out phone must not keep showing this account's messages on its lock screen
+    if (typeof body?.pushToken === 'string' && body.pushToken) await this.prisma.pushSubscription.deleteMany({ where: { userId: u.id, token: body.pushToken } });
     await this.audit.log(u.id, 'session.logout', 'user', u.id);
     return { ok: true };
   }
@@ -451,6 +453,8 @@ export class AuthController {
   async logoutAll(@CurrentUser() u: User) {
     this.limiter.hit(`logout-all:${u.id}`, 10, 60 * 60 * 1000);
     await this.sessions.endAll(u.id);
+    // and no device gets this account's pushes any more (a lost phone would otherwise still show messages); each re-registers on sign-in
+    await this.prisma.pushSubscription.deleteMany({ where: { userId: u.id } });
     await this.audit.log(u.id, 'session.logout_all', 'user', u.id);
     return { ok: true };
   }

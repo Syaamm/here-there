@@ -10,7 +10,7 @@ import { del, get, post, type Reliability } from '@/lib/api';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
-import { useAction, useLoad } from '@/lib/hooks';
+import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { StatsCard } from '@/components/StatsCard';
 import { useTheme } from '@/lib/theme';
@@ -38,6 +38,7 @@ export default function UserProfile() {
   const go = useGo();
   const router = useRouter();
   const user = useLoad(() => get<PublicProfile>(`/v1/users/${id}`), [id], undefined, 'user', { animate: true });
+  const { refreshing, onRefresh } = useRefresh(user.reload); // pull down to refresh
   const act = useAction();
   const [report, setReport] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -79,12 +80,16 @@ export default function UserProfile() {
   };
 
   return (
-    <Screen tabBar right={!mine && !blocked ? <Menu popover onDark items={[{ label: t('Report this person'), onSelect: () => setReport(true) }, { label: t('Block {name}', { name: p.displayName }), danger: true, onSelect: block }]} /> : undefined}>
+    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} right={!mine && !blocked ? <Menu items={[{ label: t('Report this person'), onSelect: () => setReport(true) }, { label: t('Block {name}', { name: p.displayName }), danger: true, onSelect: block }]} /> : undefined}>
       <View style={{ alignItems: 'center', gap: 6 }}>
         <Avatar name={p.displayName} uri={p.photoUrl} size={104} />
         <Txt variant="h2" style={{ fontSize: 22 }}>{p.displayName} {p.verifiedAdult ? <Ionicons name="checkmark" size={18} color={c.green} /> : null}</Txt>
         <Txt variant="muted">{p.homeCity ?? t('City not set')} · {p.verifiedAdult ? t('Verified adult') : t('Not verified')}</Txt>
-        <ReliabilityChip r={p.reliability} />
+        <Row style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {/* you follow each other: friends */}
+          {!mine && relation?.buddy ? <Chip label={`${t('Friends')} ✓`} tone="ok" /> : null}
+          <ReliabilityChip r={p.reliability} />
+        </Row>
       </View>
 
       <StatsCard hosted={p.stats.activitiesHosted} joined={p.stats.activitiesJoined} trips={p.stats.tripsDone} />

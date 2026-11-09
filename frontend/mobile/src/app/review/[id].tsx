@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
@@ -64,7 +65,18 @@ export default function ReviewTrip() {
   const items = apps.items;
   const pending = apps.data?.pending ?? 0;
   const full = !!tp && tp.members >= tp.maxCapacity;
-  const decide = (a: App, decision: 'approve' | 'decline') => mutate.run(() => post(`/v1/trips/${id}/applications/${a.id}/decision`, { decision }));
+  const send = (a: App, decision: 'approve' | 'decline') => mutate.run(() => post(`/v1/trips/${id}/applications/${a.id}/decision`, { decision }));
+  // Accept / Decline answer at once: the request shows its new state the moment it is tapped, while the server is told in the
+  // background (no spinner, no waiting). If the server refuses, it goes back to how it was and the reason is shown above.
+  const [instant, setInstant] = useState<Record<string, string>>({});
+  useEffect(() => setInstant({}), [apps.items]); // the server's own answer has arrived: it takes over
+  const shown = (x: App) => (instant[x.id] ? { ...x, state: instant[x.id] } : x);
+  const decide = (x: App, decision: 'approve' | 'decline') => {
+    setInstant((m) => ({ ...m, [x.id]: decision === 'approve' ? 'approved' : 'declined' }));
+    void send(x, decision).then((ok) => {
+      if (ok === undefined) setInstant((m) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== x.id)));
+    });
+  };
   const cardStyle = { backgroundColor: WHITE, borderRadius: 24, borderWidth: 1, borderColor: c.line, padding: 18, gap: 16, ...softShadow } as const;
   const days = tp ? Math.max(1, Math.round((+new Date(tp.dateEnd) - +new Date(tp.dateStart)) / 864e5) + 1) : 0;
 
@@ -96,7 +108,7 @@ export default function ReviewTrip() {
       <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Requests ({n})', { n: pending })}</Text>
       {apps.data && items.length === 0 && <Empty title={t('No applications yet')} />}
 
-      {items.map((a) => (
+      {items.map(shown).map((a) => (
         <View key={a.id} style={cardStyle}>
           <Between style={{ alignItems: 'flex-start' }}>
             <Row style={{ gap: 14, flex: 1 }}>
@@ -134,8 +146,8 @@ export default function ReviewTrip() {
 
           {['pending', 'waitlisted'].includes(a.state) && (
             <Row style={{ gap: 12 }}>
-              <PillButton title={t('Accept')} small disabled={mutate.busy || full} onPress={() => decide(a, 'approve')} style={{ flex: 1.2 }} />
-              <PillButton outline title={t('Decline')} small disabled={mutate.busy} onPress={() => decide(a, 'decline')} style={{ flex: 1 }} />
+              <PillButton title={t('Accept')} small disabled={full} onPress={() => decide(a, 'approve')} style={{ flex: 1.2 }} />
+              <PillButton outline title={t('Decline')} small onPress={() => decide(a, 'decline')} style={{ flex: 1 }} />
             </Row>
           )}
           {a.state === 'approved' && (
@@ -145,7 +157,6 @@ export default function ReviewTrip() {
                 title={t('Reverse')}
                 variant="danger"
                 small
-                disabled={mutate.busy}
                 onPress={async () => (await confirmAsync(t('Reverse approval for {name}?', { name: a.applicant.displayName ?? t('Traveler') }), t('They lose access to the group chat immediately.'), t('Reverse'), true)) && void decide(a, 'decline')}
               />
             </Between>
@@ -153,7 +164,7 @@ export default function ReviewTrip() {
           {a.state === 'declined' && (
             <Between>
               <Chip label={t('Declined')} tone="bad" />
-              <Btn title={t('Approve instead')} variant="secondary" small disabled={mutate.busy || full} onPress={() => decide(a, 'approve')} />
+              <Btn title={t('Approve instead')} variant="secondary" small disabled={full} onPress={() => decide(a, 'approve')} />
             </Between>
           )}
           {['withdrawn', 'expired'].includes(a.state) && <Chip label={a.state === 'withdrawn' ? t('Withdrawn by the applicant') : t('Expired')} tone="neutral" />}

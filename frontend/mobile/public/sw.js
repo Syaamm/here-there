@@ -1,4 +1,4 @@
-// Shows push notifications for HERE & THERE in the browser, and opens the right page when one is clicked.
+// Shows push notifications for LAMIS in the browser, and opens the right page when one is clicked.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
@@ -7,10 +7,10 @@ self.addEventListener('push', (event) => {
   try {
     d = event.data.json();
   } catch (e) {
-    d = { title: 'HERE & THERE', body: event.data ? event.data.text() : '' };
+    d = { title: 'LAMIS', body: event.data ? event.data.text() : '' };
   }
   event.waitUntil(
-    self.registration.showNotification(d.title || 'HERE & THERE', {
+    self.registration.showNotification(d.title || 'LAMIS', {
       body: d.body || '',
       // one notification per chat: a newer message from the same chat replaces the older one
       tag: d.url || 'here-there',

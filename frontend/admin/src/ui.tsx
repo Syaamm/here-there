@@ -1,25 +1,60 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { ApiError, BASE } from './api';
+import { createPortal } from 'react-dom';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { ApiError, BASE, getImage } from './api';
+import { Select, useBackdropClose } from './controls';
 
 // ---------------------------------------------------------------- data loading
+/**
+ * The last answer of every list or page this session, so going back to a page shows it at once (no loading skeleton, no
+ * second entrance animation) while it is fetched again quietly. Keyed by what is loaded and its inputs. Emptied on sign-out.
+ */
+const loadCache = new Map<string, unknown>();
+export const clearLoadCache = () => loadCache.clear();
+/**
+ * When a list or page was last shown from memory. A page drawn in the same moment (the same render) opened from memory: it
+ * keeps its content's entrance animations off for as long as it is on screen (Page, `.page-body.from-cache`), so a page seen
+ * before simply fades in as one. (Switching them off only for a moment made every animation play again when it ended.)
+ */
+let cacheHitAt = -Infinity;
+const markFromCache = () => void (cacheHitAt = performance.now());
+export const openedFromCache = () => performance.now() - cacheHitAt < 120;
+
 /** pollMs: look again every so often while the page is open and visible, so new entries appear without a manual refresh. */
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: number) {
-  const [data, setData] = useState<T | null>(null);
+  const key = fn.toString() + '|' + JSON.stringify(deps);
+  const [data, setData] = useState<T | null>(() => {
+    const hit = loadCache.get(key) as T | undefined;
+    if (hit === undefined) return null;
+    markFromCache();
+    return hit;
+  });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const seq = useRef(0);
+  // inputs changed (a filter, a date range): show what was loaded for them before, if anything, while asking again
+  const lastKey = useRef(key);
+  if (lastKey.current !== key) {
+    lastKey.current = key;
+    const hit = loadCache.get(key) as T | undefined;
+    if (hit !== undefined && hit !== data) setData(hit);
+  }
 
+  /** Loads again; the promise settles when the answer is on screen (a Refresh button waits for it). Never rejects. */
   const reload = useCallback(() => {
     const id = ++seq.current;
     setLoading(true);
-    fn()
-      .then((d) => id === seq.current && (setData(d), setError(null)))
-      .catch((e) => id === seq.current && setError(errMsg(e)))
+    return fn()
+      .then((d) => {
+        if (loadCache.size > 80) loadCache.delete(loadCache.keys().next().value as string);
+        loadCache.set(key, d);
+        if (id === seq.current) (setData(d), setError(null));
+      })
+      .catch((e) => void (id === seq.current && setError(errMsg(e))))
       .finally(() => id === seq.current && setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  useEffect(reload, [reload]);
+  useEffect(() => void reload(), [reload]);
   useEffect(() => {
     if (!pollMs) return;
     const t = setInterval(() => !document.hidden && reload(), pollMs);
@@ -68,6 +103,68 @@ export function useMore<I extends { id: string }>(first: { items: I[]; nextCurso
   return { items, hasMore: !!cursor, more, reset };
 }
 
+// ---------------------------------------------------------------- numbers that count
+const lessMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+/**
+ * A number that counts up to its value when it first shows, and counts on from the old value when it changes (after a
+ * refresh), over about half a second. With "reduce motion" switched on it simply shows the number.
+ */
+export function CountUp({ value, ms = 650 }: { value: number; ms?: number }) {
+  // a page opened from memory shows its numbers as they are (they counted up the first time)
+  const [shown, setShown] = useState(() => (lessMotion() || openedFromCache() ? value : 0));
+  const now = useRef(shown);
+  useEffect(() => {
+    if (lessMotion()) {
+      now.current = value;
+      setShown(value);
+      return;
+    }
+    const from = now.current;
+    if (from === value) return;
+    const start = performance.now();
+    let raf = 0;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - start) / ms);
+      const v = Math.round(from + (value - from) * (1 - Math.pow(1 - k, 3))); // eases out: fast first, settling at the end
+      now.current = v;
+      setShown(v);
+      if (k < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value, ms]);
+  return <>{shown.toLocaleString()}</>;
+}
+
+// ---------------------------------------------------------------- where you are, kept in the address
+// The address is `/admin/section/tab?name=value` (no "#"): the part after "?" holds what is open on the page (the selected report
+// or person, the filter), so reloading the page comes back to exactly the same place. Written with replaceState: Back still
+// moves between pages, not between every row clicked.
+export const urlParam = (name: string) => new URLSearchParams(window.location.search).get(name);
+export function setUrlParam(name: string, value: string | null) {
+  const params = new URLSearchParams(window.location.search);
+  if (value) params.set(name, value);
+  else params.delete(name);
+  const q = params.toString();
+  try {
+    window.history.replaceState(window.history.state, '', window.location.pathname + (q ? '?' + q : ''));
+  } catch {
+    /* history unavailable: the page still works, a reload just starts fresh */
+  }
+}
+/** Like useState, but the value is kept in the address, so a page reload keeps it. */
+export function useUrlParam<T extends string>(name: string, fallback: T | null = null) {
+  const [value, setValue] = useState<T | null>(() => (urlParam(name) as T | null) ?? fallback);
+  const set = useCallback(
+    (next: T | null) => {
+      setValue(next);
+      setUrlParam(name, next === fallback ? null : next);
+    },
+    [name, fallback],
+  );
+  return [value, set] as const;
+}
+
 export const errMsg = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : 'Something went wrong');
 
 /** Runs a mutation, surfaces errors, then refreshes. */
@@ -97,7 +194,7 @@ let openAsk: ((a: Ask) => void) | null = null;
 export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean; choices?: [string, string][]; choiceLabel?: string } = {}) {
   return new Promise<string | null>((resolve) => {
     if (!openAsk) return resolve(null);
-    openAsk({ title, label: opts.label ?? 'Reason (kept in the audit log)', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, choiceLabel: opts.choiceLabel, resolve });
+    openAsk({ title, label: opts.label ?? 'Reason', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, choiceLabel: opts.choiceLabel, resolve });
   });
 }
 
@@ -135,10 +232,12 @@ export function DialogHost() {
     setAsk(null);
   };
   const tooShort = ask?.required && value.trim().length < 3;
+  const backdrop = useBackdropClose(ref, () => close(null)); // a click on the dark area closes it, like Cancel
 
   if (!ask) return null;
   return (
-    <dialog ref={ref} className="dialog" onCancel={(e) => (e.preventDefault(), close(null))} aria-labelledby="dlg-title">
+    <dialog ref={ref} className="dialog" onCancel={(e) => (e.preventDefault(), close(null))} aria-labelledby="dlg-title" {...backdrop}>
+      {/* the label defaults to "Reason" (it is kept in the audit log either way) */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -149,13 +248,13 @@ export function DialogHost() {
         {ask.choices && (
           <label>
             {ask.choiceLabel ?? 'Reason'}
-            <select value={choice} onChange={(e) => setChoice(e.target.value)}>
+            <Select value={choice} onChange={setChoice}>
               {ask.choices.map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
         <label>
@@ -176,23 +275,120 @@ export function DialogHost() {
 }
 
 // ---------------------------------------------------------------- small pieces
-/** What the sidebar knows about the open page (its group), shown small above the heading. */
-export const PageMeta = createContext<{ eyebrow?: string }>({});
+/**
+ * Set by the shell for sections with tabs (Reports, Users, Team, Settings): the section's title wins over the page's own,
+ * and the tab bar is drawn under the heading.
+ */
+export const PageMeta = createContext<{ eyebrow?: string; title?: string; tabs?: ReactNode }>({});
 
-export function Page({ title, sub, actions, children, fill }: { title: string; sub?: ReactNode; actions?: ReactNode; children: ReactNode; fill?: boolean }) {
-  const { eyebrow } = useContext(PageMeta);
+/**
+ * The heading and tab bar of a section with tabs (Reports: Reports / Appeals / Attendance), built ONCE for the section. Moving
+ * between its tabs swaps only the page underneath: the heading and the tabs stay exactly where they are. Each tab's own page
+ * (Page below) sees it and then draws only its body, sending its action buttons up into the heading's right side.
+ */
+const FrameContext = createContext<{ slot: HTMLElement | null } | null>(null);
+export function PageFrame({ eyebrow, title, tabs, children }: { eyebrow?: string; title: string; tabs?: ReactNode; children: ReactNode }) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const value = useMemo(() => ({ slot }), [slot]);
   return (
     <section className="page">
       <header className="page-head">
         <div>
           {eyebrow && <p className="eyebrow">{eyebrow}</p>}
           <h1>{title}</h1>
-          {sub && <p className="sub">{sub}</p>}
+        </div>
+        <div className="row wrap" ref={setSlot} />
+      </header>
+      {tabs}
+      <FrameContext.Provider value={value}>{children}</FrameContext.Provider>
+    </section>
+  );
+}
+
+/** Every page: the small group label, the title, optional actions on the right, then the body. `sub` is accepted but not shown. */
+export function Page({ title, actions, children, fill }: { title: string; sub?: ReactNode; actions?: ReactNode; children: ReactNode; fill?: boolean }) {
+  const meta = useContext(PageMeta);
+  const frame = useContext(FrameContext);
+  // decided once, when the page appears: opened from memory = shown as it is, no second round of entrance animations
+  const [cached] = useState(openedFromCache);
+  // inside a section's frame: the heading and tabs are already on screen, so only the body is drawn (and the actions are sent up)
+  if (frame)
+    return (
+      <>
+        {frame.slot && actions ? createPortal(actions, frame.slot) : null}
+        <div className={`page-body${fill ? ' fill' : ''}${cached ? ' from-cache' : ''}`}>{children}</div>
+      </>
+    );
+  return (
+    <section className="page">
+      <header className="page-head">
+        <div>
+          {meta.eyebrow && <p className="eyebrow">{meta.eyebrow}</p>}
+          <h1>{meta.title ?? title}</h1>
         </div>
         <div className="row wrap">{actions}</div>
       </header>
-      <div className={fill ? 'page-body fill' : 'page-body'}>{children}</div>
+      {meta.tabs}
+      <div className={`page-body${fill ? ' fill' : ''}${cached ? ' from-cache' : ''}`}>{children}</div>
     </section>
+  );
+}
+
+/**
+ * A Refresh button that shows it worked: the arrows turn while the page's data is fetched again (never the whole page),
+ * then "Updated" with the time. `busy` is for the page, to dim its content meanwhile (useRefresh below).
+ */
+export function useRefresh(load: () => Promise<unknown>) {
+  const [busy, setBusy] = useState(false);
+  const [at, setAt] = useState<Date | null>(null);
+  const [fresh, setFresh] = useState(false); // "Updated" stands out for a moment, then stays as a quiet time
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    // at least a short turn of the arrows, so a fast answer is still seen to happen
+    await Promise.all([load(), new Promise((r) => setTimeout(r, 600))]);
+    setBusy(false);
+    setAt(new Date());
+    setFresh(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setFresh(false), 2500);
+  };
+  return { busy, at, fresh, run };
+}
+
+export function RefreshButton({ r }: { r: ReturnType<typeof useRefresh> }) {
+  // 12-hour clock, hours and minutes only (e.g. 2:32 PM)
+  const time = r.at?.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return (
+    <span className="refresh">
+      <span className={r.fresh ? 'refresh-note fresh' : 'refresh-note'} role="status" aria-live="polite">
+        {r.busy ? 'Refreshing…' : r.at ? (
+          <>
+            {r.fresh && <Icon name="check" />}
+            Updated {time}
+          </>
+        ) : null}
+      </span>
+      <button className={r.busy ? 'icon-btn refresh-btn busy' : 'icon-btn refresh-btn'} onClick={() => void r.run()} disabled={r.busy} aria-label="Refresh" title="Refresh">
+        <Icon name="refresh" />
+      </button>
+    </span>
+  );
+}
+
+/** Underlined tabs, e.g. Reports / Appeals / No-shows. */
+export function Tabs<T extends string>({ options, value, onChange, label }: { options: { id: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="page-tabs" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.id} type="button" role="tab" aria-selected={value === o.id} className={value === o.id ? 'tab active' : 'tab'} onClick={() => onChange(o.id)}>
+          {o.label}
+          {!!o.count && <span className="count">{o.count}</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -231,9 +427,55 @@ export const Loading = ({ label = 'Loading…', rows = 0 }: { label?: string; ro
     </div>
   );
 
-/** Status chips always carry a text label, never colour alone. */
-export function Chip({ value, tone, icon }: { value: string; tone?: 'ok' | 'warn' | 'bad' | 'info' | 'plain'; icon?: IconName }) {
-  const t = tone ?? toneFor(value);
+/**
+ * Status chips always carry a text label. Tones: ok = green, dark = needs attention (urgent, overdue, suspended),
+ * line = waiting (outlined), plain = everything else. The old names still work: warn -> line, bad -> dark, info -> plain.
+ */
+export type Tone = 'ok' | 'dark' | 'line' | 'plain' | 'warn' | 'bad' | 'info';
+/** The proof photos sent with an appeal or a dispute (a screenshot of a chat, say). Click one to open it full size in a new tab. */
+export function ProofImages({ ids }: { ids?: string[] }) {
+  const [urls, setUrls] = useState<(string | null)[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const made: string[] = [];
+    setUrls([]);
+    (ids ?? []).forEach((id, i) =>
+      getImage(`/v1/proofs/${id}`)
+        .then((u) => {
+          if (!alive) return URL.revokeObjectURL(u);
+          made.push(u);
+          setUrls((list) => Object.assign([...list], { [i]: u }));
+        })
+        .catch(() => alive && setUrls((list) => Object.assign([...list], { [i]: null }))),
+    );
+    return () => {
+      alive = false;
+      made.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [(ids ?? []).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!ids?.length) return null;
+  return (
+    <div className="proofs">
+      <span className="small muted">Photos sent as proof ({ids.length})</span>
+      <div className="proof-row">
+        {ids.map((id, i) =>
+          urls[i] ? (
+            <a key={id} href={urls[i]!} target="_blank" rel="noreferrer" title="Open full size">
+              <img src={urls[i]!} alt={`Proof photo ${i + 1}`} />
+            </a>
+          ) : (
+            <span key={id} className="proof-ph small muted">
+              {urls[i] === null ? 'Could not load' : 'Loading…'}
+            </span>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function Chip({ value, tone, icon }: { value: string; tone?: Tone; icon?: IconName }) {
+  const t = { warn: 'line', bad: 'dark', info: 'plain' }[tone as string] ?? tone ?? toneFor(value);
   return (
     <span className={`chip ${t}`}>
       {icon && <Icon name={icon} />}
@@ -241,11 +483,11 @@ export function Chip({ value, tone, icon }: { value: string; tone?: 'ok' | 'warn
     </span>
   );
 }
-function toneFor(v: string): 'ok' | 'warn' | 'bad' | 'info' {
+function toneFor(v: string): Tone {
   if (['active', 'verified', 'resolved', 'published', 'approved', 'completed', 'confirmed'].includes(v)) return 'ok';
-  if (['pending', 'open', 'in_review', 'full', 'planning', 'unverified'].includes(v)) return 'warn';
-  if (['suspended', 'rejected', 'cancelled', 'physical_safety', 'underage', 'dismissed'].includes(v)) return 'bad';
-  return 'info';
+  if (['pending', 'open', 'in_review', 'full', 'planning', 'unverified'].includes(v)) return 'line';
+  if (['suspended', 'banned', 'urgent', 'physical_safety', 'immediate_danger', 'underage'].includes(v)) return 'dark';
+  return 'plain';
 }
 
 export const fmt = (iso?: string | null) =>
@@ -268,6 +510,8 @@ const ICONS = {
   check: 'M5 12.5l4.5 4.5L19 7',
   alert: 'M12 3l10 18H2zM12 10v5M12 18h.01',
   arrow: 'M5 12h14M13 6l6 6-6 6',
+  back: 'M19 12H5M11 6l-6 6 6 6',
+  panelLeft: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 5v14',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   copy: 'M9 9h11v11H9zM5 15V5a1 1 0 0 1 1-1h10',
   plane: 'M21 3L3 10.5l7 3 3 7zM10 13.5L21 3',
@@ -276,6 +520,10 @@ const ICONS = {
   userPlus: 'M15 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19 8v6M16 11h6',
   bell: 'M6 9a6 6 0 1 1 12 0c0 5 2 6 2 7H4c0-1 2-2 2-7zM10 20a2 2 0 0 0 4 0',
   key: 'M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7zM11.4 11.6L15.5 7.5M18 5l3 3-3 3-3-3',
+  settings: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
+  list: 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
+  eye: 'M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  eyeOff: 'M3 3l18 18M10.6 6.2A9.9 9.9 0 0 1 12 6c5 0 8.5 4.2 9.5 6a11 11 0 0 1-2.6 3.1M6.3 7.6A11 11 0 0 0 2.5 12c1 1.8 4.5 6 9.5 6 1.5 0 2.8-.4 4-1M9.9 9.9a3 3 0 0 0 4.2 4.2',
 } as const;
 export type IconName = keyof typeof ICONS;
 export const Icon = ({ name }: { name: IconName }) => (
@@ -310,8 +558,27 @@ export const Search = ({ value, onChange, placeholder, label }: { value: string;
 
 /** A row of buttons that acts like tabs, e.g. All / Active / Suspended. */
 export function Segmented<T extends string>({ options, value, onChange, label }: { options: { id: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void; label: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // the green pill slides to the chosen option (measured, so it fits any label and wraps with the row)
+  const [pill, setPill] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [moves, setMoves] = useState(false); // no slide on the very first show
+  const measure = useCallback(() => {
+    const el = ref.current?.querySelector<HTMLElement>('.seg.active');
+    setPill(el ? { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight } : null);
+  }, []);
+  useLayoutEffect(measure, [measure, value, options.map((o) => `${o.id}${o.label}${o.count ?? ''}`).join('|')]);
+  useEffect(() => {
+    const t = setTimeout(() => setMoves(true), 50);
+    const ro = typeof ResizeObserver !== 'undefined' && ref.current ? new ResizeObserver(measure) : null;
+    if (ro && ref.current) ro.observe(ref.current);
+    return () => {
+      clearTimeout(t);
+      ro?.disconnect();
+    };
+  }, [measure]);
   return (
-    <div className="segmented" role="group" aria-label={label}>
+    <div ref={ref} className={pill ? (moves ? 'segmented has-pill moves' : 'segmented has-pill') : 'segmented'} role="group" aria-label={label}>
+      {pill && <span className="seg-pill" aria-hidden="true" style={{ width: pill.w, height: pill.h, transform: `translate(${pill.x}px, ${pill.y}px)` }} />}
       {options.map((o) => (
         <button key={o.id} type="button" className={value === o.id ? 'seg active' : 'seg'} aria-pressed={value === o.id} onClick={() => onChange(o.id)}>
           {o.label}
@@ -401,14 +668,14 @@ export function usePages<T>(items: T[], resetKey: string, size = 10) {
   const foot = items.length > 0 && (
     <div className="table-foot">
       <span className="muted small">
-        Showing {from + 1}–{from + shown.length} of {items.length}
+        {from + 1}–{from + shown.length} of {items.length}
       </span>
       {items.length > size && (
         <div className="row">
           <button className="btn small" disabled={p === 0} onClick={() => setPage(p - 1)}>
             Previous
           </button>
-          <button className="btn small primary" disabled={p === last} onClick={() => setPage(p + 1)}>
+          <button className="btn small" disabled={p === last} onClick={() => setPage(p + 1)}>
             Next
           </button>
         </div>

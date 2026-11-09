@@ -1,11 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Linking, Platform, Pressable, View } from 'react-native';
 import { AuthButton } from '@/components/AuthForm';
 import { AccountRow, GroupLabel, PillChoice, RoundCard } from '@/components/ProfileParts';
 import { Text } from '@/components/ScaledText';
-import { Avatar, Btn, ErrorBanner, Screen, useGo } from '@/components/ui';
+import { Avatar, Btn, ErrorBanner, Row, Screen, useGo } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
@@ -36,7 +36,7 @@ export default function Settings() {
   const signOutEverywhere = async () => {
     if (!(await confirmAsync(t('Sign out of every device?'), t('Every phone and browser signed in to your account is signed out now, this one too. Use it if a phone is lost or you think someone else got in.'), t('Sign out everywhere'), true))) return;
     const done = await act.run(() => post('/v1/me/sessions/logout-all'));
-    if (done) void logout('You were signed out of every device. Log in again.');
+    if (done) void logout(''); // nothing is said afterwards: the person chose this
   };
 
   const signOut = async () => {
@@ -90,9 +90,20 @@ export default function Settings() {
         <AccountRow
           icon="notifications-outline"
           title={t('Alerts on this device')}
-          subtitle={push === 'granted' ? t('On') : push === 'denied' ? t('Blocked in your phone settings') : push === 'unsupported' ? t('Not available here') : t('Off')}
+          subtitle={push === 'granted' ? t('On · Open phone settings') : push === 'denied' ? t('Blocked · Open phone settings to allow') : push === 'unsupported' ? t('Not available here') : t('Off')}
           last
-          right={push === 'default' ? <Btn title={t('Turn on')} small onPress={() => void enablePush().then(setPush)} /> : push === 'granted' ? <Ionicons name="checkmark-circle" size={22} color={c.green} /> : undefined}
+          // tapping the row opens this app's notification settings on the phone (sound, banners, lock screen, or allowing them again)
+          onPress={push === 'unsupported' || Platform.OS === 'web' ? undefined : () => void Linking.openSettings()}
+          right={
+            push === 'default' ? (
+              <Btn title={t('Turn on')} small onPress={() => void enablePush().then(setPush)} />
+            ) : push === 'unsupported' ? undefined : (
+              <Row style={{ gap: 6, alignItems: 'center' }}>
+                {push === 'granted' ? <Ionicons name="checkmark-circle" size={22} color={c.green} /> : null}
+                <Ionicons name="open-outline" size={18} color={c.muted} />
+              </Row>
+            )
+          }
         />
       </RoundCard>
 
@@ -110,7 +121,7 @@ export default function Settings() {
 
       <GroupLabel>{t('About')}</GroupLabel>
       <RoundCard>
-        <AccountRow icon="information-circle-outline" title="HERE & THERE" subtitle={t('Version {v}', { v: Constants.expoConfig?.version ?? '0.1.0' })} last />
+        <AccountRow icon="information-circle-outline" title="LAMIS" subtitle={t('Version {v}', { v: Constants.expoConfig?.version ?? '0.1.0' })} last />
       </RoundCard>
 
       <AuthButton title={t('Sign out')} onPress={() => void signOut()} />

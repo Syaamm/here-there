@@ -1,8 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useIsFocused } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, TextInput, View } from 'react-native';
-import { Text } from '@/components/ScaledText';
+import { Pressable, View } from 'react-native';
+import { Text, TextInput } from '@/components/ScaledText';
 import { TabHeader, ModeSwitch, Wordmark } from '@/components/TabHeader';
 import { Reveal } from '@/components/Reveal';
 import { CatPhoto } from '@/components/CatPhoto';
@@ -16,11 +16,13 @@ import { entersFresh } from '@/lib/nav';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useTheme } from '@/lib/theme';
 import { useLiveEvents } from '@/lib/live';
-import { alertRoute } from '@/lib/alerts';
+import { alertRoute, alertText } from '@/lib/alerts';
 import { enablePush, pushState, type PushState } from '@/lib/push';
 import { bumpUnread, refreshUnread, setUnread } from '@/lib/unread';
 
 type Tab = 'alerts' | 'chats';
+/** Alerts that wait for you to do something (the same list as the server's): "Mark all read" leaves them until you act. */
+const ACTION_TYPES = ['join_request', 'trip_application', 'host_handover_offer', 'trip_dates_proposed'];
 type PendingReq = { id: string; state: string; applicant: { id: string; displayName?: string; photoUrl?: string | null } };
 
 const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
@@ -36,6 +38,8 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   application_declined: 'close-circle-outline',
   activity_changed: 'time-outline',
   activity_cancelled: 'ban-outline',
+  activity_completed: 'checkmark-done-outline',
+  attendance_prompt: 'checkbox-outline',
   host_handover_offer: 'swap-horizontal-outline',
   host_handover_accepted: 'swap-horizontal-outline',
   host_handover_declined: 'swap-horizontal-outline',
@@ -113,6 +117,8 @@ export function Inbox() {
   const all = notifs.data?.items ?? [];
   const alerts = all.filter((n) => n.type !== 'chat_message');
   const alertsUnread = alerts.filter((n) => !n.readAt).length; // chat alerts are counted on the Chats tab, not here
+  // what "Mark all read" can clear: news only. Alerts waiting for you to act stay until you have acted on them.
+  const clearable = alerts.filter((n) => !n.readAt && !ACTION_TYPES.includes(n.type)).length;
   const unreadChats = new Set(all.filter((n) => n.type === 'chat_message' && !n.readAt).map((n) => n.data?.conversationId));
 
   // Join requests that are still waiting: for each activity you host that has a join-request alert, ask the server who is pending now
@@ -183,7 +189,9 @@ export function Inbox() {
   const act = useAction(() => void refreshAll());
 
   const stale = me?.eligibility === 'expired' || me?.eligibility === 'reverification_required' || me?.eligibility === 'rejected';
-  const needs = (waiting.data?.length ?? 0) + (stale ? 1 : 0);
+  // the requests answered here a moment ago (they leave the list at once; see decide below)
+  const [handled, setHandled] = useState<Set<string>>(new Set());
+  const needs = (waiting.data ?? []).filter((w) => w.pending.some((x) => !handled.has(x.id))).length + (stale ? 1 : 0);
   const waitingIds = new Set((waiting.data ?? []).map((w) => w.id));
   // what is left for the lists below: not the join requests that already have a card above
   const rest = alertList.items.filter((n) => !(n.type === 'join_request' && n.data?.activityId && waitingIds.has(n.data.activityId)));
@@ -199,7 +207,19 @@ export function Inbox() {
   };
   // when the newest join-request alert for this activity arrived (shown as "5m ago" in THERE)
   const joinedAt = (activityId: string) => alerts.find((n) => n.type === 'join_request' && n.data?.activityId === activityId)?.createdAt;
-  const decide = (activityId: string, r: PendingReq, decision: 'approve' | 'decline') => act.run(() => post(`/v1/activities/${activityId}/requests/${r.id}/decision`, { decision }));
+  // Accept / Decline answer at once: the request leaves the list the moment it is tapped, while the server is told in the
+  // background (no spinner, no waiting). If the server refuses, it comes back and the reason is shown.
+  const decide = (activityId: string, r: PendingReq, decision: 'approve' | 'decline') => {
+    setHandled((h) => new Set(h).add(r.id));
+    void act.run(() => post(`/v1/activities/${activityId}/requests/${r.id}/decision`, { decision })).then((ok) => {
+      if (ok === undefined)
+        setHandled((h) => {
+          const n = new Set(h);
+          n.delete(r.id);
+          return n;
+        });
+    });
+  };
 
   // a plain function that returns the card, NOT a component: a component declared here would be a new type on every
   // refresh, so React would rebuild every row and each one would play its entrance animation again
@@ -209,7 +229,7 @@ export function Inbox() {
         <Pressable
           key={n.id}
           accessibilityRole="button"
-          accessibilityLabel={`${n.title}. ${n.body}. ${ago(n.createdAt)}${n.readAt ? '' : `, ${t('unread')}`}`}
+          accessibilityLabel={`${alertText(n, t).title}. ${alertText(n, t).body}. ${ago(n.createdAt)}${n.readAt ? '' : `, ${t('unread')}`}`}
           onPress={() => open(n)}
           style={({ pressed }) => [{ flexDirection: 'row', gap: 12, paddingVertical: 14, borderTopWidth: i ? 1 : 0, borderTopColor: c.line, alignItems: 'flex-start' }, pressed && { opacity: 0.7 }]}
         >
@@ -217,8 +237,8 @@ export function Inbox() {
             <Ionicons name={ICON[n.type] ?? 'notifications-outline'} size={mode === 'there' ? 17 : 19} color={c.forest} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
-            <Text numberOfLines={2} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '600' }}>{n.title}</Text>
-            <Text numberOfLines={3} style={{ color: c.muted, fontSize: mode === 'there' ? 13 : 14, lineHeight: 19 }}>{n.body}</Text>
+            <Text numberOfLines={2} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '600' }}>{alertText(n, t).title}</Text>
+            <Text numberOfLines={2} style={{ color: c.muted, fontSize: mode === 'there' ? 13 : 14, lineHeight: 19 }}>{alertText(n, t).body}</Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
             <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(n.createdAt)}</Text>
@@ -236,16 +256,31 @@ export function Inbox() {
 
   return (
     <Screen tabBar plain onRefresh={onRefresh} refreshing={refreshing} header={mode === 'there' ? <ThereHeader /> : <TabHeader plain />}>
-      <Row style={{ justifyContent: 'space-between' }}>
-        <Text accessibilityRole="header" style={{ color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '600' }}>{t('Your Inbox')}</Text>
-        {tab === 'alerts' && alertsUnread > 0 ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Mark all read')} hitSlop={12} style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => {
-              bumpUnread(-alertsUnread); // the Message badge drops by the alerts cleared; chats keep theirs
-              void act.run(() => post(`/v1/notifications/read-all?scope=alerts&product=${mode}`)).then(refreshUnread);
-            }}>
-            <Txt variant="label" color={c.forest} style={{ fontSize: 12 }}>{t('Mark all read')}</Txt>
-          </Pressable>
-        ) : null}
+      {/* the same on both tabs, at a fixed height: switching Chats / Alerts never moves the title or the switch below it */}
+      <Row style={{ justifyContent: 'space-between', alignItems: 'center', height: 44 }}>
+        <Text accessibilityRole="header" numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '600' }}>{t('Your Inbox')}</Text>
+        {(() => {
+          // Chats: every chat read. Alerts: the news read; requests, offers and dates to confirm stay until you act on them.
+          const n = tab === 'chats' ? unreadChats.size : clearable;
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={tab === 'chats' ? t('Mark all chats read') : t('Mark all alerts read')}
+              accessibilityState={{ disabled: n === 0 }}
+              disabled={n === 0}
+              hitSlop={12}
+              style={{ minHeight: 44, justifyContent: 'center', opacity: n === 0 ? 0.35 : 1 }}
+              onPress={() =>
+                void act
+                  .run(() => post(`/v1/notifications/read-all?scope=${tab}&product=${mode}`))
+                  .then(() => Promise.all([notifs.reload(), alertList.reload(), convs.reload()]))
+                  .then(refreshUnread)
+              }
+            >
+              <Txt variant="label" color={c.forest} style={{ fontSize: 12 }}>{t('Mark all read')}</Txt>
+            </Pressable>
+          );
+        })()}
       </Row>
 
       {/* two parts: alerts, and chats on their own */}
@@ -352,7 +387,7 @@ export function Inbox() {
           {needs > 0 && (
             <>
               <SectionLabel title={t('Join Requests')} count={needs > 1 ? needs : undefined} />
-              {(waiting.data ?? []).map((w, wi) => {
+              {(waiting.data ?? []).map((w0) => ({ ...w0, pending: w0.pending.filter((x) => !handled.has(x.id)) })).filter((w) => w.pending.length > 0).map((w, wi) => {
                 const r = w.pending[0];
                 const name = r.applicant.displayName ?? t('Someone');
                 return (
@@ -372,10 +407,10 @@ export function Inbox() {
                         </View>
                       </Row>
                       <Row style={{ gap: mode === 'there' ? 14 : 12, paddingLeft: mode === 'there' ? 47 : 52 }}>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Accept')}: ${name}`} accessibilityState={{ disabled: act.busy }} disabled={act.busy} hitSlop={4} onPress={() => decide(w.id, r, 'approve')} style={({ pressed }) => [{ minHeight: 44, minWidth: mode === 'there' ? 78 : 80, paddingHorizontal: 22, borderRadius: 22, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: act.busy ? 0.5 : 1 }, pressed && { opacity: 0.8 }]}>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Accept')}: ${name}`} hitSlop={4} onPress={() => decide(w.id, r, 'approve')} style={({ pressed }) => [{ minHeight: 44, minWidth: mode === 'there' ? 78 : 80, paddingHorizontal: 22, borderRadius: 22, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', }, pressed && { opacity: 0.8 }]}>
                           <Text style={{ color: '#fff', fontSize: mode === 'there' ? 13 : 15, fontWeight: '500' }}>{t('Accept')}</Text>
                         </Pressable>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Decline')}: ${name}`} accessibilityState={{ disabled: act.busy }} disabled={act.busy} hitSlop={4} onPress={() => decide(w.id, r, 'decline')} style={({ pressed }) => [{ minHeight: 44, minWidth: mode === 'there' ? 76 : 80, paddingHorizontal: 22, borderRadius: 22, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: act.busy ? 0.5 : 1 }, pressed && { opacity: 0.8 }]}>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Decline')}: ${name}`} hitSlop={4} onPress={() => decide(w.id, r, 'decline')} style={({ pressed }) => [{ minHeight: 44, minWidth: mode === 'there' ? 76 : 80, paddingHorizontal: 22, borderRadius: 22, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', }, pressed && { opacity: 0.8 }]}>
                           <Text style={{ color: c.text, fontSize: mode === 'there' ? 13 : 15, fontWeight: '500' }}>{t('Decline')}</Text>
                         </Pressable>
                       </Row>

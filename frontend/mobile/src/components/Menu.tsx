@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRef, useState } from 'react';
-import { Modal, Pressable, View, useWindowDimensions } from 'react-native';
+import { Modal, Platform, Pressable, View, useWindowDimensions } from 'react-native';
 import { Text } from './ScaledText';
 import { FloatingButton } from './Hero';
 import { Btn, Sheet } from './ui';
@@ -14,6 +14,18 @@ export function Menu({ items, floating, round, size, popover, onDark }: { items:
   const { c } = useTheme();
   const { t } = useT();
   const [open, setOpen] = useState(false);
+  // the action picked runs once the menu is fully closed: iPhone silently drops a sheet or alert opened while it is still leaving
+  const pending = useRef<(() => void) | null>(null);
+  const pick = (fn: () => void) => {
+    pending.current = fn;
+    setOpen(false);
+    if (popover && Platform.OS !== 'ios') setTimeout(runPending, 200); // the popover's own fade, then the action
+  };
+  const runPending = () => {
+    const fn = pending.current;
+    pending.current = null;
+    fn?.();
+  };
   const [top, setTop] = useState(90);
   const anchor = useRef<React.ComponentRef<typeof View>>(null);
   const { width } = useWindowDimensions();
@@ -38,7 +50,17 @@ export function Menu({ items, floating, round, size, popover, onDark }: { items:
             <Ionicons name="ellipsis-horizontal" size={22} color={onDark ? c.onBand : c.text} />
           </Pressable>
         </View>
-        <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>
+        <Modal
+          visible={open}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setOpen(false)}
+          // iPhone says when the popover has fully gone; Android has no such call, and its popover is gone right away
+          onDismiss={runPending}
+          onShow={() => void (pending.current = null)}
+          statusBarTranslucent
+          navigationBarTranslucent
+        >
           <Pressable accessibilityRole="button" accessibilityLabel={t('Close')} onPress={() => setOpen(false)} style={{ flex: 1 }}>
             <View accessibilityViewIsModal style={{ position: 'absolute', top, right: Math.max(12, (width - 760) / 2 + 12), minWidth: 200, backgroundColor: '#fff', borderRadius: 20, paddingVertical: 8, shadowColor: '#000', shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: 8 }}>
               {items.map((i) => (
@@ -46,10 +68,7 @@ export function Menu({ items, floating, round, size, popover, onDark }: { items:
                   key={i.label}
                   accessibilityRole="menuitem"
                   accessibilityLabel={i.label}
-                  onPress={() => {
-                    setOpen(false);
-                    setTimeout(i.onSelect, 250); // let the popover close first so a following confirm or screen change is not swallowed
-                  }}
+                  onPress={() => pick(i.onSelect)}
                   style={({ pressed }) => [{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 22 }, pressed && { backgroundColor: c.bg }]}
                 >
                   <Text style={{ color: i.danger ? c.danger : '#000', fontSize: 16, lineHeight: 22 }}>{i.label}</Text>
@@ -69,17 +88,13 @@ export function Menu({ items, floating, round, size, popover, onDark }: { items:
           <Ionicons name="ellipsis-horizontal" size={22} color={onDark ? c.onBand : c.text} />
         </Pressable>
       )}
-      <Sheet visible={open} title={t('Options')} onClose={() => setOpen(false)}>
+      <Sheet visible={open} title={t('Options')} onClose={() => setOpen(false)} onClosed={runPending}>
         {items.map((i) => (
           <Btn
             key={i.label}
             title={i.label}
             variant={i.danger ? 'danger' : 'secondary'}
-            onPress={() => {
-              setOpen(false);
-              // let the sheet close first so a following confirm()/navigation isn't swallowed by the modal
-              setTimeout(i.onSelect, 250);
-            }}
+            onPress={() => pick(i.onSelect)}
           />
         ))}
         <Btn title={t('Cancel')} variant="ghost" onPress={() => setOpen(false)} />

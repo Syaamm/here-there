@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { can, get, post, STAFF, type Role, type Session } from '../api';
-import { askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Loading, Page, RowMenu, useAction, useLoad, useMore } from '../ui';
-import './Users.css';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { can, get, post, roleLabel, type Role, type Session } from '../api';
+import './UserPanel.css';
+import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad, useMore } from '../ui';
 
 type U = { adminRegionKey?: string | null; id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
 type Detail = {
@@ -18,175 +18,190 @@ type Reliab = {
   events: { kind: string; at: string; text: string; weight: number }[];
   marks: { id: string; title: string; state: string; markedAt: string; counts: boolean; disputeNote: string | null; decisionNote: string | null }[];
 };
-type View = 'all' | 'active' | 'suspended' | 'notverified' | 'guests';
+type View = 'all' | 'active' | 'suspended' | 'notverified';
 
 const isGuest = (u: U) => u.email.startsWith('guest-') || u.displayName === 'Guest';
-const PAGE = 10;
-const nameOf = (u: U) => (isGuest(u) && u.displayName === 'Guest' ? 'Guest visitor' : (u.displayName ?? '(no name)'));
+const nameOf = (u: U) => (isGuest(u) && u.displayName === 'Guest' ? 'Guest' : (u.displayName ?? '(no name)'));
+const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+/** "user.suspend" -> "Suspended"; anything not listed reads as words */
+const ACTIONS: Record<string, string> = {
+  'user.suspend': 'Suspended',
+  'user.restore': 'Restored',
+  'user.warn': 'Warned',
+  'user.role_change': 'Role changed',
+  'staff.create': 'Staff account created',
+  'staff.update': 'Staff permissions changed',
+  'mfa.reset_by_admin': 'Two-step sign-in reset',
+  'verification.verified': 'Identity approved',
+  'verification.rejected': 'Identity rejected',
+  'verification.reset': 'Allowed another identity attempt',
+  'verification.rejection_overturned': 'Rejection overturned',
+  'verification.reverification_required': 'Asked to verify again',
+  'report.resolved': 'Report resolved',
+  'report.assign': 'Report taken',
+  'message.removed': 'Message hidden',
+  'message.restored': 'Message restored',
+};
+const actionText = (a: string) => ACTIONS[a] ?? (a.split('.').pop() ?? a).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+/** the readable part of an audit entry's details: its reason or note, never raw data */
+const detailText = (meta: string | null) => {
+  if (!meta) return null;
+  try {
+    const m = JSON.parse(meta) as Record<string, unknown>;
+    const text = [m.reason, m.note, m.resolution].find((v) => typeof v === 'string' && v.trim()) as string | undefined;
+    const extra = typeof m.days === 'number' ? `${m.days} days` : typeof m.role === 'string' ? 'now ' + roleLabel(m.role) : null;
+    return [text, extra].filter(Boolean).join(' · ') || null;
+  } catch {
+    return null;
+  }
+};
 
-export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Session; focusId?: string | null; onClearFocus?: () => void; openReport?: (id: string) => void }) {
+export function UsersPage({ me, focusId, onClearFocus, openReport, backLabel, onBack }: { me: Session; focusId?: string | null; onClearFocus?: () => void; openReport?: (id: string) => void; /** "Back to the report" etc.: this person was opened from there */ backLabel?: string | null; onBack?: () => void }) {
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
-  const [view, setView] = useState<View>('all');
-  const [open, setOpen] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
+  // kept in the address, so a page reload stays on the same view and person
+  const [viewRaw, setView] = useUrlParam<View>('view', 'all');
+  const view: View = viewRaw ?? 'all';
+  const [open, setOpen] = useUrlParam<string>('user');
   const state = view === 'active' || view === 'suspended' ? view : '';
-  // typing in the search box looks people up a moment after the last key
   useEffect(() => {
     const t = setTimeout(() => setTerm(q.trim()), 300);
     return () => clearTimeout(t);
   }, [q]);
-  // opened from a report: look up just that one person by id and show their details straight away
   const query = new URLSearchParams(focusId ? { q: focusId } : { ...(term && { q: term }), ...(state && { state }) });
   const users = useLoad(() => get<{ items: U[]; nextCursor: string | null }>(`/v1/admin/users?${query}`), [term, state, focusId]);
   const more = useMore(users.data, (c) => get(`/v1/admin/users?${query}&cursor=${c}`), `${term}|${state}|${focusId}`);
   const act = useAction(() => (more.reset(), users.reload()));
-  const rows = more.items.filter((u) => (focusId ? u.id === focusId : view === 'guests' ? isGuest(u) : view === 'notverified' ? u.eligibility !== 'verified' && !isGuest(u) : true));
-  useEffect(() => setPage(0), [term, view, focusId]);
-  const last = Math.max(0, Math.ceil(rows.length / PAGE) - 1);
-  const p = Math.min(page, last);
-  const shown = rows.slice(p * PAGE, p * PAGE + PAGE);
+  const rows = more.items.filter((u) => (focusId ? u.id === focusId : view === 'notverified' ? u.eligibility !== 'verified' && !isGuest(u) : true));
+  const shown = rows;
+  const listRef = useRef<HTMLDivElement>(null);
+  const selectedId = focusId ?? open ?? rows[0]?.id ?? null;
+  const selected = rows.find((u) => u.id === selectedId) ?? null;
+  // on a phone or small tablet: the list, then the person opened from it with a way back (responsive.css reads data-pane)
+  const [pane, setPane] = useState<'list' | 'detail'>(() => (focusId || urlParam('user') ? 'detail' : 'list'));
+  const label = (u: U) => u.displayName ?? u.email;
 
   const suspend = async (u: U) => {
-    const r = await askChoiceText(
-      `Suspend ${u.displayName ?? u.email}?`,
-      [['1', '1 day'], ['3', '3 days'], ['7', '7 days'], ['30', '30 days'], ['0', 'Until I restore them']],
-      { label: 'Reason (kept in the audit log, not shown to the user)', confirm: 'Suspend', choiceLabel: 'For how long' },
-    );
+    const r = await askChoiceText(`Suspend ${label(u)}?`, [['1', '1 day'], ['3', '3 days'], ['7', '7 days'], ['30', '30 days'], ['0', 'Until restored']], { confirm: 'Suspend', choiceLabel: 'For' });
     if (r && r.text.length >= 3) act.run(() => post(`/v1/admin/users/${u.id}/suspend`, { reason: r.text, ...(r.choice !== '0' && { days: Number(r.choice) }) }));
   };
   const restore = async (u: U) => {
-    const reason = await askText(`Restore ${u.displayName ?? u.email}?`, { confirm: 'Restore' });
+    const reason = await askText(`Restore ${label(u)}?`, { confirm: 'Restore' });
     if (reason) act.run(() => post(`/v1/admin/users/${u.id}/restore`, { reason }));
   };
   const warn = async (u: U) => {
-    const reason = await askText(`Warn ${u.displayName ?? u.email}?`, { label: 'What is the warning about? The person reads this and can ask for a review.', confirm: 'Send warning' });
+    const reason = await askText(`Warn ${label(u)}?`, { label: 'Message (they can read it)', confirm: 'Send' });
     if (reason) act.run(() => post(`/v1/admin/users/${u.id}/warn`, { reason }));
   };
-  // A new identity check is needed only for expiry (automatic), a security concern, suspected fraud, or the provider's say-so.
   const reverify = async (u: U) => {
-    const r = await askChoiceText(
-      `Require ${u.displayName ?? u.email} to verify again?`,
-      [['security', 'Security concern'], ['fraud_suspected', 'Suspected fraud'], ['other', 'Other']],
-      { label: 'What happened? (kept in the audit log, not shown to the user)', confirm: 'Require re-verification' },
-    );
+    const r = await askChoiceText(`Require ${label(u)} to verify again?`, [['security', 'Security concern'], ['fraud_suspected', 'Suspected fraud'], ['other', 'Other']], { label: 'Note', confirm: 'Require' });
     if (r) act.run(() => post(`/v1/admin/users/${u.id}/require-reverification`, { reason: r.choice, note: r.text }));
   };
   const reset = async (u: U) => {
-    const note = await askText(`Let ${u.displayName ?? u.email} try verification again?`, { label: 'Why? (kept in the audit log)', confirm: 'Allow another attempt' });
+    const note = await askText(`Allow ${label(u)} another attempt?`, { confirm: 'Allow' });
     if (note) act.run(() => post(`/v1/admin/users/${u.id}/reset-verification`, { note }));
   };
   const overturn = async (u: U) => {
-    const note = await askText(`Approve ${u.displayName ?? u.email} after review?`, { label: 'What did you check? You are confirming this person is a genuine adult. (kept in the audit log)', confirm: 'Approve' });
+    const note = await askText(`Approve ${label(u)} as a genuine adult?`, { label: 'What you checked', confirm: 'Approve' });
     if (note) act.run(() => post(`/v1/admin/users/${u.id}/overturn-rejection`, { note }));
   };
   const resetMfa = async (u: U) => {
-    const reason = await askText(`Reset two-step sign-in for ${u.displayName ?? u.email}?`, { label: 'Why? (kept in the audit log) They will sign in with just a password until they set it up again.', confirm: 'Reset' });
+    const reason = await askText(`Reset two-step sign-in for ${label(u)}?`, { confirm: 'Reset' });
     if (reason) act.run(() => post(`/v1/admin/users/${u.id}/mfa/reset`, { reason }));
   };
-  const setRole = async (u: U, role: string) => {
-    if (role === u.role) return users.reload();
-    // staff can look after the whole service, or one country, region or city: ask which
-    if (role !== 'user') {
-      const places = await get<{ items: { key: string; name: string; kind: string }[] }>('/v1/admin/regions').catch(() => ({ items: [] }));
-      const pick = await askChoiceText(`Make ${u.email} ${role.replace('_', ' ')}`, [['', 'The whole service'], ...places.items.filter((p) => p.kind !== 'global').map((p) => [p.key, `${p.name} (${p.kind})`] as [string, string])], {
-        label: 'Anything to note? (optional)',
-        choiceLabel: 'Which part of the service do they look after?',
-        confirm: 'Make staff',
-        required: false,
-      });
-      if (!pick) return users.reload();
-      act.run(() => post(`/v1/admin/users/${u.id}/role`, { role, regionKey: pick.choice || null }));
-    } else if (confirm(`Make ${u.email} an ordinary member again? They lose staff access.`)) act.run(() => post(`/v1/admin/users/${u.id}/role`, { role }));
-    else users.reload();
+  /** up and down move through the list */
+  const keys = (e: KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const i = rows.findIndex((u) => u.id === selectedId);
+    const next = rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+    if (!next) return;
+    setOpen(next.id);
+    listRef.current?.querySelector<HTMLButtonElement>('[data-id="' + next.id + '"]')?.focus();
   };
-
-  const selectedId = focusId ?? open ?? rows[0]?.id ?? null;
-  const selected = rows.find((u) => u.id === selectedId) ?? null;
-  const count = `${more.items.length}${more.hasMore ? '+' : ''}`;
-  const pills: { id: View; label: string }[] = [
-    { id: 'all', label: `Everyone ${count}` },
-    { id: 'active', label: 'Active' },
-    { id: 'suspended', label: 'Suspended' },
-    { id: 'notverified', label: 'Not verified' },
-    { id: 'guests', label: 'Guests' },
-  ];
 
   return (
     <Page
       fill
-      title={focusId ? 'Person from a report' : users.data ? `${count} ${more.items.length === 1 && !more.hasMore ? 'person' : 'people'}` : 'People'}
+      title="People"
       actions={
-        focusId ? undefined : (
-          <div className="us-pills" role="group" aria-label="Show">
-            {pills.map((x) => (
-              <button key={x.id} type="button" className={view === x.id ? 'us-pill on' : 'us-pill'} aria-pressed={view === x.id} onClick={() => setView(x.id)}>
-                {x.label}
+        focusId ? (
+          <>
+            {/* opened from a report (or appeals, attendance): straight back to it, in the same place */}
+            {backLabel && onBack && (
+              <button className="btn primary small" onClick={onBack}>
+                <Icon name="back" />
+                {backLabel}
               </button>
-            ))}
-          </div>
+            )}
+            <button className="btn small" onClick={() => (setPane('list'), onClearFocus?.())}>
+              Show everyone
+            </button>
+          </>
+        ) : (
+          <Segmented
+            label="Show"
+            value={view}
+            onChange={setView}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'active', label: 'Active' },
+              { id: 'suspended', label: 'Suspended' },
+              { id: 'notverified', label: 'Unverified' },
+            ]}
+          />
         )
       }
     >
-      {focusId && (
-        <p className="note">
-          <Icon name="users" />
-          Showing only the person from the report.
-          <button className="link" style={{ marginLeft: 'auto' }} onClick={onClearFocus}>
-            Show all users
-          </button>
-        </p>
-      )}
       <ErrorBanner message={users.error ?? act.error} onRetry={users.reload} />
       {users.loading && !users.data && <Loading rows={6} />}
-      {users.data && rows.length === 0 && !term && view === 'all' && <Empty title="No users yet">Accounts show up here when people sign up.</Empty>}
-      {users.data && (rows.length > 0 || term || view !== 'all') && (
-        <div className="us-grid">
-          <section className="us-list" aria-label="People">
+      {users.data && (
+        <div className="split" data-pane={focusId ? 'detail' : pane}>
+          <section className="split-list" aria-label="People">
             {!focusId && (
-              <label className="us-search">
-                <span className="sr">Search users</span>
-                <Icon name="search" />
-                <input type="search" placeholder="Search name, email or user ID" value={q} onChange={(e) => setQ(e.target.value)} />
-              </label>
+              <div className="split-tools">
+                <Search label="Search people" placeholder="Name, email or ID" value={q} onChange={setQ} />
+              </div>
             )}
-            <ul className="us-rows">
-              {shown.map((u) => (
-                <li key={u.id}>
-                  <button className={u.id === selectedId ? 'us-row on' : 'us-row'} aria-current={u.id === selectedId} onClick={() => (setOpen(u.id), window.innerWidth < 1100 && setTimeout(() => document.querySelector('.us-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60))}>
-                    <Avatar name={u.displayName ?? u.email} photo={u.photoUrl} size="lg" />
-                    <span className="us-who">
-                      <b>{nameOf(u)}</b>
-                      <span>{u.email}</span>
-                    </span>
-                    <span className={isGuest(u) ? 'us-tag warn' : u.eligibility === 'verified' ? 'us-tag ok' : 'us-tag'}>{isGuest(u) ? `Guest · ${u.eligibility === 'verified' ? 'verified' : 'unverified'}` : u.eligibility === 'verified' ? 'Verified' : u.eligibility.replace(/_/g, ' ')}</span>
-                  </button>
-                </li>
-              ))}
-              {shown.length === 0 && <li className="us-none">No one matches.</li>}
-            </ul>
-            <div className="us-pager">
-              <span>{rows.length === 0 ? '0 people' : `${p * PAGE + 1}–${p * PAGE + shown.length} of ${rows.length}${more.hasMore ? '+' : ''}`}</span>
-              <span className="us-arrows">
-                <button aria-label="Previous page" disabled={p === 0} onClick={() => setPage(p - 1)}>
-                  ←
-                </button>
-                <button aria-label="Next page" disabled={p === last} onClick={() => setPage(p + 1)}>
-                  →
-                </button>
+            <div className="list-scroll smooth-scroll" ref={listRef} onKeyDown={keys}>
+              <ul className="items">
+                {shown.map((u) => (
+                  <li key={u.id}>
+                    <button data-id={u.id} className={u.id === selectedId ? 'list-item active' : 'list-item'} aria-current={u.id === selectedId} onClick={() => (setOpen(u.id), setPane('detail'))}>
+                      <Avatar name={label(u)} photo={u.photoUrl} />
+                      <span className="body">
+                        <span className="title">{nameOf(u)}</span>
+                        <span className="meta">{u.email}</span>
+                      </span>
+                      <span className="aside">
+                        {u.state === 'suspended' ? <Chip value="Suspended" tone="dark" /> : u.eligibility === 'verified' ? <Chip value="Verified" tone="ok" /> : isGuest(u) ? <Chip value="Guest" tone="plain" /> : <Chip value={u.eligibility} tone="line" />}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {shown.length === 0 && <div className="state">No one matches.</div>}
+              {more.hasMore && <div style={{ padding: '0 14px 14px' }}>{more.more}</div>}
+            </div>
+            <div className="table-foot">
+              <span className="muted small">
+                {rows.length}
+                {more.hasMore ? '+' : ''} {rows.length === 1 ? 'person' : 'people'}
               </span>
             </div>
-            {p === last && more.hasMore && <div style={{ padding: '0 16px 14px' }}>{more.more}</div>}
           </section>
-          <section className="us-detail" aria-label="Person details">
+          <section className="split-detail" aria-label="Person">
+            {/* a person opened from a report has its own way back in the page's top bar */}
+            {!focusId && (
+              <button type="button" className="btn small split-back" onClick={() => (setPane('list'), setOpen(null))}>
+                <Icon name="back" />
+                All people
+              </button>
+            )}
             {selected ? (
-              <UserPanel key={selected.id} u={selected} me={me} busy={act.busy} onSuspend={suspend} onRestore={restore} onWarn={warn} onRole={setRole} onReverify={reverify} onReset={reset} onOverturn={overturn} onResetMfa={resetMfa} openReport={openReport} />
+              <UserPanel key={selected.id} u={selected} me={me} busy={act.busy} onSuspend={suspend} onRestore={restore} onWarn={warn} onReverify={reverify} onReset={reset} onOverturn={overturn} onResetMfa={resetMfa} openReport={openReport} />
             ) : (
-              <div className="us-empty">
-                <Icon name="users" />
-                <strong>Select a person</strong>
-                <span>Their details, reports and staff actions show here.</span>
-              </div>
+              <div className="detail-empty">Select a person.</div>
             )}
           </section>
         </div>
@@ -195,277 +210,226 @@ export function UsersPage({ me, focusId, onClearFocus, openReport }: { me: Sessi
   );
 }
 
-const SEGMENTS: Record<string, number> = { new: 1, 'needs care': 2, reliable: 3, 'very reliable': 5 };
-
-function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => void; onRestore: (u: U) => void; onWarn: (u: U) => void; onRole: (u: U, r: string) => void; onReverify: (u: U) => void; onReset: (u: U) => void; onOverturn: (u: U) => void; onResetMfa: (u: U) => void; openReport?: (id: string) => void }) {
+function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => void; onRestore: (u: U) => void; onWarn: (u: U) => void; onReverify: (u: U) => void; onReset: (u: U) => void; onOverturn: (u: U) => void; onResetMfa: (u: U) => void; openReport?: (id: string) => void }) {
   const { u, me } = p;
   const detail = useLoad(() => get<Detail>(`/v1/admin/users/${u.id}`), [u.id], 6000);
   const act = useAction(detail.reload);
-  // the reliability detail is for staff of the whole service
-  const rel = useLoad(() => (me.scope ? Promise.resolve<Reliab | null>(null) : get<Reliab>(`/v1/admin/users/${u.id}/reliability`)), [u.id, !!me.scope], 30000);
+  const rel = useLoad(() => get<Reliab>(`/v1/admin/users/${u.id}/reliability`).catch(() => null), [u.id], 30000);
   const d = detail.data;
   const r = rel.data;
-  const [copied, setCopied] = useState(false);
-  // moderators cannot touch staff accounts; the server enforces this too
   const canActOn = can.moderate(me.role) && (u.role === 'user' || me.role === 'admin') && u.email !== me.email;
-  const canWarn = canActOn && u.role === 'user' && !me.scope;
+  const canWarn = canActOn && u.role === 'user';
   const trust = can.trust(me.role) && u.role === 'user';
   const name = u.displayName ?? u.email;
-  const more = [
-    ...(trust && u.state === 'active' && ['verified', 'pending'].includes(u.eligibility) ? [{ label: 'Require re-verification', onSelect: () => p.onReverify(u) }] : []),
-    // a rejection or a stuck check can be reopened or, as an appeal, overturned by a reviewer
-    ...(can.admin(me.role) && u.role !== 'user' && u.email !== me.email ? [{ label: 'Reset two-step sign-in', onSelect: () => p.onResetMfa(u) }] : []),
+  const menu = [
     ...(trust && ['rejected', 'pending', 'reverification_required'].includes(u.eligibility) ? [{ label: 'Allow another attempt', onSelect: () => p.onReset(u) }] : []),
     ...(trust && u.eligibility === 'rejected' && !['superseded', 'cancelled'].includes(u.lastRejectionReason ?? '') && !(u.lastRejectionReason === 'underage' && !can.admin(me.role)) ? [{ label: 'Approve after review', onSelect: () => p.onOverturn(u) }] : []),
+    ...(can.admin(me.role) && u.role !== 'user' && u.email !== me.email ? [{ label: 'Reset two-step sign-in', onSelect: () => p.onResetMfa(u) }] : []),
   ];
   const decide = async (reportId: string, status: 'resolved' | 'dismissed') => {
-    const resolution = await askText(status === 'resolved' ? 'Resolve report' : 'Dismiss report', {
-      label: status === 'resolved' ? 'What was decided? The person it is about can read this (and ask for a review).' : 'What was decided? (kept in the audit log)',
-      confirm: status === 'resolved' ? 'Resolve' : 'Dismiss',
-    });
+    const resolution = await askText(status === 'resolved' ? 'Resolve report' : 'Dismiss report', { label: 'Decision', confirm: status === 'resolved' ? 'Resolve' : 'Dismiss' });
     if (resolution) act.run(() => post(`/v1/admin/reports/${reportId}/resolve`, { status, resolution }));
   };
-  const copy = () => {
-    void navigator.clipboard?.writeText(u.id);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-  const filled = r ? (SEGMENTS[r.label.toLowerCase()] ?? 1) : 0;
+
+  const SERIOUS = ['user.suspend', 'user.warn', 'verification.rejected', 'verification.reverification_required', 'message.removed'];
+  const checks: { label: string; ok: boolean; note?: string }[] = [
+    { label: 'Email confirmed', ok: u.emailVerified },
+    { label: 'Adult confirmed', ok: u.adultVerified },
+    { label: 'Phone confirmed', ok: u.phoneVerified },
+    { label: 'Identity verified', ok: u.eligibility === 'verified', note: u.eligibility === 'verified' && u.verifiedUntil ? `until ${day(u.verifiedUntil)}` : u.eligibility === 'rejected' ? (u.lastRejectionReason ?? 'rejected').replace(/_/g, ' ') : u.reverifyReason && u.eligibility !== 'verified' ? u.reverifyReason.replace(/_/g, ' ') : u.eligibility !== 'verified' ? u.eligibility.replace(/_/g, ' ') : undefined },
+  ];
+  const rated = r ? r.summary.kept + r.summary.noShows + r.summary.lateCancels : 0;
 
   return (
-    <>
-      <div className="us-hero">
+    <div className="detail-scroll up" key={u.id}>
+      <header className="up-hero">
         <Avatar name={name} photo={u.photoUrl} size="xl" />
-        <div className="us-hero-main">
+        <div className="up-who">
           <h2>{nameOf(u)}</h2>
-          <p>
-            {u.email} · joined {fmt(u.createdAt)}
-          </p>
-          <div className="us-chips">
-            <span className={u.state === 'active' ? 'us-c ok' : 'us-c bad'}>{u.state === 'active' ? 'Active' : u.state === 'suspended' ? (u.suspendedUntil ? `Suspended until ${new Date(u.suspendedUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : 'Suspended') : u.state}</span>
-            {u.eligibility === 'verified' && u.verifiedUntil && <span className="us-c">ID verified until {new Date(u.verifiedUntil).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
-            {u.eligibility !== 'verified' && <span className="us-c warn">Identity: {u.eligibility.replace(/_/g, ' ')}</span>}
-            {r && <span className="us-c">Reliability: {r.label.toLowerCase()}</span>}
-            {isGuest(u) && <span className="us-c">Guest</span>}
+          <span className="up-sub">
+            {u.email}
+            {u.homeCity ? ` · ${u.homeCity}` : ''} · joined {day(u.createdAt)}
+          </span>
+          <div className="up-chips">
+            {u.state === 'active' ? <Chip value="Active" tone="ok" /> : <Chip value={u.state === 'suspended' && u.suspendedUntil ? `Suspended to ${day(u.suspendedUntil)}` : u.state} tone="dark" />}
+            {u.eligibility === 'verified' ? <Chip value="ID verified" tone="ok" /> : <Chip value={u.eligibility} tone="line" />}
+            {isGuest(u) && <Chip value="Guest" tone="plain" />}
           </div>
         </div>
-        <div className="us-hero-side">
-          <label>
-            <span>Role</span>
-            {can.admin(me.role) && u.email !== me.email ? (
-              <select aria-label={`Role for ${u.email}`} value={u.role} onChange={(e) => p.onRole(u, e.target.value)} disabled={p.busy}>
-                {(['user', ...STAFF] as Role[]).map((x) => (
-                  <option key={x} value={x}>
-                    {x === 'user' ? 'User' : x.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <strong>{u.role === 'user' ? 'User' : u.role.replace('_', ' ')}</strong>
+        {(canActOn || trust || menu.length > 0) && (
+          <div className="up-actions">
+            {canActOn &&
+              (u.state === 'suspended' ? (
+                <button className="btn primary small" onClick={() => p.onRestore(u)} disabled={p.busy}>
+                  Restore
+                </button>
+              ) : (
+                <>
+                  {canWarn && (
+                    <button className="btn small" onClick={() => p.onWarn(u)} disabled={p.busy}>
+                      Warn
+                    </button>
+                  )}
+                  <button className="btn small suspend" onClick={() => p.onSuspend(u)} disabled={p.busy}>
+                    Suspend
+                  </button>
+                </>
+              ))}
+            {trust && u.state === 'active' && ['verified', 'pending'].includes(u.eligibility) && (
+              <button className="btn small" onClick={() => p.onReverify(u)} disabled={p.busy}>
+                Require re-verification
+              </button>
             )}
-            {u.role !== 'user' && <small>{u.adminRegionKey ? `area: ${u.adminRegionKey}` : 'whole service'}</small>}
-          </label>
-          {more.length > 0 && <RowMenu label={`More actions for ${name}`} items={more} />}
-        </div>
-      </div>
+            <span className="grow" />
+            {menu.length > 0 && <RowMenu label={`Actions for ${name}`} items={menu} />}
+          </div>
+        )}
+      </header>
 
       <ErrorBanner message={detail.error ?? act.error} onRetry={detail.reload} />
       {detail.loading && !d && <Loading rows={4} />}
 
-      {d && (
-        <>
-          <div className="us-stats">
-            <div>
-              <span>Hosted</span>
-              <b>{d.stats.hosted}</b>
-            </div>
-            <div>
-              <span>Joined</span>
-              <b>{d.stats.joined}</b>
-            </div>
-            <div>
-              <span>No-shows</span>
-              <b>{r ? r.summary.noShows : '–'}</b>
-            </div>
-            <div>
-              <span>Reports against</span>
-              <b>{d.stats.reportsAgainst}</b>
-            </div>
-          </div>
+      <div className="up-tiles">
+        <div className="up-tile">
+          <b>{d?.stats.hosted ?? '–'}</b>
+          <span>Hosted</span>
+        </div>
+        <div className="up-tile">
+          <b>{d?.stats.joined ?? '–'}</b>
+          <span>Joined</span>
+        </div>
+        <div className={d && d.stats.reportsAgainst > 0 ? 'up-tile hot' : 'up-tile'}>
+          <b>{d?.stats.reportsAgainst ?? '–'}</b>
+          <span>Reports against</span>
+        </div>
+      </div>
 
-          <div className="us-two">
-            <section className="us-card">
-              <h3>Checks</h3>
-              <dl className="us-checks">
+      {r && (
+        <section className="up-section">
+          <h3 className="up-title">Reliability</h3>
+          <div className="up-rel">
+            <div className="up-ring" style={{ ['--p' as string]: rated ? Math.round(r.summary.rate * 100) : 0 }} aria-label={rated ? `${Math.round(r.summary.rate * 100)}% kept` : 'No plans yet'}>
+              <span>{rated ? `${Math.round(r.summary.rate * 100)}%` : 'New'}</span>
+            </div>
+            <div>
+              <div className="up-rel-label">{rated ? r.label : 'No plans yet'}</div>
+              <div className="up-counts">
                 <div>
-                  <dt>Email</dt>
-                  <dd className={u.emailVerified ? 'good' : 'late'}>{u.emailVerified ? '✓ Confirmed' : 'Not confirmed'}</dd>
+                  <b>{r.summary.kept}</b>
+                  <span>Kept</span>
                 </div>
                 <div>
-                  <dt>Adult (18+)</dt>
-                  <dd className={u.adultVerified ? 'good' : 'late'}>{u.adultVerified ? '✓ Confirmed' : 'Not confirmed'}</dd>
+                  <b>{r.summary.noShows}</b>
+                  <span>Missed</span>
                 </div>
                 <div>
-                  <dt>Mobile number</dt>
-                  <dd className={u.phoneVerified ? 'good' : 'late'}>{u.phoneVerified ? '✓ Confirmed' : 'Not added'}</dd>
+                  <b>{r.summary.lateCancels}</b>
+                  <span>Late cancels</span>
                 </div>
                 <div>
-                  <dt>User ID</dt>
-                  <dd>
-                    <button type="button" className="us-id" onClick={copy} title="Copy the user ID">
-                      <code>{u.id}</code>
-                      <Icon name={copied ? 'check' : 'copy'} />
-                    </button>
-                  </dd>
+                  <b>{r.summary.upheldReports}</b>
+                  <span>Upheld reports</span>
                 </div>
-              </dl>
-              {u.reverifyReason && u.eligibility !== 'verified' && <p className="us-note">Re-check asked for: {u.reverifyReason.replace(/_/g, ' ')}</p>}
-              {u.eligibility === 'rejected' && <p className="us-note">Rejected: {(u.lastRejectionReason ?? 'other').replace(/_/g, ' ')}</p>}
-            </section>
-
-            <section className="us-card">
-              <div className="us-card-head">
-                <h3>Reliability</h3>
-                <span>{r ? (r.summary.kept + r.summary.noShows + r.summary.lateCancels === 0 ? 'Not enough events yet' : r.label) : 'Whole-service staff only'}</span>
               </div>
-              {r ? (
-                <>
-                  <div className="us-meter" aria-label={`Reliability ${r.label}`}>
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <i key={i} className={i < filled ? 'on' : ''} />
-                    ))}
-                  </div>
-                  <div className="us-rel">
-                    <span>
-                      Kept <b>{r.summary.kept}</b>
-                    </span>
-                    <span>
-                      Left late <b>{r.summary.lateCancels}</b>
-                    </span>
-                    <span>
-                      Upheld reports <b>{r.summary.upheldReports}</b>
-                    </span>
-                    <span>
-                      Good events <b>{Math.round(r.summary.rate * 100)}%</b>
-                    </span>
-                  </div>
-                  <details className="us-events">
-                    <summary>Every event behind the level ({r.events.length}) →</summary>
-                    {r.marks.length > 0 && (
-                      <ul>
-                        {r.marks.map((m) => (
-                          <li key={m.id}>
-                            No-show note: {m.title} · {m.counts ? `${m.state}, counts` : m.state}
-                            {m.disputeNote && <small>Their side: {m.disputeNote}</small>}
-                            {m.decisionNote && <small>Decision: {m.decisionNote}</small>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <ul>
-                      {r.events.map((e, i) => (
-                        <li key={i}>
-                          {fmt(e.at)} · {e.text} · weight {e.weight}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                </>
-              ) : (
-                <p className="us-note">The reliability detail is for staff of the whole service.</p>
-              )}
-            </section>
-          </div>
-
-          <section className="us-card">
-            <h3>History</h3>
-            {d.reports.length === 0 && d.history.length === 0 ? (
-              <p className="us-note">No reports about {name} and no staff actions on this account yet.</p>
-            ) : (
-              <>
-                {d.reports.length > 0 && (
-                  <ul className="us-hist">
-                    {d.reports.map((x) => (
-                      <li key={x.id}>
-                        <div className="us-hist-top">
-                          <span>
-                            <Chip value={x.category} /> <Chip value={x.status} />
-                          </span>
-                          <small>{fmt(x.createdAt)}</small>
-                        </div>
-                        <p>“{x.details || 'No details given'}”</p>
-                        <div className="us-hist-top">
-                          <small>
-                            {x.targetType === 'user' ? 'About them' : `About their ${x.targetType}${x.targetTitle ? `: ${x.targetTitle}` : ''}`} · reported by {x.reporterName ?? 'someone'}
-                            {x.resolution && ` · decision: ${x.resolution}`}
-                          </small>
-                          <span className="us-hist-actions">
-                            {can.moderate(me.role) && ['open', 'in_review'].includes(x.status) && (
-                              <>
-                                <button className="btn small" onClick={() => decide(x.id, 'dismissed')} disabled={act.busy}>
-                                  Dismiss
-                                </button>
-                                <button className="btn small primary" onClick={() => decide(x.id, 'resolved')} disabled={act.busy}>
-                                  Resolve
-                                </button>
-                              </>
-                            )}
-                            {p.openReport && (
-                              <button className="link small" onClick={() => p.openReport!(x.id)}>
-                                Open report →
-                              </button>
-                            )}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {d.history.length > 0 && (
-                  <>
-                    <h4>Recent staff actions on this account</h4>
-                    <ul className="us-actions">
-                      {d.history.map((h) => (
-                        <li key={h.id}>
-                          <code>{h.action}</code> <span>{fmt(h.createdAt)}</span>
-                          {h.metadata && <small>{h.metadata}</small>}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </>
-            )}
-          </section>
-        </>
-      )}
-
-      {canActOn && (
-        <section className={u.state === 'suspended' ? 'us-suspend lifted' : 'us-suspend'}>
-          <div>
-            <h3>{u.state === 'suspended' ? 'Restore account' : 'Suspend account'}</h3>
-            <p>{u.state === 'suspended' ? `${name} is suspended${u.suspendedUntil ? ` until ${fmt(u.suspendedUntil)}` : ' until you lift it'}.` : `${name} can’t sign in, join or host until you lift it.`}</p>
-          </div>
-          <div className="us-suspend-btns">
-            {u.state === 'suspended' ? (
-              <button className="btn" onClick={() => p.onRestore(u)} disabled={p.busy}>
-                Restore
-              </button>
-            ) : (
-              <>
-                {canWarn && (
-                  <button className="btn" onClick={() => p.onWarn(u)} disabled={p.busy}>
-                    Send a warning
-                  </button>
-                )}
-                <button className="us-red" onClick={() => p.onSuspend(u)} disabled={p.busy}>
-                  Suspend
-                </button>
-              </>
+            </div>
+            {(r.events.length > 0 || r.marks.length > 0) && (
+              <details>
+                <summary>What counted ({r.events.length + r.marks.length})</summary>
+                <ul className="up-timeline" style={{ marginTop: 12 }}>
+                  {r.marks.map((m) => (
+                    <li key={m.id} className={m.counts ? 'serious' : ''}>
+                      <span className="up-when">{fmt(m.markedAt)}</span>
+                      <span className="up-what">Did not attend {m.title}</span>
+                      <span className="up-why">
+                        {m.state.replace(/_/g, ' ')}
+                        {m.disputeNote ? ` · their side: ${m.disputeNote}` : ''}
+                        {m.decisionNote ? ` · decision: ${m.decisionNote}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                  {r.events.map((e, i) => (
+                    <li key={i}>
+                      <span className="up-when">{fmt(e.at)}</span>
+                      <span className="up-why">{e.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
           </div>
         </section>
       )}
-    </>
+
+      <section className="up-section">
+        <h3 className="up-title">Account</h3>
+        <ul className="up-checks">
+          {checks.map((c) => (
+            <li key={c.label}>
+              <span className={c.ok ? 'up-tick on' : 'up-tick'}>
+                <Icon name={c.ok ? 'check' : 'x'} />
+              </span>
+              {c.label}
+              {c.note && <small>{c.note}</small>}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {d && d.reports.length > 0 && (
+        <section className="up-section">
+          <h3 className="up-title">
+            Reports <span>{d.reports.length}</span>
+          </h3>
+          {d.reports.map((x) => (
+            <div key={x.id} className={['open', 'in_review'].includes(x.status) ? 'up-report waiting' : 'up-report'}>
+              <div className="row between wrap">
+                <span className="row">
+                  <Chip value={x.category} tone="plain" />
+                  <Chip value={x.status} />
+                </span>
+                <span className="small muted">{fmt(x.createdAt)}</span>
+              </div>
+              <p className="quote">“{x.details || 'No details'}”</p>
+              <div className="small muted">
+                {x.targetType === 'user' ? 'About them' : `Their ${x.targetType}${x.targetTitle ? `: ${x.targetTitle}` : ''}`} · by {x.reporterName ?? 'someone'}
+                {x.resolution && ` · ${x.resolution}`}
+              </div>
+              <div className="row wrap">
+                {can.moderate(me.role) && ['open', 'in_review'].includes(x.status) && (
+                  <>
+                    <button className="btn small" onClick={() => decide(x.id, 'dismissed')} disabled={act.busy}>
+                      Dismiss
+                    </button>
+                    <button className="btn small primary" onClick={() => decide(x.id, 'resolved')} disabled={act.busy}>
+                      Resolve
+                    </button>
+                  </>
+                )}
+                {p.openReport && (
+                  <button className="link small" onClick={() => p.openReport!(x.id)}>
+                    Open report
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {d && d.history.length > 0 && (
+        <section className="up-section">
+          <h3 className="up-title">History</h3>
+          <ul className="up-timeline">
+            {d.history.map((h) => (
+              <li key={h.id} className={SERIOUS.includes(h.action) ? 'serious' : ''}>
+                <span className="up-when">{fmt(h.createdAt)}</span>
+                <span className="up-what">{actionText(h.action)}</span>
+                {detailText(h.metadata) && <span className="up-why">{detailText(h.metadata)}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
   );
 }

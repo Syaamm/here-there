@@ -1,0 +1,64 @@
+/*
+ * The console's own dropdown and date picker (controls.tsx): same fields, greens, corners and shadow as the rest of the console,
+ * instead of the browser's grey system look. Loaded in main.tsx after styles.css.
+ */
+
+/* ---- the closed field */
+.select { position: relative; width: 100%; min-width: 0; }
+.select-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 44px; padding: 9px 12px 9px 14px; font: inherit; font-weight: 600; text-align: left; color: var(--text); background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.18s ease, background-color 0.15s ease; }
+.select-btn:hover:not(:disabled) { border-color: #b9b19f; }
+.select-btn:focus-visible, .select-btn.is-open { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+.select-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.select-btn.is-dirty { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); } /* changed, not saved yet */
+.select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-value.placeholder { color: var(--muted); font-weight: 500; }
+.select-chevron { flex: none; color: var(--accent); transition: transform 0.18s ease; }
+.select-btn.is-open .select-chevron { transform: rotate(180deg); }
+.datefield .select-chevron { color: var(--muted); }
+.select.compact .select-btn { min-height: 36px; padding: 4px 10px 4px 12px; font-size: 0.84rem; }
+/* carries `required` for the form's own validation; never seen */
+.select-required { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+
+/* in toolbars and page headers a dropdown is as wide as its words (like the old select) */
+.toolbar .select, .page-head .select { width: auto; min-width: 170px; }
+.trend-dates .select { width: auto; min-width: 150px; }
+
+/* ---- the open list */
+.select-list { position: fixed; z-index: 80; overflow-y: auto; padding: 6px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); display: grid; gap: 2px; align-content: start; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.select-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 38px; padding: 8px 12px; border-radius: 9px; font-weight: 600; color: var(--text); cursor: pointer; user-select: none; }
+.select-opt.active { background: var(--surface-2); }
+.select-opt.chosen { background: var(--ok-bg); color: var(--ok-fg); }
+.select-opt.chosen.active { background: #cfe4d8; }
+.select-opt.off { color: var(--muted); opacity: 0.6; cursor: default; }
+.select-opt-label { min-width: 0; }
+
+/* ---- the calendar */
+.cal { position: fixed; z-index: 80; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-pop); }
+.cal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cal-head strong { font-size: 0.95rem; }
+.cal-nav { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--accent); cursor: pointer; transition: background-color 0.15s ease; }
+.cal-nav:hover:not(:disabled) { background: var(--surface-2); }
+.cal-nav:disabled { opacity: 0.35; cursor: default; }
+.cal-prev { transform: rotate(90deg); }
+.cal-next { transform: rotate(-90deg); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.cal-dow { padding: 4px 0; text-align: center; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.cal-day { min-height: 34px; padding: 0; border: 0; border-radius: 10px; background: none; font: inherit; font-size: 0.86rem; font-weight: 600; color: var(--text); cursor: pointer; transition: background-color 0.12s ease; }
+.cal-day:hover:not(:disabled):not(.sel) { background: var(--surface-2); }
+.cal-day.out { color: var(--muted); opacity: 0.5; }
+.cal-day.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.cal-day.sel { background: var(--accent-strong); color: #fff; opacity: 1; }
+.cal-day:disabled { opacity: 0.28; cursor: default; }
+.cal-day:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cal-foot { display: flex; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+.cal-foot .link:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .select-list, .cal { animation: mo-pop 0.16s var(--mo-ease) backwards; transform-origin: top; }
+}
+
+/* ---- phones: dropdowns in toolbars fill the row */
+@media (max-width: 700px) {
+  .toolbar .select, .page-head .select { width: 100%; min-width: 0; }
+  .ov-controls .trend-dates .select { flex: 1 1 130px; }
+}

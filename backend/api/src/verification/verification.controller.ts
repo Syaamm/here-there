@@ -74,6 +74,6 @@ ${check.method === 'document' ? '' : '<button name="outcome" value="liveness">De
     if (!picked) throw E.badRequest('INVALID_PAYLOAD', 'Unknown outcome');
     const raw = Buffer.from(JSON.stringify({ providerRef: ref, ...picked }));
     await this.verification.handleWebhook('sandbox', raw, { 'x-sandbox-signature': signSandbox(raw) });
-    return page('<span class="tag">SANDBOX PROVIDER</span><h2>Done</h2><p>The result was sent to HERE &amp; THERE. You can close this page and go back to the app.</p>');
+    return page('<span class="tag">SANDBOX PROVIDER</span><h2>Done</h2><p>The result was sent to LAMIS. You can close this page and go back to the app.</p>');
   }
 }

@@ -62,7 +62,20 @@ async function accessToken(a: Account): Promise<string> {
 /** sent: delivered. gone: the device's token is dead, delete it. retry: worth another go. skipped: Firebase is not set up here. */
 export type FcmResult = 'sent' | 'gone' | 'retry' | 'skipped';
 
-export async function sendFcm(token: string, msg: { title: string; body: string; url?: string }): Promise<FcmResult> {
+const refusedOnce = new Set<string>();
+const HINT: Record<string, string> = {
+  SENDER_ID_MISMATCH: 'the server key (FIREBASE_SERVICE_ACCOUNT_*) belongs to another Firebase project than the one built into the app',
+  THIRD_PARTY_AUTH_ERROR: "Apple's push key (.p8) is missing or wrong in Firebase > Project settings > Cloud Messaging (iPhone)",
+  PERMISSION_DENIED: 'the service account may not send messages for this Firebase project',
+};
+function refused(code: string) {
+  if (refusedOnce.has(code)) return;
+  refusedOnce.add(code);
+  console.warn(`Phone push refused by Firebase: ${code}${HINT[code] ? ` (${HINT[code]})` : ''}. Nothing was delivered for this message.`);
+}
+
+/** `thread`: pushes about the same thing (one chat) replace each other on Android and are stacked together on iPhone. */
+export async function sendFcm(token: string, msg: { title: string; body: string; url?: string; thread?: string }): Promise<FcmResult> {
   const a = fcmAccount();
   if (!a) {
     if (!warned) {
@@ -79,9 +92,10 @@ export async function sendFcm(token: string, msg: { title: string; body: string;
         message: {
           token,
           notification: { title: msg.title, body: msg.body },
-          data: msg.url ? { url: msg.url } : undefined,
-          android: { priority: 'HIGH', notification: { channel_id: 'default', sound: 'default' } },
-          apns: { payload: { aps: { sound: 'default' } } },
+          data: msg.url || msg.thread ? { ...(msg.url ? { url: msg.url } : {}), ...(msg.thread ? { thread: msg.thread } : {}) } : undefined,
+          // icon and colour come from the app (the LAMIS mark, set in app.config.ts), so they are not repeated here
+          android: { priority: 'HIGH', notification: { channel_id: 'alerts', sound: 'default', ...(msg.thread ? { tag: msg.thread } : {}) } },
+          apns: { payload: { aps: { sound: 'default', ...(msg.thread ? { 'thread-id': msg.thread } : {}) } } },
         },
       }),
     });
@@ -91,7 +105,11 @@ export async function sendFcm(token: string, msg: { title: string; body: string;
     const j = (await res.json().catch(() => null)) as { error?: { status?: string; details?: { errorCode?: string }[] } } | null;
     const code = j?.error?.details?.find((d) => d.errorCode)?.errorCode ?? j?.error?.status;
     if (res.status === 404 || code === 'UNREGISTERED' || code === 'NOT_FOUND') return 'gone';
-    return 'sent'; // any other refusal (a bad message) cannot be fixed by trying again
+    // any other refusal cannot be fixed by trying again, but it means nothing arrived: say so once per reason, so a set-up
+    // problem shows in the logs (SENDER_ID_MISMATCH: the server key is for another Firebase project than the app;
+    // THIRD_PARTY_AUTH_ERROR: Apple's push key is missing or wrong in Firebase)
+    refused(code ?? String(res.status));
+    return 'sent';
   } catch {
     return 'retry'; // no connection to Google
   }

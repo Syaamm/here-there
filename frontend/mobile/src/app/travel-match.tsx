@@ -1,13 +1,15 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Keyboard, Pressable, View } from 'react-native';
 import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
+import { DestinationResults } from '@/components/TripCreateParts';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AcctCard, AcctScreen, StatusTag } from '@/components/AccountParts';
 import { AuthButton, AuthField } from '@/components/AuthForm';
 import { Text } from '@/components/ScaledText';
 import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Spinner, Txt } from '@/components/ui';
+import { closeKeyboard } from '@/lib/keyboard';
 import { sc } from '@/lib/scale';
 import { del, get, post, put } from '@/lib/api';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
@@ -44,6 +46,9 @@ export default function TravelMatch() {
   const o = useLoad(() => get<Overview>('/v1/me/travel-match'), [], undefined, 'me:travelmatch');
   const { refreshing, onRefresh } = useRefresh(() => o.reload());
   const [dest, setDest] = useState('');
+  // the same place suggestions as the trip form's destination: any place in the world, named with its country, looked up only once typing starts
+  const [destFocus, setDestFocus] = useState(false);
+  const [destTyped, setDestTyped] = useState(false);
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [calendar, setCalendar] = useState(false);
@@ -94,10 +99,11 @@ export default function TravelMatch() {
         {showForm ? (
           <View style={{ gap: 18 }}>
             <ErrorBanner message={save.error} />
-            <AuthField label={t('Where?')} placeholder={t('Lisbon')} value={dest} onChangeText={setDest} maxLength={100} />
+            <AuthField label={t('Where?')} placeholder={t('Lisbon')} autoCapitalize="words" value={dest} onChangeText={(v) => { setDest(v); setDestTyped(true); }} onFocus={() => { setDestFocus(true); setDestTyped(false); }} onBlur={() => setTimeout(() => setDestFocus(false), 200)} maxLength={100} />
+            <DestinationResults text={dest} active={destFocus && destTyped} onPick={(label) => { setDest(label); setDestTyped(false); Keyboard.dismiss(); }} />
             <View style={{ gap: 8 }}>
               <Text style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('When would you like to go?')}</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel={t('Choose your travel dates')} onPress={() => setCalendar(true)} style={{ minHeight: sc(54), borderWidth: 1, borderColor: c.line, borderRadius: 32, backgroundColor: mode === 'there' ? '#fff' : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 22, paddingRight: 8, paddingVertical: 6 }}>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Choose your travel dates')} onPress={() => { closeKeyboard(); setCalendar(true); }} style={{ minHeight: sc(54), borderWidth: 1, borderColor: c.line, borderRadius: 32, backgroundColor: mode === 'there' ? '#fff' : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 22, paddingRight: 8, paddingVertical: 6 }}>
                 <Text style={{ flex: 1, color: s && e ? c.text : c.placeholder, fontSize: 14 }}>{s && e ? range(s.toISOString(), e.toISOString()) : t('Choose your dates')}</Text>
                 <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
                   <Ionicons name="calendar-outline" size={20} color="#fff" />

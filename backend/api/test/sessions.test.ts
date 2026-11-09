@@ -90,6 +90,48 @@ describe('sign-ins that can be ended', () => {
     assert.equal((await h.get('/v1/me', again.token)).status, 200, 'signing in again works as usual');
   });
 
+  it('signing out takes this phone off the push list (and only this phone); signing out everywhere takes them all off', async () => {
+    const u = await h.verified('PushSignOut');
+    const phone = await login(u.email);
+    const tablet = await login(u.email);
+    const phonePush = 'fcm-phone-token-0001';
+    const tabletPush = 'fcm-tablet-token-0001';
+    assert.equal((await h.post('/v1/push/subscribe', phone.token, { kind: 'fcm', token: phonePush })).status, 201);
+    assert.equal((await h.post('/v1/push/subscribe', tablet.token, { kind: 'fcm', token: tabletPush })).status, 201);
+    assert.equal((await h.post('/v1/auth/logout', phone.token, { refreshToken: phone.refreshToken, pushToken: phonePush })).status, 201);
+    const left = (await h.prisma.pushSubscription.findMany({ where: { userId: u.id } })).map((s: any) => s.token);
+    assert.deepEqual(left, [tabletPush], 'the signed-out phone no longer gets this account’s notifications; the tablet still does');
+    // someone else's push address cannot be removed by naming it in a sign-out
+    const other = await h.verified('PushBystander');
+    const otherLogin = await login(other.email);
+    await h.post('/v1/push/subscribe', otherLogin.token, { kind: 'fcm', token: 'fcm-bystander-token-01' });
+    await h.post('/v1/auth/logout', tablet.token, { pushToken: 'fcm-bystander-token-01' });
+    assert.equal(await h.prisma.pushSubscription.count({ where: { token: 'fcm-bystander-token-01' } }), 1);
+    const again = await login(u.email);
+    await h.post('/v1/push/subscribe', again.token, { kind: 'fcm', token: phonePush });
+    assert.equal((await h.post('/v1/me/sessions/logout-all', again.token, {})).status, 201);
+    assert.equal(await h.prisma.pushSubscription.count({ where: { userId: u.id } }), 0, 'sign out everywhere: no device gets pushes any more');
+  });
+
+  it('a phone the app signed out by itself (expired sign-in) can still take itself off the push list, with no sign-in', async () => {
+    const u = await h.verified('PushExpired');
+    const s = await login(u.email);
+    await h.post('/v1/push/subscribe', s.token, { kind: 'fcm', token: 'fcm-expired-token-001' });
+    const r = await h.post('/v1/push/forget', undefined, { token: 'fcm-expired-token-001' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(await h.prisma.pushSubscription.count({ where: { userId: u.id } }), 0);
+    assert.equal((await h.post('/v1/push/forget', undefined, { token: 'fcm-expired-token-001' })).status, 201, 'forgetting twice is fine');
+  });
+
+  it('suspending an account takes all its phones off the push list', async () => {
+    const u = await h.verified('PushSuspended');
+    const s = await login(u.email);
+    await h.post('/v1/push/subscribe', s.token, { kind: 'fcm', token: 'fcm-suspended-token-01' });
+    const r = await h.post(`/v1/admin/users/${u.id}/suspend`, h.adminToken, { reason: 'Test of push clean-up', days: 3 });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(await h.prisma.pushSubscription.count({ where: { userId: u.id } }), 0);
+  });
+
   it('changing the password ends every other sign-in, and this device gets a fresh one', async () => {
     const u = await h.verified('ChangesPassword');
     const other = await login(u.email);

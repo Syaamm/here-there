@@ -7,7 +7,9 @@
 .lg-rings { position: absolute; right: -240px; bottom: -240px; width: 640px; height: 640px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.1); pointer-events: none; box-shadow: inset 0 0 0 70px rgba(255, 255, 255, 0.012), 0 0 0 70px rgba(255, 255, 255, 0.012), 0 0 0 71px rgba(255, 255, 255, 0.07); }
 .lg-dots { position: absolute; left: 0; top: 0; right: 0; height: 46%; pointer-events: none; opacity: 0.5; background-image: radial-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1.4px); background-size: 24px 24px; -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 85%); mask-image: linear-gradient(180deg, #000 0%, transparent 85%); }
 .lg-mark { position: relative; font: 800 1.25rem Inter, sans-serif; letter-spacing: 0.01em; }
-.lg-mark span { color: #7fd1ae; }
+/* the LAMIS logo leads the panel: large, about two thirds of the panel's width (up to 440 px), with a soft entrance */
+.lg-mark img { display: block; width: clamp(240px, 80%, 500px); margin-top: 8px; height: auto; filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.22)); animation: lg-logo 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) backwards; }
+@keyframes lg-logo { from { opacity: 0; transform: translateY(12px) scale(0.97); } to { opacity: 1; transform: none; } }
 .lg-pitch { position: relative; display: grid; gap: 18px; max-width: 460px; }
 .lg-eyebrow { margin: 0; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #9fe0bf; }
 .lg-headline { margin: 0; font: 800 2.6rem/1.06 Inter, sans-serif; letter-spacing: -0.04em; color: #fff; }
@@ -68,12 +70,13 @@
   .lg-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .lg-panel { padding: 16px 22px; flex-direction: row; align-items: center; justify-content: flex-start; gap: 0; }
   .lg-pitch, .lg-foot, .lg-rings, .lg-dots { display: none; }
-  .lg-mark { font-size: 1.1rem; }
+  .lg-panel { padding: 22px 22px 20px; }
+  .lg-mark img { width: clamp(150px, 48vw, 220px); }
   .lg-right { min-height: 0; padding: 24px 16px 32px; }
   .lg-card { padding: 28px 22px 24px; border-radius: 20px; }
   .lg-title { font-size: 1.6rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .lg-card { animation: none; }
+  .lg-card, .lg-mark img { animation: none; }
   .lg-btn, .lg-btn .icon, .lg-field input, .lg-eye, .lg-link { transition: none; }
 }

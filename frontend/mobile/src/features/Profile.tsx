@@ -12,6 +12,7 @@ import { get, patch, type Activity, type MyActivitiesPage, type MyReliability, t
 import { myActivityItems } from '@/lib/myActivities';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { tap } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
@@ -89,7 +90,7 @@ export function Profile() {
     <View style={{ alignItems: 'center', gap: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', alignSelf: 'stretch' }}>
         <ModeSwitch />
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} hitSlop={6} onPress={() => go('/settings')} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: there ? c.forest : 'rgba(16,47,41,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} hitSlop={6} onPress={() => (tap('Medium'), go('/settings'))} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: there ? c.forest : 'rgba(16,47,41,0.14)', alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="settings-outline" size={22} color={there ? '#fff' : c.forest} />
         </Pressable>
       </View>
@@ -111,7 +112,6 @@ export function Profile() {
     <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={band} headerBg={there ? c.sand : HERE_MINT} bandFade="#FFFFFF" bandDark={false} style={{ paddingTop: 20 }}>
       <>
           <StatsCard hosted={stats.data?.stats.activitiesHosted} joined={stats.data?.stats.activitiesJoined} trips={stats.data?.stats.tripsDone} />
-          <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17, textAlign: 'center' }}>{t('No reviews yet.')}</Text>
           {there ? <>{reliabilityRow}{travelRow}{buddiesRow}</> : <>{buddiesRow}{reliabilityRow}</>}
           {!me.emailVerified ? (
             <Pressable accessibilityRole="button" onPress={() => go('/onboarding')} style={{ minHeight: 54, borderRadius: 32, borderWidth: 1, borderColor: c.line, backgroundColor: there ? '#fff' : undefined, alignItems: 'center', justifyContent: 'center' }}>

@@ -1,13 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
-/**
- * Chart pieces for the dashboard, drawn as plain SVG (no chart library). Colours are fixed per series so a series
- * never changes colour when another is hidden. The three series colours were checked on the dark card surface:
- * lightness band, chroma, colour-blind separation and 3:1 contrast all pass.
- *
- * Charts fill the space their card gives them (they measure it), so the whole dashboard can fit one screen.
- */
-export const SERIES = { mint: '#36ad7a', orange: '#de7030', blue: '#5888d8' } as const;
+/** Chart pieces drawn as plain SVG, in the app palette: forest, green accent, neutral grey. */
+export const SERIES = { forest: '#102f29', accent: '#4daa84', grey: '#9fb0a9' } as const;
 
 const day = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
@@ -52,7 +46,7 @@ export function Meter({ value, label }: { value: number; label: string }) {
 }
 
 // ---------------------------------------------------------------- a small trend line
-export function Sparkline({ values, color = SERIES.mint, label }: { values: number[]; color?: string; label: string }) {
+export function Sparkline({ values, color = SERIES.accent, label }: { values: number[]; color?: string; label: string }) {
   const id = useId();
   const w = 160;
   const h = 40;
@@ -162,14 +156,14 @@ export function LineChart({ days, lines, title }: { days: string[]; lines: Line[
             {at && <Tip x={at.x} title={day(days[at.i])} rows={shown.map((l) => ({ color: l.color, label: l.label, value: l.values[at.i] }))} />}
           </>
       </div>
-      <div className="legend" role="group" aria-label="Show or hide a series">
+      <div className="row wrap" style={{ marginTop: 8 }} role="group" aria-label="Show or hide a series">
         {lines.map((l) => {
           const on = !off.has(l.key);
           return (
             <button
               key={l.key}
               type="button"
-              className={on ? 'on' : ''}
+              className={on ? 'btn small' : 'btn small ghost'}
               aria-pressed={on}
               onClick={() =>
                 setOff((o) => {
@@ -180,7 +174,7 @@ export function LineChart({ days, lines, title }: { days: string[]; lines: Line[
                 })
               }
             >
-              <i style={{ background: on ? l.color : 'transparent', borderColor: l.color }} />
+              <i className="dot" style={{ background: on ? l.color : 'transparent', border: `2px solid ${l.color}` }} />
               {l.label}
             </button>
           );
@@ -190,28 +184,61 @@ export function LineChart({ days, lines, title }: { days: string[]; lines: Line[
   );
 }
 
-// ---------------------------------------------------------------- one bar per day
-export function DayBars({ days, values, label, color = SERIES.mint, flag = SERIES.orange }: { days: string[]; values: number[]; label: string; color?: string; flag?: string }) {
+// ---------------------------------------------------------------- one bar per day, with a value axis and dates under it
+export function DayBars({ days, values, label, color = SERIES.accent, flag = SERIES.forest }: { days: string[]; values: number[]; label: string; color?: string; flag?: string }) {
   const { at, setAt } = useHover();
-  const max = Math.max(1, ...values);
-  const avg = values.reduce((a, b) => a + b, 0) / Math.max(1, values.length);
-  const high = Math.max(2, avg * 2); // a day well above the usual is shown in the second colour
+  const { ref, w, h } = useSize<HTMLDivElement>();
+  const W = Math.max(280, w);
+  const H = Math.max(140, h);
+  const m = { l: 30, r: 6, t: 10, b: 24 };
+  const n = Math.max(1, values.length);
+  const rawMax = Math.max(1, ...values);
+  const step = niceStep(rawMax);
+  const max = Math.ceil(rawMax / step) * step;
+  const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+  const slot = (W - m.l - m.r) / n;
+  const bw = Math.max(2, Math.min(22, slot * 0.62));
+  const x = (i: number) => m.l + i * slot + (slot - bw) / 2;
+  const y = (v: number) => H - m.b - (v / max) * (H - m.t - m.b);
+  // about one date label per 90 px, always the first and the last day
+  const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - m.l) / 90))));
+  const labelled = days.map((_, i) => i).filter((i) => i % every === 0 || i === n - 1).filter((i, k, a) => i === n - 1 || a[k + 1] === undefined || a[k + 1] - i >= every * 0.6);
+  const avg = values.reduce((a, b) => a + b, 0) / n;
+  const high = Math.max(2, avg * 2); // a day well above the usual is drawn darker
+
+  const move = (clientX: number) => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r || !r.width) return;
+    const i = Math.floor((clientX - r.left - m.l) / slot);
+    if (i < 0 || i >= n) return setAt(null);
+    setAt({ i, x: (m.l + (i + 0.5) * slot) / W });
+  };
+
   return (
     <div className="chart-box">
-      <div className="chart bars chart-fill" onPointerLeave={() => setAt(null)}>
-        <>
-            <div className="bar-row" role="img" aria-label={`${label}. ${values.reduce((a, b) => a + b, 0)} in the last ${values.length} days.`}>
-              {values.map((v, i) => (
-                <div key={days[i]} className="bar-slot" onPointerEnter={() => setAt({ i, x: (i + 0.5) / values.length })}>
-                  <i style={{ height: `${Math.max(v ? 6 : 2, (v / max) * 100)}%`, background: v >= high ? flag : color, opacity: v ? 1 : 0.28 }} />
-                </div>
-              ))}
-            </div>
-            {at && <Tip x={at.x} title={day(days[at.i])} rows={[{ color: values[at.i] >= high ? flag : color, label, value: values[at.i] }]} />}
-          </>
-      </div>
-      <div className="legend">
-        <span className="muted small">Orange days: well above usual</span>
+      <div className="chart chart-fill daybars" ref={ref} onPointerMove={(e) => move(e.clientX)} onPointerLeave={() => setAt(null)}>
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label}. ${values.reduce((a, b) => a + b, 0)} in the last ${n} days.`}>
+          {ticks.map((t) => (
+            <g key={t}>
+              <line x1={m.l} x2={W - m.r} y1={y(t)} y2={y(t)} className="grid" />
+              <text x={m.l - 8} y={y(t) + 4} textAnchor="end" className="axis">
+                {t}
+              </text>
+            </g>
+          ))}
+          {at && <rect x={m.l + at.i * slot} y={m.t} width={slot} height={H - m.t - m.b} className="bar-hover" rx="4" />}
+          {values.map((v, i) => {
+            const top = y(v);
+            const hgt = Math.max(v ? 3 : 1.5, H - m.b - top);
+            return <rect key={days[i] ?? i} className="dbar" x={x(i)} y={H - m.b - hgt} width={bw} height={hgt} rx={Math.min(4, bw / 2)} fill={v >= high ? flag : color} opacity={v ? (at && at.i !== i ? 0.55 : 1) : 0.25} style={{ animationDelay: `${Math.min(i, 40) * 12}ms` }} />;
+          })}
+          {labelled.map((i) => (
+            <text key={i} x={m.l + (i + 0.5) * slot} y={H - 6} textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'} className="axis">
+              {day(days[i])}
+            </text>
+          ))}
+        </svg>
+        {at && <Tip x={at.x} title={day(days[at.i])} rows={[{ color: values[at.i] >= high ? flag : color, label, value: values[at.i] }]} />}
       </div>
     </div>
   );
@@ -229,10 +256,10 @@ export function ShareBar({ parts, label }: { parts: Part[]; label: string }) {
   );
 }
 
-/** A "more →" style heading row used by every card. */
+/** A card heading with something on the right. */
 export function CardHead({ id, title, right }: { id?: string; title: string; right?: ReactNode }) {
   return (
-    <div className="dash-head">
+    <div className="card-head">
       <h2 id={id}>{title}</h2>
       {right}
     </div>

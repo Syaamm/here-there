@@ -213,14 +213,16 @@ describe('favourites: trips can be saved, and savers hear when a place opens', (
     assert.equal((await call('DELETE', `/v1/trips/${t}/favorite`, fan.token)).status, 200);
     assert.equal((await get('/v1/me/favorite-trips', fan.token)).body.items.length, 0);
 
-    const gone = (await post('/v1/trips', org.token, tripBody({ title: 'Cancelled trip' }))).body.id as string;
-    assert.equal((await post(`/v1/trips/${gone}/cancel`, org.token)).status, 201);
+    // one plan at a time: each of these trips has its own organizer, since they share the same dates
+    const org2 = await verified('HeartOrg2');
+    const gone = (await post('/v1/trips', org2.token, tripBody({ title: 'Cancelled trip' }))).body.id as string;
+    assert.equal((await post(`/v1/trips/${gone}/cancel`, org2.token)).status, 201);
     const refused = await post(`/v1/trips/${gone}/favorite`, fan.token);
     assert.equal(refused.status, 409);
     assert.equal(refused.body.code, 'TRIP_CLOSED');
     assert.equal((await fetch(`${base}/t/${gone}`, { redirect: 'manual' })).status, 404);
 
-    const begun = (await post('/v1/trips', org.token, tripBody({ title: 'Already under way' }))).body.id as string;
+    const begun = (await post('/v1/trips', (await verified('HeartOrg3')).token, tripBody({ title: 'Already under way' }))).body.id as string;
     await prisma.trip.update({ where: { id: begun }, data: { dateStart: new Date(Date.now() - 86_400_000), dateEnd: new Date(Date.now() + 3 * 86_400_000) } });
     assert.equal((await post(`/v1/trips/${begun}/favorite`, fan.token)).body.code, 'TRIP_CLOSED');
     assert.equal((await fetch(`${base}/t/${begun}`, { redirect: 'manual' })).status, 404);

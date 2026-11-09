@@ -10,6 +10,8 @@ import { Platform, StyleSheet, useWindowDimensions, type StyleProp, type TextSty
 const BASE = 390;
 /** Android draws the same design larger than an iPhone does, so everything that follows the scale (text and the main controls) is 12% smaller there. */
 const ANDROID_SHRINK = Platform.OS === 'android' ? 0.88 : 1;
+/** Negative letter spacing for big bold titles: Android's font (Roboto) is tighter than the iPhone's, so it keeps 60% of it. */
+export const tracking = (n: number) => (Platform.OS === 'android' ? Math.round(n * 0.6 * 10) / 10 : n);
 export const scaleFor = (w: number) => (w >= 640 ? 1 : Math.min(1.1, Math.max(0.9, w / BASE)) * ANDROID_SHRINK);
 
 const Ctx = createContext(1);

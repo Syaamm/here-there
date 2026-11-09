@@ -1,14 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Redirect, Tabs } from 'expo-router';
-import { useEffect } from 'react';
-import { View, type ColorValue } from 'react-native';
+import { Redirect, Tabs, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect } from 'react';
+import { BackHandler, Platform, View, type ColorValue } from 'react-native';
+import { showToast } from '@/lib/toast';
 import { get } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useLoad } from '@/lib/hooks';
 import { CreateButton, DockBackground, DockButton, DockSpace, useDockMetrics } from '@/lib/dock';
 import { startLive, stopLive, useLiveEvents } from '@/lib/live';
 import { useCity } from '@/lib/city';
-import { resyncPush, usePushTaps } from '@/lib/push';
+import { askPushOnce, resyncPush, usePushTaps } from '@/lib/push';
 import { bumpUnread, onUnreadRefresh, refreshUnread, setUnread, useUnread } from '@/lib/unread';
 import { prefetchApp } from '@/lib/prefetch';
 import { HomeIcon, MessageIcon, ProfileGlyph, SearchIcon, svgTabIcon } from '@/components/DockIcons';
@@ -43,7 +44,8 @@ export default function TabsLayout() {
   useEffect(() => {
     if (!signedIn) return;
     startLive();
-    void resyncPush();
+    // guests are never asked; a signed-up person is asked for notifications once (then just kept registered)
+    void (signedIn.role === 'guest' ? resyncPush() : askPushOnce());
     return () => stopLive();
   }, [signedIn?.id]);
   useLiveEvents((e) => {
@@ -51,6 +53,24 @@ export default function TabsLayout() {
     if (e.type === 'notification' || e.type === 'ready' || e.type === 'alerts-changed') refreshUnread();
   });
   usePushTaps();
+  // Android: Back on any page that shows the dock does not move to another tab: it asks to press again, then leaves the app.
+  // (A page opened from a tab, and a form that is on a later step, handle Back themselves first.)
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      let last = 0;
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (Date.now() - last < 2000) {
+          BackHandler.exitApp();
+          return true;
+        }
+        last = Date.now();
+        showToast(t('Press back again to exit'), 'ok', 1800);
+        return true;
+      });
+      return () => sub.remove();
+    }, [t]),
+  );
   // the first visit to Messages, Profile or the feeds should already have its content: load them quietly now
   useEffect(() => {
     if (signedIn) void prefetchApp(signedIn).catch(() => {});

@@ -1,12 +1,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image, type ImageSource } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Linking, Pressable, View } from 'react-native';
+import { approximateFix } from '@/features/mapShared';
 import { get } from '@/lib/api';
+import type { Near } from '@/lib/city';
+import { tap } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { AuthBack } from './AuthForm';
+import { RoundPhoto } from './CreateParts';
 import { Text, TextInput } from './ScaledText';
 import type { Place } from './PlaceSearch';
 import { pressed } from './ui';
@@ -14,16 +18,20 @@ import { pressed } from './ui';
 /** The sign-up questions (Figma "onboarding 1 to 3"): back and Skip, a progress bar, a question, the choices, Next. */
 
 /** Back button on the left, Skip on the right, and the progress bar under them. `back` is left out on the first question. */
-export function OnboardingTop({ progress, onBack, onSkip }: { progress: number; onBack?: () => void; onSkip: () => void }) {
+export function OnboardingTop({ progress, onBack, onSkip }: { progress: number; onBack?: () => void; /** left out where the question cannot be skipped */ onSkip?: () => void }) {
   const { t } = useT();
   const { c } = useTheme();
   return (
     <View style={{ gap: 18 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 }}>
         {onBack ? <AuthBack onPress={onBack} /> : <View />}
-        <Pressable accessibilityRole="button" hitSlop={10} onPress={onSkip} style={{ minHeight: 44, paddingHorizontal: 4, justifyContent: 'center' }}>
-          <Text style={{ color: c.forest, fontSize: 14.7, fontWeight: '500' }}>{t('Skip')}</Text>
-        </Pressable>
+        {onSkip ? (
+          <Pressable accessibilityRole="button" hitSlop={10} onPress={onSkip} style={{ minHeight: 44, paddingHorizontal: 4, justifyContent: 'center' }}>
+            <Text style={{ color: c.forest, fontSize: 14.7, fontWeight: '500' }}>{t('Skip')}</Text>
+          </Pressable>
+        ) : (
+          <View />
+        )}
       </View>
       <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }} style={{ height: 6, borderRadius: 65, backgroundColor: c.sand, justifyContent: 'center' }}>
         <View style={{ width: `${progress * 100}%`, height: 4, marginLeft: 0, borderRadius: 65, backgroundColor: c.forest }} />
@@ -52,9 +60,9 @@ export function InterestTile({ label, photo, selected, onPress }: { label: strin
       accessibilityLabel={label}
       accessibilityState={{ checked: selected }}
       onPress={onPress}
-      style={({ pressed: p }) => [{ flexBasis: '48%', flexGrow: 1, minHeight: sc(62), borderRadius: 32, borderWidth: 1.3, borderColor: 'rgba(0,0,0,0.08)', backgroundColor: selected ? c.forest : mode === 'there' ? '#fff' : c.surface, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: photo ? 4 : 22, paddingRight: 12 }, pressed(p)]}
+      style={({ pressed: p }) => [{ flexBasis: '48%', flexGrow: 1, minHeight: sc(62), borderRadius: 999, borderWidth: 1, borderColor: 'rgba(0,0,0,0.08)', backgroundColor: selected ? c.forest : mode === 'there' ? '#fff' : c.surface, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: photo ? sc(4) : 0, paddingLeft: photo ? sc(4) : 22, paddingRight: 12 }, pressed(p)]}
     >
-      {photo ? <Image source={photo} contentFit="cover" style={{ width: 54, height: 54, borderRadius: 27, borderWidth: selected ? 2 : 0, borderColor: '#fff' }} accessibilityLabel="" /> : null}
+      {photo ? <RoundPhoto source={photo} size={sc(54)} ring={selected} /> : null}
       <Text numberOfLines={2} style={{ flex: 1, color: selected ? '#fff' : c.forest, fontSize: mode === 'there' ? 12 : 13 }}>{label}</Text>
     </Pressable>
   );
@@ -86,34 +94,36 @@ export function RadioRow({ label, selected, onPress }: { label: string; selected
   );
 }
 
-const MIN_CHARS = 3;
-const DELAY_MS = 500; // one search per pause in typing
+const MIN_CHARS = 2;
+const DELAY_MS = 350; // one search per pause in typing
 
 /**
- * "Which city are you usually in?": a pill field with a map search. Picking a result fills in the city's name; whatever
- * is typed is also fine when the search finds nothing or is not available, so nobody gets stuck here.
+ * "Which city are you usually in?": the city is picked, never typed by hand, so names are always real and the same everywhere.
+ * Either search for it, or tap "Use my location": the phone asks for permission at that moment (and only then), one reading is
+ * taken to find the city, and nothing is tracked or stored. Once picked it shows as a chip with "Change".
  */
-export function CitySearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function CityField({ value, onPick }: { value: string; onPick: (name: string, at: Near) => void }) {
   const { t } = useT();
   const { c } = useTheme();
+  const [editing, setEditing] = useState(!value);
+  const [q, setQ] = useState('');
   const [found, setFound] = useState<Place[] | null>(null);
   const [state, setState] = useState<'idle' | 'searching' | 'done' | 'error'>('idle');
-  const picked = useRef<string | null>(null); // the text a result put in the field, so choosing it does not start another search
+  const [loc, setLoc] = useState<null | 'locating' | 'denied' | 'blocked' | 'failed'>(null);
   const latest = useRef(0);
 
   useEffect(() => {
-    const q = value.trim();
-    if (q.length < MIN_CHARS || picked.current === value) {
-      latest.current++;
+    const text = q.trim();
+    const mine = ++latest.current;
+    if (text.length < MIN_CHARS) {
       setFound(null);
       setState('idle');
       return;
     }
-    const mine = ++latest.current;
     setState('searching');
     const timer = setTimeout(async () => {
       try {
-        const r = await get<{ items: Place[] }>(`/v1/places/search?${new URLSearchParams({ q })}`);
+        const r = await get<{ items: Place[] }>(`/v1/places/search?${new URLSearchParams({ q: text, kind: 'city' })}`);
         if (mine !== latest.current) return;
         setFound(r.items);
         setState('done');
@@ -124,8 +134,48 @@ export function CitySearch({ value, onChange }: { value: string; onChange: (v: s
       }
     }, DELAY_MS);
     return () => clearTimeout(timer);
-  }, [value]);
+  }, [q]);
 
+  const pick = (name: string, at: Near) => {
+    Keyboard.dismiss();
+    tap('Medium');
+    latest.current++;
+    onPick(name, at);
+    setEditing(false);
+    setQ('');
+    setFound(null);
+    setState('idle');
+    setLoc(null);
+  };
+
+  const useMyLocation = async () => {
+    if (loc === 'locating') return;
+    Keyboard.dismiss();
+    setLoc('locating');
+    const fix = await approximateFix(); // the phone's own pop-up appears here: allow once / while using the app / don't allow
+    if (!fix.ok) return setLoc(fix.reason === 'denied' ? (fix.canAskAgain === false ? 'blocked' : 'denied') : 'failed');
+    try {
+      const here = await get<Place | null>(`/v1/places/reverse?${new URLSearchParams({ lat: String(fix.lat), lng: String(fix.lng) })}`);
+      if (!here) return setLoc('failed');
+      pick(here.name, { lat: here.lat, lng: here.lng });
+    } catch {
+      setLoc('failed');
+    }
+  };
+
+  if (!editing && value)
+    return (
+      <View style={{ minHeight: sc(56), borderRadius: 32, backgroundColor: c.sand, flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 20, paddingRight: 8 }}>
+        <Ionicons name="location" size={20} color={c.forest} />
+        <Text accessibilityLabel={t('Your city: {city}', { city: value })} numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: 15, fontWeight: '600' }}>{value}</Text>
+        <Ionicons name="checkmark-circle" size={20} color={c.forest} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Change city')} hitSlop={6} onPress={() => setEditing(true)} style={{ minHeight: 44, paddingHorizontal: 10, justifyContent: 'center' }}>
+          <Text style={{ color: c.forest, fontSize: 14, fontWeight: '600' }}>{t('Change')}</Text>
+        </Pressable>
+      </View>
+    );
+
+  const say = (text: string) => <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{text}</Text>;
   return (
     <View style={{ gap: 10 }}>
       <View style={{ minHeight: sc(56), borderRadius: 32, backgroundColor: c.sand, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20 }}>
@@ -138,28 +188,45 @@ export function CitySearch({ value, onChange }: { value: string; onChange: (v: s
           cursorColor={c.forest}
           underlineColorAndroid="transparent"
           returnKeyType="search"
-          value={value}
-          onChangeText={onChange}
+          value={q}
+          onChangeText={setQ}
           maxLength={60}
           autoCorrect={false}
           autoComplete="off"
           style={{ flex: 1, color: c.forest, fontSize: 14, paddingVertical: 12, includeFontPadding: false }}
         />
       </View>
-      {state === 'searching' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{t('Searching…')}</Text> : null}
-      {state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{t('Search unavailable. Type the place name.')}</Text> : null}
-      {state === 'done' && found && found.length === 0 ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{t('No place found.')}</Text> : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('Use my location')}
+        accessibilityState={{ busy: loc === 'locating' }}
+        onPress={useMyLocation}
+        style={({ pressed: isPressed }) => [{ minHeight: sc(52), borderRadius: 32, borderWidth: 1.2, borderColor: c.forest, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }, isPressed && { opacity: 0.7 }]}
+      >
+        {loc === 'locating' ? <ActivityIndicator size="small" color={c.forest} /> : <Ionicons name="navigate-outline" size={18} color={c.forest} />}
+        <Text style={{ color: c.forest, fontSize: 15, fontWeight: '600' }}>{loc === 'locating' ? t('Finding your city…') : t('Use my location')}</Text>
+      </Pressable>
+      {loc === 'denied' ? say(t('Location is off. Search your city instead, or try again.')) : null}
+      {loc === 'blocked' ? (
+        <View style={{ gap: 4 }}>
+          {say(t('Location is blocked for this app. Search your city, or allow it in your phone settings.'))}
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => void Linking.openSettings()} style={{ paddingLeft: 12, minHeight: 36, justifyContent: 'center' }}>
+            <Text style={{ color: c.forest, fontSize: 13, fontWeight: '600' }}>{t('Open settings')}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {loc === 'failed' ? say(t("Couldn't find your city from your location. Search it instead.")) : null}
+      {state === 'searching' ? say(t('Searching…')) : null}
+      {state === 'error' ? say(t('City search is not available right now. Try again in a moment.')) : null}
+      {state === 'done' && found && found.length === 0 ? say(t('No city found with that name.')) : null}
       {found && found.length > 0 ? (
         <View style={{ borderRadius: 18, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
           {found.map((p, i) => (
             <Pressable
               key={p.id}
               accessibilityRole="button"
-              accessibilityLabel={t('Use {name}, {address}', { name: p.name, address: p.address })}
-              onPress={() => {
-                picked.current = p.name;
-                onChange(p.name);
-              }}
+              accessibilityLabel={p.address ? `${p.name}, ${p.address}` : p.name}
+              onPress={() => pick(p.name, { lat: p.lat, lng: p.lng })}
               style={({ pressed: isPressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 16, minHeight: 48, borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, isPressed && { backgroundColor: c.sand }]}
             >
               <Ionicons name="location-outline" size={18} color={c.muted} />
@@ -170,6 +237,11 @@ export function CitySearch({ value, onChange }: { value: string; onChange: (v: s
             </Pressable>
           ))}
         </View>
+      ) : null}
+      {value ? (
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setEditing(false)} style={{ minHeight: 36, justifyContent: 'center', paddingLeft: 12 }}>
+          <Text style={{ color: c.muted, fontSize: 13 }}>{t('Keep {city}', { city: value })}</Text>
+        </Pressable>
       ) : null}
     </View>
   );

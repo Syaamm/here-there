@@ -18,11 +18,12 @@ import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
 import { catColor, CATS } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
-import { hhmm, when as whenLabel } from '@/lib/format';
-import { useAction, useLoad } from '@/lib/hooks';
+import { dayWord, hhmm } from '@/lib/format';
+import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { t, tn, useT } from '@/lib/i18n';
+import { ReadMore } from '@/components/ReadMore';
 
 /** "Starts in 40 min", "Starts in 3 hrs", "Tomorrow", ... and how it ended once it is over. */
 function startsIn(a: Activity): { text: string; tone: 'info' | 'ok' | 'warn' | 'bad' | 'neutral' } {
@@ -35,7 +36,7 @@ function startsIn(a: Activity): { text: string; tone: 'info' | 'ok' | 'warn' | '
     const h = Math.round(m / 60);
     return { text: tn(h, 'Starts in {n} hr', 'Starts in {n} hrs'), tone: 'warn' };
   }
-  return { text: whenLabel(a.startsAt).replace(/\s\d{1,2}:\d{2}.*$/, ''), tone: 'warn' };
+  return { text: dayWord(a.startsAt), tone: 'warn' };
 }
 
 /** HERE · Activity detail. The join button always reflects server-side state, never a client guess. */
@@ -48,12 +49,12 @@ export default function ActivityDetail() {
   const go = useGo();
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
-  const [expanded, setExpanded] = useState(false);
   const [barH, setBarH] = useState(0); // the fixed bottom bar's measured height
   const [handing, setHanding] = useState(false); // the host's "hand over hosting" list of members
   // the heart answers at once; the server confirms a moment later (a failed save puts it back)
   const [favNow, setFavNow] = useState<boolean | null>(null);
   const { data: a, error, loading, reload } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
+  const { refreshing, onRefresh } = useRefresh(reload); // pull down to refresh, like Home
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'activity' | 'user'; id: string } | null>(null);
   const [noShow, setNoShow] = useState<'closed' | 'open' | 'confirm' | 'sent'>('closed'); // "the host did not show up": sheet closed, open, showing its thank-you, or sent and closed
@@ -86,6 +87,7 @@ export default function ActivityDetail() {
   // by the clock as well as by the status, which is only updated a little after the end (an activity with no end time counts as 4 hours long)
   const endedByClock = (a.endsAt ? +new Date(a.endsAt) : +new Date(a.startsAt) + 4 * 3600e3) < Date.now();
   const canLeave = !over && a.status !== 'cancelled' && !endedByClock;
+  const started = a.status === 'in_progress' || +new Date(a.startsAt) <= Date.now();
 
   const canHandOver = a.isHost && !over && a.status !== 'cancelled' && !a.handover && (a.participants ?? []).some((p) => p.role !== 'host' && p.verifiedAdult);
   const menu = [
@@ -95,7 +97,7 @@ export default function ActivityDetail() {
       ? []
       : [
           { label: t('Report this activity'), onSelect: () => setReport({ type: 'activity', id: a.id }) },
-          { label: t('Report {name}', { name: a.host.displayName }), onSelect: () => setReport({ type: 'user', id: a.host.id }) },
+          // a person is reported from their profile (its ⋯ menu), not from their activity
           {
             label: t('Block {name}', { name: a.host.displayName }),
             danger: true,
@@ -110,7 +112,7 @@ export default function ActivityDetail() {
   ];
 
   // "Today, 01:05 PM – 03:05 PM" and how long it lasts
-  const day = whenLabel(a.startsAt).replace(/\s\d{1,2}:\d{2}.*$/, '');
+  const day = dayWord(a.startsAt);
   const timeText = `${day}, ${hhmm(a.startsAt)} – ${hhmm(a.endsAt)}`;
   const mins = Math.max(0, Math.round((+new Date(a.endsAt) - +new Date(a.startsAt)) / 60000));
   const length = mins >= 60 ? `${tn(Math.floor(mins / 60), '{n} hour', '{n} hours')}${mins % 60 ? ` ${t('{m} min', { m: mins % 60 })}` : ''}` : t('{m} min', { m: mins });
@@ -122,7 +124,6 @@ export default function ActivityDetail() {
   };
   // the link opens this activity in the app, or sends the person to the App Store / Google Play when they have not got it
   const share = () => void Share.share({ message: `${t('{title}, {time} at {venue}, {city}', { title: a.title, time: timeText, venue: a.venueName, city: a.city })}\n${shareLink('activity', a.id)}` }).catch(() => undefined);
-  const longText = (a.description?.length ?? 0) > 130;
   const soon = startsIn(a);
 
   const top = statusTop(insets.top) + 8;
@@ -158,6 +159,8 @@ export default function ActivityDetail() {
           edge) scrolls up to the top and then stays there while the white section slides under it. The system's own sticky
           header does the pinning, so there is no scroll code running to lag behind. */}
       <Screen
+        onRefresh={onRefresh}
+        refreshing={refreshing}
         bottomRoom={primary ? barH : undefined}
         fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={catColor(a.category)} category={a.category} emoji={cat?.emoji} /> }}
       >
@@ -170,16 +173,8 @@ export default function ActivityDetail() {
         <View style={{ gap: 10 }}>
           <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{a.title}</Text>
           {a.description ? (
-            <View style={{ gap: 4 }}>
-              <Text numberOfLines={expanded ? undefined : 3} style={{ color: c.muted, fontSize: 15, lineHeight: 27 }}>
-                {a.description}
-              </Text>
-              {longText ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={expanded ? t('Read less') : t('Read more')} onPress={() => setExpanded((v) => !v)} hitSlop={8} style={{ minHeight: 32, justifyContent: 'center' }}>
-                  <Text style={{ color: c.green, fontSize: 14, fontWeight: '600' }}>{expanded ? t('read less') : t('read more')}</Text>
-                </Pressable>
-              ) : null}
-            </View>
+            // "read more" when it really runs past three lines (bullet points too), not by its number of characters
+            <ReadMore text={a.description} style={{ color: c.muted, fontSize: 15, lineHeight: 27 }} />
           ) : null}
         </View>
 
@@ -221,26 +216,51 @@ export default function ActivityDetail() {
           <View style={{ gap: 10 }}>
             {a.isMember && a.status !== 'cancelled' ? (
               <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
-                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{a.myAttendance === 'attended' ? t('You said you were there') : a.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
-                <Txt variant="small">{t('Optional, and only you see your answer. It helps keep fake sign-ups out. We never track your location.')}</Txt>
-                <Row style={{ gap: 8 }}>
-                  <Btn title={t('Yes, I went')} small variant={a.myAttendance === 'attended' ? undefined : 'secondary'} style={{ flex: 1 }} loading={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/attendance`, { attended: true }))} />
-                  <Btn title={t('No')} small variant={a.myAttendance === 'no_show' ? undefined : 'secondary'} style={{ flex: 1 }} loading={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/attendance`, { attended: false }))} />
-                </Row>
+                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{a.myAttendance === 'attended' ? `✓ ${t('You said you were there')}` : a.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
+                {/* one answer, final: once given, the buttons go and only the answer stays */}
+                {a.myAttendance === 'attended' || a.myAttendance === 'no_show' ? (
+                  <Txt variant="small">{t('Thanks. Your answer is saved and cannot be changed. The group sees whether you went.')}</Txt>
+                ) : (
+                  <>
+                    <Txt variant="small">{t('One tap, and it cannot be changed after. The group sees whether you went. We never track your location.')}</Txt>
+                    <Row style={{ gap: 8 }}>
+                      <Btn title={t('Yes, I went')} small style={{ flex: 1 }} disabled={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/attendance`, { attended: true }))} />
+                      <Btn title={t("No, I didn't")} small variant="secondary" style={{ flex: 1 }} disabled={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/attendance`, { attended: false }))} />
+                    </Row>
+                  </>
+                )}
               </View>
             ) : null}
             {a.isHost && a.status !== 'cancelled' ? <Btn title={t('Who came?')} variant="secondary" onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
             {a.isMember && !a.isHost && a.status !== 'cancelled' && hostNoShowOpen(a.startsAt, a.endsAt) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
-            <Txt variant="h2" accessibilityRole="header">{t('Members who took part ({n})', { n: going.length })}</Txt>
-            {going.map((p) => (
-              <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={p.role === 'host' ? t('{name}, host. Open profile', { name: p.displayName }) : t('{name}. Open profile', { name: p.displayName })} onPress={() => go(`/user/${p.id}`)}>
-                <Row style={{ gap: 12, paddingVertical: 4 }}>
-                  <Avatar name={p.displayName} uri={p.photoUrl} size={40} />
-                  <Txt variant="h3" style={{ flex: 1, fontSize: 15 }}>{p.displayName}</Txt>
-                  {p.role === 'host' ? <Chip label={t('Host')} tone="info" /> : null}
-                </Row>
-              </Pressable>
-            ))}
+            {/* who went, in three groups: the host and everyone who said yes, those who said no, and those who have not answered yet */}
+            {(
+              [
+                ['attended', t('Attended ({n})', { n: going.filter((p) => p.role === 'host' || p.attendance === 'attended').length }), going.filter((p) => p.role === 'host' || p.attendance === 'attended'), 'checkmark-circle', c.green],
+                ['no_show', t('Did not attend ({n})', { n: going.filter((p) => p.role !== 'host' && p.attendance === 'no_show').length }), going.filter((p) => p.role !== 'host' && p.attendance === 'no_show'), 'close-circle', c.danger],
+                ['unknown', t('Not answered yet ({n})', { n: going.filter((p) => p.role !== 'host' && (!p.attendance || p.attendance === 'unknown')).length }), going.filter((p) => p.role !== 'host' && (!p.attendance || p.attendance === 'unknown')), 'help-circle-outline', c.muted],
+              ] as const
+            ).map(([k, title, people, icon, tint]) =>
+              people.length === 0 ? null : (
+                <View key={k} style={{ gap: 4, marginTop: 6 }}>
+                  <Row style={{ gap: 8, alignItems: 'center' }}>
+                    <Ionicons name={icon} size={18} color={tint} />
+                    <Txt variant="h3" accessibilityRole="header" style={{ fontSize: 16 }}>{title}</Txt>
+                  </Row>
+                  {people.map((p) => (
+                    <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={p.role === 'host' ? t('{name}, host. Open profile', { name: p.displayName }) : t('{name}. Open profile', { name: p.displayName })} onPress={() => go(`/user/${p.id}`)}>
+                      <Row style={{ gap: 12, paddingVertical: 4, opacity: k === 'unknown' ? 0.65 : 1 }}>
+                        <Avatar name={p.displayName} uri={p.photoUrl} size={40} />
+                        <Txt variant="h3" style={{ flex: 1, fontSize: 15 }}>{p.displayName}</Txt>
+                        {p.role === 'host' ? <Chip label={t('Host')} tone="info" /> : null}
+                        {/* confirmed: a green tick beside the name */}
+                        {k === 'attended' && p.role !== 'host' ? <Ionicons accessibilityLabel={t('Confirmed they went')} name="checkmark-circle" size={20} color={c.green} /> : k === 'no_show' ? <Ionicons accessibilityLabel={t('Said they did not go')} name="close-circle" size={20} color={c.danger} /> : null}
+                      </Row>
+                    </Pressable>
+                  ))}
+                </View>
+              ),
+            )}
           </View>
         ) : (
           <>
@@ -252,8 +272,9 @@ export default function ActivityDetail() {
                 </Text>
               </Row>
               <GoingGrid
+                onOpen={(uid) => go(`/user/${uid}`)}
                 capacity={a.capacity}
-                people={going.map((p) => ({ id: p.id, name: p.displayName, uri: p.photoUrl, host: p.role === 'host' }))}
+                people={going.map((p) => ({ id: p.id, name: p.displayName, uri: p.photoUrl, host: p.role === 'host', friend: !!p.friend, answered: p.answered }))}
                 a11y={`${t('{going} of {capacity} going', { going: a.going, capacity: a.capacity })}. ${t('Going: {names}', { names: going.map((p) => p.displayName).join(', ') })}`}
               />
             </View>
@@ -288,6 +309,15 @@ export default function ActivityDetail() {
               <View style={{ gap: 10 }}>
                 {a.conversationId && a.status !== 'in_progress' && <Btn title={t('Open group chat')} variant="secondary" onPress={() => go(`/chat/${a.conversationId}`)} />}
                 {a.status === 'in_progress' ? <Btn title={t('Who came?')} variant="secondary" onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
+                {canHandOver ? <Btn title={t('Hand over hosting')} variant="secondary" onPress={() => setHanding(true)} /> : null}
+                {/* from the start on the host can end it: everyone going is told (alert and push) */}
+                {started && !over && a.status !== 'cancelled' ? (
+                  <Btn
+                    title={t('Mark as completed')}
+                    loading={act.busy}
+                    onPress={async () => (await confirmAsync(t('Mark this activity as completed?'), t('It ends now and everyone going is told.'), t('Mark as completed'))) && void act.run(() => post(`/v1/activities/${id}/complete`))}
+                  />
+                ) : null}
                 {a.status !== 'cancelled' && (
                   <Btn
                     title={t('Cancel activity')}

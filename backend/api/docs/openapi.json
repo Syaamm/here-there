@@ -296,6 +296,18 @@
             }
           },
           {
+            "name": "area",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "hasSpots",
             "in": "query",
             "required": false,
@@ -342,7 +354,7 @@
         ],
         "responses": {
           "200": {
-            "description": "A page: { items, nextCursor } (nextCursor is null on the last page)."
+            "description": "A page: { items, nextCursor } (nextCursor is null on the last page). Each item also has mine: host | going | requested | waitlisted (your part in it, for the card) or null."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -437,7 +449,7 @@
                   },
                   "description": {
                     "type": "string",
-                    "maxLength": 1000
+                    "maxLength": 150
                   },
                   "city": {
                     "type": "string",
@@ -512,7 +524,7 @@
         },
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "the new activity. withdrawn: [{ kind, id, title }] lists your own requests at the same time that were withdrawn because of it (first accepted wins), so the screen can say so; empty when none."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `INVALID_SCHEDULE`, `VALIDATION_FAILED`",
@@ -545,7 +557,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `DUPLICATE_ACTIVITY`, `TOO_MANY_OPEN_ACTIVITIES`",
+            "description": "Conflicts with the current state. Codes: `DUPLICATE_ACTIVITY`, `TIME_CLASH`, `TOO_MANY_OPEN_ACTIVITIES`",
             "content": {
               "application/json": {
                 "schema": {
@@ -680,7 +692,7 @@
                   },
                   "description": {
                     "type": "string",
-                    "maxLength": 1000
+                    "maxLength": 150
                   },
                   "venueName": {
                     "type": "string",
@@ -764,7 +776,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `ACTIVITY_CLOSED`, `CAPACITY_BELOW_MEMBERS`",
+            "description": "Conflicts with the current state. Codes: `ACTIVITY_CLOSED`, `CAPACITY_BELOW_MEMBERS`, `TIME_CLASH`",
             "content": {
               "application/json": {
                 "schema": {
@@ -912,7 +924,7 @@
         "tags": [
           "HERE activities"
         ],
-        "summary": "Say whether I attended (voluntary, about myself)",
+        "summary": "Say whether I attended (voluntary, about myself, once: it cannot be changed after)",
         "operationId": "Activities_attendance",
         "parameters": [
           {
@@ -987,7 +999,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `ATTENDANCE_CLOSED`, `NOT_FINISHED`",
+            "description": "Conflicts with the current state. Codes: `ATTENDANCE_CLOSED`, `ATTENDANCE_SET`, `NOT_FINISHED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1072,6 +1084,90 @@
           },
           "409": {
             "description": "Conflicts with the current state. Codes: `ACTIVITY_FINISHED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/activities/{id}/complete": {
+      "post": {
+        "tags": [
+          "HERE activities"
+        ],
+        "summary": "The host marks the activity as completed, from its start on (it ends now; members get an alert and a push)",
+        "operationId": "Activities_complete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_HOST`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `ACTIVITY_CLOSED`, `ACTIVITY_NOT_STARTED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2303,7 +2399,7 @@
         },
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "{ id, state: requested | waitlisted | approved, position? }. An instant join answers approved, with withdrawn: [{ kind, id, title }] lists your own requests at the same time that were withdrawn because of it (first accepted wins), so the screen can say so; empty when none."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -2346,7 +2442,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `ACTIVITY_CANCELLED`, `ACTIVITY_FINISHED`, `ALREADY_REQUESTED`, `IS_HOST`",
+            "description": "Conflicts with the current state. Codes: `ACTIVITY_CANCELLED`, `ACTIVITY_FINISHED`, `ALREADY_REQUESTED`, `IS_HOST`, `TIME_CLASH`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2470,7 +2566,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `ACTIVITY_FULL`, `APPLICANT_UNAVAILABLE`, `REQUEST_WITHDRAWN`",
+            "description": "Conflicts with the current state. Codes: `ACTIVITY_FULL`, `APPLICANT_BUSY`, `APPLICANT_UNAVAILABLE`, `REQUEST_WITHDRAWN`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2583,11 +2679,9 @@
         ],
         "summary": "HERE activities for moderation",
         "operationId": "Admin_activitiesList",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -2614,11 +2708,29 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "ISO time: list what happens from here (with to: earliest first)",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "ISO time, exclusive; alone: what happened before it, latest first",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "{ items, nextCursor, limitMonths }. Without from/to: newest created first. limitMonths: how far ahead activities can be planned in the area this account looks after (the longest of its places)."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -2670,10 +2782,9 @@
         ],
         "summary": "Remove a member from an activity (access ends at once)",
         "operationId": "Admin_removeMember",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -2748,10 +2859,9 @@
         ],
         "summary": "Remove an activity (members are told it was cancelled)",
         "operationId": "Admin_removeActivity",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -2848,10 +2958,9 @@
         ],
         "summary": "Appeals waiting for a decision (or decided: state=upheld|rejected)",
         "operationId": "Appeals_queue",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -2934,10 +3043,9 @@
         ],
         "summary": "Accept (uphold) or reject an appeal, with a note the person sees",
         "operationId": "Appeals_decide",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -3052,9 +3160,8 @@
         ],
         "summary": "Read-only history of staff and safety actions",
         "operationId": "Admin_auditLog",
-        "description": "Staff only. Roles: trust_lead, admin.",
+        "description": "Staff only. Roles: admin.",
         "x-staff-roles": [
-          "trust_lead",
           "admin"
         ],
         "parameters": [
@@ -3089,11 +3196,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "ISO time: only entries at or after it (for Today, Last 7 days, This month)",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "{ items, nextCursor, names }. Each item: { id, actorId, action, objectType, objectId, metadata, createdAt, actorName, actorRole, objectName, objectRole }. objectName is a readable name (a person, an activity or trip title, a place, or for a report what it is about). names maps every id the page mentions (people, activities, trips, places) to its name."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -3145,11 +3261,9 @@
         ],
         "summary": "How the service is doing right now: per-minute counters, error rate, slow database calls (table and action, with the request id)",
         "operationId": "Admin_health",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -3216,11 +3330,9 @@
         ],
         "summary": "A reported message with the messages around it",
         "operationId": "Moderation_message",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -3287,10 +3399,9 @@
         ],
         "summary": "Hide a message from its chat (kept for the record). The sender is told why",
         "operationId": "Moderation_remove",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -3387,10 +3498,9 @@
         ],
         "summary": "Put a hidden message back",
         "operationId": "Moderation_restore",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -3455,13 +3565,11 @@
         "tags": [
           "Admin console"
         ],
-        "summary": "No-show notes waiting for a moderator (disputed and pending)",
+        "summary": "Attendance records: waiting, disputed, upheld, overturned, or all",
         "operationId": "Reliability_adminList",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -3470,13 +3578,14 @@
             "in": "query",
             "required": false,
             "schema": {
+              "description": "marked | disputed | upheld | overturned | all (default all)",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "{ items }"
+            "description": "{ items }. Records waiting for a decision come oldest first, the rest newest first (up to 200)."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -3528,10 +3637,9 @@
         ],
         "summary": "Uphold or overturn a no-show note (any note, to fix mistakes)",
         "operationId": "Reliability_decide",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -3636,11 +3744,9 @@
         ],
         "summary": "Hosts who say many people did not come, or whose notes keep being overturned",
         "operationId": "Reliability_adminHosts",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -3700,214 +3806,6 @@
         }
       }
     },
-    "/v1/admin/oncall": {
-      "get": {
-        "tags": [
-          "Admin console"
-        ],
-        "summary": "Who is on call for urgent reports, the coming shifts, and what happens when nobody answers",
-        "operationId": "OnCall_overview",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
-        "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
-          "admin"
-        ],
-        "responses": {
-          "200": {
-            "description": "{ now, fallback, shifts, steps, ownerContactSet }. With no shift covering now, the trust leads and administrators are on call."
-          },
-          "401": {
-            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (`INTERNAL_ERROR`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Admin console"
-        ],
-        "summary": "Add an on-call shift (administrators only)",
-        "operationId": "OnCall_add",
-        "description": "Staff only. Roles: admin.",
-        "x-staff-roles": [
-          "admin"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "userId": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "startsAt": {
-                    "type": "string",
-                    "format": "date-time"
-                  },
-                  "endsAt": {
-                    "type": "string",
-                    "format": "date-time"
-                  },
-                  "note": {
-                    "type": "string",
-                    "maxLength": 200
-                  }
-                },
-                "required": [
-                  "userId",
-                  "startsAt",
-                  "endsAt"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "{ id }"
-          },
-          "400": {
-            "description": "The request is not acceptable. Codes: `INVALID_SHIFT`, `VALIDATION_FAILED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (`INTERNAL_ERROR`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/admin/oncall/{id}": {
-      "delete": {
-        "tags": [
-          "Admin console"
-        ],
-        "summary": "Remove an on-call shift (administrators only)",
-        "operationId": "OnCall_remove",
-        "description": "Staff only. Roles: admin.",
-        "x-staff-roles": [
-          "admin"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "{ ok }"
-          },
-          "401": {
-            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found. Codes: `NOT_FOUND`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (`INTERNAL_ERROR`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/admin/overview": {
       "get": {
         "tags": [
@@ -3915,16 +3813,44 @@
         ],
         "summary": "Everything the Overview dashboard shows",
         "operationId": "Admin_overview",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "YYYY-MM-DD, first day of the range (default: 29 days before to)",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "YYYY-MM-DD, last day (default and latest: today); at most a year",
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Counters (users, pending checks, open reports, active plans), real-member totals, identity approval rate, report counts by status, and the last 30 days as daily series (members, activities, trips, reports) with the previous 30 days for comparison, plus reports by category."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -3966,11 +3892,9 @@
         ],
         "summary": "The places (whole service, countries, regions, cities) with their planning limits",
         "operationId": "RegionsAdmin_list",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "responses": {
@@ -4357,11 +4281,9 @@
         ],
         "summary": "City names people have used that no place covers yet (whole-service staff only)",
         "operationId": "RegionsAdmin_unassigned",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "responses": {
@@ -4408,11 +4330,9 @@
         ],
         "summary": "The report queue: urgent first, then overdue and escalated",
         "operationId": "Admin_reports",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -4501,12 +4421,11 @@
         "tags": [
           "Admin console"
         ],
-        "summary": "Take a report",
+        "summary": "Take a report, or (admins) give it to a staff member",
         "operationId": "Admin_assign",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -4519,9 +4438,36 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "{ ok, assignedTo }. Staff take a report themselves. An admin may name any active staff member who looks after the area of the report and works on reports; that person is notified."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `INVALID_TARGET`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -4534,7 +4480,7 @@
             }
           },
           "403": {
-            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`, `OUT_OF_SCOPE`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4573,10 +4519,9 @@
         ],
         "summary": "Resolve, dismiss or mark a report in review",
         "operationId": "Admin_resolve",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Any staff member who can see the report may decide it. If two decide at the same moment, only the first counts; the other gets REPORT_ALREADY_DECIDED.\n\nStaff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -4660,6 +4605,16 @@
               }
             }
           },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `REPORT_ALREADY_DECIDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (`INTERNAL_ERROR`)",
             "content": {
@@ -4680,11 +4635,9 @@
         ],
         "summary": "Moderator workload and queue health",
         "operationId": "Moderation_workload",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "responses": {
@@ -4731,16 +4684,14 @@
         ],
         "summary": "Which part of the service this staff account looks after",
         "operationId": "RegionsAdmin_scope",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "responses": {
           "200": {
-            "description": "{ role, scope: null | { key, name, kind } }. null means the whole service; otherwise one city, region or country."
+            "description": "{ role, scope: null | { key, name, kind }, permissions }. permissions: the parts of the console this account may use (reports, verification, users, content; all of them for an admin). null means the whole service; otherwise one city, region or country."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -4826,7 +4777,7 @@
         "tags": [
           "Admin console"
         ],
-        "summary": "Create a support, moderator or trust-lead account (whole-service administrators only)",
+        "summary": "Create a staff account for one area, with the parts of the console it may use (admins only)",
         "operationId": "Admin_createStaff",
         "description": "Staff only. Roles: admin.",
         "x-staff-roles": [
@@ -4852,29 +4803,30 @@
                   },
                   "role": {
                     "type": "string",
-                    "enum": [
-                      "support",
-                      "moderator",
-                      "trust_lead"
-                    ]
+                    "const": "staff"
                   },
                   "regionKey": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 60
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "reports",
+                        "verification",
+                        "users",
+                        "content"
+                      ]
+                    }
                   }
                 },
                 "required": [
                   "email",
                   "displayName",
-                  "role"
+                  "regionKey"
                 ]
               }
             }
@@ -4882,7 +4834,7 @@
         },
         "responses": {
           "200": {
-            "description": "{ id, email, role, regionKey, temporaryPassword }. The temporary password is shown once. At the first sign-in the console asks the person to choose their own password (once), then to connect an authenticator app; until the password is changed every console route answers PASSWORD_CHANGE_REQUIRED."
+            "description": "{ id, email, role, regionKey, permissions, temporaryPassword }. The temporary password is shown once. At the first sign-in the console asks the person to choose their own password (once), then to connect an authenticator app; until the password is changed every console route answers PASSWORD_CHANGE_REQUIRED."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `INVALID_PLACE`, `VALIDATION_FAILED`",
@@ -4937,6 +4889,113 @@
         }
       }
     },
+    "/v1/admin/staff/{id}": {
+      "patch": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "Change the area or permissions of a staff member (admins only)",
+        "operationId": "Admin_updateStaff",
+        "description": "Staff only. Roles: admin.",
+        "x-staff-roles": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "regionKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "reports",
+                        "verification",
+                        "users",
+                        "content"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, regionKey, permissions }. Recorded in the audit log with the values before."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `INVALID_PLACE`, `INVALID_TARGET`, `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/trips": {
       "get": {
         "tags": [
@@ -4944,11 +5003,9 @@
         ],
         "summary": "THERE trips for moderation",
         "operationId": "Admin_tripsList",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -4975,11 +5032,29 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "ISO time: list what happens from here (with to: earliest first)",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "ISO time, exclusive; alone: what happened before it, latest first",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "{ items, nextCursor, limitMonths }. Windows go by the start date. limitMonths: how far ahead trips can be planned in the area this account looks after."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -5031,10 +5106,9 @@
         ],
         "summary": "Remove a trip (members are told it was cancelled)",
         "operationId": "Admin_removeTrip",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -5129,13 +5203,11 @@
         "tags": [
           "Admin console"
         ],
-        "summary": "Search people",
+        "summary": "Search the people who signed up in the app (never staff, admins or demo guests)",
         "operationId": "Admin_users",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -5230,11 +5302,9 @@
         ],
         "summary": "One person: status, history and every report about them",
         "operationId": "Admin_user",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -5399,11 +5469,9 @@
         ],
         "summary": "Repeat-offender check for a person",
         "operationId": "Moderation_offender",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -5470,9 +5538,8 @@
         ],
         "summary": "Approve a wrongly rejected person (under-18 results: admin only)",
         "operationId": "Admin_overturnRejection",
-        "description": "Staff only. Roles: trust_lead, admin.",
+        "description": "Staff only. Roles: admin.",
         "x-staff-roles": [
-          "trust_lead",
           "admin"
         ],
         "parameters": [
@@ -5579,11 +5646,9 @@
         ],
         "summary": "Everything behind a person level: events, weights, notes and level history",
         "operationId": "Reliability_forStaff",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -5650,9 +5715,8 @@
         ],
         "summary": "Require a new identity check (security or fraud)",
         "operationId": "Admin_requireReverification",
-        "description": "Staff only. Roles: trust_lead, admin.",
+        "description": "Staff only. Roles: admin.",
         "x-staff-roles": [
-          "trust_lead",
           "admin"
         ],
         "parameters": [
@@ -5768,9 +5832,8 @@
         ],
         "summary": "Let a person try verification again",
         "operationId": "Admin_resetVerification",
-        "description": "Staff only. Roles: trust_lead, admin.",
+        "description": "Staff only. Roles: admin.",
         "x-staff-roles": [
-          "trust_lead",
           "admin"
         ],
         "parameters": [
@@ -5867,10 +5930,9 @@
         ],
         "summary": "Lift a suspension",
         "operationId": "Admin_restore",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -5992,9 +6054,7 @@
                     "type": "string",
                     "enum": [
                       "user",
-                      "support",
-                      "moderator",
-                      "trust_lead",
+                      "staff",
                       "admin"
                     ]
                   },
@@ -6009,6 +6069,18 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "reports",
+                        "verification",
+                        "users",
+                        "content"
+                      ]
+                    }
                   }
                 },
                 "required": [
@@ -6082,10 +6154,9 @@
         ],
         "summary": "Suspend (timed, or until restored); open reports about them resolve automatically",
         "operationId": "Admin_suspend",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -6187,10 +6258,9 @@
         ],
         "summary": "Send a formal warning (can be tied to a report or message)",
         "operationId": "Moderation_warn",
-        "description": "Staff only. Roles: moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -6293,11 +6363,9 @@
         ],
         "summary": "Identity checks by status",
         "operationId": "Admin_verifications",
-        "description": "Staff only. Roles: support, moderator, trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "support",
-          "moderator",
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -6380,9 +6448,9 @@
         ],
         "summary": "Approve or reject a manual identity check",
         "operationId": "Admin_decideVerification",
-        "description": "Staff only. Roles: trust_lead, admin.",
+        "description": "Staff only. Roles: staff, admin.",
         "x-staff-roles": [
-          "trust_lead",
+          "staff",
           "admin"
         ],
         "parameters": [
@@ -6718,7 +6786,7 @@
         ],
         "summary": "Sign out of this device",
         "operationId": "Auth_logout",
-        "description": "Optional body: { refreshToken }.",
+        "description": "Optional body: { refreshToken, pushToken }. pushToken is this device's push address: it stops getting this account's notifications.",
         "responses": {
           "200": {
             "description": "{ ok: true }. This sign-in cannot be refreshed any more; its access token ends within 15 minutes."
@@ -7968,7 +8036,7 @@
         "tags": [
           "Chat and date polls"
         ],
-        "summary": "Organizer starts a date poll in a trip chat",
+        "summary": "Organizer starts a date poll in a trip chat (a poll with dates needs a trip that has not started and has date changes left)",
         "operationId": "Conversations_createPoll",
         "description": "Needs a **verified adult**.",
         "parameters": [
@@ -8054,7 +8122,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `TOO_MANY_OPEN_POLLS`, `TRIP_CLOSED`",
+            "description": "Conflicts with the current state. Codes: `DATE_CHANGES_USED`, `TOO_MANY_OPEN_POLLS`, `TRIP_CLOSED`, `TRIP_STARTED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -8724,6 +8792,13 @@
                     "type": "string",
                     "minLength": 10,
                     "maxLength": 1000
+                  },
+                  "proofIds": {
+                    "maxItems": 3,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [
@@ -8736,10 +8811,10 @@
         },
         "responses": {
           "200": {
-            "description": "{ id, kind, state: \"open\" }. Once per decision."
+            "description": "{ id, kind, state: \"open\", proofs }. Once per decision. proofIds: up to 3 photos sent first with PUT /v1/me/proofs (a screenshot of a chat, say)."
           },
           "400": {
-            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `VALIDATION_FAILED`",
+            "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `TOO_MANY_PROOFS`, `VALIDATION_FAILED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -8768,8 +8843,108 @@
               }
             }
           },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Conflicts with the current state. Codes: `ALREADY_APPEALED`, `APPEAL_OPEN`, `NOTHING_TO_APPEAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/clashes": {
+      "get": {
+        "tags": [
+          "HERE activities"
+        ],
+        "summary": "My open plans, HERE and THERE, that overlap a time window (before joining, applying or creating)",
+        "operationId": "Clash_clashes",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "exclude",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items: [{ kind: activity | trip, id, title, startsAt, endsAt, dateStart?, dateEnd?, role, firm, status }] }, soonest first. firm = it holds you (hosted or accepted) and blocks a new plan at that time; a request still waiting is firm: false. A trip holds its whole days: endsAt is the day after its last day. exclude: activity:<id> or trip:<id>."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -9137,7 +9312,7 @@
             "description": "the saved draft. The form may be half empty: it is only checked when posted."
           },
           "400": {
-            "description": "The request is not acceptable. Codes: `DRAFT_TOO_LARGE`, `VALIDATION_FAILED`",
+            "description": "The request is not acceptable. Codes: `DRAFT_NEEDS_NAME`, `DRAFT_TOO_LARGE`, `VALIDATION_FAILED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -9336,7 +9511,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `DUPLICATE_ACTIVITY`, `TOO_MANY_OPEN_ACTIVITIES`",
+            "description": "Conflicts with the current state. Codes: `DUPLICATE_ACTIVITY`, `TIME_CLASH`, `TOO_MANY_OPEN_ACTIVITIES`",
             "content": {
               "application/json": {
                 "schema": {
@@ -11036,6 +11211,144 @@
         }
       }
     },
+    "/v1/me/proofs": {
+      "put": {
+        "tags": [
+          "Safety, blocks and follows"
+        ],
+        "summary": "Send a proof photo (a screenshot of a chat, say) to attach to an appeal or a dispute. The body is the raw image (Content-Type image/jpeg, image/png or image/webp, 6 MB at most). It is turned upright, shrunk to 1280 px and stored as webp, with camera and location data removed. At most 6 photos can wait unsent; 20 uploads an hour.",
+        "operationId": "Proofs_upload",
+        "responses": {
+          "200": {
+            "description": "{ id }, to send in proofIds"
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `IMAGE_TOO_LARGE`, `INVALID_IMAGE`, `NO_IMAGE`, `TOO_MANY_PROOFS`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/proofs/{id}": {
+      "delete": {
+        "tags": [
+          "Safety, blocks and follows"
+        ],
+        "summary": "Take back a proof photo that was not sent with anything yet",
+        "operationId": "Proofs_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/me/reliability": {
       "get": {
         "tags": [
@@ -11261,7 +11574,7 @@
         "operationId": "Auth_logoutAll",
         "responses": {
           "200": {
-            "description": "{ ok: true }. Every access token and refresh token of the account stops working immediately."
+            "description": "{ ok: true }. Every access token and refresh token of the account stops working immediately, and no device gets its push notifications until it signs in again."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -12047,6 +12360,13 @@
                     "type": "string",
                     "minLength": 3,
                     "maxLength": 500
+                  },
+                  "proofIds": {
+                    "maxItems": 3,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [
@@ -12058,10 +12378,10 @@
         },
         "responses": {
           "200": {
-            "description": "{ id, state: \"disputed\" }. A moderator decides; it counts for nothing meanwhile."
+            "description": "{ id, state: \"disputed\" }. A moderator decides; it counts for nothing meanwhile. proofIds: up to 3 photos sent first with PUT /v1/me/proofs (a screenshot of the chat, say)."
           },
           "400": {
-            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "description": "The request is not acceptable. Codes: `TOO_MANY_PROOFS`, `VALIDATION_FAILED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -12266,7 +12586,7 @@
         "tags": [
           "Notifications and push"
         ],
-        "summary": "Mark all alerts read (optionally by scope)",
+        "summary": "Mark all read: scope=alerts (not chats) or scope=chats; alerts waiting for you to act (join requests, applications, hosting offers, trip dates to confirm) stay unread until done",
         "operationId": "Notifications_readAll",
         "responses": {
           "200": {
@@ -12340,13 +12660,91 @@
         }
       }
     },
+    "/v1/places/reverse": {
+      "get": {
+        "tags": [
+          "HERE activities"
+        ],
+        "summary": "Near me: the town or city a position is in, with its centre (to make it the city the app shows). Also open without signing in (the city picker on sign-up), with a lower limit per address",
+        "operationId": "Places_reverse",
+        "security": [],
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            }
+          },
+          {
+            "name": "lng",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ id, name, address, lat, lng } or null when nothing is known there"
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Error. Codes: `PLACES_UNAVAILABLE`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/places/search": {
       "get": {
         "tags": [
           "HERE activities"
         ],
-        "summary": "Search for a real place by name or address (for the meeting location)",
+        "summary": "Search real places as you type: cities and regions (kind=city, the city picker; also open without signing in, for sign-up, with a lower limit per address), neighbourhoods (kind=area, where an activity meets), any destination in the world (kind=destination: countries, regions, cities and neighbourhoods; each item also has label, \"Milan, Italy\" or \"Kerala, India\", and no nearby-first ranking) or any place (all of these but kind=city need a sign-in)",
         "operationId": "Places_search",
+        "security": [],
         "parameters": [
           {
             "name": "q",
@@ -12354,8 +12752,43 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 3,
+              "minLength": 2,
               "maxLength": 100
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "place",
+              "type": "string",
+              "enum": [
+                "place",
+                "area",
+                "city",
+                "destination"
+              ]
+            }
+          },
+          {
+            "name": "lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            }
+          },
+          {
+            "name": "lng",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
             }
           },
           {
@@ -12370,30 +12803,10 @@
         ],
         "responses": {
           "200": {
-            "description": "{ items: [{ id, name, address, lat, lng }] }, up to 6, best match first. Answers are cached for 10 minutes."
+            "description": "{ items: [{ id, name, address, lat, lng }] }, up to 6, best match first; with lat/lng, places near there rank first. Uses Photon (OpenStreetMap), with Nominatim as a fallback. Answers are cached for 10 minutes."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -12440,7 +12853,7 @@
         "tags": [
           "Chat and date polls"
         ],
-        "summary": "Organizer closes a poll, optionally making its dates the proposed final dates",
+        "summary": "Organizer closes a poll, optionally making its dates the dates of the trip at once (only before the trip starts, and at most 5 times for one trip)",
         "operationId": "Conversations_closePoll",
         "description": "Needs a **verified adult**.",
         "parameters": [
@@ -12514,7 +12927,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `POLL_CLOSED`",
+            "description": "Conflicts with the current state. Codes: `DATE_CHANGES_USED`, `POLL_CLOSED`, `TRIP_STARTED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -12663,6 +13076,80 @@
         }
       }
     },
+    "/v1/proofs/{id}": {
+      "get": {
+        "tags": [
+          "Safety, blocks and follows"
+        ],
+        "summary": "A proof photo (image/webp). Private: only the person who sent it, and staff who handle appeals and notes (staff of one area, only for people in it). Never cached or public. Deleted 30 days after the decision.",
+        "operationId": "Proofs_photo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the image"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/push/config": {
       "get": {
         "tags": [
@@ -12686,6 +13173,72 @@
           },
           "403": {
             "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/push/forget": {
+      "post": {
+        "tags": [
+          "Notifications and push"
+        ],
+        "summary": "A signed-out device stops getting pushes (no sign-in needed)",
+        "operationId": "Push_forget",
+        "description": "Used when the app signs out, including on its own (expired sign-in, suspended account). Deletes the push address whoever it belonged to.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 4000
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -13038,6 +13591,13 @@
                   "details": {
                     "type": "string",
                     "maxLength": 1000
+                  },
+                  "product": {
+                    "type": "string",
+                    "enum": [
+                      "here",
+                      "there"
+                    ]
                   }
                 },
                 "required": [
@@ -13271,6 +13831,18 @@
             }
           },
           {
+            "name": "excludeMine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -13421,6 +13993,18 @@
                   "budgetIncludesTransport": {
                     "type": "boolean"
                   },
+                  "budgetIncludes": {
+                    "maxItems": 3,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "food",
+                        "travel",
+                        "stay"
+                      ]
+                    }
+                  },
                   "tags": {
                     "default": [],
                     "maxItems": 8,
@@ -13433,7 +14017,12 @@
                   },
                   "description": {
                     "type": "string",
-                    "maxLength": 2000
+                    "maxLength": 300
+                  },
+                  "capacity": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 20
                   },
                   "groupSize": {
                     "default": "4-6",
@@ -13469,7 +14058,7 @@
         },
         "responses": {
           "200": {
-            "description": "Done."
+            "description": "the new trip. withdrawn: [{ kind, id, title }] lists your own requests at the same time that were withdrawn because of it (first accepted wins), so the screen can say so; empty when none."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `CONTENT_REJECTED`, `INVALID_DATES`, `VALIDATION_FAILED`",
@@ -13493,6 +14082,16 @@
           },
           "403": {
             "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `VERIFICATION_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `TIME_CLASH`",
             "content": {
               "application/json": {
                 "schema": {
@@ -13622,7 +14221,7 @@
                 "properties": {
                   "description": {
                     "type": "string",
-                    "maxLength": 2000
+                    "maxLength": 300
                   },
                   "dateStart": {
                     "type": "string",
@@ -13697,7 +14296,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `TRIP_CLOSED`",
+            "description": "Conflicts with the current state. Codes: `TIME_CLASH`, `TRIP_CLOSED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -14028,7 +14627,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `ALREADY_APPLIED`, `IS_ORGANIZER`, `TRIP_FULL`",
+            "description": "Conflicts with the current state. Codes: `ALREADY_APPLIED`, `IS_ORGANIZER`, `TIME_CLASH`, `TRIP_FULL`",
             "content": {
               "application/json": {
                 "schema": {
@@ -14152,7 +14751,7 @@
             }
           },
           "409": {
-            "description": "Conflicts with the current state. Codes: `APPLICANT_UNAVAILABLE`, `APPLICATION_WITHDRAWN`, `TRIP_FULL`",
+            "description": "Conflicts with the current state. Codes: `APPLICANT_BUSY`, `APPLICANT_UNAVAILABLE`, `APPLICATION_WITHDRAWN`, `TRIP_FULL`",
             "content": {
               "application/json": {
                 "schema": {
@@ -15141,7 +15740,7 @@
         "tags": [
           "THERE trips"
         ],
-        "summary": "The group shared plan: itinerary by day and estimated costs (members only)",
+        "summary": "The group shared plan: the itinerary by day (members only)",
         "operationId": "TripPlan_get",
         "parameters": [
           {
@@ -15155,7 +15754,7 @@
         ],
         "responses": {
           "200": {
-            "description": "{ editable, itinerary: { days: [{ day, items }] }, budget: { label, currency, items, perPersonTotal, statedMin, statedMax, comparison, note } }. Lines carry canEdit. Budget notes are estimates, never payments."
+            "description": "{ editable, itinerary: { days: [{ day, locked, items }], ideas: { items, total } } }. Lines carry canEdit."
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -15215,7 +15814,7 @@
         "tags": [
           "THERE trips"
         ],
-        "summary": "All ideas (kind=ideas) or budget notes (kind=budget) of the plan, a page at a time",
+        "summary": "All ideas (kind=ideas: lines with no day yet) of the plan, a page at a time",
         "operationId": "TripPlan_page",
         "parameters": [
           {
@@ -15297,7 +15896,7 @@
         "tags": [
           "THERE trips"
         ],
-        "summary": "Add an itinerary line or a budget note (any member)",
+        "summary": "Add an itinerary line (any member)",
         "operationId": "TripPlan_add",
         "description": "Needs a **verified adult**.",
         "parameters": [
@@ -15318,11 +15917,9 @@
                 "type": "object",
                 "properties": {
                   "kind": {
+                    "default": "itinerary",
                     "type": "string",
-                    "enum": [
-                      "itinerary",
-                      "budget"
-                    ]
+                    "const": "itinerary"
                   },
                   "title": {
                     "type": "string",
@@ -15340,15 +15937,9 @@
                   "time": {
                     "type": "string",
                     "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-                  },
-                  "amount": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
                   }
                 },
                 "required": [
-                  "kind",
                   "title"
                 ]
               }
@@ -15586,18 +16177,6 @@
                       {
                         "type": "string",
                         "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "amount": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 100000
                       },
                       {
                         "type": "null"
@@ -16016,6 +16595,7 @@
               "ACTIVITY_CLOSED",
               "ACTIVITY_FINISHED",
               "ACTIVITY_FULL",
+              "ACTIVITY_NOT_STARTED",
               "ADMIN_ONLY",
               "ADULT_CONFIRMATION_REQUIRED",
               "ADULT_REQUIRED",
@@ -16026,9 +16606,12 @@
               "ALREADY_VERIFIED",
               "APPEAL_DECIDED",
               "APPEAL_OPEN",
+              "APPLICANT_BUSY",
               "APPLICANT_UNAVAILABLE",
               "APPLICATION_WITHDRAWN",
+              "AREA_REQUIRED",
               "ATTENDANCE_CLOSED",
+              "ATTENDANCE_SET",
               "BAD_REQUEST",
               "BLOCKED",
               "CANNOT_REMOVE_HOST",
@@ -16039,9 +16622,11 @@
               "CONSENT_REQUIRED",
               "CONTENT_REJECTED",
               "CONVERSATION_CLOSED",
+              "DATE_CHANGES_USED",
               "DAY_OUT_OF_RANGE",
               "DAY_PASSED",
               "DISPUTE_CLOSED",
+              "DRAFT_NEEDS_NAME",
               "DRAFT_TOO_LARGE",
               "DUPLICATE_ACTIVITY",
               "EMAIL_NOT_VERIFIED",
@@ -16070,7 +16655,6 @@
               "INVALID_REFRESH_TOKEN",
               "INVALID_SCHEDULE",
               "INVALID_SETUP_CODE",
-              "INVALID_SHIFT",
               "INVALID_SIGNATURE",
               "INVALID_SOCIAL_TOKEN",
               "INVALID_TARGET",
@@ -16102,9 +16686,11 @@
               "NOT_REJECTED",
               "NOT_VERIFIED",
               "NOT_YOUR_LINE",
+              "NO_AREA",
               "NO_DATES",
               "NO_DATES_TO_CONFIRM",
               "NO_IMAGE",
+              "NO_PERMISSION",
               "ORGANIZER_CANNOT_LEAVE",
               "OUT_OF_SCOPE",
               "OWN_APPEAL",
@@ -16122,6 +16708,7 @@
               "REFRESH_IN_PROGRESS",
               "REFRESH_TOKEN_REUSED",
               "REGISTRATION_BLOCKED",
+              "REPORT_ALREADY_DECIDED",
               "REQUEST_FAILED",
               "REQUEST_IN_PROGRESS",
               "REQUEST_WITHDRAWN",
@@ -16133,12 +16720,15 @@
               "SOCIAL_UNAVAILABLE",
               "STAFF_ACCOUNT",
               "STAFF_ONLY",
+              "TIME_CLASH",
               "TOO_MANY_ATTEMPTS",
               "TOO_MANY_DRAFTS",
               "TOO_MANY_OPEN_ACTIVITIES",
               "TOO_MANY_OPEN_POLLS",
+              "TOO_MANY_PROOFS",
               "TRIP_CLOSED",
               "TRIP_FULL",
+              "TRIP_STARTED",
               "UNAUTHENTICATED",
               "UNSUPPORTED_MEDIA_TYPE",
               "VALIDATION_FAILED",
@@ -16169,6 +16759,12 @@
       "clientShould": "Show the confirmation, then send the request again with adultConfirmed: true."
     },
     {
+      "code": "AREA_REQUIRED",
+      "status": 400,
+      "meaning": "A staff account must look after one city, region or country.",
+      "clientShould": "Choose an area."
+    },
+    {
       "code": "BAD_REQUEST",
       "status": 400,
       "meaning": "The request body could not be read (for example malformed JSON).",
@@ -16189,7 +16785,7 @@
     {
       "code": "CONTENT_REJECTED",
       "status": 400,
-      "meaning": "The text broke a content rule (spam links, repetition, or a request for money). `message` says which.",
+      "meaning": "The text broke a content rule (spam links, a request for money or bank details, or strong language). `message` says which.",
       "clientShould": "Show the message and let the person edit the text."
     },
     {
@@ -16197,6 +16793,12 @@
       "status": 400,
       "meaning": "The day of a plan line is more than a week outside the dates of the trip.",
       "clientShould": "Let the person pick a day inside the trip."
+    },
+    {
+      "code": "DRAFT_NEEDS_NAME",
+      "status": 400,
+      "meaning": "A draft needs its name: the activity name, or where the trip goes.",
+      "clientShould": "Ask for the name first; keep Save draft off until there is one."
     },
     {
       "code": "DRAFT_TOO_LARGE",
@@ -16283,12 +16885,6 @@
       "clientShould": "Ask for the next code; check the phone clock."
     },
     {
-      "code": "INVALID_SHIFT",
-      "status": 400,
-      "meaning": "The on-call shift is not allowed (ends before it starts, longer than 14 days, or the person is not active staff).",
-      "clientShould": "Show the message and let the administrator change it."
-    },
-    {
       "code": "INVALID_TARGET",
       "status": 400,
       "meaning": "The action cannot be aimed at that person (yourself, for example).",
@@ -16353,6 +16949,12 @@
       "status": 400,
       "meaning": "Too many wrong codes were entered; the code is locked.",
       "clientShould": "Ask for a new code."
+    },
+    {
+      "code": "TOO_MANY_PROOFS",
+      "status": 400,
+      "meaning": "More than 3 proof photos were sent with one appeal or dispute, or too many photos are waiting unsent.",
+      "clientShould": "Send up to 3 photos with it, and send or remove the ones already added."
     },
     {
       "code": "VALIDATION_FAILED",
@@ -16485,6 +17087,18 @@
       "status": 403,
       "meaning": "Staff must have two-step sign-in on to use this part of the console (or to turn it off).",
       "clientShould": "Send the person to the Security page to set it up."
+    },
+    {
+      "code": "NO_AREA",
+      "status": 403,
+      "meaning": "This staff account has no area yet, so it reaches nothing in the console.",
+      "clientShould": "Ask an admin to give the account an area on the Staff page."
+    },
+    {
+      "code": "NO_PERMISSION",
+      "status": 403,
+      "meaning": "An admin has not given this staff account access to that part of the console.",
+      "clientShould": "Ask an admin to change your permissions on the Staff page."
     },
     {
       "code": "NOT_A_MEMBER",
@@ -16625,6 +17239,12 @@
       "clientShould": "Show \"full\" or the waiting-list option."
     },
     {
+      "code": "ACTIVITY_NOT_STARTED",
+      "status": 409,
+      "meaning": "The activity has not started yet, so it cannot be marked as completed.",
+      "clientShould": "Offer it once the start time has passed; before that the host can cancel it."
+    },
+    {
       "code": "ALREADY_APPEALED",
       "status": 409,
       "meaning": "This decision was already appealed once (a suspension: once every 30 days).",
@@ -16667,6 +17287,12 @@
       "clientShould": "Show it and tell them to wait for the answer."
     },
     {
+      "code": "APPLICANT_BUSY",
+      "status": 409,
+      "meaning": "The person has joined or created another plan at the same time since they asked, so they cannot be approved.",
+      "clientShould": "Tell the host the person is busy then; the request stays as it is."
+    },
+    {
       "code": "APPLICANT_UNAVAILABLE",
       "status": 409,
       "meaning": "The applicant's account can no longer take part (suspended or deleted).",
@@ -16683,6 +17309,12 @@
       "status": 409,
       "meaning": "Attendance can only be confirmed within 7 days after the end.",
       "clientShould": "Hide the question."
+    },
+    {
+      "code": "ATTENDANCE_SET",
+      "status": 409,
+      "meaning": "The person already said whether they were there; the answer is final.",
+      "clientShould": "Show their answer, without the buttons."
     },
     {
       "code": "CANNOT_REMOVE_HOST",
@@ -16713,6 +17345,12 @@
       "status": 409,
       "meaning": "The chat is read-only (24 hours after the end, or the activity or trip was cancelled).",
       "clientShould": "Show the chat as read-only."
+    },
+    {
+      "code": "DATE_CHANGES_USED",
+      "status": 409,
+      "meaning": "The trip has used all the date changes it is allowed (5, through date polls).",
+      "clientShould": "Do not offer \"use these dates\"; tell the organizer why. The trip's `dateChangesLeft` says how many remain."
     },
     {
       "code": "DAY_PASSED",
@@ -16895,6 +17533,12 @@
       "clientShould": "Try again in a moment; keep one refresh at a time in the app."
     },
     {
+      "code": "REPORT_ALREADY_DECIDED",
+      "status": 409,
+      "meaning": "Someone else resolved or dismissed this report a moment earlier; the message says who.",
+      "clientShould": "Show the message and refresh the report."
+    },
+    {
       "code": "REQUEST_IN_PROGRESS",
       "status": 409,
       "meaning": "The first try of this request (same Idempotency-Key) is still being handled.",
@@ -16907,6 +17551,12 @@
       "clientShould": "Refresh the list of requests."
     },
     {
+      "code": "TIME_CLASH",
+      "status": 409,
+      "meaning": "You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity or trip, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead).",
+      "clientShould": "Show the clashing plans with when each ends, and offer to leave, cancel or withdraw them, or pick another time."
+    },
+    {
       "code": "TOO_MANY_DRAFTS",
       "status": 409,
       "meaning": "The person already keeps the most drafts allowed (10 per kind).",
@@ -16915,7 +17565,7 @@
     {
       "code": "TOO_MANY_OPEN_ACTIVITIES",
       "status": 409,
-      "meaning": "The host already has the maximum of upcoming activities (5).",
+      "meaning": "The host already has the maximum of upcoming activities (10).",
       "clientShould": "Ask them to finish or cancel one."
     },
     {
@@ -16935,6 +17585,12 @@
       "status": 409,
       "meaning": "The group is full.",
       "clientShould": "Show \"full\" or the waiting-list option."
+    },
+    {
+      "code": "TRIP_STARTED",
+      "status": 409,
+      "meaning": "The trip has already started, so its dates can no longer be changed.",
+      "clientShould": "Do not offer a date poll or \"use these dates\" for it."
     },
     {
       "code": "PAYLOAD_TOO_LARGE",

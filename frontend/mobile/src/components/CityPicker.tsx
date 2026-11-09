@@ -4,17 +4,19 @@ import { Pressable, View } from 'react-native';
 import { Text } from './ScaledText';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
-import { Btn, Field, Sheet, Txt } from './ui';
+import { type Near, useCityPos } from '@/lib/city';
+import { CitySearch } from './CitySearch';
+import { Sheet } from './ui';
 
 /** "📍 Milan · Around you ▾". Picking a city manually means location permission is never needed to browse. */
-export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: string; onPick: (c: string) => void; /** drawn as a bordered pill: pin, "Milan · Around you", chevron (home header) */ pill?: boolean; /** when given, the trigger is drawn as a pin with the city in bold and this line under it (map header) */ subtitle?: string; /** a pill for a dark header: a tinted glass pill, green pin, the city in white and a wave */ onDark?: boolean }) {
+export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: string; onPick: (c: string, at?: Near) => void; /** drawn as a bordered pill: pin, "Milan · Around you", chevron (home header) */ pill?: boolean; /** when given, the trigger is drawn as a pin with the city in bold and this line under it (map header) */ subtitle?: string; /** a pill for a dark header: a tinted glass pill, green pin, the city in white and a wave */ onDark?: boolean }) {
   const { t } = useT();
   const { c } = useTheme();
   const [open, setOpen] = useState(false);
-  const [v, setV] = useState(city);
+  const cityPos = useCityPos(); // places near the chosen city are listed first
   return (
     <>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => (setV(city), setOpen(true))} hitSlop={8}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} hitSlop={8}>
         {onDark ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 38, paddingHorizontal: 14, borderRadius: 19, backgroundColor: c.bandChip }}>
             <Ionicons name="location-outline" size={15} color={c.bandPin} />
@@ -40,12 +42,10 @@ export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: str
         )}
       </Pressable>
       <Sheet visible={open} title={t('Choose your city')} onClose={() => setOpen(false)}>
-        <Field label={t('City')} value={v} onChangeText={setV} autoFocus />
-        <Btn
-          title={t('Use this city')}
-          disabled={v.trim().length < 2}
-          onPress={() => {
-            onPick(v.trim());
+        <CitySearch
+          near={cityPos}
+          onPick={(name, at) => {
+            onPick(name, at);
             setOpen(false);
           }}
         />

@@ -80,6 +80,15 @@ export class NotificationsService {
     this.live.send(hostId, { type: 'alerts-changed' });
   }
 
+  /**
+   * An alert that asked for something is done once it was done anywhere in the app (not only from the alert): it is marked
+   * read, so it stops showing as new. `marker` picks the alerts about that one thing (e.g. `"activityId":"…"`).
+   */
+  async markDone(userId: string, type: string, marker: string) {
+    const { count } = await this.prisma.notification.updateMany({ where: { userId, type, readAt: null, data: { contains: marker } }, data: { readAt: new Date() } });
+    if (count) this.live.send(userId, { type: 'alerts-changed' });
+  }
+
   async notifyMany(userIds: string[], type: string, title: string, body: string, data?: Record<string, unknown>, opts: NotifyOptions = {}) {
     // each person gets their own copy of the data: notify() adds to it, and grouped alerts keep a count of their own
     for (const id of new Set(userIds)) await this.notify(id, type, title, body, data ? { ...data } : undefined, opts);

@@ -171,7 +171,7 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     return t as { id: string; dateStart: string };
   };
 
-  it('keeps a shared itinerary and budget notes for the group only', async () => {
+  it('keeps a shared itinerary for the group only, and no budget notes', async () => {
     const org = await verified('PlanOrg');
     const mem = await verified('PlanMem');
     const out = await verified('PlanOut');
@@ -183,33 +183,28 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     const a = await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Ribeira walk', day, note: 'Meet at the bridge' });
     assert.equal(a.status, 201, JSON.stringify(a.body));
     await post(`/v1/trips/${t.id}/plan/items`, org.token, { kind: 'itinerary', title: 'Ideas for the last evening' });
-    const b1 = await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Hostel, 4 nights', amount: 220 });
-    await post(`/v1/trips/${t.id}/plan/items`, org.token, { kind: 'budget', title: 'Food', amount: 150 });
     const plan = (await get(`/v1/trips/${t.id}/plan`, mem.token)).body;
     assert.equal(plan.itinerary.days.length, 1);
     assert.equal(plan.itinerary.days[0].items[0].title, 'Ribeira walk');
     assert.equal(plan.itinerary.ideas.total, 1, 'lines without a day come separately, with their count');
-    assert.equal(plan.budget.perPersonTotal, 370);
-    assert.equal(plan.budget.comparison, 'under');
-    assert.match(plan.budget.note, /never collects or holds money/);
+    assert.equal(plan.budget, undefined, 'budget notes are gone from the plan');
     assert.equal(plan.itinerary.days[0].items[0].canEdit, true);
     assert.equal(plan.itinerary.ideas.items[0].canEdit, false, 'someone else line');
 
-    // validation: no days on budget notes, no amounts on itinerary lines, days inside the trip, plain-text rules
-    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Taxi', day })).status, 400);
-    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Museum', amount: 5 })).status, 400);
+    // validation: budget notes are no longer taken, days inside the trip, plain-text rules
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Taxi', amount: 20 })).status, 400, 'budget notes are no longer accepted');
     assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Far away', day: new Date(Date.now() + 200 * 24 * 3600 * 1000).toISOString() })).body.code, 'DAY_OUT_OF_RANGE');
-    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Send me money first', amount: 10 })).body.code, 'CONTENT_REJECTED');
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Send me money first' })).body.code, 'CONTENT_REJECTED');
 
     // who can change what: the author and the organizer, nobody else
     const first = plan.itinerary.days[0].items[0].id;
-    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${b1.body.id}`, org.token, { amount: 200 })).status, 200, 'the organizer can change any line');
+    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${first}`, org.token, { note: 'Changed by the organizer' })).status, 200, 'the organizer can change any line');
     assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${first}`, mem.token, { note: 'Meet at the station' })).status, 200);
     const orgLine = plan.itinerary.ideas.items[0].id;
     assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${orgLine}`, mem.token, { title: 'Mine now' })).body.code, 'NOT_YOUR_LINE');
     assert.equal((await call('DELETE', `/v1/trips/${t.id}/plan/items/${orgLine}`, mem.token)).status, 403);
     assert.equal((await call('DELETE', `/v1/trips/${t.id}/plan/items/${orgLine}`, org.token)).status, 200);
-    assert.equal((await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget.perPersonTotal, 350);
+    assert.equal((await get(`/v1/trips/${t.id}/plan`, org.token)).body.itinerary.ideas.total, 0, 'the removed line is gone');
 
     // times: optional, only on itinerary lines, 24-hour; inside a day, lines with no time come first, then the clock
     const addLine = (body: Record<string, unknown>) => post(`/v1/trips/${t.id}/plan/items`, mem.token, body);
@@ -217,7 +212,6 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     const breakfast = await addLine({ kind: 'itinerary', title: 'Breakfast', day, time: '09:30' });
     assert.equal(breakfast.status, 201);
     assert.equal((await addLine({ kind: 'itinerary', title: 'Bad time', day, time: '25:99' })).status, 400);
-    assert.equal((await addLine({ kind: 'budget', title: 'Timed cost', amount: 5, time: '10:00' })).status, 400, 'budget notes have no time');
     const timed = (await get(`/v1/trips/${t.id}/plan`, org.token)).body;
     assert.deepEqual(timed.itinerary.days[0].items.map((i: { title: string }) => i.title), ['Ribeira walk', 'Breakfast', 'Late dinner']);
     assert.deepEqual(timed.itinerary.days[0].items.map((i: { time: string | null }) => i.time), [null, '09:30', '19:00']);
@@ -226,21 +220,6 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     assert.deepEqual((await get(`/v1/trips/${t.id}/plan`, org.token)).body.itinerary.days[0].items.map((i: { title: string }) => i.title), ['Ribeira walk', 'Late dinner', 'Breakfast'], 'a changed time moves the line');
     assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${breakfast.body.id}`, mem.token, { time: null })).status, 200);
     assert.equal((await get(`/v1/trips/${t.id}/plan`, org.token)).body.itinerary.days[0].items.find((i: { title: string }) => i.title === 'Breakfast').time, null, 'a time can be taken off again');
-    // a cost does not need a price: it is noted with none, counts for nothing in the total, and a price can be added or taken off later
-    const before = (await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget.perPersonTotal;
-    const unpriced = await addLine({ kind: 'budget', title: 'Souvenirs, price to decide' });
-    assert.equal(unpriced.status, 201, JSON.stringify(unpriced.body));
-    let withNone = (await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget;
-    assert.equal(withNone.items.find((i: { title: string }) => i.title.startsWith('Souvenirs')).amount, null);
-    assert.equal(withNone.perPersonTotal, before, 'no price, nothing added to the total');
-    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${unpriced.body.id}`, mem.token, { amount: 40 })).status, 200);
-    assert.equal((await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget.perPersonTotal, before + 40);
-    assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${unpriced.body.id}`, mem.token, { amount: null })).status, 200);
-    withNone = (await get(`/v1/trips/${t.id}/plan`, org.token)).body.budget;
-    assert.equal(withNone.perPersonTotal, before, 'taking the price off puts the total back');
-    // the plan says what the trip budget covers, so the notes are read against the right thing
-    assert.equal(typeof timed.budget.includesTransport, 'boolean');
-    assert.equal(timed.budget.statedMin < timed.budget.statedMax, true);
 
     // a member who left no longer sees it
     await post(`/v1/trips/${t.id}/leave`, mem.token);
@@ -512,31 +491,28 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     assert.equal((await get(`${url}?limit=3&cursor=${first.nextCursor}`, outsider.token)).status, 403);
   });
 
-  it('sends only a first few ideas and budget notes with the plan, and the rest a page at a time', async () => {
+  it('sends only a first few ideas with the plan, and the rest a page at a time', async () => {
     const org = await verified('PagePlanOrg');
     const mem = await verified('PagePlanMem');
     const out = await verified('PagePlanOut');
     const t = await groupOf(org, mem);
-    for (let i = 1; i <= 7; i++) assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: `Cost ${i}`, amount: 10 })).status, 201);
-    for (let i = 1; i <= 5; i++) assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: `Idea ${i}` })).status, 201);
+    for (let i = 1; i <= 7; i++) assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: `Idea ${i}` })).status, 201);
     const plan = (await get(`/v1/trips/${t.id}/plan`, mem.token)).body;
-    assert.equal(plan.budget.items.length, 3, 'only the first few notes come with the plan');
-    assert.equal(plan.budget.total, 7);
-    assert.equal(plan.budget.perPersonTotal, 70, 'the total still counts every note');
-    assert.equal(plan.itinerary.ideas.items.length, 3);
-    assert.equal(plan.itinerary.ideas.total, 5);
+    assert.equal(plan.itinerary.ideas.items.length, 3, 'only the first few ideas come with the plan');
+    assert.equal(plan.itinerary.ideas.total, 7, 'the total still counts every idea');
     const seen: string[] = [];
     let cursor = '';
     for (let n = 0; n < 5; n++) {
-      const page = (await get(`/v1/trips/${t.id}/plan/items?kind=budget&limit=3${cursor}`, mem.token)).body;
+      const page = (await get(`/v1/trips/${t.id}/plan/items?kind=ideas&limit=3${cursor}`, mem.token)).body;
       seen.push(...page.items.map((i: { title: string }) => i.title));
       if (!page.nextCursor) break;
       cursor = `&cursor=${page.nextCursor}`;
     }
-    assert.deepEqual(seen, ['Cost 1', 'Cost 2', 'Cost 3', 'Cost 4', 'Cost 5', 'Cost 6', 'Cost 7'], 'every note, once, in the order added');
-    assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=ideas&limit=10`, mem.token)).body.items.length, 5);
+    assert.deepEqual(seen, ['Idea 1', 'Idea 2', 'Idea 3', 'Idea 4', 'Idea 5', 'Idea 6', 'Idea 7'], 'every idea, once, in the order added');
+    assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=ideas&limit=10`, mem.token)).body.items.length, 7);
+    assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=budget`, mem.token)).status, 400, 'budget notes are gone');
     assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=nonsense`, mem.token)).status, 400);
-    assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=budget`, out.token)).status, 403, 'outsiders cannot read it');
+    assert.equal((await get(`/v1/trips/${t.id}/plan/items?kind=ideas`, out.token)).status, 403, 'outsiders cannot read it');
   });
 
   it('once a trip has started, only today and the days to come can have their itinerary changed', async () => {
@@ -566,8 +542,6 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${today.body.id}`, mem.token, { note: 'Bring water' })).status, 200);
     // nothing can be moved onto a day that has passed
     assert.equal((await call('PATCH', `/v1/trips/${t.id}/plan/items/${today.body.id}`, mem.token, { day: noon(-2).toISOString() })).body.code, 'DAY_PASSED');
-    // budget notes are not tied to a day
-    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Taxi', amount: 20 })).status, 201);
   });
 
   it('records a trip as completed once its last day has passed', async () => {
@@ -585,7 +559,7 @@ describe('THERE: shared plan, dates confirmation, completed trips, link safety a
     await app.get(TripsService).completeFinished();
     assert.notEqual((await prisma.trip.findUnique({ where: { id: live.id } })).status, 'completed');
     // a finished trip takes no new plan lines
-    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'budget', title: 'Souvenirs', amount: 5 })).body.code, 'TRIP_CLOSED');
+    assert.equal((await post(`/v1/trips/${t.id}/plan/items`, mem.token, { kind: 'itinerary', title: 'Souvenirs' })).body.code, 'TRIP_CLOSED');
     // nobody can confirm dates or start a poll for a trip that is over
     await prisma.trip.update({ where: { id: t.id }, data: { datesState: 'proposed' } });
     await prisma.tripMembership.updateMany({ where: { tripId: t.id, userId: mem.id }, data: { datesConfirmed: false } });

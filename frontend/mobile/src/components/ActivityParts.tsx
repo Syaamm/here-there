@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import type { ReactNode } from 'react';
-import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useRef, useState, type ReactNode } from 'react';
+import { Animated, Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useT } from '@/lib/i18n';
 import { tap } from '@/lib/haptics';
 import { sc } from '@/lib/scale';
@@ -100,39 +100,94 @@ export function InfoRow({ icon, title, sub, onPress, label, trailing }: { icon: 
   );
 }
 
-type Slot = { id: string; name?: string; uri?: string | null; host?: boolean };
+type Slot = { id: string; name?: string; uri?: string | null; host?: boolean; /** a friend of the viewer: a small badge on the face */ friend?: boolean; /** after it ended: true has answered whether they were there (a check), false not yet (faded) */ answered?: boolean };
 
-/** "Who's going": one bar segment per place across the top, then a face (or an open circle) under each. At most five places are drawn. */
-export function GoingGrid({ people, capacity, a11y }: { people: Slot[]; capacity: number; a11y: string }) {
+/**
+ * "Who's going": every place of the activity, each a bar segment over a face (or an open circle). Up to five fill the width;
+ * more scroll sideways, five at a time with the next one peeking in, the bar moving with its face, so the rest of the people
+ * and the open places come into view as the row is scrolled.
+ */
+export function GoingGrid({ people, capacity, a11y, onOpen }: { people: Slot[]; capacity: number; a11y: string; /** a tap on a face opens that person (their profile) */ onOpen?: (id: string) => void }) {
   const { t } = useT();
   const { c } = useTheme();
-  const slots = Math.max(1, Math.min(capacity, 5));
+  const [width, setWidth] = useState(0);
+  const [contentW, setContentW] = useState(0);
+  const x = useRef(new Animated.Value(0)).current; // how far the row is scrolled, for the soft edges
+  const slots = Math.max(1, capacity, people.length);
   const shown = people.slice(0, slots);
   const open = Math.max(0, slots - shown.length);
   const cells = [...shown.map((p) => ({ kind: 'person' as const, p })), ...Array.from({ length: open }, (_, i) => ({ kind: 'open' as const, p: { id: `o${i}` } as Slot }))];
-  return (
-    <View accessible accessibilityLabel={a11y} style={{ gap: 14 }}>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        {cells.map((x) => (
-          <View key={x.p.id} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: x.kind === 'person' ? c.forest : c.line }} />
-        ))}
-      </View>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        {cells.map((x) => (
-          <View key={x.p.id} style={{ flex: 1, alignItems: 'center', gap: 8 }}>
-            {x.kind === 'person' ? (
-              <View style={{ borderRadius: 999, borderWidth: 2, borderColor: x.p.host ? c.green : c.bg }}>
-                <Avatar name={x.p.name} uri={x.p.uri} size={52} />
+  const GAP = 8;
+  const EDGE = 28; // how wide the soft edges are
+  const scrolls = slots > 5;
+  const cellW = scrolls ? Math.max(58, (width - GAP * 5) / 5.4) : undefined; // five and a bit: the peeking sixth says "scroll"
+  const cell = (x: (typeof cells)[number]) => (
+    <View key={x.p.id} style={[{ alignItems: 'center', gap: 14 }, cellW ? { width: cellW } : { flex: 1 }]}>
+      <View style={{ alignSelf: 'stretch', height: 4, borderRadius: 2, backgroundColor: x.kind === 'person' ? c.forest : c.line }} />
+      <Pressable
+        accessible={!!onOpen && x.kind === 'person'}
+        accessibilityRole="button"
+        accessibilityLabel={x.kind === 'person' ? `${t('Open the profile of {name}', { name: x.p.name ?? '' })}${x.p.friend ? `, ${t('Friend')}` : ''}${x.p.answered === true ? `, ${t('answered')}` : x.p.answered === false ? `, ${t('not answered yet')}` : ''}` : undefined}
+        disabled={!onOpen || x.kind !== 'person'}
+        onPress={() => onOpen?.(x.p.id)}
+        style={({ pressed: p }) => [{ alignItems: 'center', gap: 8 }, p && { opacity: 0.7, transform: [{ scale: 0.96 }] }]}
+      >
+        {x.kind === 'person' ? (
+          <View style={{ borderRadius: 999, borderWidth: 2, borderColor: x.p.host ? c.green : c.bg, opacity: x.p.answered === false ? 0.55 : 1 }}>
+            <Avatar name={x.p.name} uri={x.p.uri} size={52} />
+            {/* after it ended: a check on everyone who has answered whether they were there; the others are faded */}
+            {x.p.answered ? (
+              <View accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', right: -3, top: -3, width: 20, height: 20, borderRadius: 10, backgroundColor: c.forest, borderWidth: 2, borderColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="checkmark" size={11} color="#fff" />
               </View>
-            ) : (
-              <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="person-add-outline" size={20} color={c.forest} />
+            ) : null}
+            {/* your friend: a small green badge with two people at the bottom right of the face */}
+            {x.p.friend ? (
+              <View accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', right: -3, bottom: -3, width: 20, height: 20, borderRadius: 10, backgroundColor: c.green, borderWidth: 2, borderColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="people" size={10} color="#fff" />
               </View>
-            )}
-            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{x.kind === 'open' ? t('Open') : x.p.host ? t('Host') : (x.p.name ?? '').split(' ')[0]}</Text>
+            ) : null}
           </View>
-        ))}
-      </View>
+        ) : (
+          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="person-add-outline" size={20} color={c.forest} />
+          </View>
+        )}
+        <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{x.kind === 'open' ? t('Open') : x.p.host ? t('Host') : x.p.friend ? `${(x.p.name ?? '').split(' ')[0]} · ${t('Friend')}` : (x.p.name ?? '').split(' ')[0]}</Text>
+      </Pressable>
+    </View>
+  );
+  return (
+    <View accessible={!onOpen} accessibilityLabel={a11y} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      {scrolls ? (
+        width ? (
+          <View>
+            <Animated.ScrollView
+              horizontal
+              overScrollMode="never"
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              snapToInterval={(cellW ?? 0) + GAP}
+              contentContainerStyle={{ gap: GAP }}
+              onContentSizeChange={(w) => setContentW(w)}
+              scrollEventThrottle={16}
+              onScroll={Animated.event([{ nativeEvent: { contentOffset: { x } } }], { useNativeDriver: true })}
+            >
+              {cells.map(cell)}
+            </Animated.ScrollView>
+            {/* soft edges: people fade in and out at the sides instead of being cut off; the left one only once scrolled, the right one while there is more */}
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: EDGE, opacity: x.interpolate({ inputRange: [0, EDGE], outputRange: [0, 1], extrapolate: 'clamp' }) }}>
+              <LinearGradient colors={[c.bg, c.fadeFrom]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ flex: 1 }} />
+            </Animated.View>
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: EDGE, opacity: x.interpolate({ inputRange: [Math.max(0, contentW - width - EDGE), Math.max(1, contentW - width)], outputRange: [1, 0], extrapolate: 'clamp' }) }}>
+              <LinearGradient colors={[c.fadeFrom, c.bg]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ flex: 1 }} />
+            </Animated.View>
+          </View>
+        ) : null
+      ) : (
+        <View style={{ flexDirection: 'row', gap: GAP }}>{cells.map(cell)}</View>
+      )}
     </View>
   );
 }

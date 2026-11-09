@@ -1,7 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Pressable, ScrollView, View } from 'react-native';
 import { ActivityBig, ActivityRow, NextUpCard } from '@/components/Cards';
+import { MonthCalendar } from '@/components/CreateParts';
+import { shortDay } from '@/components/DateRangeSheet';
 import { CategoryChips } from '@/components/CategoryChips';
 import { HERE_BAND, HereHeader } from '@/components/HereHeader';
 import { Reveal } from '@/components/Reveal';
@@ -11,10 +13,10 @@ import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHe
 import { get, type Activity } from '@/lib/api';
 import { CATS } from '@/lib/constants';
 import { useClock } from '@/lib/clock';
-import { comingUp, type MyActivitiesData } from '@/lib/myActivities';
+import { comingUp, happeningNow, type MyActivitiesData } from '@/lib/myActivities';
 import { useLayout } from '@/lib/layout';
 import { hhmm } from '@/lib/format';
-import { useCity } from '@/lib/city';
+import { cityQuery, useCity, useCityPos } from '@/lib/city';
 import { feedRange, splitFeed } from '@/lib/feed';
 import { useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
@@ -27,26 +29,44 @@ export function ExploreHere() {
   const go = useGo();
   const { c } = useTheme();
   const [city, setCity] = useCity();
+  const cityPos = useCityPos();
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<string | null>(null); // the round category chips under the search
   // (the dark band's light clock and battery are handled by Screen)
   // the filter button: which part of the day to show
-  const [when, setWhen] = useState<'any' | 'soon' | 'tonight' | 'tomorrow' | 'later'>('any');
+  const [when, setWhen] = useState<'any' | 'soon' | 'tonight' | 'tomorrow' | 'later' | 'date'>('any');
+  // "Later" opens a calendar: picking a day shows only what is on that day (loaded for that day, not from the general feed)
+  const [day, setDay] = useState<Date | null>(null);
+  const [month, setMonth] = useState(() => new Date());
+  const dayStart = day ? new Date(day.getFullYear(), day.getMonth(), day.getDate()) : null;
   const [filterOpen, setFilterOpen] = useState(false);
 
   const feed = useLoad(
     () => {
       const [from, to] = feedRange();
-      const p = new URLSearchParams({ city, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
+      const p = new URLSearchParams({ ...cityQuery(city, cityPos), from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
       // a chosen category is asked of the server, so the ranking (top picks first) and the paging work inside that category
       if (cat) p.set('category', cat);
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
-    [city, cat],
+    [city, cityPos, cat],
     60_000, // changes arrive by the live connection (below); this is only the slow fallback
     'feed:here',
     { keep: true, live: true },
   );
+  const onDay = useLoad(
+    () => {
+      if (when !== 'date' || !dayStart) return Promise.resolve(null);
+      const p = new URLSearchParams({ ...cityQuery(city, cityPos), from: dayStart.toISOString(), to: new Date(+dayStart + 864e5).toISOString(), limit: '50' });
+      return get<{ items: Activity[] }>(`/v1/activities?${p}`);
+    },
+    [when, dayStart ? +dayStart : 0, city, cityPos],
+  );
+  const dayItems = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const all = (onDay.data?.items ?? []).filter((a) => !cat || a.category === cat);
+    return needle ? all.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
+  }, [onDay.data, q, cat]);
   // Next up is about YOU: the soonest upcoming activity you host, are going to, or have asked to join
   // an activity was created, filled or cancelled somewhere: ask again at once (the app holds one nudge per few seconds)
   useLiveEvents((e) => {
@@ -63,21 +83,29 @@ export function ExploreHere() {
     return needle ? all.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
   }, [feed.data, q, cat]);
 
-  const sections = splitFeed(items);
-  const soon = sections[0].items;
-  // Next up: only what is happening now or starts within 3 hours, soonest first. The clock moves on once a minute.
+  // The clock moves on once a minute: an activity leaves "Happening soon" the minute it starts.
   const now = useClock(60_000);
-  const soonAll = comingUp(mine.data, now, 3);
+  const sections = splitFeed(items, new Date(now));
+  // Next up: only what is happening now or starts within 3 hours, soonest first.
+  const soonAll = comingUp(mine.data, now, 3); // not started yet: what is on now is the pill at the top
+  const liveNow = happeningNow(mine.data, now);
+  const [liveOpen, setLiveOpen] = useState(false);
   // the cards show the two soonest; "+N more" appears only when there are more than two, and lists just the others
   // with a category chosen the page is about that kind of activity: Next up (your own plans of every kind) steps aside
-  const next = cat ? [] : soonAll.slice(0, 2);
-  const more = cat ? [] : soonAll.slice(2);
+  // searching or a category chosen: the page is only the matching activities, so Next up and the live pill step aside
+  const searchingNow = q.trim().length > 0 || (when === 'date' && !!day); // a search, or one day picked in the calendar
+  const next = cat || searchingNow ? [] : soonAll.slice(0, 2);
+  const more = cat || searchingNow ? [] : soonAll.slice(2);
+  // what is already in your Next up (you host it or are going) is not listed again under Happening soon
+  const inNext = new Set([...next, ...more].map((x) => x.activity.id));
+  const soon = sections[0].items.filter((a) => !inNext.has(a.id));
   const [soonOpen, setSoonOpen] = useState(false);
   const { width, gutter } = useLayout();
   const cardW = Math.min(480, width - gutter * 2 - 28); // a bit of the next card peeks in, so it is clear you can swipe
   const MAX = 4;
   // only the first section on the page has big cards: Next up when shown, else the first list that has any
-  const lists = [
+  const byDay = when === 'date' && !!dayStart;
+  const lists = byDay ? [[], [], [], []] : [
     when === 'any' || when === 'soon' ? soon : [],
     when === 'any' || when === 'tonight' ? sections[1].items : [],
     when === 'any' || when === 'tomorrow' ? sections[2].items : [],
@@ -91,6 +119,14 @@ export function ExploreHere() {
       <VerifyBanner />
 
       <ModeTabs />
+
+      {/* what you are at right now: a small pill (one opens it, several open a list); Next up is only for what is still to come */}
+      {liveNow.length > 0 && !searchingNow && !cat ? (
+        <LivePill
+          label={liveNow.length === 1 ? t("You're at {title} now", { title: liveNow[0].activity.title }) : t('{n} of your activities are happening now', { n: liveNow.length })}
+          onPress={() => (liveNow.length === 1 ? go(`/activity/${liveNow[0].activity.id}`) : setLiveOpen(true))}
+        />
+      ) : null}
 
       <SearchBar value={q} onChangeText={setQ} placeholder={t('Search activities or neighborhoods')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
       <CategoryChips value={cat} onChange={setCat} />
@@ -136,6 +172,44 @@ export function ExploreHere() {
           {q || cat ? t('Try another search.') : t('Be the first to host.')}
         </Empty>
       )}
+
+      {/* a day picked in the filter's calendar: only that day, with a chip to clear it */}
+      {byDay && dayStart ? (
+        <View style={{ gap: 12 }}>
+          {/* the day picked: tapping it opens the filter again (calendar on that day) to pick another day or go back to Everything;
+              the small cross clears it straight away */}
+          <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', borderRadius: 999, backgroundColor: c.accentSoft }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('Showing {date}. Change the date', { date: shortDay(dayStart) })}
+              onPress={() => {
+                setMonth(new Date(dayStart));
+                setFilterOpen(true);
+              }}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 34, paddingLeft: 14, paddingRight: 6 }, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="calendar-outline" size={14} color={c.forest} />
+              <Txt variant="label" color={c.forest} style={{ fontSize: 13, lineHeight: 17 }}>{shortDay(dayStart)}</Txt>
+              <Ionicons name="chevron-down" size={13} color={c.forest} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('Clear the date')}
+              hitSlop={8}
+              onPress={() => {
+                setWhen('any');
+                setDay(null);
+              }}
+              style={({ pressed }) => [{ minHeight: 34, paddingLeft: 4, paddingRight: 12, justifyContent: 'center' }, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="close" size={15} color={c.forest} />
+            </Pressable>
+          </View>
+          {onDay.loading && !onDay.data ? <Spinner /> : null}
+          {onDay.data && dayItems.length === 0 ? <Empty title={t('Nothing on {date} yet', { date: shortDay(dayStart) })}>{t('Try another day, or host something yourself.')}</Empty> : null}
+          <ListSection index={1} big title={t('On {date}', { date: shortDay(dayStart) })} list={dayItems} max={50} onMore={() => undefined} />
+        </View>
+      ) : null}
 
       <ListSection index={1} big={bigAt === 0} title={t('Happening soon')} list={lists[0]} max={MAX} onMore={() => go(`/activities?section=soon${cat ? `&category=${cat}` : ''}`)} />
       <ListSection index={2} big={bigAt === 1} title={t('Tonight')} list={lists[1]} max={MAX} onMore={() => go(`/activities?section=tonight${cat ? `&category=${cat}` : ''}`)} />
@@ -187,13 +261,62 @@ export function ExploreHere() {
               ['later', 'Later'],
             ] as const
           ).map(([k, label]) => (
-            <Pill key={k} label={t(label)} active={when === k} onPress={() => setWhen(k)} />
+            <Pill key={k} label={t(label)} active={when === k || (k === 'later' && when === 'date')} onPress={() => (setWhen(k), setDay(null))} />
           ))}
         </View>
+        {/* Later: everything after tomorrow, or pick one day in the calendar to see only that day */}
+        {when === 'later' || when === 'date' ? (
+          <View style={{ gap: 8 }}>
+            <Txt variant="small">{t('Pick a day to see only what is on that day.')}</Txt>
+            <MonthCalendar
+              month={month}
+              onMonth={setMonth}
+              selected={dayStart ?? new Date(0)}
+              min={new Date(new Date().setHours(0, 0, 0, 0))}
+              max={new Date(Date.now() + 365 * 864e5)}
+              onPick={(d) => {
+                setDay(d);
+                setWhen('date');
+                setFilterOpen(false);
+              }}
+            />
+          </View>
+        ) : null}
         <Btn title={t('Done')} onPress={() => setFilterOpen(false)} />
       </Sheet>
 
+      <Sheet visible={liveOpen} title={t('Happening now')} onClose={() => setLiveOpen(false)}>
+        <View style={{ gap: 10 }}>
+          {liveNow.map((x) => (
+            <ActivityRow key={x.key} a={x.activity} />
+          ))}
+        </View>
+      </Sheet>
     </Screen>
+  );
+}
+
+/** "You're at Brunch in Brera now ›": a pill with a softly pulsing green dot (the pulse runs on the native driver). */
+function LivePill({ label, onPress }: { label: string; onPress: () => void }) {
+  const { c } = useTheme();
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([Animated.timing(pulse, { toValue: 0.35, duration: 800, useNativeDriver: true }), Animated.timing(pulse, { toValue: 1, duration: 800, useNativeDriver: true })]));
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      hitSlop={6}
+      style={({ pressed }) => [{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 36, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentSoft }, pressed && { transform: [{ scale: 0.97 }] }]}
+    >
+      <Animated.View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.green, opacity: pulse }} />
+      <Txt variant="label" color={c.forest} numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, lineHeight: 17 }}>{label}</Txt>
+      <Ionicons name="chevron-forward" size={14} color={c.forest} />
+    </Pressable>
   );
 }
 

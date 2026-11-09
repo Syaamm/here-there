@@ -1,8 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, BackHandler, Easing, Platform, Pressable, StyleSheet, View } from 'react-native';
-import { useDockSpace } from '@/lib/dock';
+import { DOCK, useDockSpace, useHideDockFade } from '@/lib/dock';
 import { isoDay, parseDay } from '@/lib/format';
+import { closeKeyboard } from '@/lib/keyboard';
 import { t as tr, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
@@ -38,6 +39,7 @@ export function DateRangeSheet({
   max,
   maxNights = 90,
   single = false,
+  marks,
   onClose,
   onDone,
 }: {
@@ -52,12 +54,17 @@ export function DateRangeSheet({
   maxNights?: number;
   /** pick one day (an activity) instead of a leaving and a return day: no tabs, and "Done" gives just that day */
   single?: boolean;
+  /** days that already hold a plan of yours ("year-month-day", month from 0): a dot under the number */
+  marks?: Record<string, 'activity' | 'trip'>;
   onClose: () => void;
   onDone: (start: string, end: string) => void;
 }) {
   const { t, tn } = useT();
   const { c } = useTheme();
   const dock = useDockSpace();
+  useHideDockFade(visible); // the dock's ivory fade would show as a pale bar under it while the page is dimmed
+  // the green + button rises above the dock's pill: keep the calendar (and its Done button) clear of it
+  const lift = dock ? DOCK.raise + 10 : 0;
   const today = startOfDay(new Date());
   const [from, setFrom] = useState<Date | null>(null);
   const [to, setTo] = useState<Date | null>(null);
@@ -71,6 +78,7 @@ export function DateRangeSheet({
   const slide = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (visible) {
+      closeKeyboard(); // opening the calendar puts the keyboard away and takes the cursor out of the field being typed in
       setMounted(true);
       Animated.timing(slide, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     } else if (mounted) {
@@ -123,7 +131,7 @@ export function DateRangeSheet({
   const lead = (new Date(month.getFullYear(), month.getMonth(), 1).getDay() + 6) % 7;
   const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const cells: (Date | null)[] = [...Array.from({ length: lead }, () => null), ...Array.from({ length: count }, (_, i) => new Date(month.getFullYear(), month.getMonth(), i + 1))];
-  while (cells.length % 7) cells.push(null);
+  while (cells.length < 42) cells.push(null); // always six rows: the card is the same size in every month (some need four, some six)
   const canPrev = new Date(month.getFullYear(), month.getMonth(), 0) >= first;
   const canNext = new Date(month.getFullYear(), month.getMonth() + 1, 1) <= last;
   const step = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
@@ -138,8 +146,8 @@ export function DateRangeSheet({
   );
 
   return (
-    // fills the tab above the dock, so the dock itself is never covered
-    <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { bottom: dock, zIndex: 20, justifyContent: 'flex-end' }]}>
+    // fills the tab: the page is dimmed all the way down (the dock stays on top and usable), and the calendar sits above the dock and its + button
+    <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 20, justifyContent: 'flex-end' }]}>
       <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,20,17,0.35)', opacity: slide }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={t('Close the calendar')} />
       </Animated.View>
@@ -149,6 +157,7 @@ export function DateRangeSheet({
           alignSelf: 'center',
           width: '100%',
           maxWidth: 520,
+          marginBottom: dock + lift,
           backgroundColor: c.surface,
           borderTopLeftRadius: 22,
           borderTopRightRadius: 22,
@@ -189,6 +198,7 @@ export function DateRangeSheet({
                 const inside = !!from && !!to && d > from && d < to;
                 const off = disabled(d);
                 const edge = isStart || isEnd;
+                const mark = marks?.[`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`];
                 return (
                   <View key={i} style={{ flex: 1, height: 36, alignItems: 'center', justifyContent: 'center' }}>
                     {/* the band behind a chosen range, joined across the days */}
@@ -197,13 +207,14 @@ export function DateRangeSheet({
                     )}
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`${t(WEEKDAYS[d.getDay()])} ${d.getDate()} ${t(MONTHS[d.getMonth()])} ${d.getFullYear()}${isStart ? t(', leaving') : ''}${isEnd ? t(', returning') : ''}`}
+                      accessibilityLabel={`${t(WEEKDAYS[d.getDay()])} ${d.getDate()} ${t(MONTHS[d.getMonth()])} ${d.getFullYear()}${isStart ? t(', leaving') : ''}${isEnd ? t(', returning') : ''}${mark ? `. ${mark === 'trip' ? t('You are on a trip this day') : t('You have a plan this day')}` : ''}`}
                       accessibilityState={{ selected: edge, disabled: off }}
                       disabled={off}
                       onPress={() => pick(d)}
                       style={({ pressed }) => [{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: edge ? c.forest : 'transparent', borderWidth: same(d, today) && !edge ? 1.5 : 0, borderColor: c.green }, pressed && !edge && { backgroundColor: c.accentSoft }]}
                     >
                       <Text style={{ color: edge ? '#fff' : off ? c.line : c.text, fontWeight: edge ? '800' : '600', fontSize: 13 }}>{d.getDate()}</Text>
+                      {mark ? <View style={{ position: 'absolute', bottom: 2, width: 4, height: 4, borderRadius: 2, backgroundColor: edge ? '#fff' : mark === 'trip' ? c.warnFg : c.badFg }} /> : null}
                     </Pressable>
                   </View>
                 );

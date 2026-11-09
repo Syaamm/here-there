@@ -10,7 +10,8 @@ export default function ProfileTab() {
   const { t } = useT();
   if (isGuest)
     return (
-      <Screen tabBar header={<TabHeader subtitle={t('Exploring as a guest')} />}>
+      // the same plain header as the Inbox (the HERE | THERE switch), without the coloured band
+      <Screen tabBar plain header={<TabHeader plain />}>
         <GuestWall title={t("You're exploring as a guest")}>{t('Create a free account to get a profile, join activities and trips, host your own and chat with the group.')}</GuestWall>
       </Screen>
     );

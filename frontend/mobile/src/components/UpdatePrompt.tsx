@@ -1,6 +1,7 @@
 import * as Updates from 'expo-updates';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { Text } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';

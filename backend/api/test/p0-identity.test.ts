@@ -9,6 +9,7 @@ process.env.ARGON2_MEMORY_KIB = '8';
 process.env.ARGON2_PASSES = '1';
 process.env.TRUST_PROXY = '1';
 process.env.ACCESS_TOKEN_MINUTES = '600'; // a slow test run must not outlive the real 15-minute sign-in
+process.env.REGION_CACHE_MS = '0'; // places made straight in the database show at once
 
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -145,6 +146,17 @@ async function exportOf(u: { token: string }, lang = 'en') {
   const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
   assert.deepEqual(Object.keys(files).sort(), ['README.txt', 'my-data.json']);
   return { status: 200, body: JSON.parse(strFromU8(files['my-data.json'])), readme: strFromU8(files['README.txt']) };
+}
+
+/** Staff for Milan with every permission. Overturning, resetting and forcing identity checks are still for an admin. */
+async function staffToken() {
+  await prisma.region.upsert({ where: { key: 'global' }, update: {}, create: { key: 'global', name: 'Whole service', kind: 'global' } });
+  await prisma.region.upsert({ where: { key: 'milan' }, update: {}, create: { key: 'milan', name: 'Milan', kind: 'city', parentKey: 'global', cityKey: 'milan' } });
+  await prisma.user.upsert({
+    where: { email: 'mod2@example.com' }, update: {},
+    create: { email: 'mod2@example.com', passwordHash: await bcrypt.hash('mod-password-1', 4), role: 'staff', adminRegionKey: 'milan', staffPermissions: ['reports', 'verification', 'users', 'content'], adultConfirmed: true, eligibility: 'verified', profile: { create: { displayName: 'Mod2' } } },
+  });
+  return (await post('/v1/auth/login', undefined, { email: 'mod2@example.com', password: 'mod-password-1' })).body.token as string;
 }
 
 describe('identity verification: one-time, shared, expiring, minimal', () => {
@@ -308,7 +320,7 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
     const v = await verified('AllThree');
     me = (await get('/v1/me', v.token)).body;
     assert.deepEqual([me.emailVerified, me.adultVerified, me.eligibility, me.phoneVerified], [true, true, 'verified', false]);
-    assert.ok(new Date(me.verifiedUntil).getTime() > Date.now() + yearMs - 3600 * 1000, 'valid for about a year');
+    assert.equal(me.verifiedUntil, null, 'verification has no end date: it lasts until a moderator asks for a new check');
   });
 
   it('runs a provider session end to end through a signed webhook, and only once', async () => {
@@ -415,13 +427,13 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
     assert.ok((await verificationSvc.expireDue()) >= 1);
     assert.equal((await prisma.user.findUnique({ where: { id: idle.id } })).eligibility, 'expired');
 
-    // verifying again restores everything with a fresh validity period
+    // verifying again restores everything (and, like any verification, with no end date)
     assert.equal((await post('/v1/me/verification', member.token, { consent: true })).body.eligibility, 'pending');
     const check = (await get('/v1/admin/verifications?status=pending', adminToken)).body.items.find((c: any) => c.user.id === member.id);
     await post(`/v1/admin/verifications/${check.id}/decision`, adminToken, { decision: 'verified' });
     const back = (await get('/v1/me', member.token)).body;
     assert.equal(back.eligibility, 'verified');
-    assert.ok(new Date(back.verifiedUntil).getTime() > Date.now() + yearMs - 3600 * 1000);
+    assert.equal(back.verifiedUntil, null);
     assert.equal((await post(`/v1/conversations/${conv.id}/messages`, member.token, { body: 'back again' })).status, 201);
   });
 
@@ -430,10 +442,8 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
     const bad = await post(`/v1/admin/users/${target.id}/require-reverification`, adminToken, { reason: 'weather', note: 'x' });
     assert.equal(bad.status, 400);
 
-    // a moderator is not trust staff
-    await prisma.user.create({ data: { email: 'mod@example.com', passwordHash: await bcrypt.hash('mod-password-1', 4), role: 'moderator', adultConfirmed: true, eligibility: 'verified', profile: { create: { displayName: 'Mod' } } } });
-    const modToken = (await post('/v1/auth/login', undefined, { email: 'mod@example.com', password: 'mod-password-1' })).body.token;
-    assert.equal((await post(`/v1/admin/users/${target.id}/require-reverification`, modToken, { reason: 'fraud_suspected', note: 'looks fake' })).status, 403);
+    // staff cannot: forcing a new check is for an admin
+    assert.equal((await post(`/v1/admin/users/${target.id}/require-reverification`, await staffToken(), { reason: 'fraud_suspected', note: 'looks fake' })).status, 403);
 
     const r = await post(`/v1/admin/users/${target.id}/require-reverification`, adminToken, { reason: 'fraud_suspected', note: 'ID photo reused on 3 accounts' });
     assert.equal(r.status, 201);
@@ -536,17 +546,11 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
   const pendingCheck = async (userId: string) => (await get('/v1/admin/verifications?status=pending', adminToken)).body.items.find((c: any) => c.user.id === userId);
   const rejectNow = async (userId: string, reason?: string) =>
     post(`/v1/admin/verifications/${(await pendingCheck(userId)).id}/decision`, adminToken, { decision: 'rejected', ...(reason ? { reason } : {}) });
-  async function moderatorToken() {
-    await prisma.user.upsert({
-      where: { email: 'mod2@example.com' }, update: {},
-      create: { email: 'mod2@example.com', passwordHash: await bcrypt.hash('mod-password-1', 4), role: 'moderator', adultConfirmed: true, eligibility: 'verified', profile: { create: { displayName: 'Mod2' } } },
-    });
-    return (await post('/v1/auth/login', undefined, { email: 'mod2@example.com', password: 'mod-password-1' })).body.token as string;
-  }
-  async function trustLeadToken() {
+  /** A second administrator: the reviewer for identity appeals is never only the first one. */
+  async function secondAdminToken() {
     await prisma.user.upsert({
       where: { email: 'lead@example.com' }, update: {},
-      create: { email: 'lead@example.com', passwordHash: await bcrypt.hash('lead-password-1', 4), role: 'trust_lead', adultConfirmed: true, eligibility: 'verified', profile: { create: { displayName: 'Lead' } } },
+      create: { email: 'lead@example.com', passwordHash: await bcrypt.hash('lead-password-1', 4), role: 'admin', adultConfirmed: true, eligibility: 'verified', profile: { create: { displayName: 'Lead' } } },
     });
     return (await post('/v1/auth/login', undefined, { email: 'lead@example.com', password: 'lead-password-1' })).body.token as string;
   }
@@ -568,15 +572,15 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
     assert.equal((await post('/v1/me/verification', u.token, { consent: true })).body.eligibility, 'pending');
   });
 
-  it('lets trust staff approve a wrongly rejected person, or reopen verification', async () => {
-    const lead = await trustLeadToken();
+  it('lets an admin approve a wrongly rejected person, or reopen verification', async () => {
+    const lead = await secondAdminToken();
     const wrong = await signup('Wronged');
     await confirmEmail(wrong);
     await post('/v1/me/verification', wrong.token, { consent: true });
     await rejectNow(wrong.id, 'document');
 
     // a rejected check itself cannot be flipped...
-    assert.equal((await post(`/v1/admin/users/${wrong.id}/overturn-rejection`, await moderatorToken(), { note: 'photo was fine' })).status, 403); // moderators cannot
+    assert.equal((await post(`/v1/admin/users/${wrong.id}/overturn-rejection`, await staffToken(), { note: 'photo was fine' })).status, 403); // staff cannot
     assert.equal((await post(`/v1/admin/users/${wrong.id}/overturn-rejection`, lead, { note: 'x' })).status, 400); // a note is required
     // ...but a reviewer can overturn it as an appeal
     const ok = await post(`/v1/admin/users/${wrong.id}/overturn-rejection`, lead, { note: 'ID was genuine, photo was just dark' });
@@ -601,16 +605,17 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
 
   it('locks self-service retries after an under-18 result, until an admin reviews it', async () => {
     await sandbox(async () => {
-      const lead = await trustLeadToken();
+      const staff = await staffToken();
       const { u, url, ref } = await startSandbox('Young');
       await form(url.replace(/\/sbx_.*$/, `/${ref}/decide`), 'underage');
       assert.equal((await get('/v1/me', u.token)).body.eligibility, 'rejected');
       const retry = await post('/v1/me/verification', u.token, { consent: true });
       assert.equal(retry.status, 403);
       assert.equal(retry.body.code, 'VERIFICATION_BLOCKED');
-      // trust leads can reopen it, but only an admin can approve an under-18 flag
-      assert.equal((await post(`/v1/admin/users/${u.id}/overturn-rejection`, lead, { note: 'ID shows 19, provider misread' })).body.code, 'ADMIN_ONLY');
-      assert.equal((await post(`/v1/admin/users/${u.id}/reset-verification`, lead, { note: 'reviewed the case by hand' })).body.eligibility, 'unverified');
+      // staff cannot reopen it or approve it: an under-18 flag is reviewed by an admin
+      assert.equal((await post(`/v1/admin/users/${u.id}/overturn-rejection`, staff, { note: 'ID shows 19, provider misread' })).status, 403);
+      assert.equal((await post(`/v1/admin/users/${u.id}/reset-verification`, staff, { note: 'reviewed the case by hand' })).status, 403);
+      assert.equal((await post(`/v1/admin/users/${u.id}/reset-verification`, adminToken, { note: 'reviewed the case by hand' })).body.eligibility, 'unverified');
       assert.equal((await post('/v1/me/verification', u.token, { consent: true })).body.eligibility, 'pending');
 
       const { u: u2, url: url2, ref: ref2 } = await startSandbox('Young2');

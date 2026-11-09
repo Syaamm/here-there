@@ -14,12 +14,14 @@ after(async () => {
 
 describe('trip search pages are cut from one ranked list', () => {
   it('pages without a repeat or a gap, and leaves out a trip cancelled between pages', async () => {
-    const org = await h.verified('SearchOrg');
+    // one organizer per trip: the trips share days, and one person cannot be on two trips at once
+    const orgs: { token: string }[] = [];
     const viewer = await h.verified('SearchViewer');
     const day = 864e5;
     const ids: string[] = [];
     for (let i = 0; i < 5; i++) {
-      const r = await h.post('/v1/trips', org.token, {
+      orgs.push(await h.verified(`SearchOrg${i}`));
+      const r = await h.post('/v1/trips', orgs[i].token, {
         title: `Paging trip ${i}`,
         destination: 'Pagingville, Norway',
         originCity: 'Milan',
@@ -46,7 +48,7 @@ describe('trip search pages are cut from one ranked list', () => {
     const seen = new Set<string>(p1.body.items.map((x: { id: string }) => x.id));
     const rest = ids.filter((id) => !seen.has(id));
     const gone = rest[rest.length - 1];
-    assert.equal((await h.post(`/v1/trips/${gone}/cancel`, org.token, {})).status, 201);
+    assert.equal((await h.post(`/v1/trips/${gone}/cancel`, orgs[ids.indexOf(gone)].token, {})).status, 201);
 
     let cursor = p1.body.nextCursor as string | null;
     while (cursor) {

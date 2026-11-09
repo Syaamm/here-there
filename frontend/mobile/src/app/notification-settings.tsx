@@ -1,14 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, Switch, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { AccountRow, RoundCard } from '@/components/ProfileParts';
 import { Empty, ErrorBanner, Screen, Spinner, Txt } from '@/components/ui';
 import { get, put } from '@/lib/api';
 import { errMsg, useLoad, useRefresh } from '@/lib/hooks';
-import { useT } from '@/lib/i18n';
+import { localeTag, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { showToast } from '@/lib/toast';
+import { timeText } from '@/lib/format';
 
 type Group = { key: string; label: string; text: string; push: boolean };
 type Quiet = { enabled: boolean; start: string; end: string; timezone: string };
@@ -32,31 +33,66 @@ const deviceZone = () => {
   }
 };
 
-/** A time in 24h with a minus and a plus (15 minutes at a time). */
+/** "10:00 PM" or "22:00", as the phone shows times. */
+const shown = (v: string) => {
+  const m = toMin(v);
+  const d = new Date(2000, 0, 1, Math.floor(m / 60), m % 60);
+  return timeText(d);
+};
+
+/**
+ * One time with a big minus and plus: a tap moves it 15 minutes, holding keeps it moving (faster the longer it is held), so
+ * getting from 22:00 to 07:00 is one press, not thirty-six taps.
+ */
 function TimeStep({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
   const { c } = useTheme();
   const { t } = useT();
+  const latest = useRef(value);
+  latest.current = value;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stop = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => stop, []);
+  const step = (delta: number) => {
+    const next = fromMin(toMin(latest.current) + delta);
+    latest.current = next;
+    onChange(next);
+  };
+  // pressed: one step now; held: after a moment it repeats, quicker and quicker (and in hours once it has run for a while)
+  const hold = (delta: number) => {
+    stop();
+    step(delta);
+    let n = 0;
+    const again = () => {
+      n++;
+      step(n > 12 ? delta * 4 : delta);
+      timer.current = setTimeout(again, n < 4 ? 220 : n < 12 ? 110 : 90);
+    };
+    timer.current = setTimeout(again, 420);
+  };
   const btn = (name: 'remove' | 'add', delta: number, what: string) => (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={what}
+      accessibilityHint={t('Hold to keep going')}
       accessibilityState={{ disabled }}
       disabled={disabled}
-      hitSlop={4}
-      onPress={() => onChange(fromMin(toMin(value) + delta))}
-      style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: c.sand, opacity: disabled ? 0.45 : 1 }}
+      hitSlop={6}
+      onPressIn={() => hold(delta)}
+      onPressOut={stop}
+      style={({ pressed }) => [{ width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, opacity: disabled ? 0.45 : 1 }, pressed && { transform: [{ scale: 0.94 }] }]}
     >
-      <Ionicons name={name} size={18} color={c.forest} />
+      <Ionicons name={name} size={22} color={c.forest} />
     </Pressable>
   );
   return (
-    <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
-      <Txt variant="label" color={c.muted} style={{ fontSize: 11 }}>{label}</Txt>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        {btn('remove', -STEP, t('Earlier, {label}', { label }))}
-        <Text accessibilityLabel={`${label} ${value}`} style={{ color: c.text, fontWeight: '800', fontSize: 17, minWidth: 54, textAlign: 'center', opacity: disabled ? 0.5 : 1 }}>{value}</Text>
-        {btn('add', STEP, t('Later, {label}', { label }))}
-      </View>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64 }}>
+      <Txt variant="label" color={c.muted} style={{ width: 52, fontSize: 13 }}>{label}</Txt>
+      {btn('remove', -STEP, t('Earlier, {label}', { label }))}
+      <Text accessibilityRole="text" accessibilityLabel={`${label} ${shown(value)}`} style={{ flex: 1, color: c.text, fontWeight: '700', fontSize: 22, lineHeight: 28, textAlign: 'center', opacity: disabled ? 0.5 : 1 }}>{shown(value)}</Text>
+      {btn('add', STEP, t('Later, {label}', { label }))}
     </View>
   );
 }
@@ -100,10 +136,27 @@ export default function NotificationSettings() {
     if (!s) return;
     void save({ groups: { [g.key]: on } }, { ...s, groups: s.groups.map((x) => (x.key === g.key ? { ...x, push: on } : x)) });
   };
+  // Quiet hours: every tap shows at once; the server is told once the tapping stops (half a second), so quick taps or a held
+  // button never lag, and an older answer coming back can never move the time back to an earlier value.
+  const [q, setQ] = useState<Quiet | null>(null);
+  const qTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => void (qTimer.current && clearTimeout(qTimer.current)), []);
+  const quietNow = q ?? s?.quietHours;
   const quiet = (p: Partial<Quiet>) => {
-    if (!s) return;
-    const q = { ...s.quietHours, ...p };
-    void save({ quietHours: { enabled: q.enabled, start: q.start, end: q.end, timezone: deviceZone() ?? q.timezone } }, { ...s, quietHours: q });
+    if (!s || !quietNow) return;
+    const next = { ...quietNow, ...p };
+    setQ(next);
+    if (qTimer.current) clearTimeout(qTimer.current);
+    qTimer.current = setTimeout(async () => {
+      try {
+        const fresh = await put<Settings>('/v1/me/notification-settings', { quietHours: { enabled: next.enabled, start: next.start, end: next.end, timezone: deviceZone() ?? next.timezone } });
+        setLocal(fresh);
+        setQ((cur) => (cur && JSON.stringify(cur) === JSON.stringify(next) ? null : cur)); // nothing newer typed meanwhile: the server's copy takes over
+      } catch (e) {
+        setQ(null);
+        showToast(errMsg(e), 'error');
+      }
+    }, 500);
   };
 
   return (
@@ -138,11 +191,11 @@ export default function NotificationSettings() {
                 <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{t('Quiet hours')}</Text>
                 <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t('No notifications between these times, except important alerts')}</Text>
               </View>
-              <Switch accessibilityLabel={t('Quiet hours')} value={s.quietHours.enabled} onValueChange={(v) => quiet({ enabled: v })} trackColor={{ true: c.green, false: c.line }} thumbColor={Platform.OS === 'android' && !s.quietHours.enabled ? c.muted : '#fff'} ios_backgroundColor={c.line} />
+              <Switch accessibilityLabel={t('Quiet hours')} value={quietNow!.enabled} onValueChange={(v) => quiet({ enabled: v })} trackColor={{ true: c.green, false: c.line }} thumbColor={Platform.OS === 'android' && !quietNow!.enabled ? c.muted : '#fff'} ios_backgroundColor={c.line} />
             </View>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TimeStep label={t('From')} value={s.quietHours.start} disabled={!s.quietHours.enabled} onChange={(v) => quiet({ start: v })} />
-              <TimeStep label={t('Until')} value={s.quietHours.end} disabled={!s.quietHours.enabled} onChange={(v) => quiet({ end: v })} />
+            <View style={{ gap: 4 }}>
+              <TimeStep label={t('From')} value={quietNow!.start} disabled={!quietNow!.enabled} onChange={(v) => quiet({ start: v })} />
+              <TimeStep label={t('Until')} value={quietNow!.end} disabled={!quietNow!.enabled} onChange={(v) => quiet({ end: v })} />
             </View>
           </RoundCard>
 

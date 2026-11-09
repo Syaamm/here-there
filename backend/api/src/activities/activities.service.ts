@@ -19,6 +19,7 @@ import { SafetyService } from '../safety/safety.service';
 import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset, pageOf } from '../common/paging';
 import { circleOf, tierCounts } from '../common/social';
 import { ReliabilityService } from '../reliability/reliability.controller';
+import { ClashService, withdrawnNote } from '../schedule/clash.service';
 import { decodeCursor, encodeCursor, scoreActivity, topK } from './feed-ranking';
 
 const HOUR = 3600 * 1000;
@@ -31,7 +32,7 @@ export const createSchema = z.object({
   title: z.string().trim().min(2).max(80),
   category: z.enum(CATEGORIES),
   tags: z.array(z.string().trim().min(1).max(24)).max(5).default([]),
-  description: z.string().trim().max(1000).optional(),
+  description: z.string().trim().max(150).optional(), // a light line or two (lowered from 1000, then 300, by the owner, 2026-11-08)
   city: z.string().trim().min(2).max(60),
   venueName: z.string().trim().min(2).max(120),
   venuePlaceId: z.string().max(200).optional(),
@@ -58,6 +59,9 @@ export const listSchema = z.object({
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
   radiusKm: z.coerce.number().min(0.1).max(100).optional(),
+  // the chosen city's area: within radiusKm of lat/lng, plus activities with no position whose city is `city` (a typed venue).
+  // Without it, city and radius both apply ("near me" inside the city).
+  area: z.enum(['true', 'false']).optional(),
   hasSpots: z.enum(['true', 'false']).optional(),
   // time = soonest first (the map and search); relevance = best match for this person first
   sort: z.enum(['time', 'relevance']).default('time'),
@@ -100,6 +104,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     // run by the job worker (one server at a time), not by a timer in every process
     this.jobs.every('activities.expire-requests', 15_000, () => this.expirePendingRequests());
     this.jobs.every('activities.starting-soon', 60_000, () => this.sendStartingSoon());
+    this.jobs.every('activities.attendance-prompt', 60_000, () => this.sendAttendancePrompts());
   }
 
   onModuleDestroy() {}
@@ -109,6 +114,29 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
    * last few minutes has just seen the time, so they are not reminded. Each activity is claimed first, so two runs can
    * never send it twice. Returns how many reminders went out.
    */
+  /**
+   * After an activity ends, each member who has not said whether they were there is asked once (an alert and a push): "Did you
+   * go to ...?". Activities that ended in the last 6 hours are looked at; who was already asked is read from their alerts.
+   */
+  async sendAttendancePrompts(now = new Date()) {
+    const ended = await this.prisma.activity.findMany({
+      where: { status: { notIn: ['cancelled', 'archived', 'draft'] }, endsAt: { lte: now, gt: new Date(+now - 6 * HOUR) } },
+      select: { id: true, title: true },
+    });
+    let sent = 0;
+    for (const a of ended) {
+      const members = await this.prisma.activityMembership.findMany({ where: { activityId: a.id, state: 'approved', role: { not: 'host' }, attendance: 'unknown' }, select: { userId: true } });
+      if (members.length === 0) continue;
+      const asked = new Set((await this.prisma.notification.findMany({ where: { type: 'attendance_prompt', userId: { in: members.map((m) => m.userId) }, data: { contains: `"activityId":"${a.id}"` } }, select: { userId: true } })).map((n) => n.userId));
+      for (const m of members) {
+        if (asked.has(m.userId)) continue;
+        await this.notifications.notify(m.userId, 'attendance_prompt', `Did you go to ${a.title}?`, 'Tap to answer.', { activityId: a.id });
+        sent++;
+      }
+    }
+    return sent;
+  }
+
   async sendStartingSoon(now = new Date()) {
     const due = await this.prisma.activity.findMany({
       where: { status: { in: ['published', 'full', 'confirmed'] }, remindedAt: null, startsAt: { gt: now, lte: new Date(+now + REMINDER_LEAD_MIN * 60_000) } },
@@ -144,7 +172,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.activityRequest.updateMany({ where: { id: { in: stale.map((r) => r.id) } }, data: { state: 'declined', decidedAt: now } });
     for (const r of stale) await this.notifications.settleRequest(r.activity.hostId, 'join_request', { activityId: r.activityId }, r.applicantId);
     for (const r of stale)
-      await this.notifications.notify(r.applicantId, 'request_declined', 'Request not approved', `The host did not answer before ${r.activity.title} started, so your request was closed.`, { activityId: r.activityId });
+      await this.notifications.notify(r.applicantId, 'request_declined', 'Request not approved', `The host didn't answer before ${r.activity.title} started.`, { activityId: r.activityId });
     return stale.length;
   }
 
@@ -158,6 +186,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     private readonly jobs: JobsService,
     private readonly events: EventBus,
     private readonly regions: RegionsService,
+    private readonly clash: ClashService,
   ) {}
 
   private dto(a: ActivityFull, going: number, extra: Record<string, unknown> = {}) {
@@ -258,8 +287,15 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const blocked = await this.safety.blockedWith(me.id);
     const and: Prisma.ActivityWhereInput[] = [
       { status: { in: ['published', 'full', 'confirmed'] } },
-      // coming up in the window, or already started and not over yet (shown as "Happening now")
-      { OR: [{ startsAt: { gte: from, lte: to } }, { startsAt: { lt: now }, endsAt: { gt: now } }] },
+      // coming up in the window, or already started and not over yet (shown as "Happening now"): once it has started, only the
+      // people in it (the host and those approved) see it. Nobody else's feed shows it again: it cannot be joined any more, and a
+      // request that was never accepted is closed when it starts
+      {
+        OR: [
+          { startsAt: { gte: from, lte: to } },
+          { startsAt: { lt: now }, endsAt: { gt: now }, OR: [{ hostId: me.id }, { memberships: { some: { userId: me.id, state: 'approved' } } }] },
+        ],
+      },
       { hostId: { notIn: blocked } },
       {
         OR: [
@@ -269,20 +305,19 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         ],
       },
     ];
-    if (q.city) and.push({ cityKey: q.city.toLowerCase() });
+    const geo = q.lat !== undefined && q.lng !== undefined && q.radiusKm !== undefined;
+    const area = geo && q.area === 'true'; // the city's area: by distance, or by name for activities with no position
+    if (q.city && !area) and.push({ cityKey: q.city.toLowerCase() });
     if (q.category) and.push({ category: q.category });
 
-    const geo = q.lat !== undefined && q.lng !== undefined && q.radiusKm !== undefined;
     if (geo) {
       const dLat = q.radiusKm! / 111;
       const dLng = q.radiusKm! / (111 * Math.max(0.1, Math.cos((q.lat! * Math.PI) / 180)));
-      and.push({
-        lat: { gte: q.lat! - dLat, lte: q.lat! + dLat },
-        lng: { gte: q.lng! - dLng, lte: q.lng! + dLng },
-      });
+      const box = { lat: { gte: q.lat! - dLat, lte: q.lat! + dLat }, lng: { gte: q.lng! - dLng, lte: q.lng! + dLng } };
+      and.push(area && q.city ? { OR: [box, { lat: null, cityKey: q.city.toLowerCase() }] } : box);
     }
 
-    if (q.sort === 'relevance') return this.rankedList(me, q, and, now);
+    if (q.sort === 'relevance') return this.rankedList(me, q, and, now, area);
 
     let after: { at: Date; id: string } | null = null;
     if (q.cursor) {
@@ -311,7 +346,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       for (const row of rows.slice(0, chunk)) {
         tail = row;
         const dist = geo && row.lat != null && row.lng != null ? distanceKm(q.lat!, q.lng!, row.lat, row.lng) : undefined;
-        if (geo && (dist === undefined || dist > q.radiusKm!)) continue;
+        if (geo && (dist === undefined ? !area : dist > q.radiusKm!)) continue; // no position: only kept in a city area (matched by name)
         if (q.hasSpots === 'true' && row.capacity - row._count.memberships <= 0) continue;
         kept.push({ row, dist });
       }
@@ -320,13 +355,14 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     }
 
     const page = kept.slice(0, q.limit);
+    const mine = await this.myStatusFor(me.id, page.map((x) => x.row.id));
     const favs = new Set(
       (await this.prisma.favorite.findMany({ where: { userId: me.id, activityId: { in: page.map((x) => x.row.id) } } })).map(
         (f) => f.activityId,
       ),
     );
     const items = page.map(({ row, dist }) =>
-      this.dto(row, row._count.memberships, { distanceKm: dist !== undefined ? Math.round(dist * 10) / 10 : undefined, favorited: favs.has(row.id) }),
+      this.dto(row, row._count.memberships, { distanceKm: dist !== undefined ? Math.round(dist * 10) / 10 : undefined, favorited: favs.has(row.id), mine: mine.get(row.id) ?? null }),
     );
     // more to read after the last row handed back: the next page starts right there (no row is skipped or repeated)
     const edge = kept.length > q.limit ? page[page.length - 1]?.row : more ? tail : undefined;
@@ -341,7 +377,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
    * and the cursor continues from the last one. Radius and "has spots" filters run before ranking, so they never leave
    * a short or empty page.
    */
-  private async rankedList(me: User, q: z.infer<typeof listSchema>, and: Prisma.ActivityWhereInput[], now: Date) {
+  private async rankedList(me: User, q: z.infer<typeof listSchema>, and: Prisma.ActivityWhereInput[], now: Date, area: boolean) {
     const cur = q.cursor ? decodeCursor(q.cursor) : null;
     if (q.cursor && !cur) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
     const asOf = cur?.asOf ?? now;
@@ -381,7 +417,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     for (const a of rows) {
       const going = goingBy.get(a.id) ?? 0;
       const dist = point && a.lat != null && a.lng != null ? distanceKm(q.lat!, q.lng!, a.lat, a.lng) : undefined;
-      if (q.radiusKm !== undefined && (dist === undefined || dist > q.radiusKm)) continue;
+      if (q.radiusKm !== undefined && (dist === undefined ? !area : dist > q.radiusKm)) continue;
       if (q.hasSpots === 'true' && a.capacity - going <= 0) continue;
       const tiers = tierCounts(peopleByActivity.get(a.id) ?? [], circle);
       const score = scoreActivity(
@@ -397,9 +433,10 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const best = topK(scored, q.limit + 1);
     const page = best.slice(0, q.limit);
     const pageIds = page.map((x) => x.id);
-    const [full, favRows] = await Promise.all([
+    const [full, favRows, mine] = await Promise.all([
       this.prisma.activity.findMany({ where: { id: { in: pageIds } }, include: this.hostInclude }),
       this.prisma.favorite.findMany({ where: { userId: me.id, activityId: { in: pageIds } } }),
+      this.myStatusFor(me.id, pageIds),
     ]);
     const fullById = new Map(full.map((a) => [a.id, a]));
     const favs = new Set(favRows.map((f) => f.activityId));
@@ -407,10 +444,26 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return {
       items: page.flatMap((x) => {
         const row = fullById.get(x.id); // gone between the two reads (deleted): leave it out
-        return row ? [this.dto(row, goingBy.get(x.id) ?? 0, { distanceKm: x.dist !== undefined ? Math.round(x.dist * 10) / 10 : undefined, favorited: favs.has(x.id), buddiesGoing: x.buddies, followingGoing: x.following })] : [];
+        return row ? [this.dto(row, goingBy.get(x.id) ?? 0, { distanceKm: x.dist !== undefined ? Math.round(x.dist * 10) / 10 : undefined, favorited: favs.has(x.id), buddiesGoing: x.buddies, followingGoing: x.following, mine: mine.get(x.id) ?? null })] : [];
       }),
       nextCursor: best.length > q.limit && last ? encodeCursor(asOf, last.score, last.id) : null,
     };
+  }
+
+  /**
+   * Your part in each of these activities, for the feed's cards ("You're going", "Requested"...): host, going, requested or
+   * waitlisted; absent when you have none. Two small queries for the whole page.
+   */
+  private async myStatusFor(userId: string, ids: string[]) {
+    const out = new Map<string, 'host' | 'going' | 'requested' | 'waitlisted'>();
+    if (ids.length === 0) return out;
+    const [members, requests] = await Promise.all([
+      this.prisma.activityMembership.findMany({ where: { userId, state: 'approved', activityId: { in: ids } }, select: { activityId: true, role: true } }),
+      this.prisma.activityRequest.findMany({ where: { applicantId: userId, state: { in: ['requested', 'waitlisted'] }, activityId: { in: ids } }, select: { activityId: true, state: true } }),
+    ]);
+    for (const r of requests) out.set(r.activityId, r.state === 'waitlisted' ? 'waitlisted' : 'requested');
+    for (const m of members) out.set(m.activityId, m.role === 'host' ? 'host' : 'going'); // being in wins over an old request row
+    return out;
   }
 
   async detail(me: User, id: string) {
@@ -424,6 +477,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     });
     const isMember = membership?.state === 'approved';
     if (a.visibility === 'invite_only' && !isMember && a.hostId !== me.id) throw E.notFound('Activity');
+    const circle = await circleOf(this.prisma, me.id); // who of the people going are your friends
 
     const [going, request, conv, fav] = await Promise.all([
       this.goingCount(id),
@@ -468,6 +522,12 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         photoUrl: m.user.profile?.photoUrl ?? null,
         verifiedAdult: m.user.eligibility === 'verified',
         role: m.role,
+        // a friend of yours (you follow each other): marked on their face in "Who's going"
+        friend: circle.buddies.has(m.user.id),
+        // after it ended: whether this person has said if they were there, and what (the page groups people into Attended,
+        // Did not attend and Not answered yet; the owner chose to show it, 2026-11-08)
+        answered: Date.now() >= +a.endsAt ? m.attendance === 'attended' || m.attendance === 'no_show' : undefined,
+        attendance: Date.now() >= +a.endsAt ? m.attendance : undefined,
       })),
     });
   }
@@ -491,11 +551,12 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
     }
 
-    // anti-spam: bounded concurrent open activities (the per-day create limit was removed by the owner, 2026-11-06)
+    // anti-spam: at most 10 upcoming activities hosted at once, raised from 5 by the owner on 2026-11-08 (the per-day create
+    // limit was removed by the owner, 2026-11-06)
     const open = await this.prisma.activity.count({
       where: { hostId: me.id, status: { in: ['published', 'full', 'confirmed'] }, endsAt: { gt: now } },
     });
-    if (open >= 5) throw E.conflict('TOO_MANY_OPEN_ACTIVITIES', 'You already host 5 upcoming activities');
+    if (open >= 10) throw E.conflict('TOO_MANY_OPEN_ACTIVITIES', 'You already host 10 upcoming activities');
 
     // the same plan twice is spam: same host and same title overlapping in time, or the same place at about the same start
     const near = await this.prisma.activity.findMany({
@@ -509,6 +570,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         (norm(o.venueName) === norm(dto.venueName) && Math.abs(+o.startsAt - +dto.startsAt) < HOUR),
     );
     if (dup) throw E.conflict('DUPLICATE_ACTIVITY', 'You already have an activity like this at that time. Change it instead of posting it again.');
+    // one plan at a time: no activity you host or joined may overlap the new one (a trip you are on only gets a warning in the app)
+    await this.clash.assertFreeToCreate(me.id, dto.startsAt, dto.endsAt);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const a = await tx.activity.create({
@@ -539,9 +602,11 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       await tx.conversation.create({ data: { scopeType: 'activity', activityId: a.id } });
       return a;
     });
+    // creating your own plan counts as getting in: your requests at the same time are withdrawn, and the answer says which
+    const withdrawn = await this.clash.withdrawOverlappingPending(me.id, created.startsAt, created.endsAt, { kind: 'activity', id: created.id, title: created.title });
     await this.audit.log(me.id, 'activity.create', 'activity', created.id);
     this.events.emit({ type: 'activity.created', id: created.id, city: created.city });
-    return this.detail(me, created.id);
+    return { ...(await this.detail(me, created.id)), withdrawn };
   }
 
   private async hostOwned(me: User, id: string) {
@@ -593,6 +658,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
 
     const venueChanged = dto.venueName !== undefined && dto.venueName !== a.venueName;
     const timeChanged = +startsAt !== +a.startsAt || +endsAt !== +a.endsAt;
+    if (timeChanged) await this.clash.assertFree(me.id, startsAt, endsAt, { kind: 'activity', id });
 
     const updated = await this.prisma.activity.update({
       where: { id },
@@ -664,9 +730,26 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.notifications.notifyMany(recipients, 'activity_cancelled', `Cancelled: ${a.title}`, 'This activity was cancelled.', {
       activityId: id,
     });
-    await this.notifications.notifyMany(await this.savedOnlyIds(id, a.hostId), 'activity_cancelled', `A plan you saved was cancelled: ${a.title}`, 'The host cancelled it, so it is no longer open.', { activityId: id, saved: true });
+    await this.notifications.notifyMany(await this.savedOnlyIds(id, a.hostId), 'activity_cancelled', `A plan you saved was cancelled: ${a.title}`, 'The host cancelled it.', { activityId: id, saved: true });
     await this.audit.log(me.id, byStaff ? 'activity.removed_by_staff' : 'activity.cancel', 'activity', id);
     this.events.emit({ type: 'activity.cancelled', id, city: a.city });
+    return { ok: true };
+  }
+
+  /**
+   * The host says the activity is over (it ended early, or on time): from its start on. It ends now (its end time becomes now if
+   * that is earlier), so the after-the-activity steps (who came, attendance) open, and everyone going is told it ended.
+   */
+  async complete(me: User, id: string) {
+    const a = await this.hostOwned(me, id);
+    if (a.status === 'cancelled' || a.status === 'archived') throw E.conflict('ACTIVITY_CLOSED', 'This activity is no longer on');
+    if (a.status === 'completed') return { ok: true };
+    const now = new Date();
+    if (now < a.startsAt) throw E.conflict('ACTIVITY_NOT_STARTED', 'An activity can be marked as completed once it has started');
+    await this.prisma.activity.update({ where: { id }, data: { status: 'completed', endsAt: a.endsAt > now ? now : a.endsAt, pendingHostId: null } });
+    await this.notifications.notifyMany(await this.attendeeIds(id, me.id), 'activity_completed', `Ended: ${a.title}`, 'Thanks for coming!', { activityId: id });
+    await this.audit.log(me.id, 'activity.complete', 'activity', id);
+    this.events.emit({ type: 'activity.changed', id, city: a.city });
     return { ok: true };
   }
 
@@ -685,6 +768,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const status = effectiveStatus(a);
     if (status === 'cancelled') throw E.conflict('ACTIVITY_CANCELLED', 'This activity was cancelled');
     if (['in_progress', 'completed', 'archived'].includes(status)) throw E.conflict('ACTIVITY_CLOSED', 'This activity has already started');
+    // one plan at a time: a plan you host or joined at the same time blocks this (a request still waiting does not)
+    await this.clash.assertFree(me.id, a.startsAt, a.endsAt, { kind: 'activity', id });
     // full: the person joins the waiting list (in order of asking) instead of being turned away
     const full = status === 'full' || (await this.goingCount(id)) >= a.capacity;
     const target = full ? 'waitlisted' : 'requested';
@@ -747,12 +832,13 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     });
     if (!placed) return { id: r.id, state: 'waitlisted', position: await this.waitlistPosition(a.id, r.createdAt, r.id) };
     await this.refreshStatus(a.id);
+    const withdrawn = await this.clash.withdrawOverlappingPending(me.id, a.startsAt, a.endsAt, { kind: 'activity', id: a.id, title: a.title }); // first accepted wins: the screen says which
     const p = await this.prisma.profile.findUnique({ where: { userId: me.id }, select: { displayName: true } });
     await this.notifications.notify(a.hostId, 'member_joined', 'Someone joined', `${p?.displayName ?? 'Someone'} joined ${a.title}`, { activityId: a.id });
     await this.audit.log(me.id, 'activity.join_instant', 'activity', a.id);
     metrics.count('joins');
     this.events.emit({ type: 'activity.members_changed', id: a.id, city: a.city });
-    return { id: r.id, state: 'approved' };
+    return { id: r.id, state: 'approved', withdrawn };
   }
 
   /**
@@ -819,7 +905,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const blocked = new Set(await this.safety.blockedWith(a.hostId));
     for (const userId of saved) {
       if (busy.has(userId) || blocked.has(userId)) continue;
-      await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${a.title} has room again. Ask to join before it fills up.`, { activityId });
+      await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${a.title} has room again.`, { activityId });
     }
   }
 
@@ -853,6 +939,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         for (const r of batch) {
           if (r.applicant.state !== 'active') continue;
           if (await this.safety.isBlocked(a.hostId, r.applicantId)) continue;
+          // in another plan at that time by now (joined or hosting): passed over, keeps their place in line
+          if ((await this.clash.find(r.applicantId, a.startsAt, a.endsAt, { kind: 'activity', id: activityId })).some((x) => x.firm)) continue;
           next = r;
           break;
         }
@@ -877,7 +965,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       });
       if (!placed) continue;
       await this.refreshStatus(activityId);
-      await this.notifications.notify(who.applicantId, 'waitlist_promoted', "A place opened up. You're in!", `You moved off the waiting list and into ${a.title}. You can chat with the group now.`, { activityId });
+      // first accepted wins; the person is not on screen, so the alert itself says what was withdrawn
+      const withdrawn = await this.clash.withdrawOverlappingPending(who.applicantId, a.startsAt, a.endsAt, { kind: 'activity', id: activityId, title: a.title }, { alert: false });
+      await this.notifications.notify(who.applicantId, 'waitlist_promoted', "A place opened up. You're in!", `You're in ${a.title}.${withdrawnNote(withdrawn)}`, { activityId });
       await this.audit.log(a.hostId, 'activity.waitlist_promoted', 'activity_request', who.id, { activityId, applicantId: who.applicantId });
       metrics.count('joins');
     }
@@ -947,6 +1037,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     if (decision === 'approve') {
       if (['cancelled', 'archived'].includes(a.status) || ['in_progress', 'completed'].includes(effectiveStatus(a)))
         throw E.conflict('ACTIVITY_CLOSED', 'This activity has already started, so nobody new can be approved');
+      // the person may have joined or created another plan at the same time since they asked
+      await this.clash.assertApplicantFree(r.applicantId, a.startsAt, a.endsAt, { kind: 'activity', id: activityId });
       // capacity check + membership creation are atomic so two approvals cannot overfill
       await this.prisma.$transaction(async (tx) => {
         const { capacity } = await lockActivity(tx, activityId);
@@ -970,7 +1062,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       });
       await this.refreshStatus(activityId);
       metrics.count('joins');
-      await this.notifications.notify(r.applicantId, 'request_approved', 'You are approved!', `You can now chat with the group for ${a.title}`, {
+      // first accepted wins; the person is not on screen, so the approval alert itself says what was withdrawn
+      const withdrawn = await this.clash.withdrawOverlappingPending(r.applicantId, a.startsAt, a.endsAt, { kind: 'activity', id: activityId, title: a.title }, { alert: false });
+      await this.notifications.notify(r.applicantId, 'request_approved', 'You are approved!', `You're in ${a.title}.${withdrawnNote(withdrawn)}`, {
         activityId,
       });
     } else {
@@ -1058,16 +1152,22 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     if (target.user.eligibility !== 'verified') throw E.conflict('NOT_VERIFIED', 'Only a verified adult can take over hosting');
     if (await this.safety.isBlocked(me.id, userId)) throw E.notFound('Member');
     await this.prisma.activity.update({ where: { id }, data: { pendingHostId: userId } });
-    await this.notifications.notify(userId, 'host_handover_offer', 'Take over hosting?', `The host of ${a.title} asked you to host it. Open the activity to accept or decline.`, { activityId: id });
+    await this.notifications.notify(userId, 'host_handover_offer', 'Take over hosting?', `${a.title} · Tap to accept or decline.`, { activityId: id });
     await this.audit.log(me.id, 'activity.handover_offered', 'activity', id, { userId });
     return { ok: true };
   }
 
   /** The host takes the offer back. */
   async withdrawHandover(me: User, id: string) {
-    await this.hostOwned(me, id);
+    const a = await this.hostOwned(me, id);
     await this.prisma.activity.update({ where: { id }, data: { pendingHostId: null } });
+    if (a.pendingHostId) await this.offerSettled(a.pendingHostId, id);
     return { ok: true };
+  }
+
+  /** The hosting offer alert of this activity is done (answered or taken back): it is read, so it no longer waits in Alerts. */
+  private async offerSettled(userId: string, activityId: string) {
+    await this.prisma.notification.updateMany({ where: { userId, type: 'host_handover_offer', readAt: null, data: { contains: `"activityId":"${activityId}"` } }, data: { readAt: new Date() } });
   }
 
   /** The member who was offered hosting says yes (explicit acceptance) or no. */
@@ -1076,9 +1176,10 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const a = await this.prisma.activity.findUnique({ where: { id } });
     if (!a) throw E.notFound('Activity');
     if (a.pendingHostId !== me.id) throw E.notFound('Offer');
+    await this.offerSettled(me.id, id); // answered either way: the offer alert is done
     if (!accept) {
       await this.prisma.activity.update({ where: { id }, data: { pendingHostId: null } });
-      await this.notifications.notify(a.hostId, 'host_handover_declined', 'Hosting not taken over', `They declined to host ${a.title}. You are still the host.`, { activityId: id });
+      await this.notifications.notify(a.hostId, 'host_handover_declined', 'Hosting offer declined', `You're still the host of ${a.title}.`, { activityId: id });
       return { ok: true };
     }
     requireVerified(me);
@@ -1089,14 +1190,15 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       await tx.activityMembership.update({ where: { activityId_userId: { activityId: id, userId: me.id } }, data: { role: 'host', reconfirm: 'none' } });
       await tx.activityMembership.update({ where: { activityId_userId: { activityId: id, userId: former } }, data: { role: 'attendee' } });
     });
-    await this.notifications.notify(former, 'host_handover_accepted', 'Hosting handed over', `Someone else now hosts ${a.title}. You are an attendee, and you can leave if you wish.`, { activityId: id });
+    await this.notifications.notify(former, 'host_handover_accepted', 'Hosting handed over', `You're now a member of ${a.title}.`, { activityId: id });
     await this.audit.log(me.id, 'activity.handover_accepted', 'activity', id, { from: former });
     return { ok: true };
   }
 
   /**
-   * Voluntary and private to the member: after the activity ends, each person may say whether they were there. There
-   * is no location tracking and nobody can set it for someone else. Allowed for a week after it ends.
+   * Voluntary: after the activity ends, each person may say whether they were there, once (it cannot be changed after). The
+   * group sees the answer (Attended / Did not attend on the finished activity). There is no location tracking and nobody can
+   * set it for someone else. Allowed for a week after it ends.
    */
   async confirmAttendance(me: User, id: string, body: unknown) {
     const { attended } = parse(z.object({ attended: z.boolean() }), body);
@@ -1108,8 +1210,13 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     if (now > +a.endsAt + 7 * 24 * HOUR) throw E.conflict('ATTENDANCE_CLOSED', 'This is too long ago to confirm');
     const m = await this.prisma.activityMembership.findUnique({ where: { activityId_userId: { activityId: id, userId: me.id } } });
     if (!m || m.state !== 'approved') throw E.notFound('Membership');
-    await this.prisma.activityMembership.update({ where: { id: m.id }, data: { attendance: attended ? 'attended' : 'no_show' } });
-    return { ok: true, attendance: attended ? 'attended' : 'no_show' };
+    const answer = attended ? 'attended' : 'no_show';
+    // said once, final (like a host's "did not show"): the same answer again is fine, a different one is refused
+    if (m.attendance === answer) return { ok: true, attendance: answer };
+    if (m.attendance === 'attended' || m.attendance === 'no_show') throw E.conflict('ATTENDANCE_SET', 'You already said whether you were there');
+    await this.prisma.activityMembership.update({ where: { id: m.id }, data: { attendance: answer } });
+    await this.notifications.markDone(me.id, 'attendance_prompt', `"activityId":"${id}"`); // its "Did you go?" alert is answered
+    return { ok: true, attendance: answer };
   }
 
   // ---------------------------------------------------------------- favorites & "mine"
