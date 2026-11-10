@@ -39,7 +39,8 @@ export function ExploreThere() {
 
   // excludeMine: the trips you host, are on or applied to are in Next up / Taking part, never again in the lists below.
   // The server ranks them (friends going most, then people you follow, then your followers, then leaving sooner).
-  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?limit=50&excludeMine=true${applied}`), [applied], 60_000, 'feed:there', { keep: true, live: true });
+  // a chosen travel interest is asked of the server (as the HERE categories are), so the ranking and the paging work inside it
+  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?limit=50&excludeMine=true${style ? `&tags=${style}` : ''}${applied}`), [applied, style], 60_000, 'feed:there', { keep: true, live: true });
   // a trip was proposed, filled or cancelled somewhere: ask again at once
   useLiveEvents((e) => {
     if (e.type === 'feed-changed') void feed.reload();
@@ -72,11 +73,12 @@ export function ExploreThere() {
   );
   // a trip that has started is no longer "next": it moves to Taking part (an application to one is simply over)
   const underWay = (x: { t: Trip }) => +new Date(x.t.dateStart) <= now;
-  const taking = mineAll.filter((x) => underWay(x) && x.tone === 'ok');
+  const taking = style ? [] : mineAll.filter((x) => underWay(x) && x.tone === 'ok');
   const ahead = mineAll.filter((x) => !underWay(x));
   // the cards show the two soonest; "+N more" appears only when there are more than two, and lists just the others
-  const next = ahead.slice(0, 2);
-  const more = ahead.slice(2);
+  // with a travel interest chosen the page is only about those trips: your own (Next up, Taking part) step aside, as in HERE
+  const next = style ? [] : ahead.slice(0, 2);
+  const more = style ? [] : ahead.slice(2);
   const [moreOpen, setMoreOpen] = useState(false);
   const { width, gutter } = useLayout();
   const cardW = Math.min(480, width - gutter * 2 - 28); // a bit of the next card peeks in, so it is clear you can swipe
@@ -86,13 +88,13 @@ export function ExploreThere() {
   const bigAt = taking.length > 0 || next.length > 0 ? -1 : lists.findIndex((l) => l.length > 0);
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<ThereHomeHeader city={city} onPickCity={setCity} />} bandTall style={{ paddingTop: 20 }}>
+    <Screen tabBar wide collapse onRefresh={onRefresh} refreshing={refreshing} header={<ThereHomeHeader city={city} onPickCity={setCity} />} bandTall style={{ paddingTop: 20 }}>
 
       <VerifyBanner />
 
       <ModeTabs />
 
-      <ThereSearchField value={q} onChangeText={setQ} placeholder={t('Where next? e.g. Japan....')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || f.active} />
+      <ThereSearchField value={q} onChangeText={setQ} placeholder={t('Where next? For example, Japan')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || f.active} />
       <TripStyleChips value={style} onChange={setStyle} />
 
       <ErrorBanner message={feed.error?.message} />
@@ -154,9 +156,9 @@ export function ExploreThere() {
         <Empty title={q || style ? t('No trips match') : t('No trips yet')}>{q || style ? t('Try another search.') : t('Be the first to propose one.')}</Empty>
       )}
 
-      <ListSection index={1} big={bigAt === 0} title={t('Leaving soon')} list={lists[0]} max={MAX} onMore={() => go('/trips?section=soon')} />
-      <ListSection index={2} big={bigAt === 1} title={t('In the next few months')} list={lists[1]} max={MAX} onMore={() => go('/trips?section=season')} />
-      <ListSection index={3} big={bigAt === 2} title={t('Later')} list={lists[2]} max={MAX} onMore={() => go('/trips?section=later')} />
+      <ListSection index={1} big={bigAt === 0} title={t('Leaving soon')} list={lists[0]} max={MAX} onMore={() => go(`/trips?section=soon${style ? `&style=${style}` : ''}`)} />
+      <ListSection index={2} big={bigAt === 1} title={t('In the next few months')} list={lists[1]} max={MAX} onMore={() => go(`/trips?section=season${style ? `&style=${style}` : ''}`)} />
+      <ListSection index={3} big={bigAt === 2} title={t('Later')} list={lists[2]} max={MAX} onMore={() => go(`/trips?section=later${style ? `&style=${style}` : ''}`)} />
 
 
       <Reveal index={4}>
@@ -237,12 +239,12 @@ function ListSection({ index, big, title, list, max, onMore }: { index: number; 
       {hidden > 0 ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t('Plus {n} more in {title}. See all', { n: hidden, title })}
+          accessibilityLabel={t('See all: {title}', { title })}
           hitSlop={6}
           onPress={onMore}
           style={({ pressed }) => [{ alignSelf: 'flex-start', minHeight: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', gap: 4 }, pressed && { opacity: 0.8 }]}
         >
-          <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>{t('+{n} more trips · See all', { n: hidden })}</Txt>
+          <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>{t('See all')}</Txt>
           <Ionicons name="chevron-forward" size={13} color={c.forest} />
         </Pressable>
       ) : null}

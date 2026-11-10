@@ -4,10 +4,13 @@ import { DayCard, dayKey, DayLog } from '../DayLog';
 import { Select } from '../controls';
 import { askText, Chip, Empty, ErrorBanner, Loading, Page, RowMenu, Search, Segmented, useAction, useLoad, useMore, Icon } from '../ui';
 
-type A = { id: string; title: string; status: string; city: string; venueName: string; startsAt: string; capacity: number; going: number; host: { id: string; displayName?: string } };
-type T = { id: string; title: string; status: string; destination: string; dateStart: string; members: number; host: { id: string; displayName?: string } };
+type A = { id: string; title: string; status: string; category: string; city: string; venueName: string; startsAt: string; endsAt: string; capacity: number; joinPolicy: string; going: number; waiting: number; host: { id: string; displayName?: string } };
+type T = { id: string; title: string; status: string; destination: string; originCity: string; travelStyle: string; dateStart: string; dateEnd: string; budgetMin: number; budgetMax: number; budgetCurrency: string; maxCapacity: number; approvalMode: string; members: number; waiting: number; host: { id: string; displayName?: string } };
 
 const STATUSES = ['published', 'full', 'planning', 'confirmed', 'completed', 'cancelled'];
+const words = (v?: string | null) => (v ?? '').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+const shortDay = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+const money = (cur: string | undefined, n: number | undefined) => `${cur === 'EUR' ? '€' : (cur ?? '') + ' '}${(n ?? 0).toLocaleString('en-GB')}`;
 const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase();
 
 /** Activities and trips by the day they happen: each day shows a few, "Show all" opens the rest. */
@@ -126,14 +129,17 @@ export function ContentPage({ me }: { me: Session }) {
                 return (
                   <li key={x.id}>
                     <div className="ct-row">
-                      <span className="ct-time">{isAct ? clock(a.startsAt) : 'Starts'}</span>
+                      <span className="ct-time">{isAct ? `${clock(a.startsAt)} – ${clock(a.endsAt)}` : `${shortDay(a.dateStart)} – ${shortDay(a.dateEnd)}`}</span>
                       <span className="ct-main">
                         <span className="ct-title">{x.title}</span>
                         <span className="ct-meta">
-                          {isAct ? `${a.venueName}, ${a.city}` : a.destination} · hosted by {x.host.displayName ?? 'someone'}
+                          {isAct
+                            ? `${words(a.category)} · ${a.venueName}, ${a.city} · hosted by ${x.host.displayName ?? 'someone'}`
+                            : `${a.originCity ? `${a.originCity} → ` : ''}${a.destination} · ${words(a.travelStyle)} · ${money(a.budgetCurrency, a.budgetMin)}–${money(a.budgetCurrency, a.budgetMax)} · hosted by ${x.host.displayName ?? 'someone'}`}
                         </span>
                       </span>
                       <span className="ct-side">
+                        {a.waiting > 0 && x.status !== 'completed' && x.status !== 'cancelled' ? <Chip value={`${a.waiting} waiting`} tone="warn" /> : null}
                         <span className="ct-going">
                           {isAct ? (
                             <>
@@ -143,10 +149,15 @@ export function ContentPage({ me }: { me: Session }) {
                               {a.going}/{a.capacity}
                             </>
                           ) : (
-                            `${a.members} going`
+                            <>
+                              <span className="bar" style={{ width: 56 }}>
+                                <i style={{ width: `${Math.min(100, (a.members / Math.max(1, a.maxCapacity)) * 100)}%` }} />
+                              </span>
+                              {a.members}/{a.maxCapacity}
+                            </>
                           )}
                         </span>
-                        <Chip value={x.status} />
+                        <Chip value={x.status === "completed" ? "Completed" : x.status} tone={x.status === "completed" ? "plain" : undefined} />
                         {mod && x.status !== 'cancelled' ? <RowMenu label={`Actions for ${x.title}`} items={[{ label: 'Remove', danger: true, onSelect: () => remove(x.id, x.title) }]} /> : <span style={{ width: 38 }} />}
                       </span>
                     </div>

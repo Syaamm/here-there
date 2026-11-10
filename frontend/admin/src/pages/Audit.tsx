@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import './Audit.css';
 import { DayCard, DayLog } from '../DayLog';
 import { get, PERMISSIONS, roleLabel } from '../api';
-import { Empty, ErrorBanner, Icon, Loading, Page, useLoad, type IconName, type Tone } from '../ui';
+import { Select } from '../controls';
+import { Empty, ErrorBanner, Icon, Loading, Page, Search, Segmented, useLoad, type IconName, type Tone } from '../ui';
 
 type Meta = Record<string, unknown> | null;
 type E = { id: string; actorId: string | null; actorName?: string | null; actorRole?: string | null; objectName?: string | null; objectRole?: string | null; action: string; objectType: string; objectId: string; metadata: unknown; createdAt: string };
@@ -304,30 +305,25 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
       fill
       title="Audit log"
       actions={
-        <button type="button" className="au-export" onClick={exportCsv} disabled={paged.items.length === 0}>
-          Export CSV
-        </button>
+        <>
+          <Segmented label="How far back" value={when} onChange={setWhen} options={WHEN.map((w) => ({ id: w.id, label: w.label }))} />
+          <button type="button" className="btn" onClick={exportCsv} disabled={paged.items.length === 0}>
+            Export CSV
+          </button>
+        </>
       }
     >
-      <div className="au-tools">
-        <label className="au-search">
-          <Icon name="search" />
-          <input type="search" placeholder="Search names or actions" aria-label="Search the audit log" value={term} onChange={(e) => setTerm(e.target.value)} />
-        </label>
-        <div className="au-when" role="group" aria-label="How far back">
-          {WHEN.map((w) => (
-            <button key={w.id} type="button" className={when === w.id ? 'on' : ''} aria-pressed={when === w.id} onClick={() => setWhen(w.id)}>
-              {w.label}
-            </button>
-          ))}
+      <div className="toolbar">
+        <div className="grow">
+          <Search label="Search the audit log" placeholder="Search names or actions" value={term} onChange={setTerm} />
         </div>
-        <div className="au-filters" role="group" aria-label="What to show">
+        <Select aria-label="What to show" value={kind} onChange={(v) => setKind(v as typeof kind)}>
           {FILTERS.map((f) => (
-            <button key={f.id} type="button" className={kind === f.id ? 'au-pill on' : 'au-pill'} aria-pressed={kind === f.id} onClick={() => setKind(f.id)}>
+            <option key={f.id} value={f.id}>
               {f.label}
-            </button>
+            </option>
           ))}
-        </div>
+        </Select>
       </div>
       <ErrorBanner message={error} onRetry={reload} />
       {loading && !first.data && <Loading rows={6} />}

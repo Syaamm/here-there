@@ -26,6 +26,7 @@ import { clearOpenChat, setOpenChat, useLiveEvents } from '@/lib/live';
 import { refreshUnread } from '@/lib/unread';
 import { t, useT } from '@/lib/i18n';
 import { useEnterMode, useTheme } from '@/lib/theme';
+import { ScaleScope, useSmallPhoneShrink } from '@/lib/scale';
 
 type PollInfo = { id: string; title: string; dateStart: string | null; dateEnd: string | null; state: 'open' | 'adopted' | 'closed'; accept: number; reject: number; myVote: 'accept' | 'reject' | null };
 type Msg = { id: string; body: string; kind?: 'text' | 'poll' | 'system'; poll?: PollInfo | null; createdAt: string; sender: { id: string; displayName: string; photoUrl?: string | null } };
@@ -126,7 +127,13 @@ function Linkified({ text, linkColor }: { text: string; linkColor: string }) {
 export default function ChatRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
   // one fresh screen per conversation: opening another chat never shows the previous one for a moment first
-  return <Chat key={id} id={id} />;
+  // narrow phones draw the chat a little smaller (text, bubbles, the box and the buttons), so it is not big on a small screen
+  const shrink = useSmallPhoneShrink();
+  return (
+    <ScaleScope factor={shrink}>
+      <Chat key={id} id={id} />
+    </ScaleScope>
+  );
 }
 
 /**
@@ -138,8 +145,9 @@ const Bubble = memo(
     const { t } = useT();
     const { c, mode } = useTheme();
     const go = useGo();
+    const z = useSmallPhoneShrink();
     return (
-      <View style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '86%', marginTop: showName || newDay ? 8 : 0, gap: 6 }}>
+      <View style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: z < 1 ? '90%' : '86%', marginTop: showName || newDay ? 8 : 0, gap: 6 }}>
         {/* who wrote it: face and name above the bubble, once per run of messages (tap for their profile) */}
         {showName && (
           <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36 }}>
@@ -154,7 +162,7 @@ const Bubble = memo(
           onAccessibilityAction={() => onPick(m)}
           onLongPress={mine ? undefined : () => onPick(m)}
           delayLongPress={350}
-          style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8, ...(Platform.OS === 'android' ? null : { shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: mine ? 0 : 1 }) }}
+          style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: Math.round(24 * z), paddingHorizontal: Math.round(18 * z), paddingTop: Math.round(12 * z), paddingBottom: Math.round(8 * z), ...(Platform.OS === 'android' ? null : { shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: mine ? 0 : 1 }) }}
         >
           <Text style={{ color: mine ? '#fff' : c.text, fontSize: 15, lineHeight: 23 }}>
             <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
@@ -276,7 +284,9 @@ function Chat({ id }: { id: string }) {
   const shown = settled ? [...older, ...(msgs.data?.items ?? [])] : [];
 
   const [text, setText] = useState('');
+  const [composerFocused, setComposerFocused] = useState(false);
   const typing = useKeyboardShown();
+  const z = useSmallPhoneShrink(); // narrow phones: the box and the buttons are drawn smaller, as the writing is
   const bottomGap = typing ? 0 : Math.max(insets.bottom, 10); // no dock here: the chat fills the screen, down to the home bar
   const { inset: keyboard, box: chatBox, onLayout: chatLayout } = useKeyboardOverlap();
   // leaving by the swipe-back (or the arrow): the keyboard goes down while the screen goes sideways
@@ -475,7 +485,7 @@ function Chat({ id }: { id: string }) {
   const block = async (m: Msg) => {
     if (await confirmAsync(t('Block {name}?', { name: m.sender.displayName }), t("Their messages will be hidden from you and they can't contact you, in HERE or THERE."), t('Block'), true)) {
       const r = await safety.run(() => post('/v1/blocks', { userId: m.sender.id }));
-      if (r) setNote(t('You blocked {name}. Their messages are hidden, and you can unblock them in Settings > Reports & blocked.', { name: m.sender.displayName }));
+      if (r) setNote(t('You blocked {name}. Their messages are hidden, and you can unblock them in Settings > Reports & Blocked.', { name: m.sender.displayName }));
     }
   };
 
@@ -691,9 +701,9 @@ function Chat({ id }: { id: string }) {
           <Banner>{closedText}</Banner>
         </View>
       ) : (
-        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-end', paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottomGap + 8 }}>
+        <View style={{ flexDirection: 'row', gap: Math.round(12 * z), alignItems: 'flex-end', paddingHorizontal: Math.round(16 * z), paddingTop: 6, paddingBottom: bottomGap + 8 }}>
           {amHost && conv?.scope === 'trip' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: 44, height: 44, marginBottom: 4, borderRadius: 22, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: Math.max(40, Math.round(44 * z)), height: Math.max(40, Math.round(44 * z)), marginBottom: 4, borderRadius: 22, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
               <Ionicons name="add" size={22} color={c.forest} />
             </Pressable>
           ) : null}
@@ -704,12 +714,15 @@ function Chat({ id }: { id: string }) {
               setText(v);
               if (send.error) send.setError(null); // the refusal was about the old text
             }}
-            placeholder={t('Say something to the group…')}
+            // the hint goes as soon as the field is active (keyboard up, cursor blinking), and comes back if it is left empty
+            placeholder={composerFocused ? '' : t('Say something to the group…')}
             placeholderTextColor={c.placeholder}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
             maxLength={2000}
             multiline
             numberOfLines={1}
-            style={{ flex: 1, minHeight: 52, maxHeight: 120, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 28, backgroundColor: c.surface, color: c.text, paddingHorizontal: 22, paddingVertical: 14, textAlignVertical: 'center', fontSize: mode === 'there' ? 15 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 }}
+            style={{ flex: 1, minHeight: Math.max(44, Math.round(52 * z)), maxHeight: 120, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 28, backgroundColor: c.surface, color: c.text, paddingHorizontal: Math.round(22 * z), paddingVertical: Math.round(14 * z), textAlignVertical: 'center', fontSize: mode === 'there' ? 15 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 }}
           />
           <Pressable
             accessibilityRole="button"
@@ -717,7 +730,7 @@ function Chat({ id }: { id: string }) {
             accessibilityState={{ disabled: !text.trim() || send.busy }}
             disabled={!text.trim() || send.busy}
             onPress={submit}
-            style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: !text.trim() || send.busy ? 0.45 : 1 }}
+            style={{ width: Math.max(44, Math.round(52 * z)), height: Math.max(44, Math.round(52 * z)), borderRadius: 26, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: !text.trim() || send.busy ? 0.45 : 1 }}
           >
             {/* the paper plane's weight sits to the left, so it is nudged to look centred in the circle */}
             <Ionicons name="send" size={20} color="#fff" style={{ marginLeft: 3, marginBottom: 1 }} />

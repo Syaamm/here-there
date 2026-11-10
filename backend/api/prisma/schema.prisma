@@ -280,8 +280,11 @@ model Trip {
   destination             String
   destinationKey          String // lowercased for search
   destinationPlaceId      String?
-  originCity              String
-  originKey               String? // originCity lowercased and trimmed: the place whose planning limit applies to this trip
+  originCity              String // where the group leaves from together; empty for a "meet at destination" trip
+  originKey               String? // the place whose planning limit applies to this trip: the departure city, or the destination's city for a "meet at destination" trip
+  // how the group gets there: "together" (companions leave from originCity together) or "meet_at_destination" (everyone travels
+  // on their own and the group meets there; no departure city)
+  travelStyle             String    @default("together")
   // The time zone of the destination (IANA name), so "which day is it on the trip" is right wherever it goes.
   timeZone                String?
   dateStart               DateTime
@@ -367,10 +370,13 @@ model Conversation {
   topic      String?
   endedAt    DateTime?
   createdAt  DateTime  @default(now())
+  // when the chat last had a message (its creation until then): the order of the Messages list, kept up to date by each message
+  lastMessageAt DateTime @default(now())
   messages   Message[]
 
   @@index([userAId])
   @@index([userBId])
+  @@index([lastMessageAt, id])
 }
 
 model Message {

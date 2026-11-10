@@ -3,7 +3,7 @@ import { useIsFocused } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
-import { TabHeader, ModeSwitch, Wordmark } from '@/components/TabHeader';
+import { TabHeader, Wordmark } from '@/components/TabHeader';
 import { Reveal } from '@/components/Reveal';
 import { CatPhoto } from '@/components/CatPhoto';
 import { Avatar, Between, Btn, Card, Empty, ErrorBanner, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
@@ -65,22 +65,60 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
 const SOFT = { shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 3 } as const;
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
 
-/** THERE's top of the page: the wordmark with "Be Here.Go There." under it, and the HERE | THERE switch (kept: it is how you change product). */
+/** THERE's top of the page: the wordmark with "Be here. Go there." under it (switching HERE | THERE is on the home page only). */
 function ThereHeader() {
   const { c } = useTheme();
   const { t } = useT();
   return (
     <Between>
-      <View style={{ gap: 3 }}>
+      <View style={{ gap: 6 }}>
         <Wordmark size={24} />
-        <Text style={{ color: c.muted, fontSize: 12, lineHeight: 15 }}>{t('Be Here.Go There.')}</Text>
+        <Text style={{ color: c.muted, fontSize: 12, lineHeight: 15 }}>{t('Be here. Go there.')}</Text>
       </View>
-      <ModeSwitch />
     </Between>
   );
 }
 
-/** Section title ("Join Requests"), with an optional count on the right. */
+/**
+ * The Chats tab with no chats yet: says how a conversation starts. Chats are never started by a stranger: they open when you are
+ * in a plan with other people (the host accepts you, the organiser approves you) or when two travellers both say yes.
+ */
+function ChatsEmpty({ there, onFind }: { there: boolean; onFind: () => void }) {
+  const { c } = useTheme();
+  const { t } = useT();
+  const steps: [React.ComponentProps<typeof Ionicons>['name'], string, string][] = [
+    ['calendar-outline', t('Join an activity'), t('When the host accepts you, its group chat opens here.')],
+    ['airplane-outline', t('Join a trip'), t("When the organiser approves you, the trip's group chat opens here.")],
+    ['people-outline', t('Match with a travel companion'), t('If you both say yes in Travel buddies, a private chat opens.')],
+  ];
+  // the product you are in goes first
+  const ordered = there ? [steps[1], steps[0], steps[2]] : steps;
+  return (
+    <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: 16, paddingVertical: 22, paddingHorizontal: 18, gap: 14 }}>
+      <View style={{ alignItems: 'center', gap: 6 }}>
+        <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="chatbubbles-outline" size={24} color={c.forest} />
+        </View>
+        <Txt variant="h3" style={{ textAlign: 'center' }}>{t('No messages yet')}</Txt>
+        <Txt variant="muted" style={{ textAlign: 'center' }}>{t('Chats open when you are in a plan with other people. This is how:')}</Txt>
+      </View>
+      {ordered.map(([icon, title, line]) => (
+        <View key={title} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+          <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name={icon} size={16} color={c.forest} />
+          </View>
+          <View style={{ flex: 1, gap: 1 }}>
+            <Txt variant="h3" style={{ fontSize: 14, lineHeight: 19 }}>{title}</Txt>
+            <Txt variant="muted" style={{ fontSize: 13, lineHeight: 18 }}>{line}</Txt>
+          </View>
+        </View>
+      ))}
+      <Btn title={there ? t('Find a trip') : t('Find an activity')} variant="secondary" small onPress={onFind} style={{ alignSelf: 'center' }} />
+    </View>
+  );
+}
+
+/** Section title ("Join requests"), with an optional count on the right. */
 function SectionLabel({ title, count }: { title: string; count?: number }) {
   const { c, mode } = useTheme();
   return (
@@ -103,7 +141,7 @@ export function Inbox() {
   const [tab, setTab] = useState<Tab>('chats');
   const [q, setQ] = useState(''); // search box on the Chats tab: narrows the chats already loaded
   // each product has its own alerts and chats: HERE shows activity ones, THERE shows trip ones (follows, warnings and the like show in both)
-  const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number; unreadByProduct?: { here: number; there: number } }>(`/v1/notifications?product=${mode}`), [mode], 60_000, 'inbox:notifs', { animate: true, live: true }); // new alerts arrive by the live connection; this is only the slow fallback
+  const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number; unreadByProduct?: { here: number; there: number }; unreadAlerts?: number; unreadChatIds?: string[] }>(`/v1/notifications?product=${mode}`), [mode], 60_000, 'inbox:notifs', { animate: true, live: true }); // new alerts arrive by the live connection; this is only the slow fallback
   // the alert rows themselves: the server sends them a few at a time, newest first (chat messages are on the Chats tab)
   const alertList = useCursorList<Notif, { unreadCount: number }>('/v1/notifications', { scope: 'alerts', product: mode }, 'inbox:alerts', { pollMs: 60_000, live: true, animate: true, rowHeight: 76 });
   const convs = useCursorList<ConversationRef>('/v1/me/conversations', { product: mode }, 'inbox:convs', { animate: true, rowHeight: 73 });
@@ -116,10 +154,11 @@ export function Inbox() {
   const otherNew = notifs.data?.unreadByProduct?.[other] ?? 0;
   const all = notifs.data?.items ?? [];
   const alerts = all.filter((n) => n.type !== 'chat_message');
-  const alertsUnread = alerts.filter((n) => !n.readAt).length; // chat alerts are counted on the Chats tab, not here
+  // exact numbers from the server (not counted from the first page of alerts); chat alerts are counted on the Chats tab, not here
+  const alertsUnread = notifs.data?.unreadAlerts ?? alerts.filter((n) => !n.readAt).length;
   // what "Mark all read" can clear: news only. Alerts waiting for you to act stay until you have acted on them.
   const clearable = alerts.filter((n) => !n.readAt && !ACTION_TYPES.includes(n.type)).length;
-  const unreadChats = new Set(all.filter((n) => n.type === 'chat_message' && !n.readAt).map((n) => n.data?.conversationId));
+  const unreadChats = new Set<unknown>(notifs.data?.unreadChatIds ?? all.filter((n) => n.type === 'chat_message' && !n.readAt).map((n) => n.data?.conversationId));
 
   // Join requests that are still waiting: for each activity you host that has a join-request alert, ask the server who is pending now
   const hostedIds = [...new Set(alerts.filter((n) => n.type === 'join_request' && n.data?.activityId).map((n) => n.data!.activityId!))].slice(0, 6);
@@ -258,7 +297,7 @@ export function Inbox() {
     <Screen tabBar plain onRefresh={onRefresh} refreshing={refreshing} header={mode === 'there' ? <ThereHeader /> : <TabHeader plain />}>
       {/* the same on both tabs, at a fixed height: switching Chats / Alerts never moves the title or the switch below it */}
       <Row style={{ justifyContent: 'space-between', alignItems: 'center', height: 44 }}>
-        <Text accessibilityRole="header" numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '600' }}>{t('Your Inbox')}</Text>
+        <Text accessibilityRole="header" numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '600' }}>{t('Inbox')}</Text>
         {(() => {
           // Chats: every chat read. Alerts: the news read; requests, offers and dates to confirm stay until you act on them.
           const n = tab === 'chats' ? unreadChats.size : clearable;
@@ -341,12 +380,12 @@ export function Inbox() {
 
       {tab === 'chats' ? (
         <Reveal key={`chats-${visit}`} from={10} style={{ gap: 16 }}>
-          {convs.loading && !convs.data && <Spinner />}
-          {convs.data && convs.items.length === 0 && <Empty title={t('No group chats yet')} />}
           <View style={{ minHeight: 48, borderRadius: 27, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 }}>
             <Ionicons name="search-outline" size={18} color={c.muted} />
             <TextInput accessibilityLabel={t('Search chats')} value={q} onChangeText={setQ} placeholder={t('Search chats')} placeholderTextColor={c.placeholder} returnKeyType="search" clearButtonMode="while-editing" style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center' }} />
           </View>
+          {convs.loading && !convs.data && <Spinner />}
+          {convs.data && convs.items.length === 0 && <ChatsEmpty there={mode === 'there'} onFind={() => go('/')} />}
           {q.trim() && convs.data && chatRows.length === 0 ? <Empty title={t('No chats match')} /> : null}
           {chatRows.length > 0 ? (
             <View>
@@ -386,7 +425,7 @@ export function Inbox() {
 
           {needs > 0 && (
             <>
-              <SectionLabel title={t('Join Requests')} count={needs > 1 ? needs : undefined} />
+              <SectionLabel title={t('Join requests')} count={needs > 1 ? needs : undefined} />
               {(waiting.data ?? []).map((w0) => ({ ...w0, pending: w0.pending.filter((x) => !handled.has(x.id)) })).filter((w) => w.pending.length > 0).map((w, wi) => {
                 const r = w.pending[0];
                 const name = r.applicant.displayName ?? t('Someone');

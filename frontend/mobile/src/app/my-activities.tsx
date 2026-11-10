@@ -41,7 +41,7 @@ export default function MyActivities() {
       </PillRow>
       <ErrorBanner message={acts.error?.message} />
       {acts.loading && !acts.data && <Spinner />}
-      {acts.data && list.length === 0 && <Empty title={t('Nothing in {tab}', { tab: t(TABS.find((x) => x.id === tab)!.label) })}>{t(TABS.find((x) => x.id === tab)!.empty)}</Empty>}
+      {acts.data && list.length === 0 && <Empty icon="calendar-outline" title={t('Nothing in {tab}', { tab: t(TABS.find((x) => x.id === tab)!.label) })} action={tab === 'mine' ? { label: t('Find an activity'), onPress: () => go('/') } : undefined}>{t(TABS.find((x) => x.id === tab)!.empty)}</Empty>}
       <Grid>
         {shown.map((x, i) => (
           <Reveal key={x.key} index={i} style={{ gap: 6 }}>

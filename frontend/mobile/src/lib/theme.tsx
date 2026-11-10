@@ -113,7 +113,7 @@ const there: typeof base & { bg: string; headerBg: string } = {
   onBandFaint: 'rgba(16,47,41,0.6)',
   bandLine: 'rgba(16,47,41,0.45)',
   bandSel: 'rgba(16,47,41,0.14)',
-  bandChip: 'rgba(255,255,255,0.55)',
+  bandChip: '#E9E5DD', // warm ivory: a solid pill, clearly lighter than the sand header
   bandBack: 'rgba(255,255,255,0.6)',
   bandTrack: 'rgba(16,47,41,0.15)',
   bandFill: '#102F29',
@@ -138,13 +138,13 @@ const modes = {
 };
 export type Colors = typeof modes.here;
 
-type ThemeState = { mode: Mode; setMode: (m: Mode) => void; /** like setMode, with the full-screen colour-wave transition */ switchMode: (m: Mode, then?: () => void) => void; /** the saved mode has been read, so `mode` is the real one */ ready: boolean; c: Colors };
+type ThemeState = { mode: Mode; setMode: (m: Mode) => void; /** like setMode, with the short full-screen colour fade */ switchMode: (m: Mode, then?: () => void) => void; /** the saved mode has been read, so `mode` is the real one */ ready: boolean; c: Colors };
 const Ctx = createContext<ThemeState>({ mode: 'here', setMode: () => {}, switchMode: () => {}, ready: true, c: modes.here });
 export const useTheme = () => useContext(Ctx);
 
 /**
  * A page that belongs to one product (an activity is HERE, a trip is THERE): when it opens in the other one, flip to its
- * own, with the colour-wave. Once per visit, so a person who then switches by hand is not pulled back. This is what makes
+ * own, with the colour fade. Once per visit, so a person who then switches by hand is not pulled back. This is what makes
  * a tapped alert, a push or a shared link land in the right product, whichever one the app was in.
  */
 export function useEnterMode(want: Mode | undefined) {
@@ -178,7 +178,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [moving, setMoving] = useState<Mode | null>(null);
   const movingRef = useRef<Mode | null>(null);
   const afterRef = useRef<(() => void) | null>(null);
-  // `then` runs once the wave has covered the screen and the product underneath has swapped: use it to open a page of the new
+  // `then` runs once the colour has covered the screen and the product underneath has swapped: use it to open a page of the new
   // product, so that page is never seen (in the old colours) before the animation has played
   const switchMode = useCallback(
     (m: Mode, then?: () => void) => {

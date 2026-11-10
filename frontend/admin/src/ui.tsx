@@ -684,3 +684,27 @@ export function usePages<T>(items: T[], resetKey: string, size = 10) {
   );
   return { shown, foot };
 }
+
+/** "Page 1 / 10" with Previous / Next, for lists the server pages by number (one small page is read at a time). */
+export function PageBar({ page, pages, total, noun, onPage, busy }: { page: number; pages: number; total: number; noun: [string, string]; onPage: (p: number) => void; busy?: boolean }) {
+  return (
+    <div className="table-foot">
+      <span className="muted small">
+        {total} {total === 1 ? noun[0] : noun[1]}
+      </span>
+      {pages > 1 && (
+        <div className="row">
+          <button className="btn small" disabled={page <= 1 || busy} onClick={() => onPage(page - 1)} aria-label="Previous page">
+            Previous
+          </button>
+          <span className="small" aria-live="polite">
+            Page {page} / {pages}
+          </span>
+          <button className="btn small" disabled={page >= pages || busy} onClick={() => onPage(page + 1)} aria-label="Next page">
+            Next
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

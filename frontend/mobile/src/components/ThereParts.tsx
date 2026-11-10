@@ -9,63 +9,53 @@ import { useMe } from '@/lib/auth';
 import { useKeyboardOverlap, keyboardTaps } from '@/lib/keyboard';
 import { useLayout } from '@/lib/layout';
 import { useT } from '@/lib/i18n';
-import { sc, tracking } from '@/lib/scale';
+import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { TRIP_PHOTOS } from './Cards';
 import { RoundPhoto } from './CreateParts';
+import { LamisWordmark } from './LamisWordmark';
+import { CollapseAvatar, CollapseCity, CollapseLogo, CollapseTagline } from './CollapsePieces';
 import { Text, TextInput } from './ScaledText';
-import { Avatar, Btn, pressed, Sheet, Field } from './ui';
+import { Avatar, pressed } from './ui';
+import { CityPicker } from './CityPicker';
+import { TRIP_TAGS } from '@/lib/constants';
 
 /** THERE's pieces from the Figma pages (home, search and the filter sheet), shared by ExploreThere and SearchThere. */
-
-const WAVE = '👋';
 
 /** The wordmark "THERE." with its tagline under it (Figma). */
 export function ThereBrand() {
   const { c } = useTheme();
   const { t } = useT();
   return (
-    <View style={{ gap: 3 }}>
-      <Text accessibilityRole="header" accessibilityLabel="THERE" style={{ color: c.onBand, fontSize: 24, lineHeight: 30, fontWeight: '700', letterSpacing: tracking(-1) }}>
-        THERE<Text style={{ color: c.bandDot }}>.</Text>
-      </Text>
-      <Text style={{ color: c.onBandMuted, fontSize: 12, lineHeight: 16 }}>{t('Be Here.Go There.')}</Text>
+    <View style={{ gap: 6 }}>
+      <CollapseLogo>
+        <LamisWordmark onDark={c.bandIsDark} height={28} />
+      </CollapseLogo>
+      <CollapseTagline>
+        <Text style={{ color: c.onBandMuted, fontSize: 12, lineHeight: 16 }}>{t('Be here. Go there.')}</Text>
+      </CollapseTagline>
     </View>
   );
 }
 
 /** The home header: the brand on the left, the city you are in on the right (tap it to change the city). */
 export function ThereHomeHeader({ city, onPickCity }: { city: string; onPickCity: (c: string) => void }) {
-  const { c } = useTheme();
   const { t } = useT();
-  const [open, setOpen] = useState(false);
-  const [v, setV] = useState(city);
   const router = useRouter();
   const { me } = useMe();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <ThereBrand />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} hitSlop={8} onPress={() => (setV(city), setOpen(true))} style={({ pressed: p }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44 }, p && { opacity: 0.8 }]}>
-        <Ionicons name="location-outline" size={15} color={c.bandPin} />
-        <Text numberOfLines={1} style={{ color: c.onBand, fontWeight: '600', fontSize: 16, lineHeight: 20, includeFontPadding: false, maxWidth: 130 }}>{city}</Text>
-        <Text accessibilityElementsHidden importantForAccessibility="no" style={{ fontSize: 16, lineHeight: 20, includeFontPadding: false }}>{WAVE}</Text>
-      </Pressable>
+      <CollapseCity>
+        <CityPicker city={city} onPick={onPickCity} onDark />
+      </CollapseCity>
+      <CollapseAvatar>
       <Pressable accessibilityRole="button" accessibilityLabel={t('Profile')} hitSlop={6} onPress={() => router.navigate('/profile' as never)}>
         <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={36} />
       </Pressable>
+      </CollapseAvatar>
       </View>
-      <Sheet visible={open} title={t('Choose your city')} onClose={() => setOpen(false)}>
-        <Field label={t('City')} value={v} onChangeText={setV} autoFocus />
-        <Btn
-          title={t('Use this city')}
-          disabled={v.trim().length < 2}
-          onPress={() => {
-            onPickCity(v.trim());
-            setOpen(false);
-          }}
-        />
-      </Sheet>
     </View>
   );
 }
@@ -92,6 +82,11 @@ export function ThereSearchField({ value, onChangeText, placeholder, onSubmit, o
           returnKeyType="search"
           style={{ flex: 1, fontSize: inline ? 15 : 15.5, color: c.forest, paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center' }}
         />
+        {!inline && value ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} hitSlop={8} onPress={onClear ?? (() => onChangeText(''))} style={{ width: 28, height: 36, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="close-circle" size={20} color={c.muted} />
+          </Pressable>
+        ) : null}
         {inline ? (
           <>
             {value ? (
@@ -120,33 +115,47 @@ export function ThereSearchField({ value, onChangeText, placeholder, onSubmit, o
 }
 
 /** The travel styles that have a picture, in the order of the design. */
-export const TRIP_STYLES = ['adventure', 'nature', 'beach', 'photography'] as const;
+export const TRIP_STYLES = TRIP_TAGS;
 const styleLabel = (k: string) => k[0].toUpperCase() + k.slice(1);
 
-/** The row of round-photo chips under the search (Figma): tap one to show only trips of that style; tap it again to clear. */
-export function TripStyleChips({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+/** One travel interest as a card: a round photo and its name in a pill (selected = deep green). The same card everywhere. */
+function TripStyleCard({ k, on, onPress, white }: { k: string; on: boolean; onPress: () => void; /** pure white when off (the create form's pills) */ white?: boolean }) {
   const { t } = useT();
   const { c } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: on }}
+      accessibilityLabel={t(styleLabel(k))}
+      onPress={onPress}
+      style={({ pressed: p }) => [{ borderRadius: 999, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : white ? '#FFFFFF' : c.surface, flexDirection: 'row', alignItems: 'center', gap: sc(8), paddingVertical: sc(3), paddingLeft: sc(3), paddingRight: sc(14) }, pressed(p)]}
+    >
+      <RoundPhoto source={TRIP_PHOTOS[k]} size={sc(36)} ring={on} />
+      <Text numberOfLines={1} style={{ color: on ? '#fff' : c.forest, fontSize: 14, includeFontPadding: false }}>{t(styleLabel(k))}</Text>
+    </Pressable>
+  );
+}
+
+/** The round travel-interest chips under the search (THERE Home and Search): tap one to show only those trips, tap it again to clear. */
+export function TripStyleChips({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
   const { gutter } = useLayout();
   return (
     <ScrollView horizontal overScrollMode="never" showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 10, paddingVertical: 3 }}>
-      {TRIP_STYLES.map((k) => {
-        const on = value === k;
-        return (
-          <Pressable
-            key={k}
-            accessibilityRole="button"
-            accessibilityState={{ selected: on }}
-            accessibilityLabel={t(styleLabel(k))}
-            onPress={() => onChange(on ? null : k)}
-            style={({ pressed: p }) => [{ borderRadius: 999, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: sc(8), paddingVertical: sc(3), paddingLeft: sc(3), paddingRight: sc(14) }, pressed(p)]}
-          >
-            <RoundPhoto source={TRIP_PHOTOS[k]} size={sc(36)} ring={on} />
-            <Text numberOfLines={1} style={{ color: on ? '#fff' : c.forest, fontSize: 14, includeFontPadding: false }}>{t(styleLabel(k))}</Text>
-          </Pressable>
-        );
-      })}
+      {TRIP_STYLES.map((k) => (
+        <TripStyleCard key={k} k={k} on={value === k} onPress={() => onChange(value === k ? null : k)} />
+      ))}
     </ScrollView>
+  );
+}
+
+/** The same cards, several can be chosen (the create form's "Travel interests"): they wrap onto lines. */
+export function TripStylePicker({ value, onToggle }: { value: string[]; onToggle: (k: string) => void }) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+      {TRIP_STYLES.map((k) => (
+        <TripStyleCard key={k} k={k} on={value.includes(k)} onPress={() => onToggle(k)} white />
+      ))}
+    </View>
   );
 }
 

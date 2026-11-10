@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAMIS: UI component library, 10 November 2026</title>
+<style>
+@page { size: A4; margin: 13mm 12mm 17mm; @bottom-left { content: "LAMIS · UI component library"; font: 9.5px system-ui, sans-serif; color:#66726d; } @bottom-right { content: "10 November 2026 · page " counter(page) " of " counter(pages); font: 9.5px system-ui, sans-serif; color:#66726d; } }
+:root { --forest:#102f29; --green:#2f7d65; --ink:#1c2622; --muted:#66726d; --line:#dfe3de; }
+* { box-sizing:border-box; }
+body { margin:0; color:var(--ink); font:11.5px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:#fff; }
+.top { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid var(--forest); padding-bottom:8px; }
+.brand { font-size:9.5px; letter-spacing:.14em; font-weight:700; text-transform:uppercase; color:var(--green); }
+h1 { font-size:22px; margin:2px 0 0; color:var(--forest); }
+.date { font-size:11.5px; color:var(--muted); }
+h2 { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--forest); margin:16px 0 6px; padding-bottom:3px; border-bottom:1px solid var(--line); break-after:avoid; }
+p { margin:4px 0; } ul { margin:3px 0; padding-left:17px; } li { margin:2px 0; }
+table { width:100%; border-collapse:collapse; margin:4px 0; }
+th { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600; text-align:left; padding:5px 6px; border-bottom:1px solid var(--forest); }
+td { padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; } tr { break-inside:avoid; }
+td small { display:block; color:var(--muted); font-size:10.5px; }
+.sw { display:inline-block; width:15px; height:15px; border-radius:4px; border:1px solid rgba(0,0,0,.18); vertical-align:-3px; margin-right:6px; }
+code { background:#efeae0; padding:0 4px; border-radius:4px; font-size:10.5px; }
+.pb { break-before:page; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 22px; }
+.note { margin:8px 0; border:1px solid var(--line); border-left:5px solid var(--green); border-radius:6px; background:#f7f9f6; padding:8px 12px; }
+</style></head><body>
+<div class="top"><div><div class="brand">LAMIS</div><h1>UI component library</h1></div><div class="date">10 November 2026</div></div>
+
+<p style="margin-top:10px">One list of the colours, type, spacing and components that the LAMIS app is built from, taken from the app as it runs today. HERE and THERE share every component; only the colour set changes. This is the reference for the Figma component specifications, which are produced separately.</p>
+<div class="note">Rule of the system: <b>one component, one look.</b> A screen uses a shared component and never its own version of a button, card, chip, field, empty state or loading block.</div>
+
+<h2>1. Brand</h2>
+<table>
+<tr><th>Element</th><th>Specification</th></tr>
+<tr><td><b>Primary wordmark</b></td><td>"lamis" with the sage dot. Light version (white letters, sage dot #9CB397) on dark backgrounds, dark version (deep green #082F27, dot #859B7A) on light backgrounds. Top-left of the home pages and Inbox, about 28 pt tall.</td></tr>
+<tr><td><b>Dot mark (app icon)</b></td><td>The "l" with the sage dot. Dark icon: ivory mark on #0B322A. Used as the Android notification icon and the launch screen.</td></tr>
+<tr><td><b>Tagline</b></td><td>"Be here. Go there." The only tagline, in headers and the welcome screen.</td></tr>
+<tr><td><b>HERE and THERE</b></td><td>Two experiences inside LAMIS, chosen with one switch on Home. HERE is green, THERE is warm beige.</td></tr>
+</table>
+
+<h2>2. Colour</h2>
+<div class="two">
+<table>
+<tr><th colspan="2">HERE (green)</th></tr>
+<tr><td><span class="sw" style="background:#102F29"></span>Forest</td><td><code>#102F29</code> buttons, band, selected</td></tr>
+<tr><td><span class="sw" style="background:#4DAA84"></span>Accent</td><td><code>#4DAA84</code> highlights</td></tr>
+<tr><td><span class="sw" style="background:#DDEFE4"></span>Accent soft</td><td><code>#DDEFE4</code> chips, callouts</td></tr>
+<tr><td><span class="sw" style="background:#14221F"></span>Text</td><td><code>#14221F</code></td></tr>
+<tr><td><span class="sw" style="background:#5C6B66"></span>Muted text</td><td><code>#5C6B66</code></td></tr>
+<tr><td><span class="sw" style="background:#E2E8E4"></span>Line</td><td><code>#E2E8E4</code></td></tr>
+<tr><td><span class="sw" style="background:#FFFFFF"></span>Page and cards</td><td><code>#FFFFFF</code></td></tr>
+<tr><td><span class="sw" style="background:#A8402D"></span>Danger</td><td><code>#A8402D</code></td></tr>
+</table>
+<table>
+<tr><th colspan="2">THERE (warm beige)</th></tr>
+<tr><td><span class="sw" style="background:#E9E5DD"></span>Page ivory</td><td><code>#E9E5DD</code></td></tr>
+<tr><td><span class="sw" style="background:#D8CDB5"></span>Sand (header band)</td><td><code>#D8CDB5</code></td></tr>
+<tr><td><span class="sw" style="background:#102F29"></span>Text and forest</td><td><code>#102F29</code></td></tr>
+<tr><td><span class="sw" style="background:#2F6B57"></span>Accent deep green</td><td><code>#2F6B57</code></td></tr>
+<tr><td><span class="sw" style="background:#DAD2BE"></span>Accent soft</td><td><code>#DAD2BE</code></td></tr>
+<tr><td><span class="sw" style="background:#56625B"></span>Muted text</td><td><code>#56625B</code></td></tr>
+<tr><td><span class="sw" style="background:#D3CCBD"></span>Line</td><td><code>#D3CCBD</code></td></tr>
+<tr><td><span class="sw" style="background:#FFFFFF"></span>Cards and fields</td><td><code>#FFFFFF</code></td></tr>
+</table>
+</div>
+<p><b>Status tints</b> (HERE values; THERE uses slightly warmer tints of the same four): ok <code>#DFF0E8</code> / <code>#1D5C45</code> · warning <code>#F8ECD0</code> / <code>#7A5410</code> · problem <code>#F6DCD6</code> / <code>#8A2F1E</code> · info <code>#E9F0ED</code> / <code>#2C4A41</code> (background / text). <b>Red dot</b> for "new": danger red, 9 pt. No orange or amber is used as a brand colour.</p>
+
+<h2>3. Typography</h2>
+<table>
+<tr><th>Role</th><th>Specification</th></tr>
+<tr><td><b>Typeface</b></td><td>Inter on iPhone and Android, four weights: Regular 400, Medium 500, SemiBold 600, Bold 700. Heavier requests use Bold. Icons use one outline icon set.</td></tr>
+<tr><td><b>Page title</b></td><td>24–26 pt, SemiBold, line height 30–32.</td></tr>
+<tr><td><b>Section title</b></td><td>17–20 pt, SemiBold or Bold.</td></tr>
+<tr><td><b>Body and controls</b></td><td>14–16 pt, Regular or Medium, line height about 1.3–1.4.</td></tr>
+<tr><td><b>Small and labels</b></td><td>11–13 pt, muted colour. Status chips 11–12 pt Bold.</td></tr>
+<tr><td><b>Letter spacing</b></td><td>Only the HERE / THERE switch words use wide spacing (1.2). Everything else is normal.</td></tr>
+<tr><td><b>Text size</b></td><td>Compact, Standard, Large, Larger in Settings; everything scales together. Phones narrower than 390 pt scale down slightly (the chat a little more).</td></tr>
+</table>
+
+<h2>4. Shape and spacing</h2>
+<table>
+<tr><th>Token</th><th>Value</th></tr>
+<tr><td><b>Page gutter</b></td><td>16 pt (24 pt on large screens). Gap between blocks 14–16.</td></tr>
+<tr><td><b>Radius</b></td><td>Buttons 12 · fields 11 (form pills 32–40) · cards 14 (feed cards 24–30) · chips and pills fully round · bottom sheets 22 · the page sheet over the header band 40 · dashed empty state 16.</td></tr>
+<tr><td><b>Touch target</b></td><td>At least 44 pt (buttons are 42 tall with extra touch area; small buttons 34 with touch area).</td></tr>
+<tr><td><b>Card</b></td><td>1 pt line, 12–16 pt padding, no heavy shadow.</td></tr>
+<tr><td><b>Safe areas</b></td><td>The bottom home bar and gesture bar are always respected; pages scroll to their last item with room under it.</td></tr>
+</table>
+
+<h2 class="pb">5. Components</h2>
+<table>
+<tr><th style="width:150px">Group</th><th>Component and rule</th></tr>
+<tr><td><b>Navigation</b></td><td><b>Dock</b>: five tabs (Home, Search or Map, raised Create, Inbox, Profile), same in HERE and THERE; hidden on Create and Profile and while scrolling down Home. <b>HERE | THERE switch</b>: one pill, Home only. <b>Header band</b>: forest in HERE, sand in THERE, the page rises over it as a rounded sheet; on Home it collapses into a small row. <b>Back button</b>: round, 44 pt, centred title, on every inner page.</td></tr>
+<tr><td><b>Buttons</b></td><td><b>Primary</b> (forest), <b>secondary</b> (white, line), <b>accent</b>, <b>danger</b> (outlined), <b>ghost</b> (text only), <b>off</b> (grey, "not ready yet"). One size and a small size. A full-width primary button ends every form.</td></tr>
+<tr><td><b>Inputs</b></td><td><b>Field</b> (label above, placeholder far lighter than text, disappears when you tap), <b>search bar</b>, <b>pill input</b> for the create forms, <b>checkbox row</b>, <b>counter</b> (− number +), <b>time wheel</b> (own build for iPhone and Android), <b>calendar</b> (day or date range; days before the first allowed day are greyed). A field in error: 1.2 pt red border and one line saying what is missing.</td></tr>
+<tr><td><b>Cards</b></td><td><b>Activity card</b> (big, row, compact) and <b>trip card</b> (big, row, compact): picture, title, place and time, spots left, faces of who is going, SAMPLE tag for demo content. <b>Profile card</b>, <b>stats card</b>, <b>account row</b> (icon, title, note, chevron, optional red dot).</td></tr>
+<tr><td><b>Chips and labels</b></td><td><b>Status chip</b> (ok, warning, problem, info). <b>Category and travel-interest chip</b>: round photo plus name, selected = forest. <b>Travel style label</b>: "Travel together" (forest, white text, people icon) and "Meet at destination" (sand, forest text, pin icon). <b>Warning / Appealed / Waiting for decision / Accepted / Rejected</b> chips. <b>SAMPLE tag</b>. <b>New dot</b>.</td></tr>
+<tr><td><b>Feedback</b></td><td><b>Empty state</b>: soft icon, title, one explaining line, one button. <b>Skeleton</b>: grey blocks in the shape of the real rows (list rows, report rows, detail page, chat). No spinners. <b>Toast</b>, <b>banner</b> (one slim line), <b>pop-up</b> in the app's own style on Android.</td></tr>
+<tr><td><b>Sheets</b></td><td><b>Bottom sheet</b>, <b>edit pop-up</b> that grows out of its card on the review pages, <b>date sheet</b> that floats above the bottom edge.</td></tr>
+<tr><td><b>Create flow</b></td><td><b>Step header</b> (title, "Step n/4", four progress bars), <b>review card</b> with an Edit pill, red border and one line when its part is missing.</td></tr>
+</table>
+
+<h2>6. Motion</h2>
+<ul>
+<li>HERE / THERE switch: a short colour fade with the experience's logo, about a third of a second.</li>
+<li>Home: the white sheet rises and the header shrinks with the scroll, in order (city and tagline fade first, then the logo and photo). The dock slides away on the way down and back on the way up.</li>
+<li>Pull to refresh: the sheet stays still, the content moves down, the spinner shows at the top of the sheet.</li>
+<li>Haptic clicks only on iPhone; none on Android.</li>
+</ul>
+
+<h2>7. Accessibility</h2>
+<ul>
+<li>Every control has a spoken label; selected, disabled and loading states are announced.</li>
+<li>Text is never a picture; contrast follows the colour pairs above.</li>
+<li>Pages work at the largest text size and scroll to the last element.</li>
+</ul>
+</body></html>

@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image, type ImageSource } from 'expo-image';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
-import { Animated, PixelRatio, Pressable, Text as RNText, View, type ScrollViewInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { Animated, PixelRatio, Platform, Pressable, Text as RNText, View, type ScrollViewInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import { get } from '@/lib/api';
 import { localeTag, useT } from '@/lib/i18n';
 import { tick } from '@/lib/haptics';
@@ -12,6 +12,7 @@ import type { Place } from './PlaceSearch';
 import { StepBars, StepLabel } from './StepMotion';
 import { PlainTitle, pressed } from './ui';
 import { dateLang } from '@/lib/format';
+import { fontOf } from '@/lib/fonts';
 
 /** The four "Host activity" steps (Figma "Host activity 1/4 to 4/4"): back button, title, progress, then the step's content. */
 
@@ -173,7 +174,7 @@ const WheelColumn = memo(function WheelColumn({ texts, off, color, offColor }: {
     else parts.push({ text: line, grey });
   });
   return (
-    <RNText allowFontScaling={false} style={{ fontSize: 26, lineHeight: WHEEL_ROW, height: WHEEL_ROW * list.length, fontWeight: '700', textAlign: 'center', color, includeFontPadding: false, textAlignVertical: 'top' }}>
+    <RNText allowFontScaling={false} style={{ fontSize: 26, lineHeight: WHEEL_ROW, height: WHEEL_ROW * list.length, ...fontOf('700'), textAlign: 'center', color, includeFontPadding: false, textAlignVertical: 'top' }}>
       {parts.map((p, k) => (
         <RNText key={k} style={p.grey ? { color: offColor } : null}>{p.text}</RNText>
       ))}
@@ -192,7 +193,14 @@ const WheelColumn = memo(function WheelColumn({ texts, off, color, offColor }: {
 const WHEEL_LENGTH = 300;
 
 
-export function Wheel<T extends string | number>({ items, value, onChange, label, spoken, disabled }: { items: T[]; value: T; onChange: (v: T) => void; label: (v: T) => string; spoken: string; disabled?: (v: T) => boolean }) {
+type WheelProps<T extends string | number> = { items: T[]; value: T; onChange: (v: T) => void; label: (v: T) => string; spoken: string; disabled?: (v: T) => boolean };
+
+/** The picker wheel: the iPhone's own build, and a simpler one for Android (see WheelAndroid). */
+export function Wheel<T extends string | number>(props: WheelProps<T>) {
+  return Platform.OS === 'android' ? <WheelAndroid {...props} /> : <WheelIOS {...props} />;
+}
+
+function WheelIOS<T extends string | number>({ items, value, onChange, label, spoken, disabled }: WheelProps<T>) {
   const { c } = useTheme();
   const box = useRef<ScrollViewInstance>(null);
   // the wheel turns without end: 58, 59, 00, 01... (and 11, 12, 1, 2... for the hours)
@@ -353,6 +361,132 @@ export function Wheel<T extends string | number>({ items, value, onChange, label
         </View>
       </Animated.ScrollView>
       {/* the middle row: the same column in full colour, exactly over the dim one, moved with the scroll */}
+      <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: ((WHEEL_ROWS - 1) / 2) * WHEEL_ROW, height: WHEEL_ROW, overflow: 'hidden' }}>
+        <Animated.View style={{ transform: [{ translateY: minusY }] }}>
+          <WheelColumn texts={texts} off={off} color={c.text} offColor={c.muted} />
+        </Animated.View>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * The wheel on Android, built for Android (the iPhone's is above and is left alone). What it does differently:
+ *  - it never moves the list behind the finger's back: the numbers are repeated many times and it starts in the middle, so it turns
+ *    either way for a long, long way without the jump that put the list back in the middle after each stop (that jump made it stick
+ *    and stutter);
+ *  - the native snap (snapToInterval) puts it on a row, and the value is read once, when it has really stopped (the end of a fling,
+ *    or a short moment after the finger lets go slowly), never from the scroll events on the way;
+ *  - no haptic click, so nothing buzzes while it turns.
+ * The look is the same: a dim column, and a window one row tall in the middle that shows the same numbers in full colour.
+ */
+function WheelAndroid<T extends string | number>({ items, value, onChange, label, spoken, disabled }: WheelProps<T>) {
+  const { c } = useTheme();
+  const box = useRef<ScrollViewInstance>(null);
+  const n = items.length;
+  const copies = Math.max(5, Math.round(WHEEL_LENGTH / Math.max(1, n)) | 1); // odd, so there is a middle copy
+  const rows = useMemo(() => Array.from({ length: n * copies }, (_, k) => items[k % n]), [items, n, copies]);
+  const middle = n * Math.floor(copies / 2);
+  const want = Math.max(0, items.indexOf(value));
+  const texts = rows.map(label).join('|');
+  const off = rows.map((v) => (disabled?.(v) ? '1' : '0')).join('');
+  const y = useRef(new Animated.Value((middle + want) * WHEEL_ROW)).current;
+  const minusY = useMemo(() => Animated.multiply(y, -1), [y]);
+  // One snap point per row, each worked out on its own. (snapToInterval makes Android round the row height to whole pixels, so on some
+  // screens every row snaps a pixel short and the error adds up row by row: the hour and the minute column, resting on different
+  // rows, ended up at different heights, and a stop could be read as the wrong row.)
+  const snaps = useMemo(() => Array.from({ length: n * copies }, (_, k) => k * WHEEL_ROW), [n, copies]);
+  const rest = useRef(middle + want); // the row it rests on
+  const rowAt = (offset: number) => Math.min(rows.length - 1, Math.max(0, Math.round(offset / WHEEL_ROW)));
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearTimer = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => clearTimer, []);
+
+  // it has stopped at (about) this offset: keep the row, and report it when it is a new value. A greyed number is never kept: it
+  // eases to the nearest allowed one in the same copy, and that one is reported.
+  const settle = (offset: number) => {
+    clearTimer();
+    const i = rowAt(offset);
+    const k = i % n;
+    if (disabled?.(items[k])) {
+      let best = -1;
+      for (let j = 0; j < n; j++) {
+        if (disabled(items[j])) continue;
+        if (best < 0 || Math.abs(j - k) < Math.abs(best - k) || (Math.abs(j - k) === Math.abs(best - k) && j > best)) best = j;
+      }
+      if (best >= 0) {
+        const row = i - k + best;
+        rest.current = row;
+        box.current?.scrollTo({ y: row * WHEEL_ROW, animated: true });
+        if (best !== want) onChange(items[best]);
+        return;
+      }
+    }
+    rest.current = i;
+    if (k !== want) onChange(items[k]);
+  };
+
+  // the finger let go: with a fling the momentum events take over; with a slow release there are none, so after a moment it is put on
+  // the nearest row (the native snap usually has done it already) and read
+  const letGo = (offset: number, speed: number) => {
+    clearTimer();
+    if (speed > 0.15) return; // a fling: the end of the momentum reports it
+    timer.current = setTimeout(() => {
+      const row = rowAt(offset) * WHEEL_ROW;
+      const moves = Math.abs(offset - row) > 1;
+      if (moves) box.current?.scrollTo({ y: row, animated: true });
+      timer.current = setTimeout(() => settle(row), moves ? 220 : 0);
+    }, 90);
+  };
+
+  // a change from outside (- / +, AM / PM, a quick pick): turn to the nearest row that shows it
+  useEffect(() => {
+    if (n === 0 || rest.current % n === want) return;
+    const base = rest.current - (rest.current % n);
+    const near = [base + want - n, base + want, base + want + n].reduce((best, k) => (Math.abs(k - rest.current) < Math.abs(best - rest.current) ? k : best));
+    rest.current = near;
+    box.current?.scrollTo({ y: near * WHEEL_ROW, animated: true });
+  }, [want, n]);
+
+  const onScroll = useMemo(() => Animated.event([{ nativeEvent: { contentOffset: { y } } }], { useNativeDriver: true }), [y]);
+
+  return (
+    <View
+      accessible
+      accessibilityRole="adjustable"
+      accessibilityLabel={spoken}
+      accessibilityValue={{ text: label(value) }}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(e) => onChange(items[(want + (e.nativeEvent.actionName === 'increment' ? 1 : n - 1)) % n])}
+      style={{ width: 56, height: WHEEL_ROW * WHEEL_ROWS }}
+    >
+      <Animated.ScrollView
+        ref={box}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+        overScrollMode="never"
+        snapToOffsets={snaps}
+        decelerationRate="fast"
+        // built while hidden (a step not on screen yet), a scroll view can't hold its place: put it on the value once it is shown
+        onLayout={() => {
+          box.current?.scrollTo({ y: rest.current * WHEEL_ROW, animated: false });
+          y.setValue(rest.current * WHEEL_ROW);
+        }}
+        contentContainerStyle={{ paddingVertical: ((WHEEL_ROWS - 1) / 2) * WHEEL_ROW }}
+        scrollEventThrottle={16}
+        onScroll={onScroll}
+        onScrollBeginDrag={clearTimer}
+        onMomentumScrollBegin={clearTimer}
+        onScrollEndDrag={(e) => letGo(e.nativeEvent.contentOffset.y, Math.abs(e.nativeEvent.velocity?.y ?? 0))}
+        onMomentumScrollEnd={(e) => settle(e.nativeEvent.contentOffset.y)}
+      >
+        <View style={{ opacity: 0.3 }}>
+          <WheelColumn texts={texts} off={off} color={c.text} offColor={c.muted} />
+        </View>
+      </Animated.ScrollView>
       <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: ((WHEEL_ROWS - 1) / 2) * WHEEL_ROW, height: WHEEL_ROW, overflow: 'hidden' }}>
         <Animated.View style={{ transform: [{ translateY: minusY }] }}>
           <WheelColumn texts={texts} off={off} color={c.text} offColor={c.muted} />

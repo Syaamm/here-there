@@ -41,11 +41,19 @@ export class NotificationsController {
     const unreadCount = byProduct.reduce((n, g) => n + g._count._all, 0);
     const here = countOf('here');
     const there = countOf('there');
+    // exact numbers for the Inbox tabs, whatever page was asked for: how many alerts (not chat alerts) are unread, and which chats have new messages
+    const [unreadAlerts, chatRows] = await Promise.all([
+      this.prisma.notification.count({ where: { userId: me.id, readAt: null, type: { not: 'chat_message' }, ...product } }),
+      this.prisma.notification.findMany({ where: { userId: me.id, readAt: null, type: 'chat_message', ...product }, select: { data: true }, take: 300 }),
+    ]);
+    const unreadChatIds = [...new Set(chatRows.map((r) => { try { return (JSON.parse(r.data ?? 'null') as { conversationId?: string } | null)?.conversationId; } catch { return undefined; } }).filter((x): x is string => !!x))];
     return {
       items: await this.withReasons(page.items.map((n) => ({ ...n, data: (n.data ? JSON.parse(n.data) : null) as Record<string, unknown> | null }))),
       nextCursor: page.nextCursor,
       unreadCount,
       unreadByProduct: { here, there },
+      unreadAlerts,
+      unreadChatIds,
     };
   }
 

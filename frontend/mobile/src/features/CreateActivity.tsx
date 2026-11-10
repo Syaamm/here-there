@@ -7,7 +7,7 @@ import { CatPhoto } from '@/components/CatPhoto';
 import { DraftBar } from '@/components/DraftBar';
 import { EditPopup, type Origin } from '@/components/EditPopup';
 import { ClashNotice, planDays, tellWithdrawn, useClashes, type Withdrawn } from '@/components/ClashNotice';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useIsFocused, useRouter } from 'expo-router';
 import { useClock } from '@/lib/clock';
 import { AuthButton } from '@/components/AuthForm';
 import { Collapse, StepTransition } from '@/components/StepMotion';
@@ -18,7 +18,8 @@ import { Banner, Between, CheckRow, ErrorBanner, Row, Screen, Sheet, Txt, useGo 
 import { shortDay } from '@/components/DateRangeSheet';
 import { get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
-import { CITY_AREA_KM, useCity, useCityPos } from '@/lib/city';
+import { useVerifyGate } from '@/lib/verifyGate';
+import { CITY_AREA_KM, useCity, useCityKnown, useCityPos } from '@/lib/city';
 import { kmBetween, useCityCenter } from '@/features/mapShared';
 import { CitySearch } from '@/components/CitySearch';
 import { catColor, CATS } from '@/lib/constants';
@@ -32,6 +33,7 @@ import { localeTag, useT } from '@/lib/i18n';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { timeText } from '@/lib/format';
+import { backFromMain } from '@/lib/nav';
 
 /** the description: one or two light lines, not a paragraph (the server keeps the same limit) */
 const DESC_MAX = 150;
@@ -131,19 +133,23 @@ function EditPill({ section, onPress, done }: { section: string; onPress: () => 
 }
 
 /** One part of the review page: a sand card with its name, an Edit pill, and what was chosen. Edit reports where the card is, so a pop-up can grow out of it. */
-function ReviewSection({ title, onEdit, children }: { title: string; onEdit: (from: Origin) => void; children: ReactNode }) {
+function ReviewSection({ title, onEdit, children, missing }: { title: string; onEdit: (from: Origin) => void; children: ReactNode; /** what is missing or wrong in this part (red border and this line); publishing waits for it */ missing?: string | false }) {
   const { c } = useTheme();
   const box = useRef<HostInstance>(null);
   return (
-    <View ref={box} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 16, gap: 10 }}>
+    <View ref={box} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 16, gap: 10, borderWidth: missing ? 1.2 : 0, borderColor: c.danger }}>
       <Between>
         <CreateLabel>{title}</CreateLabel>
         <EditPill section={title} onPress={() => box.current?.measureInWindow((x, y, width, height) => onEdit({ x, y, width, height }))} />
       </Between>
       {children}
+      {missing ? <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16 }}>{missing}</Text> : null}
     </View>
   );
 }
+
+/** Which step's fields a review card opens: they are checked the same way as on that step. */
+const CARD_STEP = { what: 0, when: 1, where: 2, who: 3 } as const;
 
 /** An icon in a white circle, a main line and an optional small line under it. */
 function ReviewLine({ icon, title, sub }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; sub?: string }) {
@@ -193,6 +199,7 @@ export function CreateActivity() {
 function ActivityForm({ onReset }: { onReset: () => void }) {
   const { t, tn } = useT();
   const { me } = useMe();
+  const gate = useVerifyGate();
   const { c } = useTheme();
   const go = useGo();
   // the activity's city is the app's city: picking another one here (from the city search) changes it for the whole app too
@@ -216,8 +223,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const centre = useCityCenter(city, cityPos).at;
   const placeKm = f.place && centre ? kmBetween({ lat: centre[0], lng: centre[1] }, f.place) : null;
   const placeFar = placeKm !== null && placeKm > CITY_AREA_KM;
-  const placeOk = f.place != null && !placeFar;
-  const verified = me?.eligibility === 'verified';
+  const cityKnown = useCityKnown(); // without a real city the form would save the placeholder "Milan" as the activity's city
+  const placeOk = f.place != null && !placeFar && cityKnown;
   // how far ahead this city's admin lets people plan (a month unless they set it otherwise)
   const limits = useLoad(() => get<{ here: { months: number; latest: string } }>(`/v1/regions/limits?city=${encodeURIComponent(city.trim())}`), [city.trim()]);
     const latest = limits.data ? new Date(limits.data.here.latest) : null;
@@ -327,9 +334,14 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   // a review card being edited in a pop-up that grows out of it (and shrinks back into it on Done)
   const [pop, setPop] = useState<null | { card: 'what' | 'when' | 'where' | 'who'; from: Origin }>(null);
   const [closing, setClosing] = useState(false);
+  // Done was tapped in a pop-up whose fields are not right: they are marked red, as on their step, and it stays open
+  const [popTried, setPopTried] = useState(false);
+  // Publish was tapped with something missing: the review cards that need it are marked, and a line says so
+  const [reviewTried, setReviewTried] = useState(false);
   const openPop = (card: 'what' | 'when' | 'where' | 'who', from: Origin) => {
     Keyboard.dismiss();
     setClosing(false);
+    setPopTried(false);
     setPop({ card, from });
   };
   const bannerRef = useRef<HostInstance>(null);
@@ -337,12 +349,16 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
     setReviewing(false);
     setStep(i);
   };
+  // both create forms stay built (one is hidden): only the one in front, on the Create tab, answers the phone's Back button
+  const tabFocused = useIsFocused();
+  const { mode: productMode } = useTheme(); // both hooks run every time (never one behind the other's `&&`)
+  const inFront = tabFocused && productMode === 'here';
   useEffect(() => {
-    if (!reviewing) return;
+    if (!reviewing || !inFront) return;
     // Android's back button leaves the review page for the last step (not the Create tab)
     const sub = BackHandler.addEventListener('hardwareBackPress', () => (setReviewing(false), true));
     return () => sub.remove();
-  }, [reviewing]);
+  }, [reviewing, inFront]);
   useEffect(() => Keyboard.dismiss(), [step]); // a new step starts with the keyboard down
   const descRef = useRef<InputHandle>(null);
   const placeRef = useRef<InputHandle>(null);
@@ -361,13 +377,39 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
     }, []),
   );
   const router = useRouter();
-  const back = () => (step > 0 ? setStep(step - 1) : router.canGoBack() ? router.back() : router.navigate('/' as never));
+  const back = () => (step > 0 ? setStep(step - 1) : router.navigate(backFromMain() as never));
   const pickDay = (d: Date) => {
     const idx = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - new Date().setHours(0, 0, 0, 0)) / 864e5);
     set('dayIdx', idx);
   };
-  const stepTitles = [t('Activity Type Selection'), t('Activity Time & Date Selection'), t('Activity Spot Selection'), t('Activity Size & Access')];
+  const stepTitles = [t('Activity type'), t('Date and time'), t('Meeting place'), t('Group size and access')];
   const stepOk = [f.title.trim().length >= 2, !tooSoon && !busy, placeOk && publicPlace, valid];
+  /** a step's fields show what is wrong: after Continue on that step, or after Done in a review pop-up that opened them */
+  const bad = (i: number) => (tried && step === i) || (popTried && !!pop && CARD_STEP[pop.card] === i);
+  /** Done in a review pop-up: only when its fields are right (empty or wrong ones are marked, the pop-up stays) */
+  const donePop = () => {
+    const i = pop ? CARD_STEP[pop.card] : 3;
+    if (i < 3 && !stepOk[i]) {
+      closeKeyboard();
+      tap('Medium');
+      setPopTried(true);
+      return;
+    }
+    Keyboard.dismiss();
+    setPopTried(false);
+    setClosing(true);
+  };
+  /** Publish: everything is checked first (the parts that are not right are marked), then a verified account, then it goes live */
+  const publishNow = () => {
+    if (!valid) {
+      tap('Medium');
+      setReviewTried(true);
+      return;
+    }
+    setReviewTried(false);
+    if (!gate.verified) return void gate.ask('publish');
+    void submit();
+  };
   // a step can be opened once every step before it is done (going back is always fine)
   const canStep = (i: number) => i < step || stepOk.slice(0, i).every(Boolean);
   // the keyboard's return key on a step's last field: on to the next step if this one is done, else just put the keyboard away
@@ -393,10 +435,10 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   };
   // Android's Back button on a later step goes one step back, not out of the form
   useEffect(() => {
-    if (Platform.OS !== 'android' || step === 0 || reviewing) return;
+    if (Platform.OS !== 'android' || step === 0 || reviewing || !inFront) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => (setStep(step - 1), true));
     return () => sub.remove();
-  }, [step, reviewing]);
+  }, [step, reviewing, inFront]);
   const nextFromKeyboard = () => (step < 3 ? next() : Keyboard.dismiss());
   const CAT_PHOTOS: Record<string, number> = {
     drinks: require('../../assets/interests/nightlife.webp'),
@@ -422,8 +464,9 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       </View>
       <CreateLabel style={{ marginTop: 14 }}>{t('Activity name')}</CreateLabel>
       <View ref={titleBox} collapsable={false}>
-        <PillInput label={t('Activity name')} placeholder={t('After-work aperitivo')} value={f.title} onChangeText={(v) => set('title', v)} maxLength={80} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => descRef.current?.focus()} style={tried && step === 0 && f.title.trim().length < 2 ? { borderWidth: 1.2, borderColor: c.danger } : undefined} />
+        <PillInput label={t('Activity name')} placeholder={t('After-work aperitivo')} value={f.title} onChangeText={(v) => set('title', v)} maxLength={80} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => descRef.current?.focus()} style={bad(0) && f.title.trim().length < 2 ? { borderWidth: 1.2, borderColor: c.danger } : undefined} />
       </View>
+      {bad(0) && f.title.trim().length < 2 ? <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, paddingLeft: 4, marginTop: -6 }}>{t('Give your activity a name (at least 2 letters).')}</Text> : null}
       <CreateLabel style={{ marginTop: 10 }}>{t('Description (optional)')}</CreateLabel>
       {/* its return key moves on to the next step (so it takes no new lines) */}
       <PillArea ref={descRef} label={t('Description')} placeholder={t('Casual drinks and conversation with new people.')} value={f.description} onChangeText={(v) => set('description', v.slice(0, DESC_MAX))} maxLength={DESC_MAX} returnKeyType="next" submitBehavior="submit" onSubmitEditing={reviewing ? () => Keyboard.dismiss() : nextFromKeyboard} style={{ minHeight: sc(76) }} />
@@ -440,7 +483,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
 
       <CreateLabel style={{ marginTop: 10 }}>{t('Select starting time')}</CreateLabel>
       {/* scroll the hour and the minute; − / + beside them nudge by a minute (hold for 5 minutes). Times too soon are greyed and spring back. */}
-      <View ref={timeBox} collapsable={false} accessibilityLabel={t('Starts at {time}', { time: clock(startsAt) })} style={{ backgroundColor: c.sand, borderRadius: 32, paddingVertical: 12, paddingHorizontal: 16, gap: 10, alignItems: 'center', borderWidth: tried && step === 1 && (tooSoon || busy) ? 1.2 : 0, borderColor: c.danger }}>
+      <View ref={timeBox} collapsable={false} accessibilityLabel={t('Starts at {time}', { time: clock(startsAt) })} style={{ backgroundColor: c.sand, borderRadius: 32, paddingVertical: 12, paddingHorizontal: 16, gap: 10, alignItems: 'center', borderWidth: bad(1) && (tooSoon || busy) ? 1.2 : 0, borderColor: c.danger }}>
         <Row style={{ gap: 10, alignItems: 'center' }}>
           <RoundBtn filled icon="remove" label={t('Earlier')} disabled={!canMove(-1)} onPress={() => move(-1)} onLongPress={() => move(canMove(-5) ? -5 : -1)} />
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -489,10 +532,14 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         <Text numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: 14, fontWeight: '600' }}>{city}</Text>
         <Ionicons name="lock-closed-outline" size={15} color={c.muted} />
       </View>
-      <Text style={{ color: c.muted, fontSize: 12, marginTop: -6, paddingLeft: 4 }}>{t('Your activity is in your current city. To post somewhere else, change the city on Home first.')}</Text>
+      {cityKnown ? (
+        <Text style={{ color: c.muted, fontSize: 12, marginTop: -6, paddingLeft: 4 }}>{t('Your activity is in your current city. To post somewhere else, change the city on Home first.')}</Text>
+      ) : (
+        <Banner tone="warn" onPress={() => go('/')}>{t('Choose your city on Home first. Your activity is posted in your city.')}</Banner>
+      )}
       <View ref={placeBox} collapsable={false}>
       <PlacePick
-        invalid={tried && step === 2 && !placeOk}
+        invalid={bad(2) && !placeOk}
         label={t('Neighborhood')}
         text={f.venueName}
         onText={(v) => set('venueName', v)}
@@ -508,9 +555,11 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       {placeFar && f.place ? (
         <Banner tone="bad">{t('{place} is about {km} km from {city}. Pick a neighbourhood in or near {city} (within {limit} km), or change the city above.', { place: f.place.name, km: Math.round(placeKm!), city, limit: CITY_AREA_KM })}</Banner>
       ) : !f.place && f.venueName.trim().length >= 2 ? (
-        <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18 }}>{t('Pick a neighbourhood from the list to continue.')}</Text>
+        <Text style={{ color: bad(2) ? c.danger : c.muted, fontSize: 13, lineHeight: 18 }}>{t('Pick a neighbourhood from the list to continue.')}</Text>
+      ) : !f.place && bad(2) ? (
+        <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 13, lineHeight: 18 }}>{t('Search for a neighbourhood and pick it from the list.')}</Text>
       ) : null}
-      <View ref={publicBox} collapsable={false} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 16, marginTop: 6, borderWidth: tried && step === 2 && placeOk && !publicPlace ? 1.2 : 0, borderColor: c.danger }}>
+      <View ref={publicBox} collapsable={false} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 16, marginTop: 6, borderWidth: bad(2) && placeOk && !publicPlace ? 1.2 : 0, borderColor: c.danger }}>
         <CheckRow checked={publicPlace} onChange={setPublicPlace}>
           <Text style={{ color: c.text, fontSize: 14, lineHeight: 24 }}>{t('This is a public place. First meetings never happen at a private home.')}</Text>
         </CheckRow>
@@ -558,7 +607,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       {reviewing ? (
         <Screen tabBar plain title={t('Review activity')} onBack={() => setReviewing(false)}>
           <OnboardingHeading title={t('Check your activity')} subtitle={t('Check everything before your activity goes live.')} />
-          {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
+          {!gate.verified && <Banner onPress={() => void gate.ask('publish')}>{gate.isGuest ? t("You're exploring as a guest. To publish, create a free account and verify your identity ›") : t('Verify your identity to publish. Everything you entered stays here ›')}</Banner>}
           <ErrorBanner message={act.error} />
           {/* the activity's photo with its name over it, as it will look in the feed */}
           <View ref={bannerRef}>
@@ -573,11 +622,14 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
             </View>
           </CatPhoto>
           </View>
-          <ReviewSection title={t('When')} onEdit={(from) => openPop('when', from)}>
+          {!stepOk[0] ? (
+            <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, marginTop: -6, paddingLeft: 4 }}>{t('The activity name is missing. Tap Edit on the photo to add it.')}</Text>
+          ) : null}
+          <ReviewSection title={t('When')} onEdit={(from) => openPop('when', from)} missing={!stepOk[1] && (busy ? t('You already have a plan at this time. Tap Edit to change it.') : t('This time has passed. Tap Edit to pick a later one.'))}>
             <ReviewLine icon="calendar-outline" title={shortDay(startsAt)} />
             <ReviewLine icon="time-outline" title={`${clock(startsAt)} – ${clock(endsAt)}`} sub={`${f.duration}h`} />
           </ReviewSection>
-          <ReviewSection title={t('Where')} onEdit={(from) => openPop('where', from)}>
+          <ReviewSection title={t('Where')} onEdit={(from) => openPop('where', from)} missing={!stepOk[2] && (!placeOk ? t('The meeting place is missing. Tap Edit to pick one.') : t('Confirm it is a public place. Tap Edit.'))}>
             <ReviewLine icon="location-outline" title={venue} sub={city.trim()} />
           </ReviewSection>
           <ReviewSection title={t('Who can join')} onEdit={(from) => openPop('who', from)}>
@@ -585,7 +637,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
             <ReviewLine icon={f.joinPolicy === 'instant' ? 'flash' : 'hand-left-outline'} title={f.joinPolicy === 'instant' ? t('Instant join') : t('Request to join')} sub={f.joinPolicy === 'instant' ? t('Verified people join at once.') : t('You approve each person.')} />
           </ReviewSection>
           <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />
-          <AuthButton title={t('Publish activity')} disabled={!valid} loading={act.busy} onPress={() => void submit()} style={{ marginTop: 10 }} />
+          {reviewTried && !valid ? <Banner tone="bad">{t('Some details are missing. Fix the parts marked in red, then publish.')}</Banner> : null}
+          <AuthButton title={gate.verified ? t('Publish activity') : gate.title('publish')} loading={act.busy} onPress={publishNow} style={{ marginTop: 10 }} />
           <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t("Your activity is public in the feed. Only the venue is shown, never anyone's live location.")}</Text>
         </Screen>
       ) : null}
@@ -593,14 +646,11 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         <EditPopup
           from={pop.from}
           closing={closing}
-          onDone={() => {
-            Keyboard.dismiss();
-            setClosing(true);
-          }}
-          onClosed={() => setPop(null)}
+          onDone={donePop}
+          onClosed={() => (setPop(null), setPopTried(false))}
           header={
             <View style={{ alignItems: 'flex-end' }}>
-              <EditPill section="" done onPress={() => (Keyboard.dismiss(), setClosing(true))} />
+              <EditPill section="" done onPress={donePop} />
             </View>
           }
         >
@@ -625,7 +675,6 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         {stepShown(0) && (
           <View style={stepShown(0)}>
             <OnboardingHeading title={t('What are you planning?')} subtitle={t('Choose a vibe and give your spontaneous plan a catchy name.')} />
-            {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
             {whatFields}
           </View>
         )}
@@ -647,7 +696,6 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         {stepShown(3) && (
           <View style={stepShown(3)}>
             <OnboardingHeading title={t('Who can join?')} subtitle={t('Set your party size, privacy, and preview before going live.')} />
-            {!verified && <Banner onPress={() => go('/verify')}>{t('Verify your identity to publish ›')}</Banner>}
             <ErrorBanner message={act.error} />
             {whoFields}
           </View>

@@ -9,19 +9,19 @@ import { CitySearch } from './CitySearch';
 import { Sheet } from './ui';
 
 /** "📍 Milan · Around you ▾". Picking a city manually means location permission is never needed to browse. */
-export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: string; onPick: (c: string, at?: Near) => void; /** drawn as a bordered pill: pin, "Milan · Around you", chevron (home header) */ pill?: boolean; /** when given, the trigger is drawn as a pin with the city in bold and this line under it (map header) */ subtitle?: string; /** a pill for a dark header: a tinted glass pill, green pin, the city in white and a wave */ onDark?: boolean }) {
+export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: string; onPick: (c: string, at?: Near) => void; /** drawn as a bordered pill: pin, "Milan · Around you", chevron (home header) */ pill?: boolean; /** when given, the trigger is drawn as a pin with the city in bold and this line under it (map header) */ subtitle?: string; /** a pill for a dark header: a tinted glass pill, green pin and the city in white */ onDark?: boolean }) {
   const { t } = useT();
-  const { c } = useTheme();
+  const { c, mode } = useTheme();
   const [open, setOpen] = useState(false);
   const cityPos = useCityPos(); // places near the chosen city are listed first
   return (
     <>
       <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} hitSlop={8}>
         {onDark ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 38, paddingHorizontal: 14, borderRadius: 19, backgroundColor: c.bandChip }}>
-            <Ionicons name="location-outline" size={15} color={c.bandPin} />
-            <Text numberOfLines={1} style={{ color: c.onBand, fontWeight: '600', fontSize: 13.5, lineHeight: 18, includeFontPadding: false, maxWidth: 110 }}>{city}</Text>
-            <Text accessibilityElementsHidden importantForAccessibility="no" style={{ fontSize: 13, lineHeight: 18, includeFontPadding: false }}>👋</Text>
+          // the home pages' pill: 36 tall like the profile photo beside it (HERE and THERE look the same), text centred on the photo's middle
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 36, paddingLeft: 11, paddingRight: 14, borderRadius: 18, backgroundColor: c.bandChip }}>
+            <Ionicons name="location-outline" size={16} color={c.bandPin} />
+            <Text numberOfLines={1} style={{ color: mode === 'there' ? c.forest : c.onBand, fontWeight: '600', fontSize: 14, lineHeight: 18, includeFontPadding: false, maxWidth: 110 }}>{city}</Text>
           </View>
         ) : pill ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, height: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface }}>

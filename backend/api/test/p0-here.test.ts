@@ -827,7 +827,7 @@ describe('HERE: create, discover, request, approve, chat', () => {
     const id = (await post('/v1/activities', host.token, activityBody({ title: 'Favourite run', category: 'sports' }))).body.id;
     await post(`/v1/activities/${id}/favorite`, u.token);
     assert.equal((await get('/v1/me/favorites', u.token)).body.items[0].id, id);
-    assert.equal((await get('/v1/me/activities', host.token)).body.joined[0].role, 'host');
+    assert.equal((await get('/v1/me/activities/page?tab=mine', host.token)).body.items[0].role, 'host');
   });
 
   it('does not let a cancelled or started activity be saved or shared, but always lets a saved one be removed', async () => {

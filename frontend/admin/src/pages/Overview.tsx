@@ -82,7 +82,9 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
   const [custom, setCustom] = useState(() => rangeDays('30d', { from: '', to: '' }));
   const span = rangeDays(range, custom);
   const { data, error, loading, reload } = useLoad(() => get<Overview>(`/v1/admin/overview?from=${span.from}&to=${span.to}`), [span.from, span.to], 8000);
-  const reports = useLoad(() => get<{ items: Report[] }>('/v1/admin/reports'), [], 8000);
+  // the five at the front of the queue (urgent first), and a small summary: not the whole list of reports
+  const reports = useLoad(() => get<{ items: Report[] }>('/v1/admin/reports?status=waiting&limit=5'), [], 8000);
+  const waitingSummary = useLoad(() => get<{ total: number; overdue: number }>('/v1/admin/reports/waiting'), [], 8000);
   // the days were just changed and their numbers are still on the way (the background refresh every few seconds never dims)
   const spanKey = span.from + '|' + span.to;
   const loadedFor = useRef(spanKey);
@@ -90,7 +92,7 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
     if (!loading) loadedFor.current = spanKey;
   }, [loading, spanKey]);
   const changingDays = loading && !!data && loadedFor.current !== spanKey;
-  const refresh = useRefresh(() => Promise.all([reload(), reports.reload()]));
+  const refresh = useRefresh(() => Promise.all([reload(), reports.reload(), waitingSummary.reload()]));
   const now = Date.now();
   const open1 = (id: string) => (openReport ? openReport(id) : go('reports'));
 
@@ -98,9 +100,8 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
   const s = data?.series;
   const members = data?.members ?? 0;
 
-  const waiting = useMemo(() => (reports.data?.items ?? []).filter((r) => r.status === 'open' || r.status === 'in_review'), [reports.data]);
-  const overdue = waiting.filter((r) => r.overdue || (r.answerBy && +new Date(r.answerBy) < now));
-  const next = [...waiting].sort((a, b) => (a.answerBy ? +new Date(a.answerBy) : Infinity) - (b.answerBy ? +new Date(b.answerBy) : Infinity)).slice(0, 5);
+  const overdueCount = waitingSummary.data?.overdue ?? 0;
+  const next = useMemo(() => reports.data?.items ?? [], [reports.data]); // already in queue order
 
   // The chart shows only the chosen days. A server that sends a longer span (an older one always sends 30 days) is cut down
   // here, so 7 days and this month are right either way.
@@ -144,13 +145,13 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
         <div className={refresh.busy || changingDays ? 'stack refreshable refreshing' : 'stack refreshable'} aria-busy={refresh.busy || changingDays}>
           <div className="ov-top">
             <div className="ov-tiles">
-              <button className={overdue.length ? 'stat hot' : 'stat'} onClick={() => go('reports')}>
+              <button className={overdueCount ? 'stat hot' : 'stat'} onClick={() => go('reports')}>
                 <span className="label">Reports</span>
                 <span className="value">
                   <CountUp value={rep.in_review + rep.open} />
                 </span>
                 <span className="note">
-                  {rep.in_review} in review · {rep.open} open{overdue.length ? ` · ${overdue.length} overdue` : ''}
+                  {overdueCount ? `${overdueCount} overdue` : 'Waiting for a decision'}
                 </span>
               </button>
               <button className={data.pendingVerifications ? 'stat hot' : 'stat'} onClick={() => go('verifications')}>

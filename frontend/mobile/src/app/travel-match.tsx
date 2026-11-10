@@ -16,6 +16,7 @@ import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { parseDay } from '@/lib/format';
 import { t, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
+import { useVerifyGate } from '@/lib/verifyGate';
 
 type Suggestion = {
   userId: string;
@@ -54,6 +55,7 @@ export default function TravelMatch() {
   const [calendar, setCalendar] = useState(false);
   const [editing, setEditing] = useState(false);
   const [matched, setMatched] = useState<{ name: string; conversationId: string } | null>(null);
+  const gate = useVerifyGate();
   const save = useAction(() => {
     setEditing(false);
     void o.reload();
@@ -112,10 +114,10 @@ export default function TravelMatch() {
             </View>
             <Text style={{ color: c.muted, fontSize: 14, lineHeight: 27 }}>{t('We only show your first name, photo, home city and short bio, never your email, phone or exact location.')}</Text>
             <AuthButton
-              title={pref ? t('Save') : t('Turn on travel buddies')}
+              title={!gate.verified ? gate.title('travel') : pref ? t('Save') : t('Turn on travel buddies')}
               loading={save.busy}
-              disabled={!ready}
-              onPress={() => void save.run(() => put('/v1/me/travel-match', { destination: dest.trim(), dateStart: s!.toISOString(), dateEnd: e!.toISOString() }))}
+              disabled={gate.verified && !ready}
+              onPress={() => (!gate.verified ? void gate.ask('travel') : void save.run(() => put('/v1/me/travel-match', { destination: dest.trim(), dateStart: s!.toISOString(), dateEnd: e!.toISOString() })))}
             />
             {editing ? <Btn title={t('Cancel')} variant="ghost" onPress={() => setEditing(false)} /> : null}
           </View>

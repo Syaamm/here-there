@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { can, get, post, roleLabel, type Role, type Session } from '../api';
 import './UserPanel.css';
-import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad, useMore } from '../ui';
+import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad } from '../ui';
 
 type U = { adminRegionKey?: string | null; id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
 type Detail = {
@@ -63,16 +63,18 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, backLabel, on
   const [viewRaw, setView] = useUrlParam<View>('view', 'all');
   const view: View = viewRaw ?? 'all';
   const [open, setOpen] = useUrlParam<string>('user');
-  const state = view === 'active' || view === 'suspended' ? view : '';
+  const state = view === 'active' || view === 'suspended' ? view : view === 'notverified' ? 'unverified' : '';
   useEffect(() => {
     const t = setTimeout(() => setTerm(q.trim()), 300);
     return () => clearTimeout(t);
   }, [q]);
+  // the server pages the list by number ("Page 1 / 10"): only one small page is read at a time
+  const [pageNo, setPageNo] = useState(1);
+  useEffect(() => setPageNo(1), [term, state, focusId]);
   const query = new URLSearchParams(focusId ? { q: focusId } : { ...(term && { q: term }), ...(state && { state }) });
-  const users = useLoad(() => get<{ items: U[]; nextCursor: string | null }>(`/v1/admin/users?${query}`), [term, state, focusId]);
-  const more = useMore(users.data, (c) => get(`/v1/admin/users?${query}&cursor=${c}`), `${term}|${state}|${focusId}`);
-  const act = useAction(() => (more.reset(), users.reload()));
-  const rows = more.items.filter((u) => (focusId ? u.id === focusId : view === 'notverified' ? u.eligibility !== 'verified' && !isGuest(u) : true));
+  const users = useLoad(() => get<{ items: U[]; page?: number; pages?: number; total?: number }>(`/v1/admin/users?${query}&page=${pageNo}&pageSize=20`), [term, state, focusId, pageNo]);
+  const act = useAction(() => users.reload());
+  const rows = (users.data?.items ?? []).filter((u) => (focusId ? u.id === focusId : true));
   const shown = rows;
   const listRef = useRef<HTMLDivElement>(null);
   const selectedId = focusId ?? open ?? rows[0]?.id ?? null;
@@ -123,7 +125,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, backLabel, on
   return (
     <Page
       fill
-      title="People"
+      title="Users"
       actions={
         focusId ? (
           <>
@@ -181,14 +183,8 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, backLabel, on
                 ))}
               </ul>
               {shown.length === 0 && <div className="state">No one matches.</div>}
-              {more.hasMore && <div style={{ padding: '0 14px 14px' }}>{more.more}</div>}
             </div>
-            <div className="table-foot">
-              <span className="muted small">
-                {rows.length}
-                {more.hasMore ? '+' : ''} {rows.length === 1 ? 'person' : 'people'}
-              </span>
-            </div>
+            <PageBar page={users.data.page ?? 1} pages={users.data.pages ?? 1} total={users.data.total ?? rows.length} noun={['person', 'people']} onPage={setPageNo} busy={users.loading} />
           </section>
           <section className="split-detail" aria-label="Person">
             {/* a person opened from a report has its own way back in the page's top bar */}

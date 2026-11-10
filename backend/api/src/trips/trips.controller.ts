@@ -32,6 +32,11 @@ export class TripsController {
     return this.trips.cancel(me, id);
   }
 
+  @Post('trips/:id/end')
+  end(@CurrentUser() me: User, @Param('id') id: string) {
+    return this.trips.end(me, id);
+  }
+
   @Post('trips/:id/applications')
   apply(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
     return this.trips.apply(me, id, body);
@@ -73,8 +78,8 @@ export class TripsController {
   }
 
   @Get('me/favorite-trips')
-  favorites(@CurrentUser() me: User) {
-    return this.trips.myFavorites(me);
+  favorites(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.trips.myFavorites(me, limit, cursor);
   }
 
   @Post('trips/:id/leave')
@@ -85,11 +90,6 @@ export class TripsController {
   @Delete('trips/:id/members/:userId')
   removeMember(@CurrentUser() me: User, @Param('id') id: string, @Param('userId') userId: string) {
     return this.trips.removeMember(me, id, userId);
-  }
-
-  @Get('me/trips')
-  mine(@CurrentUser() me: User) {
-    return this.trips.mine(me);
   }
 
   /** Your trips a page at a time (`upcoming=1`: only what is still ahead), plus how many of each kind. */

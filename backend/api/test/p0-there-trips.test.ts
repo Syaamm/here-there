@@ -196,10 +196,19 @@ describe('THERE: trips, applications, approval, chat', () => {
     const far = await q(new Date(+end + 60 * day), new Date(+end + 65 * day));
     assert.equal(far.body.items.some((x: any) => x.id === t.body.id), false);
 
-    // budget scope mismatch is surfaced, not hidden
-    const mism = await q(new Date(+start + day), new Date(+start + 3 * day), '&budgetMax=2000&includesTransport=false');
-    assert.equal(mism.body.items.find((x: any) => x.id === t.body.id)?.match.budgetScopeMismatch, true);
+    // what the budget covers is a filter: a trip whose budget includes travel is not listed for "destination only" (owner, 2026-11-10)
+    const scope = await q(new Date(+start + day), new Date(+start + 3 * day), '&budgetMax=2000&includesTransport=false');
+    assert.equal(scope.body.items.some((x: any) => x.id === t.body.id), false);
+    assert.equal((await q(new Date(+start + day), new Date(+start + 3 * day), '&includesTransport=true')).body.items.some((x: any) => x.id === t.body.id), true);
     assert.equal((await get('/v1/trips?budgetMax=500', seeker.token)).body.items.some((x: any) => x.id === t.body.id), false);
+    // the departure city is a filter too ("Milan, Italy" finds the trip leaving from "Milan"), and a city it does not leave from hides it
+    const near2 = (extra: string) => q(new Date(+start + day), new Date(+start + 3 * day), extra);
+    assert.equal((await near2('&originCity=Milan%2C%20Italy')).body.items.some((x: any) => x.id === t.body.id), true);
+    assert.equal((await near2('&originCity=Paris')).body.items.some((x: any) => x.id === t.body.id), false);
+    // the other filters, checked in the query
+    assert.equal((await near2('&tags=food')).body.items.some((x: any) => x.id === t.body.id), true);
+    assert.equal((await near2('&tags=beach')).body.items.some((x: any) => x.id === t.body.id), false);
+    assert.equal((await near2('&groupSize=10%2B')).body.items.some((x: any) => x.id === t.body.id), false);
   });
 
   it('pages my trips, organised and applied for, soonest departure first', async () => {
@@ -410,6 +419,34 @@ describe('THERE: trips, applications, approval, chat', () => {
     assert.equal((await post('/v1/trips', org.token, tripBody({ budgetIncludes: ['wine'] }))).status, 400);
     const none = await make({ budgetIncludes: [], budgetIncludesTransport: true });
     assert.deepEqual((await get(`/v1/trips/${none.id}`, org.token)).body.budget.includes, [], 'nothing chosen is allowed');
+  });
+
+  it('knows how the group gets there: leaving together from one city, or meeting at the destination with no departure city', async () => {
+    const org = await verified('Styler');
+    const seeker = await verified('StyleSeeker');
+    // travelling together (the default, as before): the departure city is needed
+    const together = await post('/v1/trips', org.token, tripBody({ destination: 'Stylesburg, Norway' }));
+    assert.equal(together.status, 201, JSON.stringify(together.body));
+    assert.equal(together.body.travelStyle, 'together', 'an older app that sends no style gets "together"');
+    assert.equal((await post('/v1/trips', org.token, tripBody({ travelStyle: 'together', originCity: '' }))).status, 400, 'together needs a departure city');
+    await post(`/v1/trips/${together.body.id}/cancel`, org.token); // one plan at a time: free the dates for the next trip
+    // meeting at the destination: no departure city (one sent anyway is dropped), the planning limit is the destination's
+    const meet = await post('/v1/trips', org.token, tripBody({ travelStyle: 'meet_at_destination', originCity: undefined, destination: 'Stylesburg, Norway' }));
+    assert.equal(meet.status, 201, JSON.stringify(meet.body));
+    assert.deepEqual([meet.body.travelStyle, meet.body.originCity], ['meet_at_destination', '']);
+    assert.equal((await prisma.trip.findUnique({ where: { id: meet.body.id } })).originKey, 'stylesburg', 'its limits and staff area follow the destination');
+    await post(`/v1/trips/${meet.body.id}/cancel`, org.token);
+    const dropped = await post('/v1/trips', org.token, tripBody({ travelStyle: 'meet_at_destination', originCity: 'Rome', destination: 'Stylesburg, Norway' }));
+    assert.equal(dropped.body.originCity, '', 'a departure city sent with a meet-at-destination trip is not kept');
+    assert.equal((await post('/v1/trips', org.token, tripBody({ travelStyle: 'by_balloon' }))).status, 400);
+    // search: both styles by default, or only one
+    const both = (await get('/v1/trips?destination=stylesburg', seeker.token)).body.items.map((x: any) => x.id);
+    assert.ok(both.includes(dropped.body.id));
+    assert.equal((await get('/v1/trips?destination=stylesburg&travelStyle=together', seeker.token)).body.items.some((x: any) => x.id === dropped.body.id), false);
+    assert.ok((await get('/v1/trips?destination=stylesburg&travelStyle=meet_at_destination', seeker.token)).body.items.some((x: any) => x.id === dropped.body.id));
+    assert.ok((await get('/v1/trips?destination=stylesburg&originCity=Paris', seeker.token)).body.items.some((x: any) => x.id === dropped.body.id), 'meeting there: anyone can join from anywhere');
+    assert.equal((await get('/v1/trips?destination=stylesburg&originCity=Paris&travelStyle=together', seeker.token)).body.items.some((x: any) => x.id === dropped.body.id), false);
+    await post(`/v1/trips/${dropped.body.id}/cancel`, org.token);
   });
 
   it('cannot be approved by someone other than the organizer and a decline keeps chat closed', async () => {

@@ -56,8 +56,8 @@ describe('admin overview', () => {
     assert.equal(r.status, 200);
     const o = await r.json();
 
-    // members: admin, verified, plain, old (guest and erased account left out)
-    assert.equal(o.members, 4);
+    // members: the people the Users page lists (verified, plain, old); the admin, a guest and an erased account are left out
+    assert.equal(o.members, 3);
     assert.equal(o.verifiedMembers, 1);
     assert.equal(o.approvalRate, 0.5, 'one passed and one rejected; the pending one is not counted');
     assert.equal(o.pendingVerifications, 1);
@@ -70,8 +70,8 @@ describe('admin overview', () => {
     assert.equal(o.period.to, new Date().toISOString().slice(0, 10));
     for (const k of ['members', 'activities', 'trips', 'reports']) assert.equal(o.series[k].length, 30, k);
     const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
-    assert.equal(sum(o.series.members), 3, 'admin, verified and plain joined in the period; the 40-day-old one did not');
-    assert.equal(o.series.members[29], 3, 'all three joined today');
+    assert.equal(sum(o.series.members), 2, 'verified and plain joined in the period; the 40-day-old one did not');
+    assert.equal(o.series.members[29], 2, 'both joined today');
     assert.equal(sum(o.series.reports), 3, 'the 45-day-old report is outside the period');
     assert.equal(o.previous.members, 1, 'the member from 40 days ago is in the previous period');
 

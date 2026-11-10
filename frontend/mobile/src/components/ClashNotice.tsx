@@ -38,7 +38,7 @@ export type Clash = {
  * change, which was slow over a slow connection and, while waiting, showed the previous time's answer.)
  * `exclude` is the plan being looked at (activity:<id> or trip:<id>).
  */
-export function useClashes(from: string | Date | null | undefined, to: string | Date | null | undefined, exclude?: string) {
+export function useClashes(from: string | Date | null | undefined, to: string | Date | null | undefined, exclude?: string, creating: 'activity' | 'trip' = 'activity') {
   const q = useLoad(
     () => get<{ items: Clash[] }>(`/v1/me/clashes?${new URLSearchParams({ from: new Date().toISOString(), to: new Date(Date.now() + 400 * 864e5).toISOString(), ...(exclude ? { exclude } : {}) })}`),
     [exclude],
@@ -53,8 +53,9 @@ export function useClashes(from: string | Date | null | undefined, to: string | 
   const ok = !isNaN(f) && !isNaN(tt) && tt > f;
   const live = ok ? (q.data?.items ?? []).filter((x) => +new Date(x.startsAt) < tt && +new Date(x.endsAt) > Math.max(f, now)) : [];
   const firm = live.filter((x) => x.firm);
-  // Creating: only an ACTIVITY you host or joined stops you. A trip you are on is a warning (the server allows it), the person decides.
-  return { firm, blocking: firm.filter((x) => x.kind === 'activity'), onTrip: firm.filter((x) => x.kind === 'trip'), pending: live.filter((x) => !x.firm), all: q.data?.items ?? [], reload: q.reload, now };
+  // Creating an activity: only an ACTIVITY you host or joined stops you. A trip you are on is a warning (the server allows it), the person decides.
+  // Creating a trip: any plan holding you on those days stops you (an activity or another trip).
+  return { firm, blocking: firm.filter((x) => x.kind === 'activity' || creating === 'trip'), onTrip: firm.filter((x) => x.kind === 'trip'), pending: live.filter((x) => !x.firm), all: q.data?.items ?? [], reload: q.reload, now };
 }
 
 /**
@@ -148,7 +149,7 @@ function Timing({ x, now }: { x: Clash; now: number }) {
  * The warning, for joining (`join`), applying to a trip (`apply`) or creating at a chosen time (`create`).
  * Blocking plans come first with how to free the time; requests still waiting come after, as a note.
  */
-export function ClashNotice({ firm, pending, now, mode, onChanged }: { firm: Clash[]; pending: Clash[]; now: number; mode: 'join' | 'apply' | 'create'; onChanged: () => void }) {
+export function ClashNotice({ firm, pending, now, mode, onChanged, creating = 'activity' }: { firm: Clash[]; pending: Clash[]; now: number; mode: 'join' | 'apply' | 'create'; onChanged: () => void; /** what is being created (mode 'create'): a trip is stopped by another trip too, an activity only warns about a trip */ creating?: 'activity' | 'trip' }) {
   const { t, tn } = useT();
   const { c } = useTheme();
   const act = useAction();
@@ -157,7 +158,17 @@ export function ClashNotice({ firm, pending, now, mode, onChanged }: { firm: Cla
 
   const free = async (x: Clash) => {
     const base = x.kind === 'activity' ? `/v1/activities/${x.id}` : `/v1/trips/${x.id}`;
-    if (x.role === 'host' || x.role === 'organizer') {
+    const started = +new Date(x.startsAt) <= now;
+    if ((x.role === 'host' || x.role === 'organizer') && started) {
+      // it has started: it is ended (not cancelled), and the group is told it ended
+      const ok = await confirmAsync(
+        t('End "{title}"?', { title: x.title }),
+        x.kind === 'activity' ? t('It has started. Ending it closes it now, and everyone going is told it ended.') : t('It has started. Ending it closes the trip now, and everyone in the group is told it ended.'),
+        x.kind === 'activity' ? t('End activity') : t('End trip'),
+        true,
+      );
+      if (!ok) return;
+    } else if (x.role === 'host' || x.role === 'organizer') {
       const ok = await confirmAsync(
         t('Cancel "{title}"?', { title: x.title }),
         x.kind === 'activity' ? t('You host it. Everyone who joined is told it is cancelled.') : t('You organise it. Everyone in the group is told it is cancelled.'),
@@ -172,7 +183,7 @@ export function ClashNotice({ firm, pending, now, mode, onChanged }: { firm: Cla
     setBusy(`${x.kind}:${x.id}`);
     const done = await act.run(() =>
       x.role === 'host' || x.role === 'organizer'
-        ? post(`${base}/cancel`)
+        ? post(`${base}/${started ? (x.kind === 'activity' ? 'complete' : 'end') : 'cancel'}`)
         : x.firm
           ? post(`${base}/leave`)
           : del(x.kind === 'activity' ? `${base}/requests/mine` : `${base}/applications/mine`),
@@ -181,17 +192,21 @@ export function ClashNotice({ firm, pending, now, mode, onChanged }: { firm: Cla
     if (done !== undefined) onChanged();
   };
   const action = (x: Clash) =>
-    x.role === 'host' ? t('Cancel this activity') : x.role === 'organizer' ? t('Cancel this trip') : x.role === 'going' ? t('Leave this activity') : x.role === 'member' ? t('Leave this trip') : x.kind === 'trip' ? t('Withdraw application') : t('Withdraw request');
+    x.role === 'host' ? (+new Date(x.startsAt) <= now ? t('End this activity') : t('Cancel this activity')) : x.role === 'organizer' ? (+new Date(x.startsAt) <= now ? t('End this trip') : t('Cancel this trip')) : x.role === 'going' ? t('Leave this activity') : x.role === 'member' ? t('Leave this trip') : x.kind === 'trip' ? t('Withdraw application') : t('Withdraw request');
 
   // creating: a small card you read at a glance (an icon, the plan's name, when it is), the way to free the time, and for a trip a
   // plain warning. No chips, no countdown, no long text.
   if (mode === 'create') {
     const when1 = (x: Clash) => (x.kind === 'trip' ? `${t('Trip')} · ${shortDate(x.dateStart ?? x.startsAt)} – ${shortDate(x.dateEnd ?? x.endsAt)}` : `${t('Activity')} · ${when(x.startsAt)} – ${hhmm(x.endsAt)}`);
-    const short = (x: Clash) => (x.role === 'host' ? t('Cancel') : x.role === 'going' ? t('Leave') : action(x));
+    const short = (x: Clash) => (x.role === 'host' || x.role === 'organizer' ? (+new Date(x.startsAt) <= now ? t('End') : t('Cancel')) : x.role === 'going' || x.role === 'member' ? t('Leave') : action(x));
+    // what to do to go on: cancel the other plan if it has not started, end it if it has, leave it if you only joined
+    const howTo = (x: Clash) =>
+      x.role === 'going' || x.role === 'member' ? t('Leave it to publish this one.') : +new Date(x.startsAt) <= now ? t('It has started. End it to publish this one.') : t('It has not started. Cancel it to publish this one.');
     const cards = firm.map((x) => {
       const trip = x.kind === 'trip';
-      const bg = trip ? c.warnBg : c.badBg;
-      const fg = trip ? c.warnFg : c.badFg;
+      const warnOnly = trip && creating === 'activity'; // an activity can still be published while you are on a trip
+      const bg = warnOnly ? c.warnBg : c.badBg;
+      const fg = warnOnly ? c.warnFg : c.badFg;
       const key = `${x.kind}:${x.id}`;
       return (
         <View key={key} accessibilityRole="alert" style={{ backgroundColor: bg, borderRadius: 18, padding: 12, gap: 8 }}>
@@ -201,7 +216,7 @@ export function ClashNotice({ firm, pending, now, mode, onChanged }: { firm: Cla
             </View>
             <View style={{ flex: 1, gap: 2 }}>
               <Text numberOfLines={1} style={{ color: fg, fontSize: 15, lineHeight: 20, fontWeight: '700' }}>{x.title}</Text>
-              <Text numberOfLines={2} style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{trip ? when1(x) : `${t('Already busy then')} · ${when1(x)}`}</Text>
+              <Text numberOfLines={2} style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{warnOnly ? when1(x) : `${t('Already busy then')} · ${when1(x)}`}</Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -214,7 +229,7 @@ export function ClashNotice({ firm, pending, now, mode, onChanged }: { firm: Cla
               <Text style={{ color: fg, fontSize: 13, fontWeight: '700' }}>{busy === key ? '…' : short(x)}</Text>
             </Pressable>
           </View>
-          {trip ? <Text style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{t('You are on a trip then. Go on only if you think you can still join or host.')}</Text> : null}
+          {warnOnly ? <Text style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{t('You are on a trip then. Go on only if you think you can still join or host.')}</Text> : <Text style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{howTo(x)}</Text>}
         </View>
       );
     });

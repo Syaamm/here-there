@@ -20,6 +20,7 @@ export function useThereFilters(ext?: { destination: string; setDestination: (v:
   const [to, setTo] = useState('');
   const [flex, setFlex] = useState('plus_minus_3');
   const [origin, setOrigin] = useState('');
+  const [style, setStyle] = useState<'' | 'together' | 'meet_at_destination'>(''); // '' = both
   const [budget, setBudget] = useState(BUDGET_MAX); // the most per person; BUDGET_MAX means no ceiling
   const [transport, setTransport] = useState<'any' | 'true' | 'false'>('any');
   const [tags, setTags] = useState<string[]>([]);
@@ -29,7 +30,7 @@ export function useThereFilters(ext?: { destination: string; setDestination: (v:
   const toD = to ? parseDay(to) : null;
 
   /** The server's query for what is set. */
-  const build = (dest = destination): Record<string, string> => {
+  const build = (dest = destination, st: typeof style = style, tg: string[] = tags): Record<string, string> => {
     const p = new URLSearchParams({ flexibility: flex, ...(openOnly && { openOnly: 'true' }) });
     if (dest.trim()) p.set('destination', dest.trim());
     if (fromD) {
@@ -38,10 +39,11 @@ export function useThereFilters(ext?: { destination: string; setDestination: (v:
       end.setHours(23, 59, 59, 0);
       p.set('to', end.toISOString());
     }
-    if (origin.trim()) p.set('originCity', origin.trim());
+    if (origin.trim() && st !== 'meet_at_destination') p.set('originCity', origin.trim()); // a departure city means nothing for meet-at-destination trips
+    if (st) p.set('travelStyle', st);
     if (budget < BUDGET_MAX) p.set('budgetMax', String(Math.floor(budget)));
     if (transport !== 'any') p.set('includesTransport', transport);
-    if (tags.length) p.set('tags', tags.join(','));
+    if (tg.length) p.set('tags', tg.join(','));
     if (size) p.set('groupSize', size);
     return Object.fromEntries(p);
   };
@@ -51,6 +53,7 @@ export function useThereFilters(ext?: { destination: string; setDestination: (v:
     setTo('');
     setFlex('plus_minus_3');
     setOrigin('');
+    setStyle('');
     setBudget(BUDGET_MAX);
     setTransport('any');
     setTags([]);
@@ -58,8 +61,8 @@ export function useThereFilters(ext?: { destination: string; setDestination: (v:
     setOpenOnly(true);
   };
   // a small dot on the filter button when anything beyond the destination is set
-  const active = !!(origin.trim() || from || to || budget < BUDGET_MAX || transport !== 'any' || tags.length || size || !openOnly || flex !== 'plus_minus_3');
-  return { destination, setDestination, from, to, fromD, toD, setFrom, setTo, flex, setFlex, origin, setOrigin, budget, setBudget, transport, setTransport, tags, setTags, size, setSize, openOnly, setOpenOnly, build, clearAll, active };
+  const active = !!(origin.trim() || style || from || to || budget < BUDGET_MAX || transport !== 'any' || tags.length || size || !openOnly || flex !== 'plus_minus_3');
+  return { destination, setDestination, from, to, fromD, toD, setFrom, setTo, flex, setFlex, origin, setOrigin, style, setStyle, budget, setBudget, transport, setTransport, tags, setTags, size, setSize, openOnly, setOpenOnly, build, clearAll, active };
 }
 
 export type ThereFilters = ReturnType<typeof useThereFilters>;
@@ -108,8 +111,17 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
       }
     >
       {extra}
+      <View style={{ gap: 12 }}>
+        <ThereLabel>{t('How the group gets there')}</ThereLabel>
+        <View style={chips}>
+          {([['', t('Both')], ['together', t('Travel together')], ['meet_at_destination', t('Meet at destination')]] as const).map(([v, l]) => (
+            <ThereChip key={v || 'both'} label={l} active={f.style === v} onPress={() => f.setStyle(v)} />
+          ))}
+        </View>
+      </View>
       <View style={{ flexDirection: 'row', gap: 16 }}>
-        <ThereInput label={t('Departing from')} value={f.origin} onChangeText={f.setOrigin} placeholder={t('Any city')} />
+        {/* a departure city only means something for trips that travel together */}
+        {f.style !== 'meet_at_destination' ? <ThereInput label={t('Departing from')} value={f.origin} onChangeText={f.setOrigin} placeholder={t('Any city')} /> : null}
         <ThereInput label={t('Destination')} value={f.destination} onChangeText={f.setDestination} placeholder={t('Japan')} />
       </View>
 
@@ -146,7 +158,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
       </View>
 
       <View style={{ gap: 12 }}>
-        <ThereLabel>{t('Travel style')}</ThereLabel>
+        <ThereLabel>{t('Travel interests')}</ThereLabel>
         <View style={chips}>
           {TRIP_TAGS.map((g) => (
             <ThereChip key={g} label={t(g[0].toUpperCase() + g.slice(1))} active={f.tags.includes(g)} onPress={() => toggleTag(g)} />

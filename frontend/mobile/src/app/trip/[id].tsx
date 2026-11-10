@@ -16,6 +16,7 @@ import { Banner, BottomBar, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, use
 import { del, get, post, type Trip } from '@/lib/api';
 import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
+import { useVerifyGate } from '@/lib/verifyGate';
 import { TRIP_PHOTOS, tripStyle } from '@/components/Cards';
 import { FLEX } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
@@ -25,12 +26,15 @@ import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
 import { ReadMore } from '@/components/ReadMore';
+import { meetsThere } from '@/lib/travelStyle';
+import { TravelStyleBadge } from '@/components/TravelStyleBadge';
 
 /** THERE · Trip detail. A proposal with an estimated budget. Never a booking, never a guaranteed departure. Laid out like an activity. */
 export default function TripDetail() {
   const { t, tn } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { me, isGuest, logout } = useMe();
+  const { me, isGuest } = useMe();
+  const gate = useVerifyGate();
   const { c } = useTheme();
   useEnterMode('there'); // opened from a HERE alert, push or link: flip to THERE first
   const router = useRouter();
@@ -63,7 +67,6 @@ export default function TripDetail() {
       </Screen>
     );
 
-  const verified = me?.eligibility === 'verified';
   const app = trip.myApplication;
   const closed = ['cancelled', 'completed', 'archived'].includes(trip.status);
   const full = trip.status === 'full' || trip.spotsLeft === 0;
@@ -94,7 +97,7 @@ export default function TripDetail() {
       ];
 
   // the link opens this trip in the app, or sends the person to the App Store / Google Play when they have not got it
-  const share = () => void Share.share({ message: `${t('{title}, {dates}, from {city}', { title: trip.title, dates: dateSpan(trip.dateStart, trip.dateEnd), city: trip.originCity })}\n${shareLink('trip', trip.id)}` }).catch(() => undefined);
+  const share = () => void Share.share({ message: `${meetsThere(trip) ? t('{title}, {dates}, meeting at the destination', { title: trip.title, dates: dateSpan(trip.dateStart, trip.dateEnd) }) : t('{title}, {dates}, from {city}', { title: trip.title, dates: dateSpan(trip.dateStart, trip.dateEnd), city: trip.originCity })}\n${shareLink('trip', trip.id)}` }).catch(() => undefined);
   const flex = FLEX.find(([v]) => v === trip.dateFlexibility)?.[1] ?? trip.dateFlexibility;
 
   const top = statusTop(insets.top) + 8;
@@ -113,8 +116,8 @@ export default function TripDetail() {
     else if (app && app.state === 'pending') primary = { title: t('Withdraw application'), variant: 'secondary', loading: act.busy, onPress: () => void act.run(() => del(`/v1/trips/${id}/applications/mine`)) };
     else if (app && ['declined', 'waitlisted'].includes(app.state)) primary = null;
     else if (full) primary = { title: t('This group is full'), disabled: true };
-    else if (isGuest) primary = { title: t('Create an account to apply'), onPress: () => logout() };
-    else if (!verified) primary = { title: t('Verify your identity to apply'), onPress: () => go('/verify') };
+    // not verified (a guest, or an account still to be checked): the button stays, says why, and explains on tap
+    else if (!gate.verified) primary = { title: gate.title('join'), onPress: () => void gate.ask('join') };
     else primary = { title: app ? t('Apply again') : t('Request to join'), onPress: () => go(`/apply/${id}`) };
   }
 
@@ -129,8 +132,9 @@ export default function TripDetail() {
         <Stack.Screen options={{ headerShown: false }} />
 
         {/* kept slim like an activity: the essentials only (owner, 2026-11-09) */}
-        <Row style={{ gap: 8, flexWrap: 'wrap' }}>
-          {trip.status === 'cancelled' ? <Chip label={t('Cancelled')} tone="bad" /> : trip.status === 'completed' ? <Chip label={t('Completed')} tone="neutral" /> : trip.status === 'confirmed' ? <Chip label={t('Confirmed')} tone="ok" /> : full ? <Chip label={t('Group full')} tone="warn" /> : <Chip label={tn(trip.spotsLeft, '{n} place open', '{n} places open')} tone="warn" />}
+        <Row style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <TravelStyleBadge trip={trip} />
+          {trip.status === 'cancelled' ? <Chip label={t('Cancelled')} tone="bad" /> : trip.status === 'completed' ? <Chip label={t('Completed')} tone="neutral" /> : trip.status === 'confirmed' ? <Chip label={t('Confirmed')} tone="ok" /> : full ? <Chip label={t('Group full')} tone="warn" /> : <Chip label={tn(trip.spotsLeft, '{n} spot left', '{n} spots left')} tone="warn" />}
         </Row>
         <View style={{ gap: 10 }}>
           <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{trip.title}</Text>
@@ -151,7 +155,7 @@ export default function TripDetail() {
 
         {/* where, when and how much */}
         <View style={{ gap: 22, paddingTop: 4 }}>
-          <InfoRow icon="location-outline" title={trip.destination} sub={t('From {city}', { city: trip.originCity })} />
+          <InfoRow icon="location-outline" title={trip.destination} sub={meetsThere(trip) ? t('Meet at destination: everyone travels on their own') : t('Travel together from {city}', { city: trip.originCity })} />
           <InfoRow icon="calendar-outline" title={dateSpan(trip.dateStart, trip.dateEnd)} sub={t(flex)} />
           <InfoRow icon="wallet-outline" title={`${money(trip.budget.min, trip.budget.currency)}–${money(trip.budget.max, trip.budget.currency)} ${t('pp (estimate)')}`} sub={trip.budget.scope} />
         </View>
@@ -168,7 +172,7 @@ export default function TripDetail() {
           <Row style={{ justifyContent: 'space-between' }}>
             <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t("Who's going")}</Text>
             <Text style={{ color: full ? c.danger : c.green, fontSize: 14, fontWeight: '500' }}>
-              {full ? t('Full') : tn(trip.spotsLeft, '{n} place left', '{n} places left')}
+              {full ? t('Full') : tn(trip.spotsLeft, '{n} spot left', '{n} spots left')}
             </Text>
           </Row>
           <TripGoingGrid
@@ -198,7 +202,7 @@ export default function TripDetail() {
         {trip.isHost ? (
           <View style={{ gap: 10 }}>
             {trip.conversationId && <Btn title={t('Open group chat')} variant="secondary" onPress={() => go(`/chat/${trip.conversationId}`)} />}
-            {trip.status !== 'cancelled' ? <Btn title={t('Trip Plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} /> : null}
+            {trip.status !== 'cancelled' ? <Btn title={t('Trip plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} /> : null}
             {trip.status !== 'cancelled' && new Date(trip.dateStart) <= new Date() ? <Btn title={t('Who came?')} variant="secondary" onPress={() => go(`/no-shows/trip/${id}`)} /> : null}
             {trip.status !== 'cancelled' && (
               <Btn title={t('Cancel trip')} variant="danger" loading={act.busy} onPress={async () => (await confirmAsync(t('Cancel this trip?'), t('Everyone in the group will be notified.'), t('Cancel trip'), true)) && void act.run(() => post(`/v1/trips/${id}/cancel`))} />
@@ -206,7 +210,7 @@ export default function TripDetail() {
           </View>
         ) : trip.isMember ? (
           <View style={{ gap: 10 }}>
-            <Btn title={t('Trip Plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
+            <Btn title={t('Trip plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
             {trip.isMember && !trip.isHost && trip.status !== 'cancelled' && hostNoShowOpen(trip.dateStart, trip.dateEnd) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
             {canLeave ? <Btn title={t('Leave trip')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this trip?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/trips/${id}/leave`))} /> : null}
           </View>

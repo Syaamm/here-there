@@ -1,0 +1,35 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": { "APP_ENV": "development", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site", "GOOGLE_MAPS_ANDROID_KEY": "AIzaSyCReD3QRVzzd05NnlD4YgTSA09Z3qXQqBk" }
+    },
+    "preview": {
+      "channel": "preview",
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": { "APP_ENV": "preview", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site", "GOOGLE_MAPS_ANDROID_KEY": "AIzaSyCReD3QRVzzd05NnlD4YgTSA09Z3qXQqBk" }
+    },
+    "production": {
+      "channel": "production",
+      "distribution": "store",
+      "autoIncrement": true,
+      "android": { "buildType": "apk" },
+      "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site", "GOOGLE_MAPS_ANDROID_KEY": "AIzaSyCReD3QRVzzd05NnlD4YgTSA09Z3qXQqBk" }
+    },
+    "development-testflight": { "extends": "development", "distribution": "store", "autoIncrement": true },
+    "production-testflight": { "extends": "production" },
+    "preview-testflight": { "extends": "preview", "distribution": "store", "autoIncrement": true }
+  },
+  "submit": {
+    "preview-testflight": { "ios": { "ascAppId": "6831583130" } },
+    "development-testflight": { "ios": { "ascAppId": "6831443822" } },
+    "production-testflight": { "ios": { "ascAppId": "6831583130" } }
+  }
+}

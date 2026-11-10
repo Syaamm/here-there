@@ -1,11 +1,12 @@
 import { useLocalSearchParams } from 'expo-router';
+import { useRef } from 'react';
 import { View } from 'react-native';
 import { TripRow } from '@/components/Cards';
-import { Empty, ErrorBanner, Screen, Spinner, Txt } from '@/components/ui';
-import { get, type Trip } from '@/lib/api';
-import { useLoad, useRefresh } from '@/lib/hooks';
+import { Empty, ErrorBanner, Screen, Spinner } from '@/components/ui';
+import { type Trip } from '@/lib/api';
+import { useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-import { PagedTail, usePaged } from '@/lib/paged';
+import { PagedTail, useCursorList } from '@/lib/paged';
 import { SOON_DAYS } from '@/features/ExploreThere';
 
 const DAY = 864e5;
@@ -16,33 +17,33 @@ const GROUPS: Record<string, { title: string; from: number; to: number; empty: s
   later: { title: 'Later', from: 90, to: Infinity, empty: 'No trips planned that far ahead yet.' },
 };
 
-/** THERE · the full list of one group of trips from Home ("See all"): soonest first, drawn a few at a time as you scroll. */
+/** THERE · the full list of one group of trips from Home ("See all"): the server sends them a page at a time as you scroll. */
 export default function AllTrips() {
   const { t } = useT();
-  const { section } = useLocalSearchParams<{ section?: string }>();
+  const { section, style } = useLocalSearchParams<{ section?: string; style?: string }>();
   const group = GROUPS[section ?? 'soon'] ?? GROUPS.soon;
-  // the same request (and the same remembered answer) as the Home feed: your own trips left out, ranked for you
-  const feed = useLoad(() => get<{ total: number; items: Trip[] }>(`/v1/trips?limit=50&excludeMine=true`), [''], 60_000, 'feed:there', { live: true });
-  const { refreshing, onRefresh } = useRefresh(feed.reload);
-  const now = Date.now();
-  // in the server's ranked order: friends going first, then people you follow, your followers, then leaving sooner
-  const list = (feed.data?.items ?? []).filter((x) => {
-    const days = (+new Date(x.dateStart) - now) / DAY;
-    return days >= group.from && days < group.to;
-  });
-  const paged = usePaged(list, section ?? 'soon');
+  const now = useRef(Date.now()).current;
+  // the same request as the Home feed (your own trips left out, ranked for you), for this group's departures, a page at a time
+  const params: Record<string, string> = {
+    excludeMine: 'true',
+    ...(style ? { tags: style } : {}),
+    ...(Number.isFinite(group.from) ? { startFrom: new Date(now + group.from * DAY).toISOString() } : {}),
+    ...(Number.isFinite(group.to) ? { startTo: new Date(now + group.to * DAY).toISOString() } : {}),
+  };
+  const list = useCursorList<Trip>('/v1/trips', params, `trips:all:${section ?? 'soon'}:${style ?? ''}`);
+  const { refreshing, onRefresh } = useRefresh(list.reload);
 
   return (
     <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>
-      <ErrorBanner message={feed.error?.message} />
-      {feed.loading && !feed.data && <Spinner />}
-      {feed.data && list.length === 0 && <Empty title={t('Nothing here yet')}>{t(group.empty)}</Empty>}
+      <ErrorBanner message={list.error?.message} />
+      {list.loading && !list.data && <Spinner />}
+      {list.data && list.items.length === 0 && <Empty icon="airplane-outline" title={t('Nothing here yet')}>{t(group.empty)}</Empty>}
       <View style={{ gap: 12 }}>
-        {paged.shown.map((x) => (
+        {list.items.map((x) => (
           <TripRow key={x.id} t={x} />
         ))}
       </View>
-      {feed.data ? <PagedTail paged={paged} /> : null}
+      <PagedTail paged={list} />
     </Screen>
   );
 }

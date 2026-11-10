@@ -3581,11 +3581,27 @@
               "description": "marked | disputed | upheld | overturned | all (default all)",
               "type": "string"
             }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "{ items }. Records waiting for a decision come oldest first, the rest newest first (up to 200)."
+            "description": "{ items, nextCursor }, 50 a page by default; nextCursor is null when there is no more. Records waiting for a decision come oldest first, the rest newest first (up to 200)."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -4371,7 +4387,7 @@
         ],
         "responses": {
           "200": {
-            "description": "{ items, nextCursor }. Waiting reports (open, in review) always come whole; finished ones come newest first, a page at a time (nextCursor is null when there is no more). Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }."
+            "description": "{ items, nextCursor }. status=waiting is open and in review together (open or in-review alone also work): in queue order (urgent, then overdue and escalated, then the rest), 50 a page by default, nextCursor for the next page. Finished ones come newest first, a page at a time (nextCursor is null when there is no more). Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }."
           },
           "400": {
             "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
@@ -4607,6 +4623,55 @@
           },
           "409": {
             "description": "Conflicts with the current state. Codes: `REPORT_ALREADY_DECIDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/reports/waiting": {
+      "get": {
+        "tags": [
+          "Admin console"
+        ],
+        "summary": "How many reports wait: totals, urgent, overdue, and the ids of the open ones (the console's badge and overview)",
+        "operationId": "Admin_waitingReports",
+        "description": "Staff only. Roles: staff, admin.",
+        "x-staff-roles": [
+          "staff",
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "{ total, open, inReview, urgent, overdue, openIds }. Only the reports of the staff member's area for area staff."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`",
             "content": {
               "application/json": {
                 "schema": {
@@ -8486,60 +8551,6 @@
         }
       }
     },
-    "/v1/me/activities": {
-      "get": {
-        "tags": [
-          "HERE activities"
-        ],
-        "summary": "Everything I host, go to, or have requested",
-        "operationId": "Activities_mine",
-        "responses": {
-          "200": {
-            "description": "Done."
-          },
-          "401": {
-            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests. Codes: `RATE_LIMITED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (`INTERNAL_ERROR`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/me/activities/overlapping": {
       "get": {
         "tags": [
@@ -9446,6 +9457,78 @@
             }
           }
         }
+      },
+      "get": {
+        "tags": [
+          "Profile and photo"
+        ],
+        "summary": "One draft by its id",
+        "operationId": "Drafts_one",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ id, kind, title, data, updatedAt }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/me/drafts/{id}/publish": {
@@ -9920,11 +10003,39 @@
         "tags": [
           "THERE trips"
         ],
-        "summary": "My favourite trips",
+        "summary": "My favourite trips, a page at a time",
         "operationId": "Trips_favorites",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "{ items: Trip[], total }. Newest saved first, cancelled trips left out."
+            "description": "{ items: Trip[], nextCursor, total }. Newest saved first, cancelled trips left out; total is how many there are in all."
+          },
+          "400": {
+            "description": "The request is not acceptable. Codes: `VALIDATION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "401": {
             "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
@@ -12009,60 +12120,6 @@
         }
       }
     },
-    "/v1/me/trips": {
-      "get": {
-        "tags": [
-          "THERE trips"
-        ],
-        "summary": "Trips I organize or have joined or applied to",
-        "operationId": "Trips_mine",
-        "responses": {
-          "200": {
-            "description": "Done."
-          },
-          "401": {
-            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests. Codes: `RATE_LIMITED`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (`INTERNAL_ERROR`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/me/trips/page": {
       "get": {
         "tags": [
@@ -13363,6 +13420,60 @@
         }
       }
     },
+    "/v1/push/test": {
+      "post": {
+        "tags": [
+          "Notifications and push"
+        ],
+        "summary": "Send a test push to my devices now and report what happened to each",
+        "operationId": "Push_test",
+        "responses": {
+          "200": {
+            "description": "{ firebaseProject, devices: [{ kind, token (first characters), registeredAt, result: sent | refused | gone | retry | skipped, detail }], note }. detail is the answer from Firebase, e.g. SENDER_ID_MISMATCH or THIRD_PARTY_AUTH_ERROR."
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/push/unsubscribe": {
       "post": {
         "tags": [
@@ -13775,6 +13886,36 @@
             }
           },
           {
+            "name": "travelStyle",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "together",
+                "meet_at_destination"
+              ]
+            }
+          },
+          {
+            "name": "startFrom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "startTo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
             "name": "budgetMax",
             "in": "query",
             "required": false,
@@ -13950,9 +14091,16 @@
                     "type": "string",
                     "maxLength": 60
                   },
+                  "travelStyle": {
+                    "default": "together",
+                    "type": "string",
+                    "enum": [
+                      "together",
+                      "meet_at_destination"
+                    ]
+                  },
                   "originCity": {
                     "type": "string",
-                    "minLength": 2,
                     "maxLength": 60
                   },
                   "dateStart": {
@@ -14045,7 +14193,6 @@
                 },
                 "required": [
                   "destination",
-                  "originCity",
                   "dateStart",
                   "dateEnd",
                   "budgetMin",
@@ -14984,6 +15131,90 @@
           },
           "409": {
             "description": "Conflicts with the current state. Codes: `NO_DATES_TO_CONFIRM`, `TRIP_CLOSED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests. Codes: `RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (`INTERNAL_ERROR`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trips/{id}/end": {
+      "post": {
+        "tags": [
+          "THERE trips"
+        ],
+        "summary": "The organizer ends a trip that has started (it becomes completed, the dates are freed, the group is told)",
+        "operationId": "Trips_end",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "401": {
+            "description": "Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_ORGANIZER`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found. Codes: `NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state. Codes: `TRIP_CLOSED`, `TRIP_NOT_STARTED`",
             "content": {
               "application/json": {
                 "schema": {
@@ -16728,6 +16959,7 @@
               "TOO_MANY_PROOFS",
               "TRIP_CLOSED",
               "TRIP_FULL",
+              "TRIP_NOT_STARTED",
               "TRIP_STARTED",
               "UNAUTHENTICATED",
               "UNSUPPORTED_MEDIA_TYPE",
@@ -17553,8 +17785,8 @@
     {
       "code": "TIME_CLASH",
       "status": 409,
-      "meaning": "You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity or trip, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead).",
-      "clientShould": "Show the clashing plans with when each ends, and offer to leave, cancel or withdraw them, or pick another time."
+      "meaning": "You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead). When creating a TRIP, any plan holding you on those days (an activity or another trip) causes it. The message says whether to cancel it (not started), end it (started) or leave it.",
+      "clientShould": "Show the clashing plans with when each ends, and offer to leave, cancel, end or withdraw them, or pick another time."
     },
     {
       "code": "TOO_MANY_DRAFTS",
@@ -17585,6 +17817,12 @@
       "status": 409,
       "meaning": "The group is full.",
       "clientShould": "Show \"full\" or the waiting-list option."
+    },
+    {
+      "code": "TRIP_NOT_STARTED",
+      "status": 409,
+      "meaning": "The trip has not started yet, so it cannot be ended.",
+      "clientShould": "Offer End once the first day has come; before that the organizer can cancel it."
     },
     {
       "code": "TRIP_STARTED",

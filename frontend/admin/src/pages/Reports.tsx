@@ -115,22 +115,21 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   const waiting = status === 'waiting' && !focusId;
   const cat = category ? '&category=' + category : '';
   const params = new URLSearchParams({ ...(!focusId && { status }), ...(category && { category }) });
-  const { data, error, loading, reload } = useLoad(() => (waiting ? Promise.resolve({ items: [] as R[], nextCursor: null }) : get<{ items: R[]; nextCursor?: string | null }>('/v1/admin/reports?' + params)), [status, category, focusId], 6000);
+  // every list is read a page at a time (Waiting too: in queue order, urgent first), "Load more" asks for the next page
+  const { data, error, loading, reload } = useLoad(() => get<{ items: R[]; nextCursor?: string | null }>('/v1/admin/reports?' + params), [status, category, focusId], 10000);
   const more = useMore(data, (c) => get('/v1/admin/reports?' + params + '&cursor=' + c), status + '|' + category + '|' + focusId);
-  const review = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=in_review' + cat), [category], 6000);
-  const open = useLoad(() => get<{ items: R[] }>('/v1/admin/reports?status=open' + cat), [category], 6000);
-  const refreshAll = () => (more.reset(), reload(), open.reload(), review.reload());
+  // how many wait, for the tab's number (a small summary, not the queue)
+  const summary = useLoad(() => get<{ total: number }>('/v1/admin/reports/waiting'), [], 10000);
+  const refreshAll = () => (more.reset(), reload(), summary.reload());
   const act = useAction(refreshAll);
   const mod = can.moderate(me.role);
   const regional = !!me.scope;
 
   // no assigning: any staff member who sees a report can decide it (the server makes sure only one decision counts)
-  const groups: { title: string; items: R[] }[] = waiting
-    ? [{ title: '', items: [...(review.data?.items ?? []), ...(open.data?.items ?? [])].sort((x, y) => +new Date(y.createdAt) - +new Date(x.createdAt)) }]
-    : [{ title: '', items: focusId ? more.items.filter((r) => r.id === focusId) : more.items }];
+  const groups: { title: string; items: R[] }[] = [{ title: '', items: focusId ? more.items.filter((r) => r.id === focusId) : more.items }];
   const items = groups.flatMap((g) => g.items);
-  const ready = waiting ? !!(review.data && open.data) : !!data;
-  const failed = waiting ? (review.error ?? open.error) : error;
+  const ready = !!data;
+  const failed = error;
 
   const resolve = (r: R, s: 'resolved' | 'dismissed', resolution: string) =>
     act.run(async () => {
@@ -178,7 +177,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
             value={status}
             onChange={setStatus}
             options={[
-              { id: 'waiting', label: 'Waiting', count: (review.data?.items.length ?? 0) + (open.data?.items.length ?? 0) },
+              { id: 'waiting', label: 'Waiting', count: summary.data?.total ?? 0 },
               { id: 'resolved', label: 'Resolved' },
               { id: 'dismissed', label: 'Dismissed' },
             ]}
@@ -193,8 +192,8 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
           </Select>
         </div>
       )}
-      <ErrorBanner message={failed ?? act.error} onRetry={() => (reload(), review.reload(), open.reload())} />
-      {(waiting ? !ready && (review.loading || open.loading) : loading && !data) && <Loading rows={6} />}
+      <ErrorBanner message={failed ?? act.error} onRetry={() => (reload(), summary.reload())} />
+      {loading && !data && <Loading rows={6} />}
       {ready && items.length === 0 && <Empty>{focusId ? 'Report not found.' : 'No reports.'}</Empty>}
       {items.length > 0 && (
         <div className="split" data-pane={pane}>
@@ -232,7 +231,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
                   </div>
                 ),
               )}
-              {!waiting && more.hasMore && <div style={{ padding: 12 }}>{more.more}</div>}
+              {more.hasMore && <div style={{ padding: 12 }}>{more.more}</div>}
             </div>
           </section>
           <section className="split-detail" aria-label="Report">

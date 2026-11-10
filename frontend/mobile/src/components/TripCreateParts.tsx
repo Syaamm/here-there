@@ -7,14 +7,15 @@ import { useT } from '@/lib/i18n';
 import { sc } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { Text, TextInput, type InputHandle } from './ScaledText';
+import { tap } from '@/lib/haptics';
 import { StepBars, StepLabel } from './StepMotion';
 import { PlainTitle, pressed } from './ui';
 
-/** Building blocks of the THERE "Create a Trip" wizard: the HERE wizard's look on the ivory page, with white pills. */
+/** Building blocks of the THERE "Create a trip" wizard: the HERE wizard's look on the ivory page, with white pills. */
 
 const WHITE = '#FFFFFF';
 
-/** Back button, "Create a Trip" and the step's name in the middle, "Step n/4" and four bars under them. */
+/** Back button, "Create a trip" and the step's name in the middle, "Step n/4" and four bars under them. */
 export function TripTop({ step, title, onBack, right, onStep, canStep }: { step: number; title: string; onBack: () => void; right?: ReactNode; /** tapping a step bar jumps to it, where canStep allows */ onStep?: (i: number) => void; canStep?: (i: number) => boolean }) {
   const { t } = useT();
   const { c, mode } = useTheme();
@@ -24,7 +25,7 @@ export function TripTop({ step, title, onBack, right, onStep, canStep }: { step:
         onBack={onBack}
         custom={
           <View style={{ alignItems: 'center', gap: 2 }}>
-            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{t('Create a Trip')}</Text>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{t('Create a trip')}</Text>
             <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 15, lineHeight: 19, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
           </View>
         }
@@ -61,19 +62,66 @@ export function TripLabel({ children, right, style }: { children: ReactNode; rig
 }
 
 /** A big white pill: small grey label above, the value (typed or shown) below. */
-export function TripField({ label, children, onPress, a11y, invalid, style }: { label: string; children: ReactNode; onPress?: () => void; a11y?: string; invalid?: boolean; style?: StyleProp<ViewStyle> }) {
+export function TripField({ label, children, onPress, a11y, invalid, hint, icon, style }: { label: string; children: ReactNode; onPress?: () => void; a11y?: string; invalid?: boolean; /** a short red line under the pill, shown while it is invalid ("Pick a place from the list") */ hint?: string; /** a small icon inside the pill, at its right edge (the calendar of a date field): part of the field, not a separate button */ icon?: React.ComponentProps<typeof Ionicons>['name']; style?: StyleProp<ViewStyle> }) {
   const { c } = useTheme();
   const box: StyleProp<ViewStyle> = [{ minHeight: sc(78), borderRadius: 40, backgroundColor: WHITE, borderWidth: invalid ? 1.2 : 0, borderColor: c.danger, paddingLeft: 32, paddingRight: 56, paddingVertical: 12, justifyContent: 'center', gap: 4 }, style];
   const body = (
     <>
       <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{label}</Text>
       {children}
+      {icon ? (
+        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', right: 24, top: 0, bottom: 0, justifyContent: 'center' }}>
+          <Ionicons name={icon} size={20} color={c.forest} />
+        </View>
+      ) : null}
     </>
   );
-  return onPress ? (
+  const pill = onPress ? (
     <Pressable accessibilityRole="button" accessibilityLabel={a11y ?? label} onPress={onPress} style={({ pressed: p }) => [box, pressed(p)]}>{body}</Pressable>
   ) : (
     <View style={box}>{body}</View>
+  );
+  if (!(invalid && hint)) return pill;
+  return (
+    <View style={{ gap: 4 }}>
+      {pill}
+      <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, paddingLeft: 32 }}>{hint}</Text>
+    </View>
+  );
+}
+
+/** How the group gets there, the first choice of a trip: leave together from one city, or each on their own and meet there. */
+export type TravelStyle = 'together' | 'meet_at_destination';
+export function TravelStyleChoice({ value, onChange }: { value: TravelStyle; onChange: (v: TravelStyle) => void }) {
+  const { c } = useTheme();
+  const { t } = useT();
+  const opts: [TravelStyle, React.ComponentProps<typeof Ionicons>['name'], string, string][] = [
+    ['together', 'people-outline', t('Travel together'), t('Leave from the same city as your companions')],
+    ['meet_at_destination', 'location-outline', t('Meet at destination'), t('Everyone travels on their own and meets there')],
+  ];
+  return (
+    <View accessibilityRole="radiogroup" accessibilityLabel={t('How will the group get there?')} style={{ flexDirection: 'row', gap: 10 }}>
+      {opts.map(([v, icon, title, sub]) => {
+        const on = value === v;
+        return (
+          <Pressable
+            key={v}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={`${title}. ${sub}`}
+            onPress={() => {
+              if (!on) tap('Light'); // a small tap when the choice changes (not when the chosen one is tapped again)
+              onChange(v);
+            }}
+            style={({ pressed: p }) => [{ flex: 1, minHeight: sc(112), borderRadius: 26, padding: 16, gap: 6, backgroundColor: on ? c.forest : WHITE }, pressed(p)]}
+          >
+            <Ionicons name={icon} size={22} color={on ? '#fff' : c.forest} />
+            <Text style={{ color: on ? '#fff' : c.text, fontSize: 15, lineHeight: 20, fontWeight: '600' }}>{title}</Text>
+            <Text style={{ color: on ? 'rgba(255,255,255,0.8)' : c.muted, fontSize: 12, lineHeight: 16 }}>{sub}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -92,8 +140,9 @@ export function TripInput({ label, style, ...rest }: TextInputProps & { label: s
 type Found = { id: string; name: string; address: string; label: string };
 
 /**
- * Where to go: as you type in the destination, real places from anywhere in the world are listed (countries, regions, cities,
- * neighbourhoods), each named with its country: "Milan, Italy", "Kerala, India". Tap one and it becomes the destination.
+ * A place, found by searching: as you type, real places from anywhere in the world are listed (countries, regions, cities,
+ * neighbourhoods), each named with its country: "Milan, Italy", "Kerala, India". Tap one and it becomes the field's value: the
+ * departure city and the destination are only ever set this way (what is typed is just the search).
  */
 export function DestinationResults({ text, active, onPick }: { text: string; active: boolean; onPick: (label: string) => void }) {
   const { t } = useT();
@@ -139,7 +188,7 @@ export function DestinationResults({ text, active, onPick }: { text: string; act
   return (
     <View ref={box} collapsable={false} style={{ borderRadius: 18, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
       {state === 'searching' && !found ? say(t('Searching…')) : null}
-      {state === 'error' ? say(t('Search unavailable. Type the place name.')) : null}
+      {state === 'error' ? say(t('Search is not available right now. Try again in a moment.')) : null}
       {state === 'done' && found?.length === 0 ? say(t('No place found.')) : null}
       {found?.map((p, i) => (
         <Pressable

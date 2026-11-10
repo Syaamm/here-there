@@ -11,7 +11,7 @@ const FEED_JITTER_MS = 1500;
 const cityKey = (c: string) => c.trim().toLowerCase().slice(0, 60);
 
 /** The cities a trip belongs to for live updates: where it starts and where it goes (the part before the comma). */
-export const tripCities = (t: { originCity: string; destination: string }) => [t.originCity, t.destination.split(',')[0]];
+export const tripCities = (t: { originCity: string; destination: string }) => [t.originCity, t.destination.split(',')[0]].filter((x) => x.trim());
 
 /** What the server tells a connected app. */
 export type LiveEvent =

@@ -25,6 +25,7 @@ import { MfaService } from './mfa.controller';
 import { SessionService } from './session.service';
 import { SocialService } from './social.service';
 import { ReliabilityService } from '../reliability/reliability.controller';
+import { isSampleEmail } from '../common/demo';
 
 /** Where the app reached the API, so provider-hosted pages can link back to it. */
 const baseUrlOf = (req: Request) => `${req.protocol}://${req.get('host')}`;
@@ -570,6 +571,8 @@ export class AuthController {
       bio: u.profile.bio,
       photoUrl: u.profile.photoUrl,
       verifiedAdult: u.eligibility === 'verified',
+      // a made-up person of the sample data (common/demo.ts): the app labels the profile "Sample"
+      sample: isSampleEmail(u.email),
       // verified members see each other's level; anyone else sees nothing
       reliability: (await this.reliability.forViewer(me, [id])).get(id) ?? null,
       stats: { activitiesHosted: hosted, activitiesJoined: joined, tripsDone: trips },

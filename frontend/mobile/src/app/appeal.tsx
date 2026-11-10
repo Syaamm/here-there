@@ -1,17 +1,14 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { View } from 'react-native';
-import { AcctCard, AcctScreen, StatusTag } from '@/components/AccountParts';
-import { Text } from '@/components/ScaledText';
+import { AcctCard, AcctScreen } from '@/components/AccountParts';
 import { ProofPhotos } from '@/components/ProofPhotos';
 import { Btn, ErrorBanner, Field, Spinner, Txt, useGo } from '@/components/ui';
 import { useTheme } from '@/lib/theme';
 import { post, type MyAppeal } from '@/lib/api';
 import { useAction, useRefresh } from '@/lib/hooks';
-import { PagedTail, useCursorList } from '@/lib/paged';
-import { localeTag, useT } from '@/lib/i18n';
-import { dateText } from '@/lib/format';
+import { useCursorList } from '@/lib/paged';
+import { useT } from '@/lib/i18n';
 
 const ASK: Record<string, { title: string; hint: string }> = {
   verification: { title: 'Ask for a review of your identity check', hint: 'Tell us what went wrong.' },
@@ -20,7 +17,6 @@ const ASK: Record<string, { title: string; hint: string }> = {
   message: { title: 'Ask for a review of the removed message', hint: 'Tell us why it was fine.' },
   report: { title: 'Ask for a review of the report decision', hint: 'Tell us your side.' },
 };
-const STATE: Record<MyAppeal['state'], { label: string; tone: 'warn' | 'ok' | 'bad' }> = { open: { label: 'Waiting for a decision', tone: 'warn' }, upheld: { label: 'Accepted', tone: 'ok' }, rejected: { label: 'Decision stands', tone: 'bad' } };
 
 /** Asking staff to look at a decision again, and what became of earlier requests. One request per decision. */
 export default function Appeal() {
@@ -33,7 +29,9 @@ export default function Appeal() {
   const [text, setText] = useState('');
   const [proofs, setProofs] = useState<string[]>([]); // photos added as proof (a screenshot of the chat, say)
   const [proofKey, setProofKey] = useState(0);
+  const router = useRouter();
   const send = useAction(() => {
+    router.replace('/reports-blocked' as never); // the request shows there as Appealed, Waiting for decision
     setText('');
     setProofs([]);
     setProofKey((k) => k + 1); // the photo picker starts empty again
@@ -88,25 +86,6 @@ export default function Appeal() {
         </AcctCard>
       ) : null}
       {mine.loading && !mine.data && <Spinner />}
-      {items.length > 0 ? <Txt variant="h3">{t('Your requests')}</Txt> : null}
-      {items.map((a) => (
-        <AcctCard key={a.id} style={{ gap: 6 }}>
-          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
-            <Ionicons name={a.what.toLowerCase().includes('warn') ? 'warning-outline' : a.what.toLowerCase().includes('message') ? 'chatbubble-ellipses-outline' : 'document-text-outline'} size={20} color={c.text} style={{ marginTop: 2 }} />
-            <View style={{ flex: 1, gap: 4 }}>
-              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                <Text style={{ color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', flex: 1 }}>{t(a.what.charAt(0).toUpperCase() + a.what.slice(1))}</Text>
-                <StatusTag label={t(STATE[a.state].label)} tone={STATE[a.state].tone} />
-              </View>
-              <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Sent {date}', { date: dateText(a.createdAt) })}</Text>
-              {a.proofs?.length ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{a.proofs.length === 1 ? t('1 photo sent as proof') : t('{n} photos sent as proof', { n: a.proofs.length })}</Text> : null}
-              {a.decision ? <Text style={{ color: c.muted, fontSize: 13, lineHeight: 20, marginTop: 6 }}>{a.decision}</Text> : null}
-            </View>
-          </View>
-        </AcctCard>
-      ))}
-      <PagedTail paged={mine} />
-      {!ask && !mine.loading && items.length === 0 ? <Txt variant="muted">{t('You have not asked for any reviews.')}</Txt> : null}
     </AcctScreen>
   );
 }

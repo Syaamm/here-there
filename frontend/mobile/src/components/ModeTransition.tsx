@@ -1,66 +1,51 @@
 import { Image } from 'expo-image';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, Easing, useWindowDimensions, View } from 'react-native';
 import type { Mode } from '@/lib/theme';
 
-// the same logos the app shows when it opens: the light mark on HERE's deep green, the deep green mark on THERE's ivory
-const LOOK = {
+// the colour of the product being opened and the logo the app opens with: the light mark on HERE's deep green, the deep green mark on THERE's ivory
+const LOOK: Record<Mode, { fill: string; logo: number; label: string }> = {
   here: { fill: '#102F29', logo: require('../../assets/splash-icon.png'), label: 'HERE' },
   there: { fill: '#E9E5DD', logo: require('../../assets/icons/there/splash-icon.png'), label: 'THERE' },
 };
 
 /**
- * Full-screen switch between HERE and THERE: the new product's colour sweeps up from the bottom like a wave until it
- * fills the screen, its logo (the one the app opens with) comes up in the centre, the app underneath swaps while it is
- * fully covered, then the colour melts away.
- * Only transforms and opacity animate, so it stays on the native thread.
+ * The switch between HERE and THERE, kept short so it feels immediate (about a third of a second): the new product's colour
+ * fades over the screen with its logo in the centre, the app underneath swaps while it is covered, then the colour and the logo
+ * fade away and show the new product. Only opacity and scale animate, on the native thread.
  */
 export function ModeTransition({ target, onCovered, onDone }: { target: Mode; onCovered: () => void; onDone: () => void }) {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const look = LOOK[target];
-  const grow = useRef(new Animated.Value(0)).current; // the colour wave
-  const logo = useRef(new Animated.Value(0)).current; // the logo coming up
-  const out = useRef(new Animated.Value(1)).current; // whole overlay
-  const [grown, setGrown] = useState(false);
-
-  // a circle centred on the bottom edge, big enough to cover the screen once fully grown
-  const D = Math.ceil(Math.hypot(width, height) * 2.1);
   const size = Math.min(width * 0.8, 340); // the picture has empty margin around the mark, so it is drawn large
+  const cover = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(grow, { toValue: 1, duration: 750, easing: Easing.bezier(0.5, 0, 0.2, 1), useNativeDriver: true }).start(({ finished }) => finished && setGrown(true));
-  }, []);
-
-  useEffect(() => {
-    if (!grown) return;
     let live = true;
-    Animated.timing(logo, { toValue: 1, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
+    Animated.timing(cover, { toValue: 1, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(({ finished }) => {
       if (!live || !finished) return;
-      // the logo stays a moment, then the product underneath swaps while nothing of it is visible
-      setTimeout(() => {
-        if (!live) return;
-        onCovered();
-        setTimeout(() => {
+      onCovered();
+      // wait for the new product to be drawn under the cover (the swap re-renders the app), then let it show
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
           if (!live) return;
-          Animated.timing(out, { toValue: 0, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: true }).start(() => live && onDone());
-        }, 450);
-      }, 500);
+          Animated.timing(cover, { toValue: 0, duration: 220, easing: Easing.inOut(Easing.quad), useNativeDriver: true }).start(() => live && onDone());
+        }),
+      );
     });
     return () => {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grown]);
+  }, []);
 
-  const scale = grow.interpolate({ inputRange: [0, 1], outputRange: [0.02, 1] });
-  const lift = logo.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
-  const pop = logo.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] });
+  // the logo settles from slightly smaller as the colour comes in
+  const pop = cover.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] });
 
   return (
-    <Animated.View pointerEvents="auto" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: out, overflow: 'hidden' }}>
-      <Animated.View style={{ position: 'absolute', left: width / 2 - D / 2, top: height - D / 2, width: D, height: D, borderRadius: D / 2, backgroundColor: look.fill, transform: [{ scale }] }} />
-      <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
-        <Animated.View accessible accessibilityLabel={look.label} style={{ opacity: logo, transform: [{ translateY: lift }, { scale: pop }] }}>
+    <Animated.View pointerEvents="auto" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: look.fill, opacity: cover }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <Animated.View accessible accessibilityLabel={look.label} style={{ transform: [{ scale: pop }] }}>
           <Image source={look.logo} contentFit="contain" style={{ width: size, height: size }} />
         </Animated.View>
       </View>

@@ -4,7 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ScaledText';
-import { BackArrow, ModeSwitch } from '@/components/TabHeader';
+import { BackArrow } from '@/components/TabHeader';
 import { statusTop, useLayout } from '@/lib/layout';
 import { Pressable, View } from 'react-native';
 import { CatPhoto } from '@/components/CatPhoto';
@@ -39,10 +39,9 @@ export default function GroupInfoScreen() {
   const barH = barTop + 52; // just below the back arrow and the switch
   const PHOTO = barH + 230; // the picture layer's full height: picture, title and the line under it
   const topBar = (
-    // fixed over the page (the picture layer under it does not take touches): back on the left, the switch on the right
+    // fixed over the page (the picture layer under it does not take touches): back on the left
     <View pointerEvents="box-none" style={{ position: 'absolute', top: barTop, left: gutter, right: gutter, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <BackArrow />
-      <ModeSwitch />
     </View>
   );
   const heroBackdrop = <LinearGradient colors={['#FFFFFF', mode === 'there' ? c.sand : '#B7DBCF']} style={{ height: PHOTO }} />;

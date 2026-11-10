@@ -6,7 +6,7 @@ import { Prisma, Trip, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { requireVerified } from '../common/auth';
-import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset } from '../common/paging';
+import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset, pageOf } from '../common/paging';
 import { decodeCursor, encodeCursor } from '../activities/feed-ranking';
 import { TtlCache } from '../common/ttl-cache';
 import { circleOf, crowd, tierCounts } from '../common/social';
@@ -24,6 +24,7 @@ import { tripCities } from '../common/live.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 import { ClashService, tripWindow, withdrawnNote } from '../schedule/clash.service';
+import { isSampleEmail } from '../common/demo';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -36,6 +37,16 @@ type Flex = (typeof FLEX)[number];
 /** Spec 6.5: organizer counts as one member; default 4-6, optional 2-3 and 7-10. */
 const GROUP_RANGES: Record<string, [number, number]> = { '2-3': [2, 3], '4-6': [4, 6], '7-10': [7, 10], '10+': [10, 20] };
 
+/** How the group gets there: leave together from one city, or each on their own and meet at the destination. */
+export const TRAVEL_STYLES = ['together', 'meet_at_destination'] as const;
+
+/**
+ * The city whose planning limit (how far ahead a trip may be planned) applies to a trip: where it leaves from, or for a "meet at
+ * destination" trip, which has no departure city, the destination's city ("Lisbon" of "Lisbon, Portugal").
+ */
+export const limitCityOf = (t: { travelStyle?: string | null; originCity: string; destination: string }) =>
+  t.travelStyle === 'meet_at_destination' || !t.originCity.trim() ? t.destination.split(',')[0].trim() : t.originCity;
+
 export const createSchema = z
   .object({
     title: z.string().trim().min(2).max(80).optional(),
@@ -43,7 +54,10 @@ export const createSchema = z
     destinationPlaceId: z.string().max(200).optional(),
     // the destination's time zone (an IANA name such as Asia/Tokyo), if the app knows it; decides which day of the trip it is
     timeZone: z.string().max(60).refine(isZone, 'Unknown time zone').optional(),
-    originCity: z.string().trim().min(2).max(60),
+    // "together": companions leave from the same city (originCity, required); "meet_at_destination": everyone gets there on their
+    // own and the group meets at the destination (no departure city; one sent is ignored)
+    travelStyle: z.enum(TRAVEL_STYLES).default('together'),
+    originCity: z.string().trim().max(60).optional(),
     dateStart: z.coerce.date(),
     dateEnd: z.coerce.date(),
     dateFlexibility: z.enum(FLEX).default('exact'),
@@ -61,7 +75,8 @@ export const createSchema = z
     groupSize: z.enum(['2-3', '4-6', '7-10', '10+']).default('4-6'),
     visibility: z.enum(['public', 'invite_only']).default('public'),
   })
-  .refine((d) => d.budgetMax > d.budgetMin, { message: 'The maximum budget must be higher than the minimum', path: ['budgetMax'] });
+  .refine((d) => d.budgetMax > d.budgetMin, { message: 'The maximum budget must be higher than the minimum', path: ['budgetMax'] })
+  .refine((d) => d.travelStyle !== 'together' || (d.originCity ?? '').length >= 2, { message: 'Say where the group leaves from', path: ['originCity'] });
 
 export const updateSchema = z.object({
   description: z.string().trim().max(300).optional(), // a few sentences (lowered from 2000 by the owner, 2026-11-08)
@@ -77,6 +92,11 @@ export const searchSchema = z.object({
   to: z.coerce.date().optional(),
   flexibility: z.enum(FLEX).default('exact'),
   originCity: z.string().trim().optional(),
+  /** only trips of this style (leave it out for both) */
+  travelStyle: z.enum(TRAVEL_STYLES).optional(),
+  /** only trips that LEAVE on or after / before this moment (the sections of THERE Home: leaving soon, in a few months, later) */
+  startFrom: z.coerce.date().optional(),
+  startTo: z.coerce.date().optional(),
   budgetMax: z.coerce.number().int().min(0).optional(),
   includesTransport: z.enum(['true', 'false']).optional(),
   tags: z.string().optional(), // comma separated
@@ -154,7 +174,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   private readonly hostInclude = {
-    host: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } },
+    host: { select: { id: true, email: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } },
   } as const;
 
   private dto(t: Trip & { host: { id: string; eligibility: string; profile: { displayName: string; photoUrl: string | null } | null } }, members: number, extra: Record<string, unknown> = {}) {
@@ -164,6 +184,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       destination: t.destination,
       timeZone: t.timeZone,
       originCity: t.originCity,
+      travelStyle: t.travelStyle,
       dateStart: t.dateStart,
       dateEnd: t.dateEnd,
       dateFlexibility: t.dateFlexibility,
@@ -192,7 +213,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       status: effectiveTripStatus(t),
       kind: 'trip_proposal', // proposal, not a booking or confirmed itinerary
       disclaimer: BUDGET_DISCLAIMER,
-      host: { id: t.host.id, displayName: t.host.profile?.displayName ?? 'Organizer', photoUrl: t.host.profile?.photoUrl ?? null, verifiedAdult: t.host.eligibility === 'verified' },
+      host: { id: t.host.id, displayName: t.host.profile?.displayName ?? 'Organizer', photoUrl: t.host.profile?.photoUrl ?? null, verifiedAdult: t.host.eligibility === 'verified', sample: isSampleEmail((t.host as { email?: string }).email) },
       ...extra,
     };
   }
@@ -270,6 +291,35 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       OR: [{ visibility: 'public' }, { hostId: me.id }, { memberships: { some: { userId: me.id, state: 'approved' } } }],
       ...(q.destination && { destinationKey: { contains: q.destination.toLowerCase() } }),
     };
+    // Every filter is part of the database query, so the cap below only ever applies to trips that already match (a filter
+    // applied afterwards could miss a matching trip that was not among the first rows). Filters filter: what does not match
+    // is left out (owner, 2026-11-10; it used to be only a ranking preference for the departure city and what the budget covers).
+    const filters: Prisma.TripWhereInput[] = [];
+    if (q.travelStyle) filters.push({ travelStyle: q.travelStyle });
+    if (q.startFrom || q.startTo) filters.push({ dateStart: { ...(q.startFrom && { gte: q.startFrom }), ...(q.startTo && { lt: q.startTo }) } });
+    // leaving from a city: trips that travel together from it ("Milan" matches "Milan" and "Milan, Italy"), and trips that meet at
+    // the destination (they have no departure city, so anyone can join them from anywhere), unless only "together" was asked for
+    const fromCity = q.originCity?.split(',')[0].trim();
+    if (fromCity)
+      filters.push({
+        OR: [
+          { originCity: { contains: fromCity, mode: 'insensitive' } },
+          ...(q.travelStyle === 'together' ? [] : [{ travelStyle: 'meet_at_destination' }]),
+        ],
+      });
+    if (q.budgetMax !== undefined) filters.push({ budgetMin: { lte: q.budgetMax } });
+    if (q.includesTransport !== undefined) filters.push({ budgetIncludesTransport: q.includesTransport === 'true' });
+    if (q.groupSize) {
+      const [lo, hi] = GROUP_RANGES[q.groupSize];
+      filters.push({ maxCapacity: { gte: lo }, minCapacity: { lte: hi } });
+    }
+    const tagList = q.tags ? q.tags.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    if (tagList.length) filters.push({ OR: tagList.map((tag) => ({ tags: { contains: tag } })) });
+    // the dates: a wide first cut in the query (the exact overlap, with both sides' flexibility, is worked out below)
+    if (q.from) {
+      const slack = 40 * DAY; // more than any flexibility (a month either way, or a week)
+      filters.push({ dateEnd: { gte: new Date(+q.from - slack) }, dateStart: { lte: new Date(+(q.to ?? q.from) + slack) } });
+    }
     // Home's lists are about trips to discover: yours (host, on it, applied or waitlisted) are already in Next up
     const notMine: Prisma.TripWhereInput =
       q.excludeMine === 'true'
@@ -280,7 +330,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
           }
         : {};
     const rows = await this.prisma.trip.findMany({
-      where: { AND: [where, notMine] },
+      where: { AND: [where, notMine, ...filters] },
       orderBy: { dateStart: 'asc' },
       take: 500,
       include: { ...this.hostInclude, _count: { select: { memberships: { where: { state: 'approved' } } } } },
@@ -315,6 +365,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
           else dateMatch = 'none';
         }
         if (dateMatch === 'none') return null;
+        if (q.travelStyle && t.travelStyle !== q.travelStyle) return null;
 
         if (q.budgetMax !== undefined && t.budgetMin > q.budgetMax) return null;
         if (q.groupSize) {
@@ -335,7 +386,6 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         score += wantTags.length ? (15 * wantTags.filter((w) => tags.includes(w)).length) / wantTags.length : 8;
         score += q.budgetMax === undefined ? 8 : budgetScopeMismatch ? 7 : 15;
         score += t.maxCapacity - members > 0 ? 10 : 0;
-        if (q.originCity && t.originCity.toLowerCase() === q.originCity.toLowerCase()) score += 3; // preference, never exclusion
         // the circle: friends going is the biggest boost (up to +30), people you follow a smaller one (up to +10), your
         // followers a little (up to +4); everyone else adds nothing
         const tiers = tierCounts(peopleByTrip.get(t.id) ?? [], circle);
@@ -412,13 +462,15 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     if (dto.dateStart <= now) throw E.badRequest('INVALID_DATES', 'Trip must start in the future');
     if (dto.dateEnd < dto.dateStart) throw E.badRequest('INVALID_DATES', 'End date must not be before start date');
     if ((+dto.dateEnd - +dto.dateStart) / DAY > 90) throw E.badRequest('INVALID_DATES', 'Trips can span at most 90 days');
-    await this.regions.assertWithinLimit('there', dto.originCity, dto.dateEnd > dto.dateStart ? dto.dateEnd : dto.dateStart, 'INVALID_DATES'); // the whole trip must fall inside the limit of the city it starts from
+    const originCity = dto.travelStyle === 'together' ? (dto.originCity ?? '').trim() : '';
+    const limitCity = limitCityOf({ travelStyle: dto.travelStyle, originCity, destination: dto.destination });
+    await this.regions.assertWithinLimit('there', limitCity, dto.dateEnd > dto.dateStart ? dto.dateEnd : dto.dateStart, 'INVALID_DATES'); // the whole trip must fall inside the limit of the city it starts from (or meets in)
     for (const t of [dto.title, dto.description, dto.destination]) {
       const bad = contentProblem(t);
       if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
     }
-    // one plan at a time: no activity you host or joined on those days (a trip you are on only gets a warning in the app)
-    await this.clash.assertFreeToCreate(me.id, ...tripWindow(dto));
+    // one plan at a time: no activity or other trip you host or joined on those days (cancel it if it has not started, end it if it has)
+    await this.clash.assertFreeToCreate(me.id, ...tripWindow(dto), 'trip');
     this.limiter.hit(`trip-create:${me.id}`, 5, 24 * 3600 * 1000);
 
     // an exact number: the trip goes ahead once about two thirds of it are in (the same as the old ranges at their top: 3 -> 2, 6 -> 4, 10 -> 7)
@@ -432,8 +484,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
           destinationKey: dto.destination.toLowerCase(),
           destinationPlaceId: dto.destinationPlaceId,
           timeZone: dto.timeZone,
-          originCity: dto.originCity,
-          originKey: cityKeyOf(dto.originCity),
+          originCity,
+          originKey: cityKeyOf(limitCity),
+          travelStyle: dto.travelStyle,
           dateStart: dto.dateStart,
           dateEnd: dto.dateEnd,
           dateFlexibility: dto.dateFlexibility,
@@ -495,7 +548,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     const dateStart = dto.dateStart ?? t.dateStart;
     const dateEnd = dto.dateEnd ?? t.dateEnd;
     if (dateStart <= new Date() || dateEnd < dateStart) throw E.badRequest('INVALID_DATES', 'Invalid dates');
-    if (dto.dateStart || dto.dateEnd) await this.regions.assertWithinLimit('there', t.originCity, dateEnd > dateStart ? dateEnd : dateStart, 'INVALID_DATES');
+    if (dto.dateStart || dto.dateEnd) await this.regions.assertWithinLimit('there', limitCityOf(t), dateEnd > dateStart ? dateEnd : dateStart, 'INVALID_DATES');
     if (+dateStart !== +t.dateStart || +dateEnd !== +t.dateEnd) await this.clash.assertFree(me.id, ...tripWindow({ dateStart, dateEnd }), { kind: 'trip', id });
 
     await this.prisma.trip.update({
@@ -548,6 +601,25 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     await this.notifications.notifyMany(await this.savedOnlyIds(id, t.hostId), 'trip_cancelled', `A trip you saved was cancelled: ${t.title}`, 'The organizer cancelled it.', { tripId: id, saved: true });
     await this.audit.log(me.id, byStaff ? 'trip.removed_by_staff' : 'trip.cancel', 'trip', id);
     this.events.emit({ type: 'trip.cancelled', id, cities: tripCities(t) });
+    return { ok: true };
+  }
+
+  /**
+   * The organizer says the trip is over: from its first day on. It becomes completed now, which frees the dates (a completed trip no
+   * longer holds anyone), and the group is told. Before it starts the organizer cancels it instead.
+   */
+  async end(me: User, id: string) {
+    const t = await this.hostOwned(me, id);
+    if (t.status === 'cancelled') throw E.conflict('TRIP_CLOSED', 'This trip is no longer on');
+    if (t.status === 'completed') return { ok: true };
+    if (new Date() < t.dateStart) throw E.conflict('TRIP_NOT_STARTED', 'A trip can be ended once it has started. Before that, cancel it');
+    await this.prisma.trip.update({ where: { id }, data: { status: 'completed' } });
+    const pendingApps = await this.prisma.tripApplication.findMany({ where: { tripId: id, state: 'pending' }, select: { applicantId: true } });
+    await this.prisma.tripApplication.updateMany({ where: { tripId: id, state: 'pending' }, data: { state: 'declined', decidedAt: new Date() } });
+    for (const x of pendingApps) await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId: id }, x.applicantId);
+    await this.notifications.notifyMany(await this.memberIds(id, me.id), 'trip_completed', `Ended: ${t.title}`, 'The organizer ended this trip.', { tripId: id });
+    await this.audit.log(me.id, 'trip.end', 'trip', id);
+    this.events.emit({ type: 'trip.changed', id, cities: tripCities(t) });
     return { ok: true };
   }
 
@@ -739,15 +811,15 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** The trips you saved, newest first (cancelled ones are left out). */
-  async myFavorites(me: User) {
-    const favs = await this.prisma.tripFavorite.findMany({
-      where: { userId: me.id, trip: { status: { not: 'cancelled' } } },
-      include: { trip: { include: this.hostInclude } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    const counts = new Map((await this.prisma.tripMembership.groupBy({ by: ['tripId'], where: { tripId: { in: favs.map((f) => f.tripId) }, state: 'approved' }, _count: { _all: true } })).map((g) => [g.tripId, g._count._all]));
-    return { items: favs.map((f) => this.dto(f.trip, counts.get(f.tripId) ?? 0, { favorited: true })), total: favs.length };
+  /** My favourite trips a page at a time (`limit`, `cursor`), newest saved first, with how many there are in all. */
+  async myFavorites(me: User, limitRaw?: string, cursorRaw?: string) {
+    const live = { userId: me.id, trip: { status: { not: 'cancelled' } } };
+    const [page, total] = await Promise.all([
+      pageOf((a) => this.prisma.tripFavorite.findMany({ ...a, include: { trip: { include: this.hostInclude } } }), { limit: pageLimit(limitRaw, 20), cursor: cursorRaw, where: live, idField: 'tripId' }),
+      this.prisma.tripFavorite.count({ where: live }),
+    ]);
+    const counts = new Map((await this.prisma.tripMembership.groupBy({ by: ['tripId'], where: { tripId: { in: page.items.map((f) => f.tripId) }, state: 'approved' }, _count: { _all: true } })).map((g) => [g.tripId, g._count._all]));
+    return { items: page.items.map((f) => this.dto(f.trip, counts.get(f.tripId) ?? 0, { favorited: true })), nextCursor: page.nextCursor, total };
   }
 
   /**
@@ -804,25 +876,6 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
     this.events.emit({ type: 'trip.members_changed', id: t.id, cities: tripCities(t) });
     await this.notifications.notify(userId, 'removed', 'Removed from trip', `You were removed from ${t.title}.`, { tripId: id });
     return { ok: true };
-  }
-
-  async mine(me: User) {
-    const [memberships, apps] = await Promise.all([
-      this.prisma.tripMembership.findMany({
-        where: { userId: me.id, state: 'approved' },
-        include: { trip: { include: this.hostInclude } },
-        orderBy: { trip: { dateStart: 'asc' } },
-      }),
-      this.prisma.tripApplication.findMany({
-        where: { applicantId: me.id, state: { in: ['pending', 'declined', 'waitlisted'] } },
-        include: { trip: { include: this.hostInclude } },
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
-    return {
-      joined: await this.withMembers(memberships, (m) => m.tripId, (m, n) => this.dto(m.trip, n, { role: m.role })),
-      applications: await this.withMembers(apps, (a) => a.tripId, (a, n) => ({ applicationId: a.id, state: a.state, trip: this.dto(a.trip, n) })),
-    };
   }
 
   /**

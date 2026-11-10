@@ -169,12 +169,13 @@ Every failed request returns the same body:
 | `REPORT_ALREADY_DECIDED` | 409 | Someone else resolved or dismissed this report a moment earlier; the message says who. | Show the message and refresh the report. |
 | `REQUEST_IN_PROGRESS` | 409 | The first try of this request (same Idempotency-Key) is still being handled. | Wait a moment and send it again with the same key. |
 | `REQUEST_WITHDRAWN` | 409 | The applicant withdrew this request before the decision. | Refresh the list of requests. |
-| `TIME_CLASH` | 409 | You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity or trip, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead). | Show the clashing plans with when each ends, and offer to leave, cancel or withdraw them, or pick another time. |
+| `TIME_CLASH` | 409 | You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead). When creating a TRIP, any plan holding you on those days (an activity or another trip) causes it. The message says whether to cancel it (not started), end it (started) or leave it. | Show the clashing plans with when each ends, and offer to leave, cancel, end or withdraw them, or pick another time. |
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (10). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
 | `TRIP_CLOSED` | 409 | The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over). | Hide the edit, apply, favourite and share actions. |
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |
+| `TRIP_NOT_STARTED` | 409 | The trip has not started yet, so it cannot be ended. | Offer End once the first day has come; before that the organizer can cancel it. |
 | `TRIP_STARTED` | 409 | The trip has already started, so its dates can no longer be changed. | Do not offer a date poll or "use these dates" for it. |
 
 ## Cannot be done as asked (422)

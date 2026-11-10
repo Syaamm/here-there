@@ -396,7 +396,7 @@ export type Me = {
   profile: { displayName: string; homeCity: string | null; languages: string[]; interests: string[]; bio: string | null; photoUrl: string | null; travelWishlist?: string[]; travelWindow?: string | null; travelCompanions?: string | null } | null;
 };
 
-type HostInfo = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean };
+type HostInfo = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean; /** a made-up person of the sample data: labelled "Sample" */ sample?: boolean };
 type Participant = { id: string; displayName: string; photoUrl?: string | null; verifiedAdult: boolean; role: string; /** a friend of yours (you follow each other) */ friend?: boolean; /** after it ended: has this person said whether they were there */ answered?: boolean; /** after it ended: what they said */ attendance?: 'attended' | 'no_show' | 'unknown'; /** trips, while final dates wait for everyone: has this person said yes */ datesConfirmed?: boolean };
 
 export type Activity = {
@@ -455,7 +455,10 @@ export type Trip = {
   favorited?: boolean;
   title: string;
   destination: string;
+  /** where the group leaves from together; empty for a "meet at destination" trip */
   originCity: string;
+  /** how the group gets there: leaving together from originCity, or each on their own and meeting at the destination */
+  travelStyle?: 'together' | 'meet_at_destination';
   dateStart: string;
   dateEnd: string;
   dateFlexibility: string;

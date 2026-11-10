@@ -1,15 +1,16 @@
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { InnerHeader } from '@/components/TabHeader';
-import { LamisMark } from '@/components/LamisMark';
+import { SplashLogo } from '@/components/SplashLogo';
 import { AlertBanner } from '@/components/AlertBanner';
 import { DialogHost } from '@/components/AppDialog';
 import { Toast } from '@/components/Toast';
 import { UpdatePrompt } from '@/components/UpdatePrompt';
 import { AuthProvider, useMe } from '@/lib/auth';
+import { useAppFonts } from '@/lib/fonts';
 import { PhoneFrame } from '@/components/PhoneFrame';
 import { LangProvider, useT } from '@/lib/i18n';
 import { ScaleProvider } from '@/lib/scale';
@@ -47,6 +48,7 @@ const banded = { headerShown: false };
 function Gate() {
   const { t } = useT();
   const { me, ready } = useMe();
+  const fontsDone = useAppFonts(); // the app's typeface, before the first screen draws any text
   trackPath(usePathname()); // remembers where the person came from (see lib/nav)
   const { c } = useTheme();
   // what this person's pages showed last time is loaded before the first screen, so the app opens on its last view
@@ -73,14 +75,15 @@ function Gate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.id, remembered]);
 
-  if (!ready || (me && remembered !== me.id))
+  // the opening animation plays once per launch; the app waits for it to end (about 2.8 s) as well as for its data
+  const [splashDone, setSplashDone] = useState(false);
+  if (!splashDone || !ready || !fontsDone || (me && remembered !== me.id))
     return (
       <WebFrame>
-        {/* the splash sits on the mode's band: light clock on HERE's dark green, dark on THERE's sand; the LAMIS mark as on the app icon */}
+        {/* the splash sits on the mode's band: light clock on HERE's dark green, dark on THERE's sand; the LAMIS dot hops across and spells the word */}
         <StatusBar style={c.bandIsDark ? 'light' : 'dark'} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.band, gap: 20 }}>
-          <LamisMark size={56} ink={c.onBand} />
-          <ActivityIndicator color={c.onBand} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.band }}>
+          <SplashLogo ink={c.onBand} onDone={() => setSplashDone(true)} />
         </View>
       </WebFrame>
     );

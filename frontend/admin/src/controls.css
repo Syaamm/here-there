@@ -15,7 +15,7 @@
 .select-chevron { flex: none; color: var(--accent); transition: transform 0.18s ease; }
 .select-btn.is-open .select-chevron { transform: rotate(180deg); }
 .datefield .select-chevron { color: var(--muted); }
-.select.compact .select-btn { min-height: 36px; padding: 4px 10px 4px 12px; font-size: 0.84rem; }
+.select.compact .select-btn { min-height: 36px; padding: 4px 10px 4px 12px; font-size: var(--fs-md); }
 /* carries `required` for the form's own validation; never seen */
 .select-required { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 
@@ -25,7 +25,7 @@
 
 /* ---- the open list */
 .select-list { position: fixed; z-index: 80; overflow-y: auto; padding: 6px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); display: grid; gap: 2px; align-content: start; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
-.select-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 38px; padding: 8px 12px; border-radius: 9px; font-weight: 600; color: var(--text); cursor: pointer; user-select: none; }
+.select-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 8px 12px; border-radius: 9px; font-weight: 600; color: var(--text); cursor: pointer; user-select: none; }
 .select-opt.active { background: var(--surface-2); }
 .select-opt.chosen { background: var(--ok-bg); color: var(--ok-fg); }
 .select-opt.chosen.active { background: #cfe4d8; }
@@ -35,15 +35,15 @@
 /* ---- the calendar */
 .cal { position: fixed; z-index: 80; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-pop); }
 .cal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.cal-head strong { font-size: 0.95rem; }
+.cal-head strong { font-size: var(--fs-lg); }
 .cal-nav { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--accent); cursor: pointer; transition: background-color 0.15s ease; }
 .cal-nav:hover:not(:disabled) { background: var(--surface-2); }
 .cal-nav:disabled { opacity: 0.35; cursor: default; }
 .cal-prev { transform: rotate(90deg); }
 .cal-next { transform: rotate(-90deg); }
 .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
-.cal-dow { padding: 4px 0; text-align: center; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
-.cal-day { min-height: 34px; padding: 0; border: 0; border-radius: 10px; background: none; font: inherit; font-size: 0.86rem; font-weight: 600; color: var(--text); cursor: pointer; transition: background-color 0.12s ease; }
+.cal-dow { padding: 4px 0; text-align: center; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.cal-day { min-height: var(--ctl-sm); padding: 0; border: 0; border-radius: 10px; background: none; font: inherit; font-size: var(--fs-md); font-weight: 600; color: var(--text); cursor: pointer; transition: background-color 0.12s ease; }
 .cal-day:hover:not(:disabled):not(.sel) { background: var(--surface-2); }
 .cal-day.out { color: var(--muted); opacity: 0.5; }
 .cal-day.today { box-shadow: inset 0 0 0 1.5px var(--accent); }

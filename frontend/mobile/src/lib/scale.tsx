@@ -66,6 +66,21 @@ export function ScaleProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * How much smaller the chat (and anything else that asks) is drawn on a phone narrower than the 390 pt design: 1 from 390 up,
+ * 0.96 at 375, 0.92 at 360 and never below 0.82 (320). Only for what asks for it; the rest of the app is as before.
+ */
+export function useSmallPhoneShrink() {
+  const { width } = useWindowDimensions();
+  return width >= 390 || width >= 640 ? 1 : Math.max(0.82, Math.round((width / 390) * 100) / 100);
+}
+
+/** Inside it all writing (and what follows the app's scale) is `factor` times its size. Changes nothing outside it. */
+export function ScaleScope({ factor, children }: { factor: number; children: ReactNode }) {
+  const k = useScale();
+  return factor === 1 ? <>{children}</> : <Ctx.Provider value={k * factor}>{children}</Ctx.Provider>;
+}
+
 /** Scales fontSize and lineHeight in a style (text without an explicit size inherits and stays as is). */
 export function scaleText(style: StyleProp<TextStyle>, k: number): StyleProp<TextStyle> {
   if (k === 1 || !style) return style;

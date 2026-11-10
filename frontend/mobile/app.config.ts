@@ -55,7 +55,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: (require('./package.json') as { version: string }).version,
   // Raise runtimeVersion whenever native code changes (new library, permission, icon, push setup). A code-only change is sent as an
   // update (OTA) to builds with the same runtimeVersion. The app asks first (see components/UpdatePrompt), so checkAutomatically is off.
-  runtimeVersion: '3', // 3: LAMIS app icons and the Android notification icon
+  runtimeVersion: '4', // 4: LAMIS launch screen (3: LAMIS app icons and the Android notification icon)
   updates: {
     url: `https://u.expo.dev/${process.env.EAS_PROJECT_ID ?? '4005c1f6-33e1-4757-b262-cfa7643b5b9b'}`,
     checkAutomatically: 'NEVER',
@@ -110,6 +110,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     'expo-router',
     'expo-secure-store',
+    // The launch screen: the LAMIS mark on the app's deep green, the same as the icon. Without this plugin Android keeps the
+    // template's default picture (circles and lines). Android 12+ draws it from the icon; older phones use the picture and colour.
+    ['expo-splash-screen', { image: './assets/splash-icon.png', backgroundColor: '#0B322A', imageWidth: 200, resizeMode: 'contain' }],
     // Listed before expo-notifications on purpose: Expo runs the manifest changes of the last plugin first, so this one must come
     // first in the list to run after expo-notifications has added the entry it patches.
     './plugins/with-notification-color-override.js',

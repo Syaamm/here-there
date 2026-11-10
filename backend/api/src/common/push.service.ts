@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as webpush from 'web-push';
-import { sendFcm } from './fcm';
+import { fcmAccount, sendFcm, sendFcmDetailed } from './fcm';
 import { JobsService } from './jobs.service';
 import { NotificationPrefsService } from '../notifications/preference-rules';
 import { LiveService } from './live.service';
@@ -155,6 +155,30 @@ export class PushService implements OnModuleInit {
     } catch {
       /* push is best effort */
     }
+  }
+
+  /**
+   * Push test (POST /v1/push/test): a test push to every device of this person now, and what happened to each, word for word from
+   * Firebase. Shows at once whether the phone registered at all, which Firebase project the server sends with, and why a push failed.
+   */
+  async test(userId: string) {
+    const subs = await this.prisma.pushSubscription.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+    const msg = { title: 'LAMIS test', body: 'If you can read this, push works on this phone.' };
+    const devices = await Promise.all(
+      subs.map(async (s) => {
+        const base = { kind: s.kind, token: `${s.token.slice(0, 12)}…`, registeredAt: s.createdAt };
+        if (s.kind !== 'fcm') return { ...base, result: s.kind === 'expo' ? ((await this.sendExpo(s.token, msg)) ? 'sent' : 'retry') : (await this.sendWeb(s.token, msg)) ? 'sent' : 'retry' };
+        const r = await sendFcmDetailed(s.token, msg);
+        if (r.result === 'gone') await this.prisma.pushSubscription.deleteMany({ where: { token: s.token } });
+        // a refusal is reported as 'sent' to the worker (retrying cannot help); here it is called what it is
+        return { ...base, result: r.detail && r.result === 'sent' ? 'refused' : r.result, detail: r.detail };
+      }),
+    );
+    return {
+      firebaseProject: fcmAccount()?.project_id ?? null,
+      devices,
+      note: devices.length ? undefined : 'No device is registered for this account: the app never sent its push address (permission not given, or the app could not get a token).',
+    };
   }
 
   /** true = delivered, or nothing more can be done (the device is gone, or Firebase is not set up here); false = worth trying again. */

@@ -38,6 +38,7 @@ export function resetFcm() {
   account = undefined;
   cached = null;
   warned = false;
+  loginWarned = false;
 }
 
 const b64 = (v: object | Buffer) => Buffer.from(v instanceof Buffer ? v : JSON.stringify(v)).toString('base64url');
@@ -53,7 +54,8 @@ async function accessToken(a: Account): Promise<string> {
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${head}.${claim}.${b64(signature)}` }),
   });
-  if (!res.ok) throw new Error(`token ${res.status}`);
+  // Google refused the server's login: the key file is wrong, deleted in Firebase, or the server clock is off. Its reason is kept.
+  if (!res.ok) throw new Error(`Google refused the server's Firebase login (${res.status}): ${(await res.text().catch(() => '')).slice(0, 300)}`);
   const j = (await res.json()) as { access_token: string; expires_in?: number };
   cached = { token: j.access_token, expiresAt: now + (j.expires_in ?? 3600) };
   return j.access_token;
@@ -74,20 +76,39 @@ function refused(code: string) {
   console.warn(`Phone push refused by Firebase: ${code}${HINT[code] ? ` (${HINT[code]})` : ''}. Nothing was delivered for this message.`);
 }
 
+/** One send and what Firebase answered (`detail`: its error code or reason, for the push test and the logs). */
+export type FcmOutcome = { result: FcmResult; detail?: string };
+
 /** `thread`: pushes about the same thing (one chat) replace each other on Android and are stacked together on iPhone. */
 export async function sendFcm(token: string, msg: { title: string; body: string; url?: string; thread?: string }): Promise<FcmResult> {
+  return (await sendFcmDetailed(token, msg)).result;
+}
+
+let loginWarned = false;
+export async function sendFcmDetailed(token: string, msg: { title: string; body: string; url?: string; thread?: string }): Promise<FcmOutcome> {
   const a = fcmAccount();
   if (!a) {
     if (!warned) {
       warned = true;
       console.warn('Phone push (Firebase) is not set up: FIREBASE_SERVICE_ACCOUNT_JSON / _FILE is empty, so no phone push is sent.');
     }
-    return 'skipped';
+    return { result: 'skipped', detail: 'FIREBASE_SERVICE_ACCOUNT_JSON / _FILE is empty or unreadable on the server' };
+  }
+  let bearer: string;
+  try {
+    bearer = await accessToken(a);
+  } catch (e) {
+    const detail = (e as Error).message;
+    if (!loginWarned) {
+      loginWarned = true;
+      console.warn(`Phone push: ${detail}. Nothing is delivered until this is fixed.`);
+    }
+    return { result: 'retry', detail };
   }
   try {
     const res = await fetch(`https://fcm.googleapis.com/v1/projects/${a.project_id}/messages:send`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${await accessToken(a)}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
       body: JSON.stringify({
         message: {
           token,
@@ -99,18 +120,19 @@ export async function sendFcm(token: string, msg: { title: string; body: string;
         },
       }),
     });
-    if (res.ok) return 'sent';
+    if (res.ok) return { result: 'sent' };
     if (res.status === 401) cached = null; // the access token was refused: ask for a new one next time
-    if (res.status === 401 || res.status === 429 || res.status >= 500) return 'retry';
-    const j = (await res.json().catch(() => null)) as { error?: { status?: string; details?: { errorCode?: string }[] } } | null;
-    const code = j?.error?.details?.find((d) => d.errorCode)?.errorCode ?? j?.error?.status;
-    if (res.status === 404 || code === 'UNREGISTERED' || code === 'NOT_FOUND') return 'gone';
+    const j = (await res.json().catch(() => null)) as { error?: { status?: string; message?: string; details?: { errorCode?: string }[] } } | null;
+    const code = j?.error?.details?.find((d) => d.errorCode)?.errorCode ?? j?.error?.status ?? String(res.status);
+    const detail = `${code}${j?.error?.message ? `: ${j.error.message}` : ''}${HINT[code] ? ` (${HINT[code]})` : ''}`;
+    if (res.status === 401 || res.status === 429 || res.status >= 500) return { result: 'retry', detail };
+    if (res.status === 404 || code === 'UNREGISTERED' || code === 'NOT_FOUND') return { result: 'gone', detail };
     // any other refusal cannot be fixed by trying again, but it means nothing arrived: say so once per reason, so a set-up
     // problem shows in the logs (SENDER_ID_MISMATCH: the server key is for another Firebase project than the app;
     // THIRD_PARTY_AUTH_ERROR: Apple's push key is missing or wrong in Firebase)
-    refused(code ?? String(res.status));
-    return 'sent';
-  } catch {
-    return 'retry'; // no connection to Google
+    refused(code);
+    return { result: 'sent', detail };
+  } catch (e) {
+    return { result: 'retry', detail: `no connection to Google: ${(e as Error).message}` }; // no connection to Google
   }
 }

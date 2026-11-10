@@ -6,5 +6,12 @@
  */
 export const isDemo = () => process.env.DEMO_MODE === 'true';
 
+/**
+ * Sample content: the made-up people of the seed and demo scripts (scripts/seed.ts and the demo:* scripts use @demo.local; the
+ * load test @load.test). Their activities, trips and profiles carry `sample: true`, so the app can label them "Sample" and
+ * nobody mistakes them for real people. Nothing is stored for it: the address says it.
+ */
+export const isSampleEmail = (email?: string | null) => !!email && /@(demo\.local|load\.test)$/i.test(email.trim());
+
 /** Development and demos may use the simulated pieces; a real production server may not. */
 export const allowsSimulated = () => process.env.NODE_ENV !== 'production' || isDemo();

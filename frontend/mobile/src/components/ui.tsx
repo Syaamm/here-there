@@ -14,7 +14,7 @@ import { headerGap, statusTop, useLayout } from '@/lib/layout';
 import { sc, useScale } from '@/lib/scale';
 import { PageTransition } from './PageTransition';
 import { SkeletonRows } from './Skeleton';
-import { useDockSpace } from '@/lib/dock';
+import { onTabSwitch, setDockScrollHidden, useDockSpace } from '@/lib/dock';
 import { setScrollPage } from '@/lib/pageScroll';
 import { formatDay, useKeyboardOverlap, useKeyboardShown, useScrollFieldIntoView, keyboardTaps } from '@/lib/keyboard';
 import { useT } from '@/lib/i18n';
@@ -52,6 +52,19 @@ const SHEET_RADIUS = 40;
 /** Extra band of the home screens, in points: the Figma band is about 50 taller than a title band (22 above the wordmark, 28 under the switch). */
 const BAND_TALL_TOP = 22;
 const BAND_TALL_BOTTOM = 28;
+/** a collapsing header (the home pages): the height of its small row once the page is scrolled, and the band left under it */
+const COMPACT_ROW = 44;
+const COMPACT_BELOW = 10;
+/** how far the page is scrolled (points) before the header is fully small: the shrink is spread over this, so a small scroll only starts it */
+const COLLAPSE_RANGE = 180;
+
+/**
+ * How far a collapsing header has collapsed: `p` runs 0 (page at the top, full header) to 1 (scrolled, small header) on the
+ * native side, so the header's pieces can follow the finger; `hidden` turns true once the pieces that fade away are gone (they stop
+ * taking taps). Null outside a collapsing header.
+ */
+export const HeaderCollapse = createContext<{ p: Animated.AnimatedInterpolation<number>; hidden: boolean } | null>(null);
+export const useHeaderCollapse = () => useContext(HeaderCollapse);
 
 // Pages that sit on the dark band need light clock and battery. Counted, so whichever page opens or closes first the bar ends right.
 let bandPages = 0;
@@ -141,6 +154,9 @@ const FIXED_CARD_RADIUS = 28;
 /** how far a photo page is pulled down, from its top, before letting go refreshes it (iPhone); the spinner starts to show at PULL_SHOW */
 const PULL_TO_REFRESH = 90;
 const PULL_SHOW = 45;
+/** a collapsing page's refresh spinner sits this far below the white sheet's top edge; while it refreshes the content slides REFRESH_ROOM down so the spinner never covers it (and slides back after) */
+const REFRESH_DROP = 28;
+const REFRESH_ROOM = 44;
 
 export function Screen({
   header, headerBg, plain, bandFade, bandDark, bandTall, title, onBack, right, children,
@@ -156,6 +172,7 @@ export function Screen({
   refreshing = false,
   onScrollY,
   bottomRoom,
+  collapse = false,
   style,
 }: {
   children: ReactNode;
@@ -196,6 +213,12 @@ export function Screen({
   onScrollY?: (y: number) => void;
   /** height of a fixed bottom bar (BottomBar, safe area included): the content ends just above it instead of the usual bottom padding */
   bottomRoom?: number;
+  /**
+   * The home pages: the white page rises over the coloured band as it is scrolled (like a detail page's card over its photo), the
+   * header shrinks into a small row (its pieces read useHeaderCollapse), the dock slides away while scrolling down and comes back on
+   * the way up. Leaving the page (another dock tab) puts it back at the top with the full header.
+   */
+  collapse?: boolean;
   onRefresh?: () => void;
   refreshing?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -225,6 +248,30 @@ export function Screen({
   };
   const scrolled = useRef(0);
   const fixedY = useRef(new Animated.Value(0)).current; // the scroll position, for the fixed picture's little effects
+  // a collapsing header: its full height (measured), its own row's height, and how far the page scrolls before it is small
+  const [bandH, setBandH] = useState(0);
+  const [rowH, setRowH] = useState(0);
+  const [collapsedNow, setCollapsedNow] = useState(false);
+  const lastY = useRef(0);
+  const refreshHold = useRef(new Animated.Value(0)).current; // 0 at rest, REFRESH_ROOM while a collapsing page refreshes
+  useEffect(() => {
+    Animated.timing(refreshHold, { toValue: collapse && refreshing ? REFRESH_ROOM : 0, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [collapse, refreshing, refreshHold]);
+  useEffect(() => {
+    if (!collapse) return;
+    // another dock tab was opened: the home page is back at the top with its full header when you return to it
+    const off = onTabSwitch(() => {
+      savedTop.current = 0;
+      lastY.current = 0;
+      scroller.current?.scrollTo({ y: 0, animated: false });
+      fixedY.setValue(0);
+      collapsedRef.current = false;
+      setCollapsedNow(false);
+    });
+    // a home page that goes away (HERE <-> THERE) never leaves the dock hidden
+    return () => (off(), setDockScrollHidden(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapse]);
   const pullFromTop = useRef(false); // the current drag began at the top of a photo page (pull to refresh)
   const savedTop = useRef(0);
   const onScreen = useIsFocused();
@@ -237,17 +284,39 @@ export function Screen({
   }, [onScreen]);
   useEffect(() => {
     // the page came back into front: if the phone dropped its scroll position meanwhile, put it back
+    if (collapse) {
+      // leaving a home page (an activity opened from it, or another tab) brings the dock back; coming back from an activity keeps the place
+      if (!onScreen) setDockScrollHidden(false);
+      return;
+    }
     if (onScreen && savedTop.current > 40) requestAnimationFrame(() => scrolled.current < savedTop.current - 40 && scroller.current?.scrollTo({ y: savedTop.current, animated: false }));
   }, [onScreen]); // and the field being typed in is scrolled above it
   const dockRoom = useDockSpace();
   const dock = typing ? 0 : dockRoom; // the floating dock covers the bottom of the page, so leave room under the content (it hides while typing)
-  const pad = { paddingTop: bandHeader ? (bg ? 20 : 8) : hasHeader ? 12 : top + 8, paddingBottom: bottomRoom !== undefined ? bottomRoom + 16 : (tabBar ? 24 : insets.bottom + 24) + dock, paddingHorizontal: gutter };
+  const pad = { paddingTop: bandHeader ? (bg ? 20 : 8) : hasHeader ? 12 : top + 8, paddingBottom: bottomRoom !== undefined ? bottomRoom + 16 : (tabBar && dockRoom > 0 ? 24 : insets.bottom + 24) + dock, paddingHorizontal: gutter };
+  // a collapsing header (home pages): where the page's top edge stops once scrolled (under the small header row), the band's full
+  // height, how far the page scrolls before the header is small (D), and how far the header row moves up to sit in the small row
+  const collapsing = collapse && !!bandHeader && !!bg && scroll;
+  const tallTop = bandTall ? BAND_TALL_TOP : 0;
+  const tallBottom = bandTall ? BAND_TALL_BOTTOM : 0;
+  const rowHeight = rowH || 48;
+  const stopLine = top + headerGap + COMPACT_ROW + COMPACT_BELOW;
+  const fullBand = bandH || top + headerGap + tallTop + rowHeight + SHEET_OVERLAP + 6 + tallBottom;
+  const D = Math.max(1, fullBand - SHEET_OVERLAP - stopLine); // how far the sheet's top edge travels, from under the full header to the stop line
+  const R = Math.max(D, COLLAPSE_RANGE); // the scroll it takes: the edge rises slower than the content, which slides under the band above it
+  const collapseP = fixedY.interpolate({ inputRange: [0, R], outputRange: [0, 1], extrapolate: 'clamp' });
+  // the sheet's top edge (from the top of the page area): follows a pull down 1:1, rises over R when scrolled
+  // the white sheet never moves when the page is pulled down (as on the activity page): only the content does, and the refresh spinner shows in the room it leaves
+  const sheetTop = fixedY.interpolate({ inputRange: [0, R], outputRange: [D, 0], extrapolate: 'clamp' });
+  const rowShift = COMPACT_ROW / 2 - tallTop - rowHeight / 2;
+  const collapsedRef = useRef(false);
+  const contentTop = (StyleSheet.flatten(style)?.paddingTop as number | undefined) ?? pad.paddingTop;
   // The content sits in a centred column: full width on phones, a comfortable measure on tablets and desktops.
   const columnWidth = maxWidth ?? (wide ? 1180 : 760);
   const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 16 };
   // a fixed-picture page feeds the scroll position straight to the native side (Animated.event with the native driver), so the picture's
   // grow and dim follow the finger on the UI thread and never wait for the JS thread (which is what lags on a weaker Android)
-  const ScrollBox = (fixedHero ? Animated.ScrollView : ScrollView) as typeof ScrollView;
+  const ScrollBox = (fixedHero || collapsing ? Animated.ScrollView : ScrollView) as typeof ScrollView;
   // every pull-to-refresh in the app comes through here: a light tap the moment the pull is let go and the refresh starts
   const pullRefresh = onRefresh
     ? () => {
@@ -263,6 +332,21 @@ export function Screen({
       fireEnd(); // near the end: the next batch is shown before the reader gets there
     }
     if (onScreen) savedTop.current = scrolled.current; // only while the page is in front: a reset after it left must not overwrite it
+    if (collapsing && onScreen) {
+      // the dock: away while scrolling down, back as soon as the page moves up (and always near the top)
+      const y = scrolled.current;
+      const dy = y - lastY.current;
+      lastY.current = y;
+      if (y < 24) setDockScrollHidden(false);
+      else if (dy > 6) setDockScrollHidden(true);
+      else if (dy < -6) setDockScrollHidden(false);
+      // the header pieces that fade out stop taking taps once they are gone
+      const gone = y > R * 0.4;
+      if (gone !== collapsedRef.current) {
+        collapsedRef.current = gone;
+        setCollapsedNow(gone);
+      }
+    }
     onScrollY?.(scrolled.current);
   };
   const body = scroll ? (
@@ -275,28 +359,29 @@ export function Screen({
         if (contentH.current && contentH.current < viewH.current) fireEnd();
       }}
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={[{ flexGrow: 1 }, hero || stickyHero || fixedHero ? { paddingBottom: pad.paddingBottom } : pad, style]}
+      contentContainerStyle={[{ flexGrow: 1 }, hero || stickyHero || fixedHero ? { paddingBottom: pad.paddingBottom } : pad, style, collapsing ? { paddingTop: D + contentTop } : null]}
       keyboardShouldPersistTaps={keyboardTaps}
      
       stickyHeaderIndices={stickyHero ? [1] : undefined}
       // a picture page starts at the very top edge: iOS must not push the content down by a navigation bar's height (it did, leaving a white band above the photo)
       // a picture page does not stretch when pulled down at the top (no bounce on iPhone, no glow on Android): the picture stays put and only scrolls up. A fixed-picture page is the exception: it gives a little springy pull (and the picture eases larger) so it feels alive even at the top
+      {...(collapsing ? { contentInsetAdjustmentBehavior: 'never' as const, automaticallyAdjustsScrollIndicatorInsets: false } : null)}
       {...(hero || stickyHero || fixedHero ? { bounces: !!fixedHero, overScrollMode: fixedHero ? ('always' as const) : ('never' as const), contentInsetAdjustmentBehavior: 'never' as const, automaticallyAdjustContentInsets: false, automaticallyAdjustsScrollIndicatorInsets: false, contentInset: { top: 0, left: 0, bottom: 0, right: 0 }, contentOffset: { x: 0, y: 0 } } : null)}
       scrollEventThrottle={16}
-      onScroll={fixedHero ? Animated.event([{ nativeEvent: { contentOffset: { y: fixedY } } }], { useNativeDriver: true, listener: handleScroll as never }) : handleScroll}
+      onScroll={fixedHero || collapsing ? Animated.event([{ nativeEvent: { contentOffset: { y: fixedY } } }], { useNativeDriver: true, listener: handleScroll as never }) : handleScroll}
       // a photo page: the phone's own spinner would sit on the photo, so it is hidden there and the page's own one shows at the top
       // of the white card instead (below); pulling down still refreshes as anywhere else
       // A photo page refreshes from the white card, not the photo. iPhone: a short pull (about 50 pt, the system's own needs much
       // more) is enough, with the page's own spinner fading in at the top of the card as it is pulled. Android: its pull circle,
       // placed at the top of the card instead of over the photo.
       refreshControl={
-        pullRefresh && !(fixedHero && Platform.OS === 'ios') ? (
-          <RefreshControl refreshing={!!refreshing} onRefresh={pullRefresh} {...(fixedHero ? { colors: [c.forest], progressViewOffset: Math.max(0, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop) } : null)} />
+        pullRefresh && !((fixedHero || collapsing) && Platform.OS === 'ios') ? (
+          <RefreshControl refreshing={!!refreshing} onRefresh={pullRefresh} {...(fixedHero ? { colors: [c.forest], progressViewOffset: Math.max(0, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop) } : collapsing ? { colors: [c.forest], progressViewOffset: D + REFRESH_DROP } : null)} />
         ) : undefined
       }
       // only a pull that started at the very top counts (a flick back up from further down never refreshes), and only past the line
-      onScrollBeginDrag={fixedHero && Platform.OS === 'ios' && onRefresh ? (e) => void (pullFromTop.current = e.nativeEvent.contentOffset.y <= 1) : undefined}
-      onScrollEndDrag={fixedHero && Platform.OS === 'ios' && onRefresh ? (e) => void (!refreshing && pullFromTop.current && e.nativeEvent.contentOffset.y < -PULL_TO_REFRESH && pullRefresh?.()) : undefined}
+      onScrollBeginDrag={(fixedHero || collapsing) && Platform.OS === 'ios' && onRefresh ? (e) => void (pullFromTop.current = e.nativeEvent.contentOffset.y <= 1) : undefined}
+      onScrollEndDrag={(fixedHero || collapsing) && Platform.OS === 'ios' && onRefresh ? (e) => void (!refreshing && pullFromTop.current && e.nativeEvent.contentOffset.y < -PULL_TO_REFRESH && pullRefresh?.()) : undefined}
     >
       {/* an array, not a fragment: the ScrollView counts its direct children to find the sticky one */}
       {stickyHero ? [
@@ -314,12 +399,12 @@ export function Screen({
       ) : null}
       {/* its own height is the real height of the content (the scroll area itself is stretched to fill the screen, so it
           cannot tell a short page from a full one): whenever it changes, a short page asks for more */}
-      <View
+      <Animated.View
         onLayout={(e) => {
           contentH.current = e.nativeEvent.layout.height;
           if (viewH.current && contentH.current < viewH.current) fireEnd();
         }}
-        style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: 16 } : null, fixedHero ? { flexGrow: 1, backgroundColor: c.bg, paddingHorizontal: gutter, paddingTop: 0, maxWidth: undefined } : null]}
+        style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: 16 } : null, fixedHero ? { flexGrow: 1, backgroundColor: c.bg, paddingHorizontal: gutter, paddingTop: 0, maxWidth: undefined } : null, collapsing ? { transform: [{ translateY: refreshHold }] } : null]}
       >
         {fixedHero && onRefresh && Platform.OS === 'ios' ? (
           // the photo page's own pull-to-refresh spinner: floats in the card's rounded top edge (out of the layout, so the content
@@ -329,7 +414,7 @@ export function Screen({
           </Animated.View>
         ) : null}
         {children}
-      </View>
+      </Animated.View>
     </ScrollBox>
   ) : (
     <View style={[{ flex: 1 }, pad, style]}>
@@ -338,14 +423,58 @@ export function Screen({
   );
   return (
     <Animated.View ref={pageBox} onLayout={pageLayout} style={{ flex: 1, backgroundColor: c.bg, paddingBottom: keyboard }}>
-      {bandHeader ? (
+      {bandHeader && !collapsing ? (
         <View style={{ paddingTop: top + headerGap + (bandTall && bg ? BAND_TALL_TOP : 0), paddingBottom: (bg ? SHEET_OVERLAP + 6 : 6) + (bandTall && bg ? BAND_TALL_BOTTOM : 0), paddingHorizontal: gutter + 6, backgroundColor: bg ?? c.bg, zIndex: bg ? 0 : 2 }}>
           {/* the fade ends where the sheet's corners start, so the corner pieces (flat `bg`) sit on exactly the same colour */}
           {bg && bandFade ? <LinearGradient pointerEvents="none" colors={[bandFade, bg]} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: SHEET_OVERLAP }} /> : null}
           <View style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center' }}>{bandHeader}</View>
         </View>
       ) : null}
-      {bandHeader && bg ? (
+      {collapsing ? (
+        <View style={{ flex: 1 }}>
+          {/* the band's colour, behind everything (deep enough to show under the page when it is pulled down) */}
+          <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: fullBand + 400, backgroundColor: bg }}>
+            {bandFade ? <LinearGradient colors={[bandFade, bg!]} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: fullBand - SHEET_OVERLAP }} /> : null}
+          </View>
+          {/* the page: its white sheet starts low over the band and rises with the scroll to the stop line under the small header, then the content scrolls under that edge */}
+          <View style={{ flex: 1, marginTop: stopLine, overflow: 'hidden' }}>
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.bg, borderTopLeftRadius: SHEET_RADIUS, borderTopRightRadius: SHEET_RADIUS, transform: [{ translateY: sheetTop }] }} />
+            <PageTransition>{body}</PageTransition>
+            {Platform.OS === 'ios' && onRefresh ? (
+              // iPhone: the page's own spinner at the top of the white sheet, fading in as the page is pulled and staying while it refreshes
+              <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center', opacity: refreshing ? 1 : fixedY.interpolate({ inputRange: [-PULL_TO_REFRESH, -PULL_SHOW], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateY: fixedY.interpolate({ inputRange: [0, R], outputRange: [D + REFRESH_DROP, REFRESH_DROP], extrapolate: 'clamp' }) }] }}>
+                <ActivityIndicator size="small" color={c.forest} accessibilityLabel={refreshing ? t('Refreshing') : undefined} />
+              </Animated.View>
+            ) : null}
+            {/* content melts away under the sheet's top edge (it moves with the edge) */}
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 26, transform: [{ translateY: sheetTop }], opacity: fixedY.interpolate({ inputRange: [0, 30], outputRange: [0, 1], extrapolate: 'clamp' }) }}>
+              <LinearGradient colors={[c.bg, c.fadeFrom]} style={{ flex: 1 }} />
+            </Animated.View>
+            {/* above the edge it is still band: content that scrolls past the rising edge slides under the band, and the band fills the
+                edge's rounded corners (a band-coloured block whose bottom follows the edge, with the two corner pieces under it) */}
+            {/* it appears only once the page has been scrolled: at the top (and while pulling to refresh) nothing passes under the edge, and
+                the system's refresh spinner must stay visible above the sheet, so this band is out of the way then */}
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: -(D + 400), height: D + 400, backgroundColor: bg, opacity: fixedY.interpolate({ inputRange: [0, 8], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateY: sheetTop }] }}>
+              <View style={{ position: 'absolute', bottom: -SHEET_RADIUS, left: 0, width: SHEET_RADIUS, height: SHEET_RADIUS + 1 }}>
+                <Svg width={SHEET_RADIUS} height={SHEET_RADIUS + 1} viewBox={`0 -1 ${SHEET_RADIUS} ${SHEET_RADIUS + 1}`}>
+                  <Path d={`M0 -1 H${SHEET_RADIUS} V0 A${SHEET_RADIUS} ${SHEET_RADIUS} 0 0 0 0 ${SHEET_RADIUS} Z`} fill={bg} />
+                </Svg>
+              </View>
+              <View style={{ position: 'absolute', bottom: -SHEET_RADIUS, right: 0, width: SHEET_RADIUS, height: SHEET_RADIUS + 1 }}>
+                <Svg width={SHEET_RADIUS} height={SHEET_RADIUS + 1} viewBox={`0 -1 ${SHEET_RADIUS} ${SHEET_RADIUS + 1}`}>
+                  <Path d={`M0 -1 H${SHEET_RADIUS} V${SHEET_RADIUS} A${SHEET_RADIUS} ${SHEET_RADIUS} 0 0 0 0 0 Z`} fill={bg} />
+                </Svg>
+              </View>
+            </Animated.View>
+          </View>
+          {/* the header's pieces, over the band: the row moves up into the small row as the page rises; its pieces shrink and fade by useHeaderCollapse */}
+          <View pointerEvents="box-none" onLayout={(e) => setBandH(Math.round(e.nativeEvent.layout.height))} style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: top + headerGap + tallTop, paddingBottom: SHEET_OVERLAP + 6 + tallBottom, paddingHorizontal: gutter + 6 }}>
+            <Animated.View pointerEvents="box-none" onLayout={(e) => setRowH(Math.round(e.nativeEvent.layout.height))} style={{ width: '100%', maxWidth: columnWidth, alignSelf: 'center', transform: [{ translateY: collapseP.interpolate({ inputRange: [0, 1], outputRange: [0, rowShift] }) }] }}>
+              <HeaderCollapse.Provider value={{ p: collapseP, hidden: collapsedNow }}>{bandHeader}</HeaderCollapse.Provider>
+            </Animated.View>
+          </View>
+        </View>
+      ) : bandHeader && bg ? (
         // the page rises over the coloured band as a sheet. It is a plain rectangle (no clip, which left a faint fringe along the curve):
         // the rounded top corners are two band-coloured corner pieces drawn over it, so the curve joins the band exactly.
         <View style={{ flex: 1, marginTop: -SHEET_OVERLAP, zIndex: 1, backgroundColor: c.bg }}>
@@ -590,9 +719,14 @@ export function SearchBar({ value, onChangeText, placeholder, onFilter, filterAc
           placeholder={placeholder}
           placeholderTextColor={c.placeholder}
           returnKeyType="search"
-          clearButtonMode="while-editing"
           style={{ flex: 1, fontSize: 15, color: c.text, paddingVertical: 0, minHeight: 24 }}
         />
+        {/* one clear (X) on both phones: the built-in one exists on iPhone only */}
+        {value ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} hitSlop={8} onPress={() => onChangeText('')} style={{ width: 28, height: 36, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="close-circle" size={18} color={c.muted} />
+          </Pressable>
+        ) : null}
       </View>
       {/* the filter button sits outside the field: a dark round button; a small dot says a filter is on */}
       {onFilter ? (
@@ -697,12 +831,18 @@ export function Chip({ label, tone = 'info' }: { label: string; tone?: Tone | 'n
   );
 }
 
-export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+export function Empty({ title, children, icon, action }: { title: string; children?: ReactNode; /** a soft icon above the title (what this list is about) */ icon?: React.ComponentProps<typeof Ionicons>['name']; /** the one thing to do next ("Find an activity") */ action?: { label: string; onPress: () => void } }) {
   const { c } = useTheme();
   return (
     <View style={[s.empty, { borderColor: c.line }]}>
-      <Txt variant="h3">{title}</Txt>
+      {icon ? (
+        <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
+          <Ionicons name={icon} size={24} color={c.forest} />
+        </View>
+      ) : null}
+      <Txt variant="h3" style={{ textAlign: 'center' }}>{title}</Txt>
       {children ? <Txt variant="muted" style={{ textAlign: 'center' }}>{children}</Txt> : null}
+      {action ? <Btn title={action.label} variant="secondary" small onPress={action.onPress} style={{ marginTop: 6, alignSelf: 'center' }} /> : null}
     </View>
   );
 }
@@ -855,6 +995,6 @@ const s = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 6 },
   banner: { padding: 12, borderRadius: 12 },
   chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
-  empty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 16, padding: 24, alignItems: 'center', gap: 8 },
+  empty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 16, paddingVertical: 28, paddingHorizontal: 24, alignItems: 'center', gap: 8 },
   sheet: { borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, gap: 12, maxHeight: '88%' },
 });

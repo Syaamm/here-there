@@ -10,7 +10,7 @@
  *  - several requests still waiting may overlap, and the first one you are accepted into wins: the others are withdrawn;
  *  - a host cannot approve someone who is busy by then (APPLICANT_BUSY), and the waiting list skips them;
  *  - trips: the same rules over whole days; an activity you host or joined blocks a trip, and a trip blocks joining and
- *    applying and moving, but CREATING a trip or an activity on days you are already on a trip is allowed (9 Nov 2026: the app
+ *    applying and moving, but CREATING an activity on days you are already on a trip is allowed, while a new trip is refused over another trip (10 Nov 2026; 9 Nov: the app
  *    only warns, "go on only if you can join or host");
  *  - GET /v1/me/clashes lists what is in the way.
  */
@@ -269,12 +269,29 @@ describe('one plan at a time: trips, and trips with activities', () => {
     assert.match(approved.body, new RegExp(`Your application for "${t1.title}" was withdrawn`));
   });
 
-  it('allows creating a trip over a trip you are on (the app only warns), but refuses moving a trip there', async () => {
+  it('refuses creating a trip over a trip you are on (cancel it if not started, end it if started), and refuses moving a trip there', async () => {
     const me = await h.verified('Me');
     await createTrip(me, tripBody(30, 33));
-    assert.equal((await h.post('/v1/trips', me.token, tripBody(33, 35))).status, 201, 'a trip over a trip is only a warning in the app');
+    const r = await h.post('/v1/trips', me.token, tripBody(33, 35));
+    assert.equal(r.body.code, 'TIME_CLASH', 'a new trip cannot overlap a trip you hold');
+    assert.equal(r.body.details.clashes[0].kind, 'trip');
+    assert.match(r.body.message, /cancel it first/, 'a trip that has not started is to be cancelled');
+    assert.equal((await h.post('/v1/trips', me.token, tripBody(34, 36))).status, 201, 'the day after it ends is free');
     const t = await createTrip(me, tripBody(40, 42));
     assert.equal((await h.call('PATCH', `/v1/trips/${t.id}`, me.token, { dateStart: day(31), dateEnd: day(41) })).body.code, 'TIME_CLASH');
+  });
+
+  it('a trip cannot be ended before it starts; an ended trip frees the dates', async () => {
+    const me = await h.verified('Me');
+    const t = await createTrip(me, tripBody(80, 83));
+    const early = await h.post(`/v1/trips/${t.id}/end`, me.token);
+    assert.equal(early.body.code, 'TRIP_NOT_STARTED');
+    await h.prisma.trip.update({ where: { id: t.id }, data: { dateStart: day(-1) } }); // it has started
+    assert.equal((await h.post(`/v1/trips/${t.id}/end`, me.token)).status, 201);
+    assert.equal((await h.post(`/v1/trips/${t.id}/end`, me.token)).status, 201, 'ending twice is harmless');
+    assert.equal((await h.get(`/v1/trips/${t.id}`, me.token)).body.status, 'completed');
+    const stranger = await h.verified('Stranger');
+    assert.equal((await h.post(`/v1/trips/${t.id}/end`, stranger.token)).body.code, 'NOT_ORGANIZER');
   });
 
   it('a trip and an activity block each other', async () => {

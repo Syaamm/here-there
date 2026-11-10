@@ -1,7 +1,7 @@
 import { ActivityCard, TripCard } from '@/components/Cards';
 import { Empty, ErrorBanner, Grid, Screen, Spinner, Txt } from '@/components/ui';
-import { get, type Activity, type Trip } from '@/lib/api';
-import { useLoad, useRefresh } from '@/lib/hooks';
+import { type Activity, type Trip } from '@/lib/api';
+import { useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
 
@@ -9,19 +9,20 @@ import { PagedTail, useCursorList } from '@/lib/paged';
 export default function Favourites() {
   const { t, tn } = useT();
   const favs = useCursorList<Activity, { total: number }>('/v1/me/favorites', {}, 'me:favs:all');
-  const trips = useLoad(() => get<{ items: Trip[]; total: number }>('/v1/me/favorite-trips'), [], undefined, 'me:fav-trips');
+  const trips = useCursorList<Trip, { total: number }>('/v1/me/favorite-trips', {}, 'me:fav-trips:all');
   const { refreshing, onRefresh } = useRefresh(async () => {
     await Promise.all([favs.reload(), trips.reload()]);
   });
   const total = favs.data?.total ?? favs.items.length;
-  const tripItems = trips.data?.items ?? [];
+  const tripItems = trips.items;
+  const tripTotal = trips.data?.total ?? tripItems.length;
   const none = favs.data && favs.items.length === 0 && trips.data && tripItems.length === 0;
 
   return (
     <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>
-      <ErrorBanner message={favs.error?.message} />
+      <ErrorBanner message={favs.error?.message ?? trips.error?.message} />
       {favs.loading && !favs.data && <Spinner />}
-      {none && <Empty title={t('No favourites yet')}>{t('Tap the heart on an activity or a trip.')}</Empty>}
+      {none && <Empty icon="heart-outline" title={t('No favourites yet')}>{t('Tap the heart on an activity or a trip to keep it here.')}</Empty>}
       {favs.items.length > 0 && (
         <>
           <Txt variant="muted">{tn(total, '{n} saved activity.', '{n} saved activities.')}</Txt>
@@ -35,12 +36,13 @@ export default function Favourites() {
       )}
       {tripItems.length > 0 && (
         <>
-          <Txt variant="muted">{tn(tripItems.length, '{n} saved trip.', '{n} saved trips.')}</Txt>
+          <Txt variant="muted">{tn(tripTotal, '{n} saved trip.', '{n} saved trips.')}</Txt>
           <Grid>
             {tripItems.map((x) => (
               <TripCard key={x.id} t={x} />
             ))}
           </Grid>
+          <PagedTail paged={trips} />
         </>
       )}
     </Screen>

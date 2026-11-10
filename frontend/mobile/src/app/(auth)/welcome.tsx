@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -13,7 +12,6 @@ import { tap } from '@/lib/haptics';
 import { useAction } from '@/lib/hooks';
 import { useTheme, type Mode } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
-import { INTRO_KEY } from './intro';
 import { tracking } from '@/lib/scale';
 
 const FOREST = '#102F29';
@@ -153,13 +151,6 @@ export default function Welcome() {
   const demo = useAction();
   const { height: screenH } = useWindowDimensions();
   const [sheetH, setSheetH] = useState(Math.round(screenH * 0.44)); // measured once the sheet is drawn (an error line makes it taller)
-  // a first-time visitor sees the intro pictures first (once); until that is known, nothing of this page is drawn
-  const [introSeen, setIntroSeen] = useState(false);
-  useEffect(() => {
-    AsyncStorage.getItem(INTRO_KEY)
-      .then((v) => (v === '1' ? setIntroSeen(true) : router.replace('/intro' as never)))
-      .catch(() => setIntroSeen(true));
-  }, [router]);
   // "Explore the demo": a temporary read-only guest session. No account, no personal data.
   const explore = () => demo.run(async () => signIn(await post<{ token: string }>('/v1/auth/guest')));
   // 0 = HERE, 1 = THERE. Only opacity animates, on the native thread.
@@ -170,7 +161,6 @@ export default function Welcome() {
   // the old page fades away first, then the new one fades in (no ghosting of the two together)
   const hereOpacity = fade.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0], extrapolate: 'clamp' });
   const thereOpacity = fade.interpolate({ inputRange: [0.45, 1], outputRange: [0, 1], extrapolate: 'clamp' });
-  if (!introSeen) return <View style={{ flex: 1, backgroundColor: FOREST }} />;
   const common = { onLogin: () => router.push('/login'), onSignUp: () => router.push('/register'), onExplore: explore, busy: demo.busy, error: notice ?? demo.error };
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>

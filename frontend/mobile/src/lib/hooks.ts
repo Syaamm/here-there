@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { liveIsUp } from './live';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,17 +21,34 @@ const cache = new Map<string, unknown>();
 
 // ...and kept on the phone for the next time the app opens (one person's data only, never a chat's messages)
 const DISK = 'ht_load_cache_v1';
+/** The app version the saved memory was written by: a new version starts with an empty memory (answers may have changed shape). */
+const APP_VERSION = Constants.expoConfig?.version ?? '0';
+/** A list saved on the phone keeps only its first two pages (the refresh at opening brings the rest), and the whole memory stays under a size. */
+const DISK_ITEMS = 40;
+const DISK_MAX_CHARS = 1_500_000;
 let owner: string | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/** What goes to the phone for one remembered answer: a long paged list is cut to its first pages, with no "more" marker (the opening refresh sets the real one). */
+function forDisk(v: unknown): unknown {
+  const p = v as { items?: unknown[]; nextCursor?: unknown } | null;
+  if (p && Array.isArray(p.items) && 'nextCursor' in p && p.items.length > DISK_ITEMS) return { ...p, items: p.items.slice(0, DISK_ITEMS), nextCursor: null };
+  return v;
+}
 function saveSoon() {
   if (!owner || saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    const entries: Record<string, unknown> = {};
+    const parts: [string, string][] = [];
     cache.forEach((v, k) => {
-      if (!k.startsWith('chat:')) entries[k] = v;
+      if (!k.startsWith('chat:')) parts.push([k, JSON.stringify(forDisk(v))]);
     });
-    AsyncStorage.setItem(DISK, JSON.stringify({ owner, entries })).catch(() => {});
+    // over the size: the oldest remembered answers go first
+    let size = parts.reduce((n, [k, j]) => n + k.length + j.length + 6, 0);
+    let from = 0;
+    while (size > DISK_MAX_CHARS && from < parts.length) size -= parts[from][0].length + parts[from++][1].length + 6;
+    const keep = parts.slice(from);
+    const body = '{"owner":' + JSON.stringify(owner) + ',"version":' + JSON.stringify(APP_VERSION) + ',"entries":{' + keep.map(([k, j]) => JSON.stringify(k) + ':' + j).join(',') + '}}';
+    AsyncStorage.setItem(DISK, body).catch(() => {});
   }, 2000);
 }
 // Reading the remembered answers starts the moment the app starts, while the sign-in is still being checked with the server,
@@ -42,8 +60,9 @@ export async function restoreLoadCache(userId: string) {
   try {
     const raw = await (early ?? AsyncStorage.getItem(DISK));
     early = null;
-    const saved = raw ? (JSON.parse(raw) as { owner?: string; entries?: Record<string, unknown> }) : null;
-    if (saved?.owner === userId && saved.entries) for (const [k, v] of Object.entries(saved.entries)) if (!cache.has(k)) cache.set(k, v);
+    const saved = raw ? (JSON.parse(raw) as { owner?: string; version?: string; entries?: Record<string, unknown> }) : null;
+    if (saved && saved.version !== APP_VERSION) AsyncStorage.removeItem(DISK).catch(() => {}); // written by another app version: start empty
+    else if (saved?.owner === userId && saved.entries) for (const [k, v] of Object.entries(saved.entries)) if (!cache.has(k)) cache.set(k, v);
   } catch {
     // an unreadable memory is simply an empty one
   }

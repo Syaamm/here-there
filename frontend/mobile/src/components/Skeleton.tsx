@@ -36,6 +36,21 @@ function Block({ children, gap = 12 }: { children: ReactNode; gap?: number }) {
   return <View accessibilityLabel={t('Loading')} accessibilityRole="progressbar" style={{ gap }}>{children}</View>;
 }
 
+/** A row of Reports & Blocked while it loads: a title, two status chips and a line, in the shape of the real row. */
+export function SkeletonReportRow({ last }: { last?: boolean }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ paddingVertical: 16, gap: 10, borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
+      <Skeleton w="72%" h={16} />
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        <Skeleton w={78} h={24} r={12} />
+        <Skeleton w={132} h={24} r={12} />
+      </View>
+      <Skeleton w="90%" h={12} />
+    </View>
+  );
+}
+
 /** Rows like the ones in the lists: a picture and two lines. */
 export function SkeletonRows({ count = 4 }: { count?: number }) {
   const { c } = useTheme();

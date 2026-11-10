@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Injectable, Param, Post, Query } from '@
 import { User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
-import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
+import { beforeKeyset, decodeKeyset, pageLimit, pageOf, sliceKeyset } from '../common/paging';
 import { CurrentUser, Perm, Public, RegionalOk, Staff } from '../common/auth';
 import { RegionsService } from '../regions/regions.service';
 import { E } from '../common/errors';
@@ -327,14 +327,12 @@ export class ReliabilityService {
   }
 
   // ---------------------------------------------------------------- moderators
-  async adminList(state?: string) {
-    const rows = await this.prisma.attendanceMark.findMany({
-      // a state shows just that state; "all" (and nothing asked) shows every record, decided ones too.
-      // Records still waiting for a decision go oldest first; the rest, newest first.
-      where: state && state !== 'all' ? { state } : {},
-      orderBy: { markedAt: state === 'disputed' || state === 'marked' ? 'asc' : 'desc' },
-      take: 200,
-    });
+  async adminList(state?: string, limitRaw?: string, cursorRaw?: string) {
+    // a state shows just that state; "all" (and nothing asked) shows every record, decided ones too.
+    // Records still waiting for a decision go oldest first; the rest, newest first. A page at a time (default 50), nextCursor for the next.
+    const waiting = state === 'disputed' || state === 'marked';
+    const page = await pageOf((a) => this.prisma.attendanceMark.findMany(a), { limit: pageLimit(limitRaw, 50, 100), cursor: cursorRaw, where: state && state !== 'all' ? { state } : {}, sortBy: 'markedAt', order: waiting ? 'asc' : 'desc' });
+    const rows = page.items;
     const people = await this.prisma.user.findMany({ where: { id: { in: [...new Set(rows.flatMap((r) => [r.userId, r.markedById]))] } }, select: { id: true, email: true, profile: { select: { displayName: true } } } });
     const name = new Map(people.map((p) => [p.id, { id: p.id, email: p.email, displayName: p.profile?.displayName ?? p.email }]));
     // hosts whose notes look unusual are marked, so a moderator reads those notes with that in mind
@@ -350,7 +348,7 @@ export class ReliabilityService {
       ...trips.map((x) => [x.id, { at: x.dateStart, city: x.destination, place: x.originCity ? 'from ' + x.originCity : null }] as const),
     ]);
     const photos = await this.proofs.idsFor('markId', rows.map((r) => r.id));
-    return { items: rows.map((r) => ({ proofs: photos.get(r.id) ?? [], id: r.id, kind: r.kind, targetId: r.targetId, title: r.title, plan: plan.get(r.targetId) ?? null, state: r.state, markedAt: r.markedAt, disputedAt: r.disputedAt, disputeNote: r.disputeNote, decisionNote: r.decisionNote, member: name.get(r.userId), host: name.get(r.markedById), hostUnusual: flagged.get(r.markedById) ?? null })) };
+    return { items: rows.map((r) => ({ proofs: photos.get(r.id) ?? [], id: r.id, kind: r.kind, targetId: r.targetId, title: r.title, plan: plan.get(r.targetId) ?? null, state: r.state, markedAt: r.markedAt, disputedAt: r.disputedAt, disputeNote: r.disputeNote, decisionNote: r.decisionNote, member: name.get(r.userId), host: name.get(r.markedById), hostUnusual: flagged.get(r.markedById) ?? null })), nextCursor: page.nextCursor };
   }
 
   /** A moderator settles a note: uphold it (it counts) or overturn it (it never counts). Works on any note, to fix mistakes. */
@@ -551,8 +549,8 @@ export class ReliabilityController {
   // ---- moderators
   @Staff(...ALL)
   @Get('admin/no-shows')
-  adminList(@Query('state') state?: string) {
-    return this.reliability.adminList(state);
+  adminList(@Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.reliability.adminList(state, limit, cursor);
   }
 
   /** Hosts who say many people did not come (or whose notes keep being overturned): the check from the reliability hardening list. */
