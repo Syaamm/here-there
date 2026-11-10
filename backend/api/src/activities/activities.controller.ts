@@ -117,11 +117,6 @@ export class ActivitiesController {
     return this.activities.myFavorites(me, limit, cursor);
   }
 
-  @Get('me/activities')
-  mine(@CurrentUser() me: User) {
-    return this.activities.mine(me);
-  }
-
   /** The plans on now or starting within `hours` (Home's Next up). */
   @Get('me/activities/soon')
   soon(@CurrentUser() me: User, @Query('hours') hours?: string) {

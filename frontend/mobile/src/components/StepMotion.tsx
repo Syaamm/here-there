@@ -6,7 +6,7 @@ import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 
 /**
- * Motion shared by the two four-step wizards (HERE "Host activity", THERE "Create a Trip"): the step bars fill and drain,
+ * Motion shared by the two four-step wizards (HERE "Host activity", THERE "Create a trip"): the step bars fill and drain,
  * the "Step n/4" label slides in, and a step's content slides in from the side it came from. Everything is opacity and
  * transform on the native driver (no layout animation, so Android stays smooth); none of it when reduced motion is on.
  */

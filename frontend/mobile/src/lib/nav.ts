@@ -8,6 +8,9 @@ const MAIN = ['/', '/discover', '/create', '/inbox', '/profile'];
 const OVERLAYS = ['/chat', '/verify', '/onboarding'];
 let prev: string | null = null;
 let current: string | null = null;
+// the trail of pages in the order they were opened (coming back to a page in it cuts the trail back to that page), so Back
+// from a main page can tell which page you came from
+let trail: string[] = [];
 
 const isOverlay = (p: string) => OVERLAYS.some((o) => p === o || p.startsWith(o + '/'));
 
@@ -16,7 +19,25 @@ export function trackPath(p: string) {
   if (p !== current) {
     prev = current;
     current = p;
+    const at = trail.lastIndexOf(p);
+    if (at >= 0) trail = trail.slice(0, at + 1); // came back to a page of the trail
+    else trail = [...trail.slice(-40), p];
   }
+}
+
+/** Is this one of the five main pages (Home, Search or Map, Create, Inbox, Profile)? */
+export const isMainPath = (p: string | null) => !!p && MAIN.includes(p);
+/** The page in front right now. */
+export const currentPath = () => current;
+
+/**
+ * Where Back goes from a main page (the rule of the app): to the main page you came from, when that is where you were; from
+ * anywhere else (an inner page was in between, or the app opened on this page) to Home. Home itself is not handled here: Back on
+ * Home asks to press again, and the second press closes the app.
+ */
+export function backFromMain(): string {
+  const before = trail.length >= 2 ? trail[trail.length - 2] : null;
+  return before && isMainPath(before) && before !== current ? before : '/';
 }
 
 /** Should the page at `path` play its entrance animation now that it is in front? */

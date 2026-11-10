@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, BackHandler, Easing, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DOCK, useDockSpace, useHideDockFade } from '@/lib/dock';
 import { isoDay, parseDay } from '@/lib/format';
 import { closeKeyboard } from '@/lib/keyboard';
@@ -65,6 +66,9 @@ export function DateRangeSheet({
   useHideDockFade(visible); // the dock's ivory fade would show as a pale bar under it while the page is dimmed
   // the green + button rises above the dock's pill: keep the calendar (and its Done button) clear of it
   const lift = dock ? DOCK.raise + 10 : 0;
+  // a page without the dock (the create forms): the calendar floats a little above the bottom edge, clear of the phone's home bar
+  const insets = useSafeAreaInsets();
+  const floatUp = dock ? 0 : insets.bottom + 24;
   const today = startOfDay(new Date());
   const [from, setFrom] = useState<Date | null>(null);
   const [to, setTo] = useState<Date | null>(null);
@@ -157,12 +161,12 @@ export function DateRangeSheet({
           alignSelf: 'center',
           width: '100%',
           maxWidth: 520,
-          marginBottom: dock + lift,
+          marginBottom: dock + lift + floatUp,
           backgroundColor: c.surface,
           borderTopLeftRadius: 22,
           borderTopRightRadius: 22,
-          borderBottomLeftRadius: dock ? 22 : 0,
-          borderBottomRightRadius: dock ? 22 : 0,
+          borderBottomLeftRadius: 22,
+          borderBottomRightRadius: 22,
           paddingHorizontal: 14,
           paddingTop: 12,
           paddingBottom: 12,

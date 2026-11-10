@@ -90,18 +90,23 @@ export class ClashService {
   }
 
   /**
-   * Creating a new activity or trip (owner's change, 9 Nov 2026): only an ACTIVITY you host or joined blocks it (409 TIME_CLASH).
-   * A trip you are on at that time does not: the app warns about it ("you are on a trip then, go on only if you can join or
-   * host") and leaves the decision to the person. Joining, applying and moving still use assertFree (a trip blocks those).
+   * Creating a new plan (owner's rules, 9 and 10 Nov 2026):
+   *  - a new ACTIVITY is blocked by an activity you host or joined at that time (409 TIME_CLASH); a trip you are on does not block
+   *    it: the app shows a warning ("you are on a trip then, go on only if you can join or host") and publishing goes through;
+   *  - a new TRIP is blocked by any plan holding you on those days, an activity or another trip (409 TIME_CLASH).
+   * The message says how to free the time: cancel the other plan if it has not started, end it if it has (a plan you only joined:
+   * leave it). The warning is for the person creating only; nobody else is told. Joining, applying and moving use assertFree.
    */
-  async assertFreeToCreate(userId: string, from: Date, to: Date) {
-    const holding = (await this.find(userId, from, to)).filter((x) => x.firm && x.kind === 'activity');
+  async assertFreeToCreate(userId: string, from: Date, to: Date, creating: 'activity' | 'trip' = 'activity') {
+    const holding = (await this.find(userId, from, to)).filter((x) => x.firm && (creating === 'trip' || x.kind === 'activity'));
     if (holding.length === 0) return;
     const first = holding[0];
+    const now = Date.now();
+    const way = (x: ClashItem) => (x.role === 'going' || x.role === 'member' ? 'leave it' : +x.startsAt > now ? 'cancel it' : 'end it');
     const message =
       holding.length === 1
-        ? `You already have "${first.title}" at that time. You can create another plan once it has ended or is cancelled.`
-        : `You already have ${holding.length} activities at that time. You can create another plan once they have ended or are cancelled.`;
+        ? `You already have "${first.title}" at that time. To create this ${creating}, ${way(first)} first.`
+        : `You already have ${holding.length} plans at that time. To create this ${creating}, cancel or end them first (or leave the ones you only joined).`;
     throw E.conflict('TIME_CLASH', message, { clashes: holding });
   }
 

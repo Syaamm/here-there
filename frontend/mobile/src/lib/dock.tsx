@@ -16,6 +16,73 @@ import { useTheme } from '@/lib/theme';
 export const DockSpace = createContext(0);
 export const useDockSpace = () => useContext(DockSpace);
 
+/** True while a tab page that takes the dock away (the create forms, your own profile) is in front: Android's Back then leaves the page instead of asking to exit. */
+export const dockAway = { current: false };
+const awayWatchers = new Set<() => void>();
+/** Sets it (the create page does, while it is in front); the tab layout hides the dock by it. */
+export function setDockAway(v: boolean) {
+  dockAway.current = v;
+  awayWatchers.forEach((f) => f());
+  // the dock slides away and back the same way it does on the home pages
+  if (v !== pageHidden) {
+    pageHidden = v;
+    moveDock();
+  }
+}
+/**
+ * A tab page that takes the dock away while it is in front (phones only; tablets keep the side rail). Returns whether it is away,
+ * so the page can leave the usual safe-area room at the bottom instead of the dock's.
+ */
+export function useNoDock(on = true) {
+  const { isWide } = useDockMetrics();
+  // no side effect here: the tab layout decides when the dock is away (by the last main page you were on), so opening an inner page
+  // (Settings) over Create or Profile and coming back never makes the dock appear and slide away again
+  return on && !isWide;
+}
+
+export const useDockAway = () =>
+  useSyncExternalStore(
+    (fn) => (awayWatchers.add(fn), () => void awayWatchers.delete(fn)),
+    () => dockAway.current,
+  );
+
+/**
+ * The dock slides down out of sight while a page is scrolled down (the home pages ask for it) and back up as soon as it is scrolled up,
+ * and it also steps aside while the keyboard is up. 0 = in place, 1 = out of sight. One value for the whole app, driven on the native side.
+ */
+export const dockHide = new Animated.Value(0);
+let scrollHidden = false;
+let keyboardHidden = false;
+let pageHidden = false; // a page without a dock is in front (the create forms, your own profile)
+const moveDock = () =>
+  Animated.timing(dockHide, { toValue: scrollHidden || keyboardHidden || pageHidden ? 1 : 0, duration: 240, easing: Easing.bezier(0.2, 0, 0, 1), useNativeDriver: true }).start();
+/** a page's scroll hides (true) or brings back (false) the dock */
+export function setDockScrollHidden(v: boolean) {
+  if (v === scrollHidden) return;
+  scrollHidden = v;
+  moveDock();
+}
+/** the keyboard came up (true) or went down (false) */
+export function setDockKeyboardHidden(v: boolean) {
+  if (v === keyboardHidden) return;
+  keyboardHidden = v;
+  moveDock();
+}
+
+/**
+ * Another dock tab was opened (Home -> Messages, Home -> Profile...). Opening a page from a tab and coming back is not a switch.
+ * The home pages listen to it to go back to the top with their full header; the dock comes back too.
+ */
+const tabSwitchWatchers = new Set<() => void>();
+export function tabSwitched() {
+  setDockScrollHidden(false);
+  tabSwitchWatchers.forEach((f) => f());
+}
+export function onTabSwitch(fn: () => void) {
+  tabSwitchWatchers.add(fn);
+  return () => void tabSwitchWatchers.delete(fn);
+}
+
 /** Sizes of the phone dock, in points. Every icon is centred on the pill's middle line and drawn in an ICON square. */
 export const DOCK = {
   icon: 26, // optical size shared by the three drawn icons (the profile photo is 28 so it matches optically)

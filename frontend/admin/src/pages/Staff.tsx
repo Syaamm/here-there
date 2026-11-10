@@ -43,7 +43,7 @@ export function StaffPage({ me }: { me: Session }) {
             </button>
           </div>
           <div className="row wrap">
-            <code className="mono" style={{ fontSize: '1.05rem' }}>
+            <code className="mono" style={{ fontSize: 'var(--fs-lg)' }}>
               {made.temporaryPassword}
             </code>
             <button className="btn small" onClick={() => navigator.clipboard?.writeText(made.temporaryPassword)}>
@@ -92,7 +92,7 @@ export function StaffPage({ me }: { me: Session }) {
                     <td>
                       <Chip value={roleLabel(m.role)} tone={m.role === 'admin' ? 'dark' : 'plain'} />
                     </td>
-                    <td>{m.role === 'admin' ? 'Everywhere' : m.regionKey ? placeName(m.regionKey) : <Chip value="No area" tone="dark" />}</td>
+                    <td>{m.role === 'admin' ? 'Everywhere' : m.regionKey ? placeName(m.regionKey) : <Chip value="No area" tone="warn" />}</td>
                     <td>
                       {m.role === 'admin' ? (
                         <span className="muted small">Everything</span>
@@ -211,7 +211,7 @@ function StaffDialog({ title, areas, start, onClose, onSave }: { title: string; 
           </Select>
         </label>
         <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 8 }}>
-          <legend style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 6 }}>Can use</legend>
+          <legend style={{ fontWeight: 600, fontSize: 'var(--fs-md)', marginBottom: 6 }}>Can use</legend>
           {PERMISSIONS.map((p) => (
             <label key={p.id} className="check">
               <input type="checkbox" checked={perms.includes(p.id)} onChange={() => toggle(p.id)} />

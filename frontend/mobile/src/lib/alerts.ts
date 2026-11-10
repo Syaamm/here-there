@@ -46,7 +46,7 @@ export function alertRoute(n: Pick<Notif, 'type' | 'data'>): string | null {
   const about = plan?.aboutId ? `&aboutType=${plan.aboutType}&aboutId=${plan.aboutId}&aboutTitle=${encodeURIComponent(plan.aboutTitle ?? '')}` : '';
   if (n.type === 'warning' && d?.warningId) return `/appeal?kind=warning&targetId=${d.warningId}${why}${about}`;
   if (n.type === 'message_removed' && d?.messageId) return `/appeal?kind=message&targetId=${d.messageId}${why}`;
-  if (n.type === 'appeal_decided') return '/appeal';
+  if (n.type === 'appeal_decided') return '/reports-blocked';
   if (n.type === 'report_decision') return '/reports-blocked';
   if (d?.conversationId) return `/chat/${d.conversationId}`;
   if (n.type === 'join_request' && d?.activityId) return `/host/${d.activityId}`;

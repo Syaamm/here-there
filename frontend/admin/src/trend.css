@@ -5,7 +5,7 @@
 .ov-bottom { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--gap); align-items: stretch; margin-top: var(--gap); }
 .ov-tiles { display: grid; gap: 12px; grid-auto-rows: 1fr; }
 .ov-tiles .stat { padding: 22px 24px; align-content: space-between; }
-.ov-tiles .stat .value { font-size: 3.4rem; letter-spacing: -0.03em; }
+.ov-tiles .stat .value { font-size: var(--fs-3xl); letter-spacing: -0.03em; }
 .ov-top > .card, .ov-bottom > .card { min-width: 0; }
 .ov-top .card { margin: 0; }
 .ov-bottom .items { padding: 10px 12px 12px; gap: 8px; }
@@ -17,14 +17,14 @@
 
 .trend { display: grid; gap: 12px; }
 .trend-legend { display: flex; flex-wrap: wrap; gap: 10px; }
-.trend-key { --c: #36ad7a; display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font: inherit; font-size: 0.86rem; color: var(--text); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+.trend-key { --c: #36ad7a; display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font: inherit; font-size: var(--fs-md); color: var(--text); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
 .trend-key:hover { background: var(--surface-2); }
 .trend-key.on { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
 .trend-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
 .trend-key.on .trend-dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25); }
 .trend-name { font-weight: 600; }
-.trend-total { font-size: 1rem; font-weight: 600; }
-.trend-change { font-size: 0.74rem; font-weight: 600; color: var(--muted); }
+.trend-total { font-size: var(--fs-lg); font-weight: 600; }
+.trend-change { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
 .trend-key.on .trend-change { color: #cfe0d7; }
 .trend-change.up { color: var(--ok-fg); }
 .trend-key.on .trend-change.up { color: #7fe0b0; }
@@ -42,8 +42,8 @@
 /* the days picker and Refresh at the top of the dashboard: they apply to the whole page */
 .ov-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
 .trend-range { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
-.trend-dates { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted); }
-.trend-dates input[type='date'] { width: auto; min-height: 36px; padding: 4px 10px; font-size: 0.84rem; }
+.trend-dates { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
+.trend-dates input[type='date'] { width: auto; min-height: 36px; padding: 4px 10px; font-size: var(--fs-md); }
 
 @media (prefers-reduced-motion: no-preference) {
   .trend-dates { animation: trend-fade 0.2s ease-out; }

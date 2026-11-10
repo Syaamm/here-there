@@ -151,8 +151,9 @@ export default function App() {
   useEffect(() => {
     if (!session) return;
     let live = true;
-    const ids = (path: string) => api<{ items: { id: string }[] }>('GET', path).then((r) => r.items.map((x) => x.id), () => [] as string[]);
-    const load = () => Promise.all([ids('/v1/admin/reports?status=open'), Promise.resolve([] as string[])]).then(([reports, verifications]) => live && setOpen({ reports, verifications }));
+    // the ids of the open reports come from a small summary (not the whole queue), so asking every few seconds stays cheap
+    const ids = () => api<{ openIds: string[] }>('GET', '/v1/admin/reports/waiting').then((r) => r.openIds, () => [] as string[]);
+    const load = () => Promise.all([ids(), Promise.resolve([] as string[])]).then(([reports, verifications]) => live && setOpen({ reports, verifications }));
     load();
     const t = setInterval(() => !document.hidden && load(), 6000);
     const back = () => !document.hidden && load();
@@ -219,6 +220,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
   const pick = (key: string, name: string) => {
     const next = key === 'all' ? null : { key, name };
     setPlace(next);
+    clearLoadCache(); // what was loaded for the old place is not shown for the new one
     setChosen(next);
     setSwitching(false);
   };
@@ -470,7 +472,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
             <span className="brand-sub">Admin</span>
           </div>
         </header>
-        <main className="main" id="main" ref={mainRef} tabIndex={-1}>
+        <main className="main" id="main" ref={mainRef} tabIndex={-1} key={place.key}>
           {section.tabs ? (
             // a section with tabs: its heading and tab bar are built once, only the page under them changes between tabs
             <PageFrame key={section.id} eyebrow={`${section.group} · ${section.label}`} title={section.label} tabs={tabs}>

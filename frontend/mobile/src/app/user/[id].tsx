@@ -9,11 +9,13 @@ import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo 
 import { del, get, post, type Reliability } from '@/lib/api';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { useMe } from '@/lib/auth';
+import { useVerifyGate } from '@/lib/verifyGate';
 import { confirmAsync } from '@/lib/confirm';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { StatsCard } from '@/components/StatsCard';
 import { useTheme } from '@/lib/theme';
+import { SampleTag } from '@/components/SampleTag';
 
 type PublicProfile = {
   id: string;
@@ -24,6 +26,8 @@ type PublicProfile = {
   bio: string | null;
   photoUrl: string | null;
   verifiedAdult: boolean;
+  /** a made-up person of the sample data */
+  sample?: boolean;
   reliability?: Reliability | null;
   stats: { activitiesHosted: number; activitiesJoined: number; tripsDone: number };
   relation: { following: boolean; followsYou: boolean; buddy: boolean };
@@ -36,6 +40,7 @@ export default function UserProfile() {
   const { me } = useMe();
   const { c } = useTheme();
   const go = useGo();
+  const gate = useVerifyGate();
   const router = useRouter();
   const user = useLoad(() => get<PublicProfile>(`/v1/users/${id}`), [id], undefined, 'user', { animate: true });
   const { refreshing, onRefresh } = useRefresh(user.reload); // pull down to refresh
@@ -84,10 +89,11 @@ export default function UserProfile() {
       <View style={{ alignItems: 'center', gap: 6 }}>
         <Avatar name={p.displayName} uri={p.photoUrl} size={104} />
         <Txt variant="h2" style={{ fontSize: 22 }}>{p.displayName} {p.verifiedAdult ? <Ionicons name="checkmark" size={18} color={c.green} /> : null}</Txt>
-        <Txt variant="muted">{p.homeCity ?? t('City not set')} · {p.verifiedAdult ? t('Verified adult') : t('Not verified')}</Txt>
+        <Txt variant="muted">{p.homeCity ?? t('City not set')} · {p.verifiedAdult ? t('Verified adult') : t('Identity not verified')}</Txt>
         <Row style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
           {/* you follow each other: friends */}
           {!mine && relation?.buddy ? <Chip label={`${t('Friends')} ✓`} tone="ok" /> : null}
+          {p.sample ? <SampleTag /> : null}
           <ReliabilityChip r={p.reliability} />
         </Row>
       </View>
@@ -109,7 +115,7 @@ export default function UserProfile() {
       )}
       {p.languages.length > 0 && <Txt variant="small">{t('Languages: {list}', { list: p.languages.map((l) => t(l)).join(', ') })}</Txt>}
 
-      {mine ? <Btn title={t('Edit my profile')} variant="secondary" onPress={() => go('/edit-profile')} /> : null}
+      {mine ? <Btn title={gate.isGuest ? gate.title('edit') : t('Edit my profile')} variant="secondary" onPress={() => (gate.isGuest ? void gate.ask('edit') : go('/edit-profile'))} /> : null}
       {!mine && relation ? (
         <>
           <Btn title={relation.buddy ? t('Friends ✓') : relation.following ? t('Following ✓') : relation.followsYou ? t('Follow back') : t('Follow')} variant={relation.following ? 'secondary' : 'primary'} onPress={toggleFollow} />

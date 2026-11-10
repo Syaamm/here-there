@@ -58,7 +58,7 @@ export function AlertBanner() {
     bumpUnread(-1); // opening it reads it
     void post(`/v1/notifications/${shown.id}/read`).then(refreshUnread, () => undefined);
     const to = alertRoute(shown);
-    // the colour wave plays first and the page opens once it has covered the screen, so it is never seen before the switch
+    // the colour fade plays first and the page opens once it has covered the screen, so it is never seen before the switch
     if (to) switchMode(shown.product, () => router.push(to as never));
   };
   return (

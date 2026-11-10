@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -14,6 +15,7 @@ import { INTERESTS, LANGUAGES } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
+import { showToast } from '@/lib/toast';
 
 const BIO_MAX = 300;
 const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
@@ -86,7 +88,9 @@ export default function EditProfile() {
   const pick = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7 });
     if (r.canceled || !r.assets[0]) return;
-    await photo.run(() => uploadPhoto(r.assets[0].uri));
+    const done = await photo.run(() => uploadPhoto(r.assets[0].uri));
+    // who will see it, said once more the moment it is up
+    if (done?.photoUrl) showToast(t('Photo saved. People in the activities and trips you join will see it.'), 'ok', 3200);
   };
 
   return (
@@ -99,7 +103,11 @@ export default function EditProfile() {
           {p.photoUrl ? <SmallPill title={t('Remove')} onPress={() => photo.run(() => del('/v1/me/photo'))} disabled={photo.busy} /> : null}
         </Row>
         <ErrorBanner message={photo.error} />
-        <Txt variant="small" style={{ textAlign: 'center' }}>{t('Your photo is cropped to a square and shown to people on your activities and trips. Never use an ID document.')}</Txt>
+        {/* who sees the photo, said plainly next to the photo buttons */}
+        <View accessible style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, backgroundColor: c.accentSoft, maxWidth: 420 }}>
+          <Ionicons name="eye-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
+          <Txt variant="small" style={{ flex: 1, color: c.forest }}>{t('Your photo will be seen by people in the activities and trips you join. Never use an ID document.')}</Txt>
+        </View>
       </View>
 
       <ErrorBanner message={save.error} />

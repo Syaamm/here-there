@@ -16,6 +16,12 @@ const EMPTY: Record<Kind, string> = {
   following: 'You are not following anyone',
   followers: 'No followers yet',
 };
+// what goes in each list, so an empty one explains itself
+const EMPTY_HINT: Record<Kind, string> = {
+  buddies: 'When you follow someone and they follow you back, you become friends.',
+  following: 'Open a profile from an activity or a trip and tap Follow.',
+  followers: 'People who follow you appear here.',
+};
 
 /** Your friends (buddies in the code), the people you follow and the people who follow you. Private: nobody else can see these lists. */
 export default function Connections() {
@@ -41,7 +47,7 @@ export default function Connections() {
       </PillRow>
       <ErrorBanner message={list.error?.message ?? act.error} />
       {list.loading && !list.data && <Spinner />}
-      {list.data && items.length === 0 && <Empty title={t(EMPTY[kind])} />}
+      {list.data && items.length === 0 && <Empty icon="people-outline" title={t(EMPTY[kind])}>{t(EMPTY_HINT[kind])}</Empty>}
       <Grid>
         {items.map((p) => (
           <Card key={p.userId} onPress={() => go(`/user/${p.userId}`)} accessibilityLabel={t('{name}, open profile', { name: p.displayName })} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 18 }}>

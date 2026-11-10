@@ -108,6 +108,18 @@ export function useCity() {
   return [shown, pickCity] as const;
 }
 
+/**
+ * True when the city shown is a real one: chosen by the person, or the home city in their profile. Without either, the feeds
+ * show Milan so they are not empty, but that is only a placeholder: nothing may be saved as the person's city from it.
+ */
+export function useCityKnown() {
+  const { me } = useMe();
+  useOwner();
+  useEffect(load, []);
+  const chosen = useSyncExternalStore(subscribe, () => city);
+  return !!(chosen || me?.profile?.homeCity);
+}
+
 /** The chosen city's centre on the map (null when it was typed by hand, or is the profile's home city). */
 export function useCityPos() {
   useOwner();

@@ -45,7 +45,8 @@ export const REPORT_CATEGORIES: [string, string][] = [
 export const LANGUAGES = ['English', 'Italian', 'French', 'Spanish', 'German', 'Portuguese', 'Dutch', 'Arabic'];
 export const INTERESTS = ['coffee', 'culture', 'travel', 'running', 'food', 'music', 'art', 'hiking', 'photography', 'nightlife', 'sports', 'books', 'fitness', 'adventure'];
 
-export const TRIP_TAGS = ['culture', 'food', 'adventure', 'nature', 'city', 'beach', 'relax', 'hiking', 'photography', 'art'];
+/** The travel interests of a trip, in the order of the chips on THERE Home: the same four in the create form, the filters and Home. */
+export const TRIP_TAGS = ['adventure', 'nature', 'beach', 'photography'];
 export const GROUP_SIZES: [string, string][] = [
   ['2-3', '2–3 people'],
   ['4-6', '4–6 people'],

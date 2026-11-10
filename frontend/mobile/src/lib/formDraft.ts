@@ -5,6 +5,7 @@ import { put, type ServerDraft } from './api';
 import { chooseAsync, confirmAsync } from './confirm';
 import { draftName, draftToUpdate, draftToUpdateQuietly, draftUnchanged, ownDraft, setCurrentDraft, takeCurrentDraft } from './drafts';
 import { t } from './i18n';
+import { useMe } from './auth';
 import { showToast } from './toast';
 
 type Kind = 'activity' | 'trip';
@@ -57,6 +58,10 @@ export function useFormDraft<T extends object>(kind: Kind, form: T, hasContent: 
   const reset = useRef(onReset);
   reset.current = onReset;
   const posted = useRef(false);
+  // a guest has no account to keep drafts in: leaving or restarting the form never tries to save one
+  const { isGuest } = useMe();
+  const guest = useRef(isGuest);
+  guest.current = isGuest;
 
   // the cleanup of a focus effect runs when the screen loses focus (or unmounts): a published form starts over next time
   useFocusEffect(
@@ -69,14 +74,14 @@ export function useFormDraft<T extends object>(kind: Kind, form: T, hasContent: 
   );
 
   const stashNow = useCallback(async () => {
-    if (!posted.current && has.current(latest.current)) await stash(kind, latest.current);
+    if (!guest.current && !posted.current && has.current(latest.current)) await stash(kind, latest.current);
   }, [kind]);
 
   const saving = useRef<Promise<boolean> | null>(null);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'background') {
-        saving.current = !posted.current && has.current(latest.current) ? keep(kind, latest.current) : null;
+        saving.current = !guest.current && !posted.current && has.current(latest.current) ? keep(kind, latest.current) : null;
       } else if (s === 'active' && saving.current) {
         const pending = saving.current;
         saving.current = null;
@@ -93,7 +98,7 @@ export function useFormDraft<T extends object>(kind: Kind, form: T, hasContent: 
    */
   const restart = async () => {
     const form = latest.current;
-    if (!posted.current && has.current(form) && !draftUnchanged(kind, form)) {
+    if (!guest.current && !posted.current && has.current(form) && !draftUnchanged(kind, form)) {
       if (!draftName(kind, form)) {
         const msg = kind === 'trip' ? t('A draft needs a destination, so what you entered will be cleared.') : t('A draft needs an activity name, so what you entered will be cleared.');
         if (!(await confirmAsync(t('Restart without saving?'), msg, t('Restart'), true))) return;

@@ -63,7 +63,7 @@ export function ChevronCircle() {
 }
 
 /** One row: icon, title, small grey line under it, then a chevron circle (or your own right side). */
-export function AccountRow({ icon, title, subtitle, onPress, right, last, tint }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; subtitle?: string; onPress?: () => void; right?: ReactNode; last?: boolean; tint?: string }) {
+export function AccountRow({ icon, title, subtitle, onPress, right, last, tint, dot }: { icon: React.ComponentProps<typeof Ionicons>['name']; /** a red dot beside the title: something here is new */ dot?: boolean; title: string; subtitle?: string; onPress?: () => void; right?: ReactNode; last?: boolean; tint?: string }) {
   const { c, mode } = useTheme();
   const body = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: sc(64), paddingVertical: 12, borderBottomWidth: last ? 0 : 1, borderBottomColor: mode === 'there' ? 'rgba(16,47,41,0.09)' : c.line }}>
@@ -71,7 +71,10 @@ export function AccountRow({ icon, title, subtitle, onPress, right, last, tint }
         <Ionicons name={icon} size={22} color={tint ?? c.text} />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: tint ?? c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{title}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={{ color: tint ?? c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{title}</Text>
+          {dot ? <View accessibilityLabel="New" style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
+        </View>
         {subtitle ? <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{subtitle}</Text> : null}
       </View>
       {right ?? (onPress ? <ChevronCircle /> : null)}

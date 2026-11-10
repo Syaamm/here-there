@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Chip, Empty, ErrorBanner, fmt, Loading, Page, ProofImages, useAction, useLoad, type Tone } from '../ui';
+import { askText, Chip, Empty, ErrorBanner, fmt, Loading, Page, ProofImages, Segmented, useAction, useLoad, useMore, type Tone } from '../ui';
 import './NoShows.css';
 
 type Person = { id: string; email: string; displayName: string };
@@ -41,12 +41,14 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { week
 /** Missed attendance: a host said a member did not attend. Disputed ones wait here for a decision. */
 export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: string, from?: string) => void }) {
   const [view, setView] = useState<View>('disputed');
-  const { data, error, loading, reload } = useLoad(() => get<{ items: Note[] }>(`/v1/admin/no-shows?state=${view}`), [view], 6000);
+  const { data, error, loading, reload } = useLoad(() => get<{ items: Note[]; nextCursor?: string | null }>(`/v1/admin/no-shows?state=${view}`), [view], 10000);
+  // older records come a page at a time ("Load more"), not only the first 50
+  const more = useMore(data, (c) => get(`/v1/admin/no-shows?state=${view}&cursor=${c}`), view);
   // always on: only hosts who mark unusually many people absent (half or more of their guests, or marks that keep being overturned)
   const hosts = useLoad(() => get<{ items: HostRow[] }>('/v1/admin/no-shows/hosts'), [], 30000);
-  const act = useAction(reload);
+  const act = useAction(() => (more.reset(), reload()));
   const mod = can.moderate(me.role);
-  const items = data?.items ?? [];
+  const items = more.items;
 
   const decide = async (n: Note, decision: 'uphold' | 'overturn') => {
     const note = await askText(decision === 'uphold' ? 'Uphold: they did not attend' : 'Overturn: remove the record', { label: 'Reason (both people are told)', confirm: decision === 'uphold' ? 'Uphold' : 'Overturn' });
@@ -62,14 +64,7 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
     );
 
   return (
-    <Page fill title="Attendance">
-      <div className="ns-filters" role="group" aria-label="Which records">
-        {VIEWS.map((v) => (
-          <button key={v.id} type="button" className={view === v.id ? 'ns-pill on' : 'ns-pill'} aria-pressed={view === v.id} onClick={() => setView(v.id)}>
-            {v.label}
-          </button>
-        ))}
-      </div>
+    <Page fill title="Attendance" actions={<Segmented label="Which records" value={view} onChange={setView} options={VIEWS.map((v) => ({ id: v.id, label: v.label }))} />}>
       <ErrorBanner message={error ?? act.error} />
       {loading && !data && <Loading rows={5} />}
       <div className="ns-grid">
@@ -143,6 +138,7 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
               </article>
             );
           })}
+          {more.hasMore && <div style={{ padding: 12 }}>{more.more}</div>}
         </section>
 
         <section className="ns-hosts" aria-labelledby="att-hosts">

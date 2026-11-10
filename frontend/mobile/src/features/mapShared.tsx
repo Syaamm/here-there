@@ -121,7 +121,18 @@ export function useMapData() {
         p.set('lng', String(near.lng));
         p.set('radiusKm', '3');
       }
-      return get<{ items: Activity[] }>(`/v1/activities?${p}`);
+      // the map reads up to four pages (200 pins) from the server, so a busy city is not cut at its first 50
+      return (async () => {
+        const items: Activity[] = [];
+        let cursor: string | null = null;
+        for (let i = 0; i < 4; i++) {
+          const r: { items: Activity[]; nextCursor?: string | null } = await get(`/v1/activities?${p}${cursor ? `&cursor=${cursor}` : ''}`);
+          items.push(...r.items);
+          cursor = r.nextCursor ?? null;
+          if (!cursor) break;
+        }
+        return { items };
+      })();
     },
     [city, cityPos, near, cat],
     60_000,

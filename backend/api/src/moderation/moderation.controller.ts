@@ -1,6 +1,6 @@
 import { inScope, type Scope } from '../regions/regions';
 import { Body, Controller, Get, Injectable, OnModuleDestroy, OnModuleInit, Param, Post, Query } from '@nestjs/common';
-import { User } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
@@ -53,16 +53,19 @@ export function reportPolicy(now = new Date()) {
  * higher), then reports past their answer time (the one that has waited longest first), then age-related concerns, then the
  * rest by how soon they are due. Reports that are finished come last, newest first. The same input always gives the same order.
  */
-export function orderQueue<T extends { id: string; open: boolean; priority: string; escalationLevel: number; escalated: boolean; overdue: boolean; category: string; createdAt: Date; answerBy: Date }>(items: T[]): T[] {
-  const rank = (x: T) => (!x.open ? 4 : x.priority === 'urgent' ? 0 : x.escalated || x.overdue ? 1 : x.category === 'underage' ? 2 : 3);
-  return [...items].sort((a, b) => {
-    const ra = rank(a);
-    const rb = rank(b);
-    if (ra !== rb) return ra - rb;
-    if (ra === 4) return +b.createdAt - +a.createdAt || (a.id < b.id ? -1 : 1);
-    if (ra === 0 && a.escalationLevel !== b.escalationLevel) return b.escalationLevel - a.escalationLevel;
-    return +a.answerBy - +b.answerBy || +a.createdAt - +b.createdAt || (a.id < b.id ? -1 : 1);
-  });
+type QueueKey = { id: string; open: boolean; priority: string; escalationLevel: number; escalated: boolean; overdue: boolean; category: string; createdAt: Date; answerBy: Date };
+const queueRank = (x: QueueKey) => (!x.open ? 4 : x.priority === 'urgent' ? 0 : x.escalated || x.overdue ? 1 : x.category === 'underage' ? 2 : 3);
+/** The order of the queue: -, 0, + as `a` comes before, with or after `b`. */
+export function queueCmp(a: QueueKey, b: QueueKey): number {
+  const ra = queueRank(a);
+  const rb = queueRank(b);
+  if (ra !== rb) return ra - rb;
+  if (ra === 4) return +b.createdAt - +a.createdAt || (a.id < b.id ? -1 : 1);
+  if (ra === 0 && a.escalationLevel !== b.escalationLevel) return b.escalationLevel - a.escalationLevel;
+  return +a.answerBy - +b.answerBy || +a.createdAt - +b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+export function orderQueue<T extends QueueKey>(items: T[]): T[] {
+  return [...items].sort(queueCmp);
 }
 
 export const warnSchema = z.object({
@@ -309,24 +312,66 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     if (!inScope(scope, (await this.cityOfReports([report])).get(report.id))) throw E.forbidden('OUT_OF_SCOPE', 'That is outside the area you look after');
   }
 
+  /**
+   * The waiting reports (open or in review) of an area, in queue order, as light rows (no names, no messages): the oldest 500 plus
+   * every urgent or escalated one however new, so a long queue can never hide the newest urgent report. For staff of one area
+   * only the reports about it are kept (before any paging, so a page is never short because of the area).
+   */
+  private async waitingLight(where: Prisma.ReportWhereInput, now: Date, scope: Scope | null) {
+    const select = { id: true, status: true, createdAt: true, category: true, priority: true, escalationLevel: true, escalatedAt: true, targetType: true, targetId: true } as const;
+    const [oldest, urgent] = await Promise.all([
+      this.prisma.report.findMany({ where, orderBy: [{ createdAt: 'asc' }], take: 500, select }),
+      this.prisma.report.findMany({ where: { AND: [where, { OR: [{ priority: 'urgent' }, { category: { in: URGENT_CATEGORIES } }, { escalationLevel: { gt: 0 } }] }] }, orderBy: [{ createdAt: 'asc' }], take: 500, select }),
+    ]);
+    const merged = [...new Map([...oldest, ...urgent].map((r) => [r.id, r])).values()];
+    const cities = scope ? await this.cityOfReports(merged) : null;
+    const inArea = scope ? merged.filter((r) => inScope(scope, cities!.get(r.id))) : merged;
+    return orderQueue(
+      inArea.map((r) => {
+        const urgentNow = r.priority === 'urgent' || this.isUrgent(r.category);
+        const limit = urgentNow ? ANSWER_WITHIN_HOURS.urgent : ANSWER_WITHIN_HOURS.normal;
+        return { id: r.id, status: r.status, open: true, priority: urgentNow ? 'urgent' : 'normal', escalationLevel: r.escalationLevel, escalated: !!r.escalatedAt, overdue: (+now - +r.createdAt) / HOUR > limit, category: r.category, createdAt: r.createdAt, answerBy: new Date(+r.createdAt + limit * HOUR) };
+      }),
+    );
+  }
+
+  /** How many reports wait, how many are urgent or overdue, and the ids of the open ones (the console's badge and overview read this, not the whole queue). */
+  async waitingSummary(scope: Scope | null, now = new Date()) {
+    const light = await this.waitingLight({ status: { in: ['open', 'in_review'] } }, now, scope);
+    const total = scope ? light.length : await this.prisma.report.count({ where: { status: { in: ['open', 'in_review'] } } });
+    return { total, open: light.filter((x) => x.status === 'open').length, inReview: light.filter((x) => x.status === 'in_review').length, urgent: light.filter((x) => x.priority === 'urgent').length, overdue: light.filter((x) => x.overdue).length, openIds: light.filter((x) => x.status === 'open').map((x) => x.id) };
+  }
+
   async queue(status?: string, category?: string, now = new Date(), scope: Scope | null = null, paging: { limit?: string; cursor?: string } = {}) {
-    // Waiting reports (a status of open or in review): the oldest 500, PLUS every urgent or escalated one however new, so a long queue can never hide the
-    // newest urgent report. Finished ones: newest first, a page at a time (default 200) with a cursor for the next.
-    const size = pageLimit(paging.limit, 200, 200);
+    // Waiting reports (status open, in_review, or waiting for both): in queue order, a page at a time (default 50) with a cursor for the next; only the
+    // page is filled in. Finished ones: newest first, a page at a time (default 200) with a cursor for the next.
+    const waiting = status === 'open' || status === 'in_review' || status === 'waiting';
+    const size = waiting ? pageLimit(paging.limit, 50, 100) : pageLimit(paging.limit, 200, 200);
     let nextCursor: string | null = null;
-    const waiting = status === 'open' || status === 'in_review';
-    const where = { ...(status && { status }), ...(category && { category }) };
+    const where: Prisma.ReportWhereInput = { ...(status === 'waiting' ? { status: { in: ['open', 'in_review'] } } : status ? { status } : {}), ...(category && { category }) };
     const include = { reporter: { select: { id: true, profile: { select: { displayName: true } } } } };
     const found = waiting
-      ? await Promise.all([
-          this.prisma.report.findMany({ where, orderBy: [{ createdAt: 'asc' }], take: 500, include }),
-          this.prisma.report.findMany({
-            where: { ...where, OR: [{ priority: 'urgent' }, { category: { in: URGENT_CATEGORIES } }, { escalationLevel: { gt: 0 } }] },
-            orderBy: [{ createdAt: 'asc' }],
-            take: 500,
-            include,
-          }),
-        ]).then(([oldest, urgent]) => [...new Map([...oldest, ...urgent].map((r) => [r.id, r])).values()])
+      ? await (async () => {
+          const ordered = await this.waitingLight(where, now, scope);
+          let start = 0;
+          if (paging.cursor) {
+            let cur: QueueKey;
+            try {
+              const raw = JSON.parse(Buffer.from(paging.cursor, 'base64url').toString());
+              cur = { ...raw, createdAt: new Date(raw.createdAt), answerBy: new Date(raw.answerBy) };
+              if (typeof cur.id !== 'string' || isNaN(+cur.createdAt) || isNaN(+cur.answerBy)) throw new Error('bad');
+            } catch {
+              throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
+            }
+            start = ordered.findIndex((x) => queueCmp(x, cur) > 0);
+            if (start < 0) start = ordered.length;
+          }
+          const pageRows = ordered.slice(start, start + size);
+          const last = pageRows[pageRows.length - 1];
+          nextCursor = start + size < ordered.length && last ? Buffer.from(JSON.stringify(last)).toString('base64url') : null;
+          const full = new Map((await this.prisma.report.findMany({ where: { id: { in: pageRows.map((x) => x.id) } }, include })).map((r) => [r.id, r]));
+          return pageRows.map((x) => full.get(x.id)).filter((r): r is NonNullable<typeof r> => !!r);
+        })()
       : await this.prisma.report
           .findMany({ where: { AND: [where, beforeKeyset(decodeKeyset(paging.cursor))] }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: size + 1, include })
           .then((all) => {
@@ -335,8 +380,8 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
             return page.items;
           });
     // staff who look after one area see only the reports about it (a report about something no place covers is for the whole-service staff)
-    const cities = scope ? await this.cityOfReports(found) : null;
-    const rows = scope ? found.filter((r) => inScope(scope, cities!.get(r.id))) : found;
+    const cities = scope && !waiting ? await this.cityOfReports(found) : null;
+    const rows = scope && !waiting ? found.filter((r) => inScope(scope, cities!.get(r.id))) : found;
     const evidence = await this.reliability.hostAbsenceEvidence(rows.filter((r) => r.category === 'host_no_show'));
     const who = await this.targetUsers(rows);
     const subjects = [...new Set([...who.values()].filter((x): x is string => !!x))];

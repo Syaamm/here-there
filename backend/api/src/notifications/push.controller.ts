@@ -37,6 +37,13 @@ export class PushController {
     return { ok: true };
   }
 
+  /** Push test: sends a test push to my devices now and says what happened to each (see PushService.test). */
+  @Post('test')
+  async test(@CurrentUser() me: User) {
+    this.limiter.hit(`push-test:${me.id}`, 10, 15 * 60 * 1000);
+    return this.push.test(me.id);
+  }
+
   /**
    * A signed-out device stops getting pushes. No sign-in needed: the app also signs out on its own (the sign-in expired, the
    * account was suspended), when it can no longer prove who it is. The device's push address is the proof: only that device

@@ -21,6 +21,7 @@ import { circleOf, tierCounts } from '../common/social';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { ClashService, withdrawnNote } from '../schedule/clash.service';
 import { decodeCursor, encodeCursor, scoreActivity, topK } from './feed-ranking';
+import { isSampleEmail } from '../common/demo';
 
 const HOUR = 3600 * 1000;
 /** One person going, as a card shows them: a face and a name (the first three people going come with each card). */
@@ -211,13 +212,13 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       visibility: a.visibility,
       joinPolicy: a.joinPolicy,
       language: a.language,
-      host: { id: a.host.id, displayName: a.host.profile?.displayName ?? 'Host', photoUrl: a.host.profile?.photoUrl ?? null, verifiedAdult: a.host.eligibility === 'verified' },
+      host: { id: a.host.id, displayName: a.host.profile?.displayName ?? 'Host', photoUrl: a.host.profile?.photoUrl ?? null, verifiedAdult: a.host.eligibility === 'verified', sample: isSampleEmail((a.host as { email?: string }).email) },
       ...extra,
     };
   }
 
   private readonly hostInclude = {
-    host: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } },
+    host: { select: { id: true, email: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } },
   } as const;
 
   /**
@@ -331,7 +332,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     // page is full (or the rows run out). Without those two filters one chunk is the whole page.
     const filtered = geo || q.hasSpots === 'true';
     const chunk = filtered ? Math.max(q.limit * 3, 60) : q.limit;
-    type Row = Prisma.ActivityGetPayload<{ include: { host: { select: { id: true; eligibility: true; profile: { select: { displayName: true; photoUrl: true } } } }; _count: { select: { memberships: { where: { state: 'approved' } } } } } }>;
+    type Row = Prisma.ActivityGetPayload<{ include: { host: { select: { id: true; email: true; eligibility: true; profile: { select: { displayName: true; photoUrl: true } } } }; _count: { select: { memberships: { where: { state: 'approved' } } } } } }>;
     const kept: Array<{ row: Row; dist: number | undefined }> = [];
     let tail: Row | undefined; // the last row read
     let more = false; // there are rows after `tail`
@@ -571,7 +572,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     );
     if (dup) throw E.conflict('DUPLICATE_ACTIVITY', 'You already have an activity like this at that time. Change it instead of posting it again.');
     // one plan at a time: no activity you host or joined may overlap the new one (a trip you are on only gets a warning in the app)
-    await this.clash.assertFreeToCreate(me.id, dto.startsAt, dto.endsAt);
+    await this.clash.assertFreeToCreate(me.id, dto.startsAt, dto.endsAt, 'activity');
 
     const created = await this.prisma.$transaction(async (tx) => {
       const a = await tx.activity.create({
@@ -1329,26 +1330,6 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const [memberships, requests] = await Promise.all([
       this.prisma.activityMembership.findMany({ where: { userId: me.id, state: 'approved', activity: open }, include: { activity: { include: this.hostInclude } }, orderBy: { activity: { startsAt: 'asc' } }, take: 50 }),
       this.prisma.activityRequest.findMany({ where: { applicantId: me.id, state: { in: ['requested', 'waitlisted'] }, activity: open }, include: { activity: { include: this.hostInclude } }, orderBy: { activity: { startsAt: 'asc' } }, take: 50 }),
-    ]);
-    return {
-      joined: await this.withGoing(memberships, (m) => m.activityId, (m, going, faces) => this.dto(m.activity, going, { role: m.role, faces }), true),
-      requests: await this.withGoing(requests, (r) => r.activityId, (r, going, faces) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going, { faces }) }), true),
-    };
-  }
-
-  async mine(me: User) {
-    await this.expirePendingRequests();
-    const [memberships, requests] = await Promise.all([
-      this.prisma.activityMembership.findMany({
-        where: { userId: me.id, state: 'approved' },
-        include: { activity: { include: this.hostInclude } },
-        orderBy: { activity: { startsAt: 'desc' } },
-      }),
-      this.prisma.activityRequest.findMany({
-        where: { applicantId: me.id, state: { in: ['requested', 'waitlisted', 'declined'] } },
-        include: { activity: { include: this.hostInclude } },
-        orderBy: { createdAt: 'desc' },
-      }),
     ]);
     return {
       joined: await this.withGoing(memberships, (m) => m.activityId, (m, going, faces) => this.dto(m.activity, going, { role: m.role, faces }), true),

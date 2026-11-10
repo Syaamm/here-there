@@ -19,14 +19,14 @@ Request bodies and query strings are generated from the same validation rules th
 ## Contents
 
 - [Shared links](#shared-links) (4)
-- [HERE activities](#here-activities) (33)
-- [Admin console](#admin-console) (43)
+- [HERE activities](#here-activities) (32)
+- [Admin console](#admin-console) (44)
 - [Sign-in and account](#sign-in-and-account) (33)
 - [Safety, blocks and follows](#safety-blocks-and-follows) (13)
 - [Chat and date polls](#chat-and-date-polls) (8)
-- [Profile and photo](#profile-and-photo) (15)
+- [Profile and photo](#profile-and-photo) (16)
 - [THERE trips](#there-trips) (32)
-- [Notifications and push](#notifications-and-push) (9)
+- [Notifications and push](#notifications-and-push) (10)
 - [Identity verification](#identity-verification) (6)
 - [API description](#api-description) (1)
 - [Error codes](#error-codes)
@@ -704,19 +704,6 @@ Responses
 - **404**: Not found. Codes: `NOT_FOUND`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
-### `GET /v1/me/activities`
-
-**Everything I host, go to, or have requested**
-
-Access: signed in (`Authorization: Bearer <token>`).
-
-Responses
-
-- **200**: Done.
-- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
-- **429**: Too many requests. Codes: `RATE_LIMITED`
-
 ### `GET /v1/me/activities/overlapping`
 
 **My plans that overlap a time window**
@@ -1113,10 +1100,12 @@ Parameters
 | Name | In | Type | Required | Notes |
 | --- | --- | --- | --- | --- |
 | `state` | query | string | no |  |
+| `limit` | query | string | no |  |
+| `cursor` | query | string | no |  |
 
 Responses
 
-- **200**: { items }. Records waiting for a decision come oldest first, the rest newest first (up to 200).
+- **200**: { items, nextCursor }, 50 a page by default; nextCursor is null when there is no more. Records waiting for a decision come oldest first, the rest newest first (up to 200).
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
@@ -1321,7 +1310,7 @@ Parameters
 
 Responses
 
-- **200**: { items, nextCursor }. Waiting reports (open, in review) always come whole; finished ones come newest first, a page at a time (nextCursor is null when there is no more). Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }.
+- **200**: { items, nextCursor }. status=waiting is open and in review together (open or in-review alone also work): in queue order (urgent, then overdue and escalated, then the rest), 50 a page by default, nextCursor for the next page. Finished ones come newest first, a page at a time (nextCursor is null when there is no more). Each has priority, ageHours, overdue, escalated, assignedName, subject (the person it is about), message (for message reports) and repeatOffender: { flag, reasons }.
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
@@ -1385,6 +1374,20 @@ Responses
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
 - **409**: Conflicts with the current state. Codes: `REPORT_ALREADY_DECIDED`
+
+### `GET /v1/admin/reports/waiting`
+
+**How many reports wait: totals, urgent, overdue, and the ids of the open ones (the console's badge and overview)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: staff, admin.
+
+Responses
+
+- **200**: { total, open, inReview, urgent, overdue, openIds }. Only the reports of the staff member's area for area staff.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
 ### `GET /v1/admin/reports/workload`
 
@@ -3021,6 +3024,26 @@ Responses
 - **404**: Not found. Codes: `NOT_FOUND`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
+### `GET /v1/me/drafts/{id}`
+
+**One draft by its id**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { id, kind, title, data, updatedAt }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
 ### `POST /v1/me/drafts/{id}/publish`
 
 **Post a draft as a real activity or trip**
@@ -3209,13 +3232,21 @@ Responses
 
 ### `GET /v1/me/favorite-trips`
 
-**My favourite trips**
+**My favourite trips, a page at a time**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `limit` | query | string | no |  |
+| `cursor` | query | string | no |  |
+
 Responses
 
-- **200**: { items: Trip[], total }. Newest saved first, cancelled trips left out.
+- **200**: { items: Trip[], nextCursor, total }. Newest saved first, cancelled trips left out; total is how many there are in all.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
@@ -3320,19 +3351,6 @@ Responses
 - **409**: Conflicts with the current state. Codes: `NOT_OPTED_IN`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
-### `GET /v1/me/trips`
-
-**Trips I organize or have joined or applied to**
-
-Access: signed in (`Authorization: Bearer <token>`).
-
-Responses
-
-- **200**: Done.
-- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
-- **429**: Too many requests. Codes: `RATE_LIMITED`
-
 ### `GET /v1/me/trips/page`
 
 **My trips, paged**
@@ -3361,6 +3379,9 @@ Parameters
 | `to` | query | string (date-time) | no |  |
 | `flexibility` | query | one of: `exact`, `plus_minus_1`, `plus_minus_3`, `plus_minus_7`, `same_month` | no | default `"exact"` |
 | `originCity` | query | string | no |  |
+| `travelStyle` | query | one of: `together`, `meet_at_destination` | no |  |
+| `startFrom` | query | string (date-time) | no |  |
+| `startTo` | query | string (date-time) | no |  |
 | `budgetMax` | query | number (0 to 9007199254740991) | no |  |
 | `includesTransport` | query | one of: `true`, `false` | no |  |
 | `tags` | query | string | no |  |
@@ -3394,7 +3415,8 @@ Request body (JSON)
 | `destination` | string (2 to 100 characters) | yes |  |
 | `destinationPlaceId` | string (0 to 200 characters) | no |  |
 | `timeZone` | string (0 to 60 characters) | no |  |
-| `originCity` | string (2 to 60 characters) | yes |  |
+| `travelStyle` | one of: `together`, `meet_at_destination` | no | default `"together"` |
+| `originCity` | string (0 to 60 characters) | no |  |
 | `dateStart` | string (date-time) | yes |  |
 | `dateEnd` | string (date-time) | yes |  |
 | `dateFlexibility` | one of: `exact`, `plus_minus_1`, `plus_minus_3`, `plus_minus_7`, `same_month` | no | default `"exact"` |
@@ -3643,6 +3665,27 @@ Responses
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_A_MEMBER`
 - **404**: Not found. Codes: `NOT_FOUND`
 - **409**: Conflicts with the current state. Codes: `NO_DATES_TO_CONFIRM`, `TRIP_CLOSED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/trips/{id}/end`
+
+**The organizer ends a trip that has started (it becomes completed, the dates are freed, the group is told)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { ok: true }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `NOT_ORGANIZER`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `TRIP_CLOSED`, `TRIP_NOT_STARTED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `DELETE /v1/trips/{id}/favorite`
@@ -4098,6 +4141,19 @@ Responses
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
+### `POST /v1/push/test`
+
+**Send a test push to my devices now and report what happened to each**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Responses
+
+- **200**: { firebaseProject, devices: [{ kind, token (first characters), registeredAt, result: sent | refused | gone | retry | skipped, detail }], note }. detail is the answer from Firebase, e.g. SENDER_ID_MISMATCH or THIRD_PARTY_AUTH_ERROR.
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
 ### `POST /v1/push/unsubscribe`
 
 **Stop push to this device**
@@ -4379,12 +4435,13 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `REPORT_ALREADY_DECIDED` | 409 | Someone else resolved or dismissed this report a moment earlier; the message says who. | Show the message and refresh the report. |
 | `REQUEST_IN_PROGRESS` | 409 | The first try of this request (same Idempotency-Key) is still being handled. | Wait a moment and send it again with the same key. |
 | `REQUEST_WITHDRAWN` | 409 | The applicant withdrew this request before the decision. | Refresh the list of requests. |
-| `TIME_CLASH` | 409 | You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity or trip, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead). | Show the clashing plans with when each ends, and offer to leave, cancel or withdraw them, or pick another time. |
+| `TIME_CLASH` | 409 | You already host or joined a plan (activity or trip) at that time; details.clashes lists each one with its title, start and end. A request still waiting for an answer never causes this. When CREATING an activity, only an activity you host or joined causes it: a trip you are on is allowed (the app shows a warning instead). When creating a TRIP, any plan holding you on those days (an activity or another trip) causes it. The message says whether to cancel it (not started), end it (started) or leave it. | Show the clashing plans with when each ends, and offer to leave, cancel, end or withdraw them, or pick another time. |
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (10). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
 | `TRIP_CLOSED` | 409 | The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over). | Hide the edit, apply, favourite and share actions. |
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |
+| `TRIP_NOT_STARTED` | 409 | The trip has not started yet, so it cannot be ended. | Offer End once the first day has come; before that the organizer can cancel it. |
 | `TRIP_STARTED` | 409 | The trip has already started, so its dates can no longer be changed. | Do not offer a date poll or "use these dates" for it. |
 | `PAYLOAD_TOO_LARGE` | 413 | The request is larger than allowed. | Send less data. |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | The content type is not accepted here. | Fix the client. |

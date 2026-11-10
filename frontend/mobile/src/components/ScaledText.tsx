@@ -1,5 +1,6 @@
-import { useState, type Ref } from 'react';
+import { createContext, useContext, useState, type Ref } from 'react';
 import { Platform, StyleSheet, Text as RNText, TextInput as RNTextInput, type TextInputProps, type TextProps } from 'react-native';
+import { interFamily } from '@/lib/fonts';
 import { notifyInputFocus } from '@/lib/keyboard';
 import { scaleText, useScale } from '@/lib/scale';
 
@@ -31,11 +32,29 @@ function withLineHeight(style: TextProps['style']): TextProps['style'] {
   return { ...flat, lineHeight: Math.round(flat.fontSize * 1.22) };
 }
 
+// Inside another Text: a piece with no weight of its own keeps the font of the text around it (the bold "HERE" with a coloured dot)
+const InText = createContext(false);
+
+/** The app's typeface (lib/fonts) for the text's weight. A text that names its own font keeps it. */
+function withFont(style: TextProps['style'], nested: boolean): TextProps['style'] {
+  const flat = StyleSheet.flatten(style) ?? {};
+  if (flat.fontFamily) return style;
+  if (nested && flat.fontWeight == null) return style; // inherits the parent's font file
+  const fontFamily = interFamily(flat.fontWeight);
+  // the weight is in the file itself: asking for bold on top would make the phone thicken it again
+  return fontFamily ? [style, { fontFamily, fontWeight: 'normal' }] : style;
+}
+
 export function Text(props: TextProps) {
   const k = useScale();
-  const style = withLineHeight(scaleText(props.style, k));
+  const nested = useContext(InText);
+  const style = withFont(withLineHeight(scaleText(props.style, k)), nested);
   // text on screen is never selectable (only what is typed in a field is), whatever a screen passes
-  return <RNText maxFontSizeMultiplier={MAX_FONT_SCALE} {...props} selectable={false} style={androidText ? [androidText, style] : style} />;
+  return (
+    <InText.Provider value>
+      <RNText maxFontSizeMultiplier={MAX_FONT_SCALE} {...props} selectable={false} style={androidText ? [androidText, style] : style} />
+    </InText.Provider>
+  );
 }
 
 /** What a ref to a TextInput here gives you (focus, blur, clear...). */
@@ -63,7 +82,7 @@ export function TextInput(props: TextInputProps & { ref?: Ref<any> }) {
         setFocused(false);
         props.onBlur?.(e);
       }}
-      style={androidText ? [{ includeFontPadding: false }, scaleText(props.style, k)] : scaleText(props.style, k)}
+      style={androidText ? [{ includeFontPadding: false }, withFont(scaleText(props.style, k), false)] : withFont(scaleText(props.style, k), false)}
     />
   );
 }

@@ -8,7 +8,7 @@ import { useMe } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
-/** Safety controls shared by HERE and THERE: identity verification status and plain-language guidance. (Blocked people are under Settings > Reports & blocked.) */
+/** Safety controls shared by HERE and THERE: identity verification status and plain-language guidance. (Blocked people are under Settings > Reports & Blocked.) */
 export default function Safety() {
   const { me, reload } = useMe();
   const go = useGo();

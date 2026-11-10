@@ -74,13 +74,23 @@ export function useCursorList<T, X extends object = object>(
   path: string,
   params: Record<string, string>,
   cacheKey: string,
-  opts: { pollMs?: number; live?: boolean; animate?: boolean; keep?: boolean; first?: number; step?: number; /** about how tall one row is, to size the first page to the window */ rowHeight?: number; idOf?: (x: T) => string; /** load nothing yet (a search that has not been asked) */ skip?: boolean } = {},
+  opts: { pollMs?: number; live?: boolean; animate?: boolean; keep?: boolean; first?: number; step?: number; /** about how tall one row is, to size the first page to the window */ rowHeight?: number; idOf?: (x: T) => string; /** load nothing yet (a search that has not been asked) */ skip?: boolean; /** keep the first page but fetch no more while true (a collapsed section: the next pages are fetched once it is opened) */ pauseMore?: boolean } = {},
 ) {
-  const { pollMs, live, animate, keep, first = screenBatch(opts.rowHeight), step = PAGE_STEP, skip, idOf = rowId } = opts;
+  const { pollMs, live, animate, keep, first = screenBatch(opts.rowHeight), step = PAGE_STEP, skip, pauseMore, idOf = rowId } = opts;
   const key = cursorDeps(path, params)[0] + (skip ? '#skipped' : '');
   const latest = useRef<(CursorPage<T> & X) | null>(null);
   const list = useLoad(
-    () => (skip ? Promise.resolve({ items: [], nextCursor: null } as unknown as CursorPage<T> & X) : get<CursorPage<T> & X>(pageUrl(path, params, Math.min(MAX_REFETCH, Math.max(first, latest.current?.items.length ?? 0))))),
+    () => {
+      if (skip) return Promise.resolve({ items: [], nextCursor: null } as unknown as CursorPage<T> & X);
+      return get<CursorPage<T> & X>(pageUrl(path, params, Math.min(MAX_REFETCH, Math.max(first, latest.current?.items.length ?? 0)))).then((d) => {
+        // Pages the reader loaded while this refresh was on its way (or beyond the 100 a refresh asks for) are kept after the
+        // refreshed rows, so a refresh never shortens a list that was scrolled down.
+        const cur = latest.current;
+        if (!cur || !d.nextCursor || cur.items.length <= d.items.length) return d;
+        const have = new Set(d.items.map(idOf));
+        return { ...d, items: [...d.items, ...cur.items.slice(d.items.length).filter((x) => !have.has(idOf(x)))], nextCursor: cur.nextCursor };
+      });
+    },
     [key],
     pollMs,
     cacheKey,
@@ -100,7 +110,7 @@ export function useCursorList<T, X extends object = object>(
 
   useOnScrollEnd(() => {
     const d = latest.current;
-    if (skip || !focused || busy.current || !d?.nextCursor) return;
+    if (skip || pauseMore || !focused || busy.current || !d?.nextCursor) return;
     busy.current = true;
     setLoadingMore(true);
     const asked = key;

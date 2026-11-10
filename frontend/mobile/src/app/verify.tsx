@@ -66,8 +66,9 @@ const date = (iso: string) => dateText(iso, { weekday: false, year: true });
  * Identity verification (KYC). Browsing never needs it; creating, joining, applying and chatting do.
  * It is one-time and shared by HERE and THERE: once verified you are not asked again until it expires.
  */
+/** The identity verification page. A guest ("Explore the demo") sees the same page; only starting the check needs an account. */
 export default function Verify() {
-  const { me, reload } = useMe();
+  const { me, reload, isGuest } = useMe();
   const { t } = useT();
   const router = useRouter();
   const { c } = useTheme();
@@ -120,6 +121,8 @@ export default function Verify() {
   ];
 
   const start = async () => {
+    // the check belongs to an account: a guest sees how it works, and is told here what starting it needs
+    if (isGuest) return void act.setError(t('Identity checks belong to an account. Create a free account, then start your check here.'));
     // in a browser the check opens in a NEW tab. A tab opened after the request has finished is blocked as a pop-up, so an empty one
     // is opened right now, while the tap is still counted, and sent to the check page when the answer arrives
     const tab = Platform.OS === 'web' ? window.open('', '_blank') : null;
@@ -213,7 +216,7 @@ export default function Verify() {
           {e === 'rejected' && <Btn title={t('I think this was a mistake: ask for a review')} variant="secondary" onPress={() => router.push('/appeal?kind=verification' as never)} />}
 
           {/* spec 3.1: the email address is confirmed before the identity check */}
-          {!emailOk && (
+          {!emailOk && !isGuest && (
             <>
               <Banner tone="warn">{t('Confirm your email first.')}</Banner>
               <EmailVerifyCard />
@@ -259,7 +262,7 @@ export default function Verify() {
                 : t('I am 18 or older. I agree that a specialist provider checks my ID document to confirm I am a real adult. No selfie is taken and nothing biometric is used.')}
             </Txt>
           </CheckRow>
-          <AuthButton title={e === 'unverified' ? t('Start identity check') : t('Verify again')} onPress={start} loading={act.busy} disabled={!consent || !emailOk} />
+          <AuthButton title={e === 'unverified' ? t('Start identity check') : t('Verify again')} onPress={start} loading={act.busy} disabled={!consent || (!emailOk && !isGuest)} />
           <Txt variant="small">{t('You can withdraw consent and ask for your data to be deleted at any time.')}</Txt>
         </>
       )}

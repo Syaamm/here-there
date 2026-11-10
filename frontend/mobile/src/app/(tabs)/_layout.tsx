@@ -1,22 +1,25 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Redirect, Tabs, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect } from 'react';
-import { BackHandler, Platform, View, type ColorValue } from 'react-native';
+import { Redirect, Tabs, useFocusEffect, usePathname, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { BackHandler, Keyboard, Platform, View, type ColorValue } from 'react-native';
 import { showToast } from '@/lib/toast';
 import { get } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useLoad } from '@/lib/hooks';
-import { CreateButton, DockBackground, DockButton, DockSpace, useDockMetrics } from '@/lib/dock';
+import { CreateButton, DOCK, DockBackground, DockButton, DockSpace, dockHide, setDockAway, setDockKeyboardHidden, tabSwitched, useDockMetrics } from '@/lib/dock';
 import { startLive, stopLive, useLiveEvents } from '@/lib/live';
 import { useCity } from '@/lib/city';
 import { askPushOnce, resyncPush, usePushTaps } from '@/lib/push';
 import { bumpUnread, onUnreadRefresh, refreshUnread, setUnread, useUnread } from '@/lib/unread';
 import { prefetchApp } from '@/lib/prefetch';
+import { backFromMain, currentPath } from '@/lib/nav';
 import { HomeIcon, MessageIcon, ProfileGlyph, SearchIcon, svgTabIcon } from '@/components/DockIcons';
 import { useTheme } from '@/lib/theme';
+import { fontOf } from '@/lib/fonts';
 import { useT } from '@/lib/i18n';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
+const MAIN_TAB_PATHS = ['/', '/discover', '/create', '/inbox', '/profile'];
 /** Side-rail only: the Create item is a normal icon there (the phone dock draws its own round + button). */
 const railIcon = (on: IconName, off: IconName) =>
   function RailIcon({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) {
@@ -26,17 +29,40 @@ const railIcon = (on: IconName, off: IconName) =>
 /** Same five tabs in both products, so switching HERE/THERE never changes where things are. */
 export default function TabsLayout() {
   const { t } = useT();
+  const router = useRouter();
   const { mode, c } = useTheme();
   const { onboarding } = useMe();
   // sizes and the per-platform bottom spacing (iPhone home indicator, Android gesture or 3-button bar) live in lib/dock
   const { isWide, barHeight, bottom: dockBottom, space: dockSpace } = useDockMetrics();
   // the Message badge: asked of the server every minute (the live connection moves it at once when something arrives), and changed at once by the screens that read things (lib/unread)
-  const polled = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true'), [], 60_000, undefined, { live: true });
+  const polled = useLoad(() => get<{ unreadCount: number }>('/v1/notifications?unread=true&limit=1'), [], 60_000, undefined, { live: true });
   useEffect(() => {
     if (polled.data) setUnread(polled.data.unreadCount);
   }, [polled.data]);
   useEffect(() => onUnreadRefresh(() => void polled.reload()), [polled.reload]);
   const unread = useUnread();
+  // the dock slides down out of sight (scrolling down a home page, or the keyboard up) and back: past its own height and the raised + button
+  const dockSlide = useMemo(() => dockHide.interpolate({ inputRange: [0, 1], outputRange: [0, barHeight + DOCK.raise + 24] }), [barHeight]);
+  // a different dock tab opened (pages opened from a tab, like an activity, do not count): the home pages go back to the top
+  const path = usePathname();
+  const lastTab = useRef(path);
+  // The dock is away on Create and on your own Profile (phones), and stays away while an inner page (Settings, a form...) is open over
+  // them: it is judged by the last main page you were on, so it never shows for a moment when you come back.
+  const mainRef = useRef(path);
+  if (MAIN_TAB_PATHS.includes(path)) mainRef.current = path;
+  const dockIsAway = !isWide && (mainRef.current === '/create' || mainRef.current === '/profile');
+  useEffect(() => setDockAway(dockIsAway), [dockIsAway]);
+  useEffect(() => {
+    if (!MAIN_TAB_PATHS.includes(path) || path === lastTab.current) return;
+    lastTab.current = path;
+    tabSwitched();
+  }, [path]);
+  useEffect(() => {
+    // the dock's own keyboard hiding is replaced by the slide above (one transform on the bar), so the keyboard drives it here
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setDockKeyboardHidden(true));
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setDockKeyboardHidden(false));
+    return () => (show.remove(), hide.remove(), setDockKeyboardHidden(false));
+  }, []);
 
   // live connection while signed in: new alerts move the badge at once; push is re-registered quietly
   const { me: signedIn } = useMe();
@@ -60,6 +86,12 @@ export default function TabsLayout() {
       if (Platform.OS !== 'android') return;
       let last = 0;
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        // any main page but Home (Search, Create, Inbox, Profile, with or without the dock): Back goes to the main page you came
+        // from, or to Home when you came from an inner page. Only on Home does it ask to press again, and then close the app.
+        if (currentPath() !== '/') {
+          router.navigate(backFromMain() as never);
+          return true;
+        }
         if (Date.now() - last < 2000) {
           BackHandler.exitApp();
           return true;
@@ -69,7 +101,7 @@ export default function TabsLayout() {
         return true;
       });
       return () => sub.remove();
-    }, [t]),
+    }, [t, router]),
   );
   // the first visit to Messages, Profile or the feeds should already have its content: load them quietly now
   useEffect(() => {
@@ -107,11 +139,11 @@ export default function TabsLayout() {
           ? { backgroundColor: c.surface, borderRightColor: c.line, width: 232, minWidth: 232, maxWidth: 232, flexGrow: 0, flexShrink: 0, paddingTop: 16, paddingHorizontal: 10 }
           : // a floating pill: the bar itself is see-through, the pill is drawn by tabBarBackground below.
             // Room for the raised Create button and for the labels, plus the phone's home-indicator inset.
-            { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0, height: barHeight, paddingTop: 0, paddingBottom: dockBottom, paddingHorizontal: 18 },
+            ({ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0, height: barHeight, paddingTop: 0, paddingBottom: dockBottom, paddingHorizontal: 18, transform: [{ translateY: dockSlide }] } as never),
         tabBarBackground: isWide ? undefined : () => <DockBackground bottom={dockBottom} />,
         // icons only on the phone dock (screen readers still hear each tab's name); the side rail keeps its words
         tabBarShowLabel: isWide,
-        tabBarLabelStyle: { fontWeight: '600', fontSize: isWide ? 14 : 11 },
+        tabBarLabelStyle: { ...fontOf('600'), fontSize: isWide ? 14 : 11 },
         tabBarBadgeStyle: { backgroundColor: c.danger, color: '#fff' },
       }}
     >

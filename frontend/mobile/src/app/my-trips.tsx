@@ -17,7 +17,7 @@ export default function MyTripsPage() {
     <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>
       <ErrorBanner message={trips.error?.message} />
       {trips.loading && !trips.data && <Spinner />}
-      {trips.data && trips.items.length === 0 && <Empty title={t('No trips yet')}>{t('Propose or join a trip.')}</Empty>}
+      {trips.data && trips.items.length === 0 && <Empty icon="airplane-outline" title={t('No trips yet')} action={{ label: t('Find a trip'), onPress: () => go('/') }}>{t('Trips you organise, join or apply to show up here.')}</Empty>}
       <Grid>
         {trips.items.map((x) =>
           x.row === 'joined' ? (

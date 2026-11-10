@@ -17,6 +17,7 @@ import { useAction, useLoad } from '@/lib/hooks';
 import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
 import { useEnterMode, useTheme } from '@/lib/theme';
+import { meetsThere } from '@/lib/travelStyle';
 
 type App = {
   id: string;
@@ -88,16 +89,23 @@ export default function ReviewTrip() {
           <Row style={{ gap: 18, alignItems: 'flex-start' }}>
             <TripThumb t={tp} size={34} style={{ width: 96, height: 96, borderRadius: 20 }} />
             <View style={{ flex: 1, gap: 8, paddingTop: 4 }}>
-              <View accessible accessibilityLabel={`${tp.originCity} - ${tp.destination}`} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500', flexShrink: 1 }}>{tp.originCity}</Text>
-                <Ionicons name="airplane" size={14} color={c.forest} />
-                <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500', flexShrink: 1 }}>{tp.destination}</Text>
-              </View>
+              {meetsThere(tp) ? (
+                <View accessible accessibilityLabel={`${tp.destination}. ${t('Meet at destination')}`} style={{ gap: 2 }}>
+                  <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{tp.destination}</Text>
+                  <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t('Meet at destination')}</Text>
+                </View>
+              ) : (
+                <View accessible accessibilityLabel={`${tp.originCity} - ${tp.destination}`} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500', flexShrink: 1 }}>{tp.originCity}</Text>
+                  <Ionicons name="airplane" size={14} color={c.forest} />
+                  <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500', flexShrink: 1 }}>{tp.destination}</Text>
+                </View>
+              )}
               <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{dateSpan(tp.dateStart, tp.dateEnd)} | {t('{d} days / {n} nights', { d: days, n: Math.max(0, days - 1) })}</Text>
               <View accessible accessibilityLabel={t('{going} of {capacity} approved', { going: tp.members, capacity: tp.maxCapacity })} style={{ height: 5, borderRadius: 3, backgroundColor: c.line, overflow: 'hidden' }}>
                 <View style={{ width: `${Math.min(100, Math.round((tp.members / Math.max(tp.maxCapacity, 1)) * 100))}%`, height: 5, backgroundColor: c.forest }} />
               </View>
-              <Text style={{ color: full ? c.danger : c.green, fontSize: 12, fontWeight: '500' }}>{full ? t('Full') : tn(tp.spotsLeft, '{n} spot available', '{n} spots available')}</Text>
+              <Text style={{ color: full ? c.danger : c.green, fontSize: 12, fontWeight: '500' }}>{full ? t('Full') : tn(tp.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
             </View>
           </Row>
           {tp.status !== 'cancelled' && new Date(tp.dateStart) <= new Date() ? <PillButton outline title={t('Who came? Attendee roster')} onPress={() => go(`/no-shows/trip/${id}`)} /> : null}

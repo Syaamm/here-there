@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAMIS: response to prototype feedback, 10 November 2026</title>
+<style>
+@page { size: A4; margin: 13mm 12mm 17mm; @bottom-left { content: "LAMIS · response to prototype feedback"; font: 9.5px system-ui, sans-serif; color:#66726d; } @bottom-right { content: "10 November 2026 · page " counter(page) " of " counter(pages); font: 9.5px system-ui, sans-serif; color:#66726d; } }
+:root { --almost:#4a7fb8; --forest:#102f29; --green:#2f7d65; --ink:#1c2622; --muted:#66726d; --line:#dfe3de; --paper:#fff; --part:#a8680f; --dec:#35649c; --todo:#8a2f1e; }
+* { box-sizing:border-box; }
+body { margin:0; color:var(--ink); font:11.5px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:#fff; }
+.top { display:flex; justify-content:space-between; align-items:flex-end; gap:16px; border-bottom:2px solid var(--forest); padding-bottom:8px; }
+.brand { font-size:9.5px; letter-spacing:.14em; font-weight:700; text-transform:uppercase; color:var(--green); }
+h1 { font-size:22px; margin:2px 0 0; color:var(--forest); }
+.date { font-size:11.5px; color:var(--muted); white-space:nowrap; }
+h2 { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--forest); margin:16px 0 6px; padding-bottom:3px; border-bottom:1px solid var(--line); break-after:avoid; }
+h3 { font-size:12px; margin:10px 0 3px; color:var(--forest); break-after:avoid; }
+p { margin:4px 0; }
+ul { margin:3px 0 3px; padding-left:17px; } li { margin:2px 0; }
+table { width:100%; border-collapse:collapse; margin:4px 0 2px; }
+th { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600; text-align:left; padding:5px 6px; border-bottom:1px solid var(--forest); }
+td { padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+tr { break-inside:avoid; }
+td small { display:block; color:var(--muted); font-size:10.5px; line-height:1.35; }
+.st { white-space:nowrap; font-weight:700; font-size:10.5px; width:92px; }
+.st i { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; }
+.done { color:var(--green); } .done i { background:var(--green); }
+.part { color:var(--almost); } .part i { background:var(--almost); }
+.dec { color:var(--dec); } .dec i { background:var(--dec); }
+.todo { color:var(--todo); } .todo i { background:var(--todo); }
+.item td:first-child { width:24px; font-weight:700; color:var(--forest); }
+.rules td { padding:4px 6px; }
+.item .rules td:first-child { width:64%; font-weight:400; color:inherit; }
+.item .rules td:last-child { width:36%; font-weight:600; color:var(--forest); }
+.sum { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:8px 0; }
+.sum div { border:1px solid var(--line); border-radius:6px; padding:7px 10px; background:#f7f9f6; }
+.sum b { display:block; font-size:19px; color:var(--forest); }
+.box { margin:8px 0; border:1px solid var(--line); border-radius:6px; background:#f7f9f6; padding:8px 12px; }
+.note { margin:8px 0; border:1px solid #ecce9f; border-left:5px solid var(--part); border-radius:6px; background:#fdf6e8; padding:8px 12px; }
+.pb { break-before:page; }
+.cols { display:grid; grid-template-columns:1fr 1fr; gap:0 22px; }
+.k { color:var(--muted); }
+</style></head><body>
+
+<div class="top">
+  <div><div class="brand">LAMIS</div><h1>Response to the prototype feedback</h1></div>
+  <div class="date">10 November 2026</div>
+</div>
+
+<p style="margin-top:10px">This document answers each numbered point of the feedback: its <b>status</b>, the <b>solution</b> and the <b>deliverable</b>. It also contains the changelog, the list of work that is functional development rather than design and a summary of what was requested and what the app provides. The Figma design, the Figma component specifications and the Figma clickable prototype are produced separately and are not part of this document. The working app itself is the clickable prototype (section 5).</p>
+
+<div class="sum">
+  <div><b>6</b>done</div>
+  <div><b>8</b>almost done</div>
+  <div><b>0</b>not started</div>
+  <div><b>5</b>P2 ideas, for discussion</div>
+</div>
+<p class="k" style="margin-top:0">Counted over the 14 numbered points. Status key: <span class="done"><b>● Done</b></span> built and checked in the app · <span class="part"><b>● Almost</b></span> almost complete: what is still missing is listed with a proposal. Where a proposal says "needs your approval", we will not build it until you confirm.</p>
+
+<h2>1. Point-by-point response: P0, required corrections</h2>
+<table class="item">
+<tr><th></th><th>Point</th><th>Status</th><th>What was done and what remains</th></tr>
+
+<tr><td>1</td><td><b>LAMIS as the main brand</b></td><td class="st part"><i></i>Almost</td><td>
+The approved LAMIS wordmark is top-left on both home pages and the Inbox (white on HERE's green, deep green on THERE's beige). The dot mark is the app icon and the Android notification icon. The app is named LAMIS on the phone, in permission texts, emails and Settings. The tagline is "Be here. Go there." everywhere. HERE and THERE are presented as two experiences of one app through one switch. HERE green and THERE beige are kept.</td></tr>
+
+<tr><td>2</td><td><b>Bottom navigation and overlaps</b></td><td class="st done"><i></i>Done in the build</td><td>
+The floating bar is removed on the activity and trip creation screens and on your own Profile (phones), so it can never cover a field or the main button. It also stays hidden when you open Settings from Profile and come back. Every other screen leaves room under its last item, so you can scroll to the very end. On Home the bar slides away while you scroll down and returns when you scroll up. It is the same bar in HERE and THERE. iPhone home bar and Android gesture bar are respected. Checked at 390 pt and 360 pt wide; real devices are still to be tested.</td></tr>
+
+<tr><td>3</td><td><b>One HERE / THERE switch</b></td><td class="st done"><i></i>Done</td><td>
+There is one switch, on Home, with one look and one behaviour. The other copies were removed. Switching takes about a third of a second (it took about three seconds before). The choice is remembered across Home, Search, Create, Inbox and Profile, and after closing the app. Opening an alert or link that belongs to the other experience switches for you. HERE and THERE share one account and one profile; switching creates nothing.</td></tr>
+
+<tr><td>4</td><td><b>Visual consistency</b></td><td class="st part"><i></i>Almost</td><td>
+One typeface (Inter) on every screen and both phones, four weights. One set of shared components for buttons, cards, chips, fields, empty states and loading placeholders (see the separate UI component library). Round back button with a centred title on every inner page. One empty-state design and one skeleton-loading design.</td></tr>
+
+<tr><td>5</td><td><b>Activity creation (HERE)</b></td><td class="st done"><i></i>Done</td><td>
+Four steps with a step title and progress bars. The chosen category turns deep green with its picture. Placeholders disappear the moment you tap a field. Optional fields say "(optional)". A missing name, place or time turns the field red with a short message, on the step and again on the review page. Everything you typed is kept when you go back. A final review page lets you edit each part before publishing. Verification is no longer shown on the steps: you can prepare the whole activity first, and it is explained at the review page, where the button reads "Get verified to publish".<br>
+<b>Checklist:</b> category and name ✓ · description ✓ · location (a place searched and picked in your city, with a "public place" confirmation) ✓ · date, start time and duration, with the end time shown ✓ · maximum participants ✓ · participation condition (join at once or request to join) ✓ · final confirmation ✓. <b>Not in the app:</b> paid activities (the app takes no payments), and a separate meeting-instructions text (section 3).</td></tr>
+
+<tr><td>6</td><td><b>Trip creation (THERE)</b></td><td class="st done"><i></i>Done</td><td>
+<b>Your question: is "Travel together" versus "Meet at destination" supported?</b> It was not, and it is now. The first choice on the trip form is "How will the group get there?". <i>Travel together</i> asks for a departure city. <i>Meet at destination</i> has no departure city and the trip is for people travelling on their own. It shows on trip cards (a green or sand label on the picture), on the trip page, in the review and in the share text, and it is a filter in search.<br>
+Departure and destination are separate fields and are only set by searching and picking a place. Return before departure is refused with a message. The date icon sits inside each date field. The review page lets you edit before publishing, and it checks everything again.<br>
+<b>Additional development still open:</b> for "Travel together", an applicant cannot yet say they leave from a different city than the organiser (section 3).</td></tr>
+
+<tr><td>7</td><td><b>Identity verification UX</b></td><td class="st part"><i></i>Almost<br><small class="k">rules confirmed below</small></td><td>
+Browsing needs no verification, and the demo ("Explore the demo") lets anyone look at the whole app. Large banners are gone from the create steps and most screens; Home has one slim line, and Profile one button until you are verified. Tapping "Get verified" anywhere opens one verification page that explains how it works, what is kept (only the result, never the ID photo, selfie, name or birth date), and that you can withdraw consent. The blue check appears only for people who have completed verification, and unverified people read "Identity not verified".<br>
+<b>Current rules (unchanged, as you asked us to confirm before any change):</b>
+<table class="rules" style="margin-top:4px">
+<tr><td>Browse activities, trips, map and public profiles</td><td>No account needed</td></tr>
+<tr><td>Join or request an activity, apply to a trip, travel-buddy matching</td><td>Verified adult</td></tr>
+<tr><td>Host an activity, propose a trip</td><td>Verified adult</td></tr>
+<tr><td>Read and write group chats and private match chats</td><td>Verified adult</td></tr>
+<tr><td>Edit profile, follow, favourite, report, block</td><td>Signed-in account (not the demo guest)</td></tr>
+</table>
+Verification expires and can be asked for again. <b>Remaining:</b> a final pass on how much verification text Profile and Settings still carry.</td></tr>
+</table>
+
+<h2>1b. Point-by-point response: P1, important improvements</h2>
+<table class="item">
+<tr><th></th><th>Point</th><th>Status</th><th>What was done and what remains</th></tr>
+
+<tr><td>8</td><td><b>HERE homepage</b></td><td class="st part"><i></i>Almost</td><td>
+Cards show the title, category, place, time, spots left and the faces of who is going, with a <b>SAMPLE</b> label on demo content. <b>Open:</b> the host's name is not on the card (it is on the detail page); people can see that their photo is shown to others (a notice at upload) but there is <b>no separate consent switch</b> to hide it (section 3).<br>
+<b>"Today &amp; tomorrow" correction.</b> The subtitle that promised two days was removed from the switch. Home still has four sections: Happening soon, Tonight, Tomorrow and <i>Later</i>. <i>Proposal:</i> Home shows only up to tomorrow, and "Later" moves behind "See all". Needs your approval.</td></tr>
+
+<tr><td>9</td><td><b>THERE homepage</b></td><td class="st part"><i></i>Almost</td><td>
+Trip cards show destination, dates, departure city (or "Meet at destination"), travel-interest label, who is going and spots left. <b>Browsing needs no search first:</b> Search opens on <i>All trips</i>, with Travel together and Meet at destination as one-tap choices, and every Home section has "See all". Results can be refined by destination, dates, budget, group size and travel interests, and every filter is optional. Lists load a page at a time from the server.<br>
+<b>Open:</b> destination photographs. Cards use the picture of the trip's travel interest (adventure, nature, beach, photography) or a plane when there is none. Real destination photos need a licensed photo source and storage (section 3).</td></tr>
+
+<tr><td>10</td><td><b>One profile across HERE and THERE</b></td><td class="st part"><i></i>Almost</td><td>
+Your profile is one page in both experiences: picture, name, city, verification status, bio, interests, activities hosted and joined, trips done, reliability, friends and followers, with tabs for My activities, My trips and Favourites. Only the colours change. <b>Remaining:</b> the order of two rows differs between HERE and THERE and should be made identical.<br>
+<b>Friends, Following, Followers, Travel buddies.</b> The first three are one system seen from three sides: <i>Following</i> is people you follow, <i>Followers</i> follow you, <i>Friends</i> follow each other. They rank friends' plans higher in your feed. <i>Travel buddies</i> is separate: you say where and when you want to go, and a private chat opens only if two travellers both say yes. It creates no follow or friendship. <i>Proposal:</i> keep the structure, add a one-line explanation at the top of the Friends page, and rename Travel buddies to "Find travel companions". Empty states already explain each list. Needs your approval.</td></tr>
+
+<tr><td>11</td><td><b>Activity detail page</b></td><td class="st part"><i></i>Almost</td><td>
+Layout preserved. <b>Done:</b> the host is tappable and opens their profile; the host card shows the verified badge, a reliability level and how many activities they have hosted; the badge reads "Verified adult" only when true; counts and spots are consistent (checked on all listed activities and trips); the venue is shown; a person can report the activity or the host, leave, or (host) cancel with everyone notified; the main button follows your status (Join now, Request to join, Withdraw request, Leave the waiting list, Open group chat, Manage join requests) and refreshes after each action.<br>
+<b>Open:</b> the host's previous activities are shown as a count, not a list; there is no separate meeting-instructions text; cancellation and participation rules are not written out on the page; the status wording differs from your examples. <i>Proposal:</i> a status label "Pending approval" or "Joined" beside the button (section 3).</td></tr>
+
+<tr><td>12</td><td><b>Inbox and messaging</b></td><td class="st part"><i></i>Almost</td><td>
+<b>Done.</b> The empty inbox explains the three ways a chat begins (join an activity, join a trip, match as travel companions) and offers a button to find one. Chat search sits above the list. Conversations (Chats) and notifications (Alerts) are separate tabs. "Mark all read" is greyed out when nothing is unread. The chat is easier to read on small phones. Chat lists load a page at a time. The chat for an activity or trip you joined opens from its page ("Open group chat") and from the Inbox.<br>
+<b>Open:</b> the Inbox shows the chats of the experience you are in. A single LAMIS inbox with a HERE or THERE label on every conversation is not built (section 3).</td></tr>
+
+<tr><td>13</td><td><b>Copywriting</b></td><td class="st done"><i></i>Done</td><td>
+All your examples are changed: "Be here. Go there.", "Inbox", "Notification preferences", "Identity not verified". Appeals and review requests now live on the <b>Reports &amp; Blocked</b> page instead of a separate screen. Headings use sentence case, the free-places wording is "spots" everywhere, and the placeholder reads "Where next? For example, Japan". The Italian text was updated with it. Please read the English once more for tone.</td></tr>
+
+<tr><td>14</td><td><b>Demo content and test data</b></td><td class="st done"><i></i>Done</td><td>
+Sample people, activities and trips carry a SAMPLE label. Sample dates are generated from the day they are made, and participants plus spots always add up to the capacity (checked on every listed trip and activity). A bug that saved the placeholder city "Milan" for people with no city is fixed. Empty states are redesigned for activities, trips, friends, messages, favourites and reports.<br>
+<b>Notes.</b> Pictures match the category or travel interest, not the destination (see point 9). Sample activities are short-lived, so a demo needs its sample data topped up before a presentation.</td></tr>
+</table>
+
+<h2 class="pb">1c. P2, future enhancements (for discussion only)</h2>
+<p>No change has been made for these, and none is assumed to be authorised. Some already exist in a basic form, so please confirm whether those count as part of the current scope.</p>
+<table>
+<tr><th></th><th>Idea</th><th>Today in the app</th></tr>
+<tr><td>A</td><td><b>Spontaneous discovery</b></td><td>Home already has "Happening soon" (the next two hours). A dedicated option is not built.</td></tr>
+<tr><td>B</td><td><b>Travel compatibility</b></td><td>Travel buddies matches by destination and dates with mutual yes. Matching on interests, travel style and budget is not built.</td></tr>
+<tr><td>C</td><td><b>Social connections</b></td><td>Follow, followers and friends exist. Reconnecting after attending the same plan, by mutual consent, is not built.</td></tr>
+<tr><td>D</td><td><b>Personalised discovery</b></td><td>Feeds already rank friends' and followed people's plans higher. Recommendations from preferences or history are not built.</td></tr>
+<tr><td>E</td><td><b>Saved activities and trips</b></td><td>Built: the heart on any activity or trip, and a Favourites page that loads a page at a time.</td></tr>
+</table>
+
+<h2>2. Changelog: what was addressed</h2>
+<div class="cols">
+<ul>
+<li><b>Brand:</b> LAMIS wordmark in the headers, tagline fixed, app named LAMIS, dot icon, Android launch screen.</li>
+<li><b>Navigation:</b> one HERE / THERE switch; instant switching; dock hidden on Create and Profile; no overlap with the last item; Back button rules on Android.</li>
+<li><b>Fonts:</b> Inter everywhere.</li>
+<li><b>Home:</b> collapsing header, location pill aligned in both experiences, refresh that behaves like the activity page, "See all" without counts.</li>
+<li><b>Activity creation:</b> clear validation, review page that checks as the steps do, verification explained only at the end.</li>
+<li><b>Trip creation:</b> Travel together / Meet at destination, places picked from search, date checks, date icon inside the field, calendar position.</li>
+</ul>
+<ul>
+<li><b>Trip search:</b> opens on All trips, filters really filter (departure city, budget, interests, group size, style), interest chips on Home and Search, "30+ trips found".</li>
+<li><b>Lists:</b> chats, trips, favourites, "See all" and the admin report queue now load a page at a time from the server.</li>
+<li><b>Verification:</b> demo guests can explore the whole app; "Get verified" opens the verification page.</li>
+<li><b>Inbox:</b> explanatory empty state, search above, smaller chat on small phones, exact unread counts.</li>
+<li><b>Reports &amp; Blocked:</b> appeals merged in, statuses (Warning, Appealed, Waiting for decision, Accepted, Rejected), red dot for new, preview with "See all".</li>
+<li><b>Data:</b> SAMPLE labels, empty states, placeholder-city fix, Italian text.</li>
+</ul>
+</div>
+
+<h2 class="pb">3. Items that need functional development</h2>
+<p>These are not design-only. Items already finished in this round are not repeated.</p>
+<table>
+<tr><th>Item</th><th>What is needed</th><th>Point</th></tr>
+<tr><td><b>Destination photographs</b></td><td>A licensed photo source, storage, and a match between a trip's destination and a picture.</td><td>9, 14</td></tr>
+<tr><td><b>Photo consent switch</b></td><td>A setting to show or hide a person's photo in participant lists, applied to cards and detail pages.</td><td>8</td></tr>
+<tr><td><b>Single LAMIS inbox with labels</b></td><td>Show activity and trip chats together, each labelled HERE or THERE, with a filter.</td><td>12</td></tr>
+<tr><td><b>Applicant's own departure city</b></td><td>For "Travel together", let an applicant state where they leave from, and show it to the organiser.</td><td>6</td></tr>
+<tr><td><b>Host history</b></td><td>A list of a host's previous activities and how they went, on the host's profile.</td><td>11</td></tr>
+<tr><td><b>Meeting instructions</b></td><td>A separate field on an activity (where exactly to meet) and its display on the detail page.</td><td>5, 11</td></tr>
+<tr><td><b>Rules on the page</b></td><td>Cancellation and participation rules shown on the activity and trip pages (content to be supplied).</td><td>11</td></tr>
+<tr><td><b>Status labels</b></td><td>"Pending approval" and "Joined" beside the main button.</td><td>11</td></tr>
+<tr><td><b>Host name on activity cards</b></td><td>Small change to the card.</td><td>8</td></tr>
+<tr><td><b>Home window</b></td><td>Limit HERE Home to today and tomorrow; "Later" behind See all.</td><td>8</td></tr>
+<tr><td><b>Rename and explain</b></td><td>"Find travel companions", a line on the Friends page, identical row order in Profile.</td><td>10</td></tr>
+<tr><td><b>Free or paid activities</b></td><td>The app takes no payments today. Paid activities mean payments, refunds and legal terms.</td><td>5</td></tr>
+<tr><td><b>Sample data top-up</b></td><td>A command that refreshes sample activities before a demo.</td><td>14</td></tr>
+<tr><td><b>Phone build and staging deploy</b></td><td>A new store/test build (the launch screen and icons need it) and a server update that adds two database fields (trip travel style, chat order).</td><td>1, all</td></tr>
+</table>
+<p><b>Design only:</b> the welcome-screen wordmark placement, the Figma screens, the Figma component library and the Figma clickable prototype.</p>
+
+<h2>4. Scope: what was requested and what we have</h2>
+<table>
+<tr><th style="width:34%">Requested in the feedback</th><th>What the app provides</th></tr>
+<tr><td><b>LAMIS as the main brand</b></td><td>The LAMIS wordmark in the headers, the dot mark as the app icon, the app named LAMIS, one tagline ("Be here. Go there."), and HERE and THERE as two experiences chosen with one switch.</td></tr>
+<tr><td><b>Bottom navigation without overlaps</b></td><td>The bar is hidden on the creation screens and on your own profile, every screen scrolls clear to its last item, and the bar is the same in HERE and THERE.</td></tr>
+<tr><td><b>One HERE / THERE selector, immediate switching</b></td><td>One switch on Home, about a third of a second to switch, the choice remembered across the app, and one account and profile for both.</td></tr>
+<tr><td><b>A consistent visual system</b></td><td>One typeface (Inter), shared components for buttons, cards, chips, fields, empty states and loading, and a written component library.</td></tr>
+<tr><td><b>Activity creation in four steps, with a review</b></td><td>Four steps with a title and progress bars, clear validation messages, a review page with an edit option on each part, and verification explained at the publishing step.</td></tr>
+<tr><td><b>Trip creation, Travel together and Meet at destination</b></td><td>Both travel styles, departure and destination chosen separately by searching, a return-date check, the date icon inside each date field, a review page, and the travel style shown on cards, the trip page and in search.</td></tr>
+<tr><td><b>Identity verification that does not get in the way</b></td><td>Everything can be browsed without verification, one verification page explains how it works and how data is protected, the blue check shows only for verified people, and others read "Identity not verified".</td></tr>
+<tr><td><b>HERE homepage</b></td><td>Cards with title, category, place, time, spots left and the faces of who is going, and a SAMPLE label on demo content.</td></tr>
+<tr><td><b>THERE homepage and Explore All Trips</b></td><td>Search opens on All trips, with one-tap Travel together and Meet at destination, filters by destination, dates, budget, group size and travel interests, "See all" on every section, and lists that load a page at a time.</td></tr>
+<tr><td><b>One profile across HERE and THERE</b></td><td>One profile with picture, name, city, verification status, bio, interests, activities and trips, reliability, friends and followers, and tabs for My activities, My trips and Favourites.</td></tr>
+<tr><td><b>Activity detail page</b></td><td>The host opens their profile, the verified badge and reliability level show, activities can be reported, the main button follows the person's status, and counts and spots always add up.</td></tr>
+<tr><td><b>Inbox and messaging</b></td><td>An empty state that explains how chats begin, chat search above the list, Chats and Alerts as separate tabs, and "Mark all read" greyed out when nothing is unread.</td></tr>
+<tr><td><b>Consistent copywriting</b></td><td>The examples in the feedback are changed, headings use sentence case, and the same words are used for the same things throughout, in English and Italian.</td></tr>
+<tr><td><b>Demo content and empty states</b></td><td>SAMPLE labels, dates and spot counts that are consistent, and an empty state designed for activities, trips, friends, messages, favourites and reports.</td></tr>
+<tr><td><b>Future ideas (P2)</b></td><td>Spontaneous discovery: "Happening soon" shows what starts in the next two hours. Travel compatibility: Travel buddies matches people by destination and dates, and opens a private chat when both say yes. Social connections: follow, followers and friends. Personalised discovery: friends' and followed people's plans rank higher. Saved activities and trips: the heart and a Favourites page.</td></tr>
+</table>
+
+<h2 class="pb">5. Clickable prototype: how to see each flow</h2>
+<p>The running app is the clickable prototype, and every step below can be followed on a phone build or in the browser preview. Sample sign-in details are provided separately. In the test version, sign-up codes appear in the app and identity verification is simulated, so you choose the result.</p>
+<table>
+<tr><th>Flow</th><th>Steps to follow</th></tr>
+<tr><td><b>Registration</b></td><td>Welcome → Sign up → enter details and confirm you are 18+ → enter the code shown in the app → short profile step → Home.</td></tr>
+<tr><td><b>HERE discovery and participation</b></td><td>Home (HERE) → choose a category chip or search → open an activity → "Request to join" or "Join now" → host approves → "Open group chat". Without verification the button reads "Get verified to join".</td></tr>
+<tr><td><b>Activity creation</b></td><td>Create → four steps (what, when, where, who) → Review → edit any part → "Publish activity". Leaving the form keeps it as a draft.</td></tr>
+<tr><td><b>THERE discovery</b></td><td>Switch to THERE → interest chips or Search (opens on All trips) → Travel together / Meet at destination → open a trip → apply.</td></tr>
+<tr><td><b>Trip creation</b></td><td>Create (in THERE) → pick Travel together or Meet at destination → search and pick places → dates → budget and interests → guidelines → Review → "Publish trip".</td></tr>
+<tr><td><b>Profile navigation</b></td><td>Profile → Settings (language, text size, notifications) → Reports &amp; Blocked → Friends and followers → My activities, My trips, Favourites.</td></tr>
+<tr><td><b>Verification</b></td><td>Any "Get verified" button, or Settings → Identity verification → read how it works → agree → choose a method → simulated result → blue check on the profile.</td></tr>
+<tr><td><b>Messaging</b></td><td>Inbox → Chats (conversations) and Alerts (notifications) → open a group chat → write a message; trip hosts can add a date poll.</td></tr>
+</table>
+
+</body></html>

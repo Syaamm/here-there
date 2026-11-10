@@ -4,7 +4,7 @@ import * as Device from 'expo-device';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
-import { api } from './api';
+import { API_URL, api } from './api';
 import { currentOpenChat } from './live';
 import { t } from './i18n';
 
@@ -124,7 +124,7 @@ async function subscribeWeb() {
  */
 async function alertsChannel(Notifications: NotificationsModule | null) {
   if (!Notifications) return;
-  await Notifications.setNotificationChannelAsync('alerts', { name: t('Messages and requests'), importance: Notifications.AndroidImportance.HIGH, sound: 'default' }).catch(() => undefined);
+  await Notifications.setNotificationChannelAsync('alerts', { name: t('Messages and requests'), importance: Notifications.AndroidImportance.HIGH }).catch(() => undefined);
 }
 
 /** Phone: get this device's push token (Firebase when the build has it, otherwise Expo's) and give it to the server. */
@@ -167,6 +167,33 @@ export async function enablePush(): Promise<PushState> {
     /* fall through to the real state below */
   }
   return pushState();
+}
+
+/**
+ * Settings > Send a test push: registers this phone again WITHOUT hiding errors, asks the server to push to every device of the
+ * account (POST /v1/push/test) and returns a plain report of each step, so a push that never arrives can be traced to its cause.
+ */
+export async function testPush(): Promise<string> {
+  const lines: string[] = [`Server: ${API_URL}`];
+  const fb = Platform.OS === 'web' ? null : loadFirebase();
+  lines.push(`Permission: ${await pushState()}`);
+  if (Platform.OS !== 'web') lines.push(`Firebase in this build: ${fb ? 'yes' : 'NO (falls back to Expo push)'}`);
+  try {
+    if (Platform.OS === 'web') await subscribeWeb();
+    else await subscribeNative();
+    lines.push(`This phone registered: yes (${(registered ?? '').slice(0, 12)}…)`);
+  } catch (e) {
+    lines.push(`This phone registered: NO: ${(e as Error)?.message ?? String(e)}`);
+  }
+  try {
+    const r = await api<{ firebaseProject: string | null; devices: { kind: string; token: string; result: string; detail?: string }[]; note?: string }>('POST', '/v1/push/test');
+    lines.push(`Server's Firebase project: ${r.firebaseProject ?? 'NONE (no key on the server)'}`);
+    for (const d of r.devices) lines.push(`• ${d.kind} ${d.token}: ${d.result}${d.detail ? ` (${d.detail})` : ''}`);
+    if (r.note) lines.push(r.note);
+  } catch (e) {
+    lines.push(`Server test failed: ${(e as Error)?.message ?? String(e)}`);
+  }
+  return lines.join('\n');
 }
 
 /** After sign-in: if permission was already given, quietly make sure this device is registered for this account. */
@@ -279,7 +306,7 @@ export function usePushTaps() {
               void Notifications.scheduleNotificationAsync({
                 // the same thread (one chat) reuses one notification, as the pushes do: the newest message replaces the last
                 ...(thread ? { identifier: thread } : {}),
-                content: { title, body, data: { url }, sound: 'default' },
+                content: { title, body, data: { url }, sound: true },
                 trigger: Platform.OS === 'android' ? { channelId: 'alerts' } : null,
               }).catch(() => undefined);
             }, 350);

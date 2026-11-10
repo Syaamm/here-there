@@ -48,6 +48,14 @@ export class DraftsController {
     return { items: page.items.map(dto), nextCursor: page.nextCursor };
   }
 
+  /** One draft by its id (the form opens the draft you tapped, however far down the list it is). */
+  @Get(':id')
+  async one(@CurrentUser() me: User, @Param('id') id: string) {
+    const d = await this.prisma.draft.findFirst({ where: { id, userId: me.id } });
+    if (!d) throw E.notFound('Draft');
+    return dto(d);
+  }
+
   /** Creates a draft, or replaces the one named by `id`. */
   @Put()
   async save(@CurrentUser() me: User, @Body() body: unknown) {

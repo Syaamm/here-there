@@ -114,7 +114,7 @@ export function ExploreHere() {
   const bigAt = next.length > 0 ? -1 : lists.findIndex((l) => l.length > 0);
 
   return (
-    <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} bandTall style={{ paddingTop: 20 }}>
+    <Screen tabBar wide collapse onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} bandTall style={{ paddingTop: 20 }}>
 
       <VerifyBanner />
 
@@ -338,12 +338,12 @@ function ListSection({ index, big, title, list, max, onMore }: { index: number; 
       {hidden > 0 ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t('Plus {n} more in {title}. See all', { n: hidden, title })}
+          accessibilityLabel={t('See all: {title}', { title })}
           hitSlop={6}
           onPress={onMore}
           style={({ pressed }) => [{ alignSelf: 'flex-start', minHeight: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', gap: 4 }, pressed && { opacity: 0.8 }]}
         >
-          <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>{t('+{n} more activities · See all', { n: hidden })}</Txt>
+          <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>{t('See all')}</Txt>
           <Ionicons name="chevron-forward" size={13} color={c.forest} />
         </Pressable>
       ) : null}

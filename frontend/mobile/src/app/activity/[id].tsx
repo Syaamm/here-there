@@ -16,6 +16,7 @@ import { Avatar, Banner, BottomBar, Btn, Chip, Empty, ErrorBanner, Row, Screen, 
 import { del, get, post, type Activity } from '@/lib/api';
 import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
+import { useVerifyGate } from '@/lib/verifyGate';
 import { catColor, CATS } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
 import { dayWord, hhmm } from '@/lib/format';
@@ -43,7 +44,8 @@ function startsIn(a: Activity): { text: string; tone: 'info' | 'ok' | 'warn' | '
 export default function ActivityDetail() {
   const { t, tn } = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { me, isGuest, logout } = useMe();
+  const { me, isGuest } = useMe();
+  const gate = useVerifyGate();
   const { c, mode, switchMode } = useTheme();
   const router = useRouter();
   const go = useGo();
@@ -77,7 +79,6 @@ export default function ActivityDetail() {
     );
 
   const cat = CATS[a.category];
-  const verified = me?.eligibility === 'verified';
   const req = a.myRequest?.state;
   const closed = ['in_progress', 'completed', 'cancelled', 'archived'].includes(a.status);
   const over = a.status === 'completed' || a.status === 'archived';
@@ -144,11 +145,10 @@ export default function ActivityDetail() {
     else if (req === 'requested') primary = { title: t('Withdraw request'), variant: 'secondary', loading: act.busy, onPress: () => void act.run(() => del(`/v1/activities/${id}/requests/mine`)) };
     else if (req === 'waitlisted') primary = { title: t('Leave the waiting list'), variant: 'secondary', loading: act.busy, onPress: () => void act.run(() => del(`/v1/activities/${id}/requests/mine`)) };
     else if (req === 'declined' || closed) primary = null;
-    else if (a.spotsLeft === 0 && isGuest) primary = { title: t('Create an account to join the waiting list'), onPress: () => logout() };
-    else if (a.spotsLeft === 0 && !verified) primary = { title: t('Verify your identity to join the waiting list'), onPress: () => go('/verify') };
+    // not verified (a guest, or an account still to be checked): the button stays, says why, and explains on tap
+    else if (a.spotsLeft === 0 && !gate.verified) primary = { title: gate.isGuest ? gate.title('join') : t('Get verified to join the waiting list'), onPress: () => void gate.ask('join') };
     else if (a.spotsLeft === 0) primary = { title: t('Join the waiting list'), onPress: () => go(`/join/${id}`) };
-    else if (isGuest) primary = { title: t('Create an account to join'), onPress: () => logout() };
-    else if (!verified) primary = { title: t('Verify your identity to join'), onPress: () => go('/verify') };
+    else if (!gate.verified) primary = { title: gate.title('join'), onPress: () => void gate.ask('join') };
     else if (a.joinPolicy === 'instant') primary = { title: t('Join now'), onPress: () => go(`/join/${id}`) };
     else primary = { title: t('Request to join'), onPress: () => go(`/join/${id}`) };
   }

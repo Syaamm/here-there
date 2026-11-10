@@ -11,6 +11,9 @@ import { useTheme } from '@/lib/theme';
 import { CatPhoto } from './CatPhoto';
 import { sc } from '@/lib/scale';
 import { Avatar, Btn, Card, Chip, Row, Txt, useGo } from './ui';
+import { tripFrom } from '@/lib/travelStyle';
+import { TravelStyleBadge } from './TravelStyleBadge';
+import { SampleTag } from './SampleTag';
 
 /** Android adds invisible space above and below text; off, text sits centred in pills and badges like on iPhone. */
 const FLAT = { includeFontPadding: false } as const;
@@ -138,6 +141,11 @@ export function ActivityBigCard({ a, tag, status: given, accessibilityLabel }: {
               <Chip label={status.label} tone={status.tone} />
             </View>
           ) : null}
+          {a.host?.sample ? (
+            <View style={{ position: 'absolute', right: 12, bottom: 12 }}>
+              <SampleTag onPhoto />
+            </View>
+          ) : null}
         </CatPhoto>
         <View style={{ paddingHorizontal: 5, gap: 8 }}>
           <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
@@ -199,6 +207,7 @@ function ActivityRowBase({ a }: { a: Activity }) {
         <CatPhoto category={a.category} style={{ width: sc(72), height: sc(72), borderRadius: 18 }} />
         <View style={{ flex: 1, gap: 4, paddingTop: 1 }}>
           <Txt variant="h3" numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{a.title}</Txt>
+          {a.host?.sample ? <SampleTag /> : null}
           <Row style={{ gap: 4 }}>
             <Ionicons name="location-outline" size={14} color={c.muted} />
             <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 13, lineHeight: 17 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
@@ -309,7 +318,11 @@ function TripCardBase({ t }: { t: Trip }) {
   return (
     <Card onPress={() => go(`/trip/${t.id}`)} accessibilityLabel={tripLine(t)} style={{ gap: 6, borderRadius: 20 }}>
       <Row style={{ justifyContent: 'space-between' }}>
-        <Chip label={tr('✈ Trip proposal')} tone="neutral" />
+        <Row style={{ gap: 6, flexWrap: 'wrap', flex: 1 }}>
+          <Chip label={tr('✈ Trip proposal')} tone="neutral" />
+          <TravelStyleBadge trip={t} small />
+          {t.host?.sample ? <SampleTag /> : null}
+        </Row>
         {t.match ? (
           t.match.dates === 'exact' ? <Chip label={tr('Exact dates')} tone="ok" /> : t.match.dates === 'approximate' ? <Chip label={tr('Approximate dates')} tone="warn" /> : null
         ) : full ? (
@@ -320,6 +333,7 @@ function TripCardBase({ t }: { t: Trip }) {
       <Txt variant="small">
         {dateSpan(t.dateStart, t.dateEnd)}
         {t.dateFlexibility !== 'exact' ? tr(' (flexible)') : ''}
+        {` · ${tripFrom(t)}`}
       </Txt>
       <Text style={{ color: c.text, fontWeight: '700' }}>
         {money(t.budget.min, t.budget.currency)}–{money(t.budget.max, t.budget.currency)} <Text style={{ fontWeight: '400', color: c.muted }}>{t.budget.includesTransport ? tr('pp estimate, incl. travel') : tr('pp estimate, excl. travel')}</Text>
@@ -392,7 +406,7 @@ function TripFaces({ t }: { t: Trip }) {
 }
 
 /** "12 Mar - 20 Mar · From Milan": when and from where, for the line under a trip's name. */
-const tripWhen = (t: Trip) => `${dateSpan(t.dateStart, t.dateEnd)}${t.dateFlexibility !== 'exact' ? tr(' (flexible)') : ''} · ${tr('From {city}', { city: t.originCity })}`;
+const tripWhen = (t: Trip) => `${dateSpan(t.dateStart, t.dateEnd)}${t.dateFlexibility !== 'exact' ? tr(' (flexible)') : ''} · ${tripFrom(t)}`;
 
 /**
  * The big trip card of THERE's Home (Figma): a rounded picture with a small tag on it, the destination and the places left,
@@ -409,7 +423,7 @@ export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; t
   return (
     <View style={{ backgroundColor: c.surface, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 13, gap: 12 }}>
       {/* the picture and the facts open the trip; the button below is its own control (a button cannot sit inside another) */}
-      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} place open', ', {n} places open'))} onPress={open} style={{ gap: 12 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} spot left', ', {n} spots left'))} onPress={open} style={{ gap: 12 }}>
         <TripThumb t={t} size={44} style={{ height: sc(173), borderRadius: 24 }}>
           {tag ? (
             <View style={{ position: 'absolute', left: 14, top: 14, backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 }}>
@@ -419,6 +433,15 @@ export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; t
           {status ? (
             <View style={{ position: 'absolute', right: 12, top: 12 }}>
               <Chip label={status.label} tone={status.tone} />
+            </View>
+          ) : null}
+          {/* how the group gets there, at a glance */}
+          <View style={{ position: 'absolute', left: 12, bottom: 12 }}>
+            <TravelStyleBadge trip={t} onPhoto />
+          </View>
+          {t.host?.sample ? (
+            <View style={{ position: 'absolute', right: 12, bottom: 12 }}>
+              <SampleTag onPhoto />
             </View>
           ) : null}
         </TripThumb>
@@ -463,13 +486,17 @@ function TripRowBase({ t }: { t: Trip }) {
     <Pressable
       accessibilityRole="button"
       onPress={() => go(`/trip/${t.id}`)}
-      accessibilityLabel={tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} place open', ', {n} places open'))}
+      accessibilityLabel={tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} spot left', ', {n} spots left'))}
       style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 11, gap: 10, minHeight: 44 }, pressed && { opacity: 0.92 }]}
     >
       <Row style={{ gap: 14, alignItems: 'flex-start' }}>
         <TripThumb t={t} size={26} style={{ width: sc(72), height: sc(72), borderRadius: 18 }} />
         <View style={{ flex: 1, gap: 5, paddingTop: 2 }}>
           <Txt variant="h3" numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{t.destination}</Txt>
+          <Row style={{ gap: 6, flexWrap: 'wrap' }}>
+            <TravelStyleBadge trip={t} small />
+            {t.host?.sample ? <SampleTag /> : null}
+          </Row>
           <Row style={{ gap: 4 }}>
             <Ionicons name="location-outline" size={14} color={c.muted} />
             <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 13, lineHeight: 17 }}>{tripWhen(t)}</Txt>

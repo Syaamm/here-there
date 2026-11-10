@@ -9,7 +9,7 @@ import { MAX_DATE_CHANGES } from '../common/constants';
 import { E } from '../common/errors';
 import { EventBus } from '../common/events';
 import { LiveService } from '../common/live.service';
-import { beforeKeyset, decodeKeyset, encodeKeyset, pageLimit } from '../common/paging';
+import { beforeKeyset, decodeKeyset, encodeKeyset, pageLimit, pageOf } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { PushService } from '../common/push.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -19,6 +19,7 @@ import { RegionsService } from '../regions/regions.service';
 import { ClashService, tripWindow } from '../schedule/clash.service';
 import { tripCities } from '../common/live.service';
 import { SafetyService } from '../safety/safety.service';
+import { limitCityOf } from '../trips/trips.service';
 
 export const sendSchema = z.object({ body: z.string().trim().min(1).max(2000) });
 export const pollSchema = z
@@ -54,6 +55,22 @@ export class ConversationsService {
     private readonly clash: ClashService,
     private readonly regions: RegionsService,
   ) {}
+
+  /** Older chats were made before `lastMessageAt` existed: fill it in once (a chat that is already right is left as it is). */
+  async onModuleInit() {
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "Conversation" c SET "lastMessageAt" = COALESCE((SELECT max(m."createdAt") FROM "Message" m WHERE m."conversationId" = c.id), c."createdAt") WHERE c."lastMessageAt" IS DISTINCT FROM COALESCE((SELECT max(m."createdAt") FROM "Message" m WHERE m."conversationId" = c.id), c."createdAt")`,
+      );
+    } catch (e) {
+      console.warn('could not fill in when chats last had a message:', (e as Error).message);
+    }
+  }
+
+  /** A message was written: its chat moves to the top of everyone's list. */
+  private touch(conversationId: string, at: Date) {
+    return this.prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: at } }).catch(() => undefined);
+  }
 
   /**
    * Authorization is derived from LIVE membership rows on every call (spec 5.1 / 10.3),
@@ -264,6 +281,7 @@ export class ConversationsService {
     this.limiter.hit(`msg:${me.id}`, isNew ? 10 : 30, 60 * 1000);
 
     const m = await this.prisma.message.create({ data: { conversationId: id, senderId: me.id, body: dto.body } });
+    await this.touch(id, m.createdAt);
     metrics.count('messages');
     await this.notifyOthers(me, conv, dto.body, m);
     return { id: m.id, body: m.body, createdAt: m.createdAt };
@@ -282,6 +300,7 @@ export class ConversationsService {
 
   private async postMessage(conv: Conversation, sender: User, body: string, extra: { kind: string; refId?: string; meta?: string }) {
     const m = await this.prisma.message.create({ data: { conversationId: conv.id, senderId: sender.id, body, ...extra } });
+    await this.touch(conv.id, m.createdAt);
     await this.notifyOthers(sender, conv, body, m);
     return m;
   }
@@ -350,7 +369,7 @@ export class ConversationsService {
       assertDatesCanChange(trip);
       if (poll.dateStart! <= new Date()) throw E.badRequest('INVALID_DATES', 'These dates are no longer in the future');
       // the same checks as the organizer editing the dates: how far ahead a trip may be planned, and one plan at a time
-      await this.regions.assertWithinLimit('there', trip.originCity, poll.dateEnd! > poll.dateStart! ? poll.dateEnd! : poll.dateStart!, 'INVALID_DATES');
+      await this.regions.assertWithinLimit('there', limitCityOf(trip), poll.dateEnd! > poll.dateStart! ? poll.dateEnd! : poll.dateStart!, 'INVALID_DATES');
       await this.clash.assertFree(me.id, ...tripWindow({ dateStart: poll.dateStart!, dateEnd: poll.dateEnd! }), { kind: 'trip', id: trip.id });
       await this.prisma.$transaction(async (tx) => {
         // checked and counted in the same step, so two polls adopted at once can never go past the limit or past the start
@@ -461,100 +480,65 @@ export class ConversationsService {
   }
 
   /**
-   * Your chats a page at a time (`limit`, `cursor`). Chats with messages come first, newest message first; the ones nobody
-   * has written in yet follow, soonest event first. Every chat is ordered by a cheap key (one grouped query for the newest
-   * message time), but only the chats on the page get their preview text and sender looked up.
+   * Your chats a page at a time (`limit`, `cursor`), the chat with the newest message first (a chat nobody has written in yet
+   * counts from when it was made). The database orders and pages them (the order is stored in `lastMessageAt`), so a person in
+   * thousands of chats costs the same as one in three; only the chats on the page get their preview text and sender looked up.
    */
   async mine(me: User, limitRaw?: string, cursorRaw?: string, product?: 'here' | 'there') {
     const limit = pageLimit(limitRaw, 100);
+    const blocked = await this.safety.blockedWith(me.id);
+    const member = { some: { userId: me.id, state: 'approved' } };
     // `product` keeps one product's chats: activity groups are HERE, trip groups and travel matches are THERE
-    const [acts, trips] = await Promise.all([
-      product === 'there' ? [] : this.prisma.activityMembership.findMany({
-        where: { userId: me.id, state: 'approved', activity: { status: { not: 'cancelled' }, conversation: { isNot: null } } },
-        select: { activityId: true, activity: { select: { title: true, category: true, startsAt: true, endsAt: true, conversation: { select: { id: true } } } } },
-      }),
-      product === 'here' ? [] : this.prisma.tripMembership.findMany({
-        where: { userId: me.id, state: 'approved', trip: { status: { not: 'cancelled' }, conversation: { isNot: null } } },
-        select: { tripId: true, trip: { select: { title: true, dateStart: true, dateEnd: true, conversation: { select: { id: true } } } } },
-      }),
-    ]);
-    const matchRows = product === 'here' ? [] : await this.prisma.conversation.findMany({ where: { scopeType: 'match', endedAt: null, OR: [{ userAId: me.id }, { userBId: me.id }] }, select: { id: true, userAId: true, userBId: true, createdAt: true, topic: true } });
-    const matchBlocked = new Set(await this.safety.blockedWith(me.id));
-    const matchOthers = matchRows.map((c) => ({ c, otherId: c.userAId === me.id ? c.userBId! : c.userAId! })).filter((x) => !matchBlocked.has(x.otherId));
-    const matchNames = new Map((await this.prisma.profile.findMany({ where: { userId: { in: matchOthers.map((x) => x.otherId) } }, select: { userId: true, displayName: true } })).map((p) => [p.userId, p.displayName]));
-    const items = [
-      ...matchOthers.map((x) => ({
-        conversationId: x.c.id,
-        scope: 'match' as const,
-        scopeId: x.c.id,
-        title: matchNames.get(x.otherId) ?? 'Travel match',
-        category: null as string | null,
-        startsAt: x.c.createdAt,
-        endsAt: x.c.createdAt,
-      })),
-      ...acts.map((m) => ({
-        conversationId: m.activity.conversation!.id,
-        scope: 'activity' as const,
-        scopeId: m.activityId,
-        title: m.activity.title,
-        category: m.activity.category as string | null,
-        startsAt: m.activity.startsAt,
-        endsAt: m.activity.endsAt,
-      })),
-      ...trips.map((m) => ({
-        conversationId: m.trip.conversation!.id,
-        scope: 'trip' as const,
-        scopeId: m.tripId,
-        title: m.trip.title,
-        category: null as string | null,
-        startsAt: m.trip.dateStart,
-        endsAt: m.trip.dateEnd,
-      })),
-    ];
-
-    // when each chat last had a (visible) message: one grouped query, answered from the index
-    const ids = items.map((i) => i.conversationId);
-    const latest = ids.length
-      ? await this.prisma.message.groupBy({ by: ['conversationId'], where: { conversationId: { in: ids }, moderationState: { not: 'removed' } }, _max: { createdAt: true } })
-      : [];
-    const lastAt = new Map(latest.map((g) => [g.conversationId, g._max.createdAt!]));
-
-    // The sort key, smallest first: [0, -time of newest message] for chats with messages, then [1, how soon the event is]
-    // for the rest, and the id to break ties. The clock is the one the first page used, so the pages join up.
-    const [asOfIso, ...rest] = cursorRaw ? Buffer.from(cursorRaw, 'base64url').toString().split('|') : [new Date().toISOString()];
-    const asOf = new Date(asOfIso);
-    if (isNaN(+asOf)) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
-    const FAR = Number.MAX_SAFE_INTEGER / 2;
-    const keyOf = (i: (typeof items)[number]): [number, number, string] => {
-      const at = lastAt.get(i.conversationId);
-      if (at) return [0, -+at, i.conversationId];
-      return [1, +i.startsAt >= +asOf ? +i.startsAt - +asOf : FAR + (+asOf - +i.startsAt), i.conversationId];
+    const where = {
+      OR: [
+        ...(product === 'there' ? [] : [{ activity: { status: { not: 'cancelled' }, memberships: member } }]),
+        ...(product === 'here'
+          ? []
+          : [
+              { trip: { status: { not: 'cancelled' }, memberships: member } },
+              { scopeType: 'match', endedAt: null, OR: [{ userAId: me.id, userBId: { notIn: blocked } }, { userBId: me.id, userAId: { notIn: blocked } }] },
+            ]),
+      ],
     };
-    const cmp = (x: [number, number, string], y: [number, number, string]) => x[0] - y[0] || x[1] - y[1] || (x[2] < y[2] ? -1 : x[2] > y[2] ? 1 : 0);
-    let after: [number, number, string] | null = null;
-    if (cursorRaw) {
-      const [g, k, ...idParts] = rest;
-      after = [Number(g), Number(k), idParts.join('|')];
-      if (!Number.isFinite(after[0]) || !Number.isFinite(after[1]) || !after[2]) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
-    }
-    const ordered = items.map((i) => ({ i, k: keyOf(i) })).sort((x, y) => cmp(x.k, y.k));
-    const later = after ? ordered.filter((x) => cmp(x.k, after!) > 0) : ordered;
-    const pageRows = later.slice(0, limit);
-    const lastRow = pageRows[pageRows.length - 1];
-    const nextCursor = later.length > limit && lastRow ? Buffer.from(`${asOf.toISOString()}|${lastRow.k[0]}|${lastRow.k[1]}|${lastRow.k[2]}`).toString('base64url') : null;
+    const page = await pageOf(
+      (args) =>
+        this.prisma.conversation.findMany({
+          ...args,
+          include: { activity: { select: { title: true, category: true, startsAt: true, endsAt: true } }, trip: { select: { title: true, dateStart: true, dateEnd: true } } },
+        }),
+      { limit, cursor: cursorRaw, where, sortBy: 'lastMessageAt' },
+    );
 
-    // the preview and sender, for the chats on this page only
-    const pageIds = pageRows.map((x) => x.i.conversationId);
-    const newest = pageIds.length
-      ? await this.prisma.message.findMany({
-          where: { conversationId: { in: pageIds }, moderationState: { not: 'removed' } },
+    // the other traveller's name, for the match chats on this page
+    const otherOf = (c: { userAId: string | null; userBId: string | null }) => (c.userAId === me.id ? c.userBId : c.userAId);
+    const names = new Map(
+      (await this.prisma.profile.findMany({ where: { userId: { in: page.items.filter((c) => c.scopeType === 'match').map((c) => otherOf(c)!).filter(Boolean) } }, select: { userId: true, displayName: true } })).map((p) => [p.userId, p.displayName]),
+    );
+    // the newest visible message of each chat on the page: one small indexed read per chat
+    const newest = await Promise.all(
+      page.items.map((c) =>
+        this.prisma.message.findFirst({
+          where: { conversationId: c.id, moderationState: { not: 'removed' } },
           orderBy: { createdAt: 'desc' },
-          distinct: ['conversationId'],
           include: { sender: { select: { id: true, profile: { select: { displayName: true } } } } },
-        })
-      : [];
-    const last = new Map(newest.map((m) => [m.conversationId, { body: m.body.slice(0, 140), at: m.createdAt, from: m.senderId === me.id ? 'You' : (m.sender.profile?.displayName ?? null) }]));
-    return { items: pageRows.map((x) => ({ ...x.i, lastMessage: last.get(x.i.conversationId) ?? null })), nextCursor };
+        }),
+      ),
+    );
+    const items = page.items.map((c, i) => {
+      const m = newest[i];
+      const base =
+        c.scopeType === 'activity' && c.activity
+          ? { scope: 'activity' as const, scopeId: c.activityId!, title: c.activity.title, category: c.activity.category as string | null, startsAt: c.activity.startsAt, endsAt: c.activity.endsAt }
+          : c.scopeType === 'trip' && c.trip
+            ? { scope: 'trip' as const, scopeId: c.tripId!, title: c.trip.title, category: null as string | null, startsAt: c.trip.dateStart, endsAt: c.trip.dateEnd }
+            : { scope: 'match' as const, scopeId: c.id, title: names.get(otherOf(c) ?? '') ?? 'Travel match', category: null as string | null, startsAt: c.createdAt, endsAt: c.createdAt };
+      return {
+        conversationId: c.id,
+        ...base,
+        lastMessage: m ? { body: m.body.slice(0, 140), at: m.createdAt, from: m.senderId === me.id ? 'You' : (m.sender.profile?.displayName ?? null) } : null,
+      };
+    });
+    return { items, nextCursor: page.nextCursor };
   }
 }
 
