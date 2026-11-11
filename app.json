@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "4005c1f6-33e1-4757-b262-cfa7643b5b9b"
+      }
+    },
+    "android": {
+      "package": "com.cloudhouseproduction.herethere"
+    }
+  }
+}

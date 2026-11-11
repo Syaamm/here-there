@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { can, get, post, roleLabel, type Role, type Session } from '../api';
 import './UserPanel.css';
+import { actionLabel, say, type E } from './Audit';
 import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad } from '../ui';
 
 type U = { adminRegionKey?: string | null; id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
@@ -8,7 +9,7 @@ type Detail = {
   id: string;
   email: string;
   stats: { reportsAgainst: number; hosted: number; joined: number };
-  history: { id: string; action: string; createdAt: string; metadata: string | null }[];
+  history: { id: string; actorId?: string | null; action: string; createdAt: string; metadata: string | null }[];
   verifications: { id: string; eligibility: string; createdAt: string }[];
   reports: { id: string; category: string; status: string; details: string | null; resolution: string | null; createdAt: string; targetType: string; targetTitle: string | null; reporterName: string | null }[];
 };
@@ -42,6 +43,7 @@ const ACTIONS: Record<string, string> = {
   'message.removed': 'Message hidden',
   'message.restored': 'Message restored',
 };
+const SERIOUS = ['user.suspend', 'user.warn', 'verification.rejected', 'verification.reverification_required', 'message.removed'];
 const actionText = (a: string) => ACTIONS[a] ?? (a.split('.').pop() ?? a).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 /** the readable part of an audit entry's details: its reason or note, never raw data */
 const detailText = (meta: string | null) => {
@@ -56,7 +58,7 @@ const detailText = (meta: string | null) => {
   }
 };
 
-export function UsersPage({ me, focusId, onClearFocus, openReport, backLabel, onBack }: { me: Session; focusId?: string | null; onClearFocus?: () => void; openReport?: (id: string) => void; /** "Back to the report" etc.: this person was opened from there */ backLabel?: string | null; onBack?: () => void }) {
+export function UsersPage({ me, focusId, onClearFocus, openReport, onShowReports, backLabel, onBack }: { me: Session; focusId?: string | null; onClearFocus?: () => void; openReport?: (id: string) => void; onShowReports?: (term: string) => void; /** "Back to the report" etc.: this person was opened from there */ backLabel?: string | null; onBack?: () => void }) {
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
   // kept in the address, so a page reload stays on the same view and person
@@ -195,7 +197,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, backLabel, on
               </button>
             )}
             {selected ? (
-              <UserPanel key={selected.id} u={selected} me={me} busy={act.busy} onSuspend={suspend} onRestore={restore} onWarn={warn} onReverify={reverify} onReset={reset} onOverturn={overturn} onResetMfa={resetMfa} openReport={openReport} />
+              <UserPanel key={selected.id} u={selected} me={me} busy={act.busy} onSuspend={suspend} onRestore={restore} onWarn={warn} onReverify={reverify} onReset={reset} onOverturn={overturn} onResetMfa={resetMfa} openReport={openReport} onShowReports={onShowReports} />
             ) : (
               <div className="detail-empty">Select a person.</div>
             )}
@@ -206,7 +208,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, backLabel, on
   );
 }
 
-function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => void; onRestore: (u: U) => void; onWarn: (u: U) => void; onReverify: (u: U) => void; onReset: (u: U) => void; onOverturn: (u: U) => void; onResetMfa: (u: U) => void; openReport?: (id: string) => void }) {
+function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => void; onRestore: (u: U) => void; onWarn: (u: U) => void; onReverify: (u: U) => void; onReset: (u: U) => void; onOverturn: (u: U) => void; onResetMfa: (u: U) => void; openReport?: (id: string) => void; onShowReports?: (term: string) => void }) {
   const { u, me } = p;
   const detail = useLoad(() => get<Detail>(`/v1/admin/users/${u.id}`), [u.id], 6000);
   const act = useAction(detail.reload);
@@ -227,7 +229,6 @@ function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => v
     if (resolution) act.run(() => post(`/v1/admin/reports/${reportId}/resolve`, { status, resolution }));
   };
 
-  const SERIOUS = ['user.suspend', 'user.warn', 'verification.rejected', 'verification.reverification_required', 'message.removed'];
   const checks: { label: string; ok: boolean; note?: string }[] = [
     { label: 'Email confirmed', ok: u.emailVerified },
     { label: 'Adult confirmed', ok: u.adultVerified },
@@ -294,10 +295,16 @@ function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => v
           <b>{d?.stats.joined ?? '–'}</b>
           <span>Joined</span>
         </div>
-        <div className={d && d.stats.reportsAgainst > 0 ? 'up-tile hot' : 'up-tile'}>
+        <button
+          type="button"
+          className={d && d.stats.reportsAgainst > 0 ? 'up-tile hot linky' : 'up-tile linky'}
+          disabled={!p.onShowReports || !d || d.stats.reportsAgainst === 0}
+          onClick={() => p.onShowReports?.(u.email)}
+          title="Open every report about this person"
+        >
           <b>{d?.stats.reportsAgainst ?? '–'}</b>
-          <span>Reports against</span>
-        </div>
+          <span>Reports against{d && d.stats.reportsAgainst > 0 ? ' →' : ''}</span>
+        </button>
       </div>
 
       {r && (
@@ -415,17 +422,64 @@ function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => v
       {d && d.history.length > 0 && (
         <section className="up-section">
           <h3 className="up-title">History</h3>
-          <ul className="up-timeline">
-            {d.history.map((h) => (
-              <li key={h.id} className={SERIOUS.includes(h.action) ? 'serious' : ''}>
-                <span className="up-when">{fmt(h.createdAt)}</span>
-                <span className="up-what">{actionText(h.action)}</span>
-                {detailText(h.metadata) && <span className="up-why">{detailText(h.metadata)}</span>}
-              </li>
-            ))}
-          </ul>
+          <HistoryList items={d.history} personId={u.id} personName={name} />
         </section>
       )}
     </div>
   );
 }
+
+const HISTORY_PAGE = 6;
+/** The person's history: six entries, and "Load more" for the next six. */
+function HistoryList({ items, personId, personName }: { items: U_History[]; personId: string; personName: string }) {
+  const [count, setCount] = useState(HISTORY_PAGE);
+  const shown = items.slice(0, count);
+  // each entry as a plain sentence ("Sofia signed in", "A staff member warned Sofia"), with its outcome and a single date format
+  const sentence = (h: U_History) => {
+    let meta: Record<string, unknown> | null = null;
+    try {
+      meta = h.metadata ? (JSON.parse(h.metadata) as Record<string, unknown>) : null;
+    } catch {
+      meta = null;
+    }
+    const mine = !h.actorId || h.actorId === personId;
+    const e: E = { id: h.id, actorId: h.actorId ?? null, actorName: h.actorId ? (mine ? personName : 'A staff member') : null, objectName: personName, action: h.action, objectType: 'user', objectId: personId, metadata: meta, createdAt: h.createdAt };
+    return { said: say(e, { [personId]: personName }), status: actionLabel(h.action) };
+  };
+  return (
+    <>
+      <ul className="up-timeline">
+        {shown.map((h) => {
+          const { said, status } = sentence(h);
+          return (
+            <li key={h.id} className={SERIOUS.includes(h.action) ? 'serious' : ''}>
+              <span className="up-when">{fmt(h.createdAt)}</span>
+              <span className="up-what">
+                {said.parts.map((p, i) => (typeof p === 'string' ? <span key={i}>{p}</span> : <b key={i}>{p.b}</b>))}
+                {status.tone !== 'plain' && (
+                  <>
+                    {' '}
+                    <Chip value={status.text} tone={status.tone} />
+                  </>
+                )}
+              </span>
+              {said.facts.map((f, i) => (
+                <span key={i} className="up-why">
+                  {f}
+                </span>
+              ))}
+            </li>
+          );
+        })}
+      </ul>
+      {items.length > count && (
+        <div className="row end" style={{ marginTop: 12 }}>
+          <button type="button" className="btn small" onClick={() => setCount((c) => c + HISTORY_PAGE)}>
+            Load more
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+type U_History = { id: string; actorId?: string | null; action: string; createdAt: string; metadata: string | null };

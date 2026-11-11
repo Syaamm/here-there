@@ -1,15 +1,14 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import './Audit.css';
-import { DayCard, DayLog } from '../DayLog';
 import { get, PERMISSIONS, roleLabel } from '../api';
 import { Select } from '../controls';
-import { Empty, ErrorBanner, Icon, Loading, Page, Search, Segmented, useLoad, type IconName, type Tone } from '../ui';
+import { RangeCalendar } from '../RangeCalendar';
+import { Chip, Empty, ErrorBanner, Icon, Loading, Page, PageBar, Search, useLoad, type IconName, type Tone } from '../ui';
 
 type Meta = Record<string, unknown> | null;
-type E = { id: string; actorId: string | null; actorName?: string | null; actorRole?: string | null; objectName?: string | null; objectRole?: string | null; action: string; objectType: string; objectId: string; metadata: unknown; createdAt: string };
-type Reply = { items: E[]; nextCursor: string | null; names?: Record<string, string> };
+export type E = { id: string; actorId: string | null; actorName?: string | null; actorRole?: string | null; objectName?: string | null; objectRole?: string | null; action: string; objectType: string; objectId: string; metadata: unknown; createdAt: string };
+type Reply = { items: E[]; nextCursor: string | null; names?: Record<string, string>; page?: number; pages?: number; total?: number };
 
-const STEP = 200;
 const cap = (s: string) => s.replace(/[_.]/g, ' ').replace(/^./, (x) => x.toUpperCase());
 
 /** "activity.cancel" as a short label and tone (for other pages that want it). */
@@ -29,30 +28,39 @@ export function actionLabel(action: string): { text: string; tone: Tone; icon: I
 // ---------------------------------------------------------------- groups (filter pills and dot colours)
 type Kind = 'moderation' | 'accounts' | 'security' | 'signins' | 'other';
 const FILTERS: { id: '' | Kind; label: string }[] = [
-  { id: '', label: 'Everything' },
+  { id: '', label: 'All' },
   { id: 'moderation', label: 'Moderation' },
   { id: 'accounts', label: 'Accounts' },
   { id: 'security', label: 'Security' },
   { id: 'signins', label: 'Sign-ins' },
 ];
-// ---------------------------------------------------------------- how far back (the viewer's own days)
-type When = 'today' | '7d' | 'month' | 'all';
-const WHEN: { id: When; label: string; none: string }[] = [
-  { id: 'today', label: 'Today', none: 'Nothing today yet.' },
-  { id: '7d', label: 'Last 7 days', none: 'Nothing in the last 7 days.' },
-  { id: 'month', label: 'This month', none: 'Nothing this month.' },
-  { id: 'all', label: 'Everything', none: 'Nothing yet.' },
+const KIND_LABEL: Record<Kind, string> = { moderation: 'Moderation', accounts: 'Accounts', security: 'Security', signins: 'Sign-ins', other: 'Activity' };
+const WHO = [
+  { id: '', label: 'Everyone' },
+  { id: 'staff', label: 'Admins and staff' },
+  { id: 'members', label: 'Members' },
+  { id: 'system', label: 'System' },
 ];
-/** The local midnight a range starts at, as an ISO time for the server (none for Everything). */
-function since(when: When): string | null {
+const RANGES = [
+  { id: 'today', label: 'Today' },
+  { id: '7d', label: 'Last 7 days' },
+  { id: '30d', label: 'Last 30 days' },
+  { id: 'all', label: 'All time' },
+  { id: 'custom', label: 'Choose dates' },
+];
+const ROLE = (r?: string | null, id?: string | null) => (!id ? 'System' : r === 'admin' ? 'Admin' : r === 'staff' ? 'Staff' : 'Member');
+const ROLE_TONE = (r?: string | null, id?: string | null): Tone => (!id ? 'plain' : r === 'admin' ? 'dark' : r === 'staff' ? 'ok' : 'line');
+/** The local midnight a preset starts at, as an ISO time for the server. */
+function startOf(range: string): string | null {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
-  if (when === '7d') d.setDate(d.getDate() - 6);
-  else if (when === 'month') d.setDate(1);
-  else if (when === 'all') return null;
+  if (range === '7d') d.setDate(d.getDate() - 6);
+  else if (range === '30d') d.setDate(d.getDate() - 29);
+  else if (range !== 'today') return null;
   return d.toISOString();
 }
-
+const dayStart = (v: string) => (v ? new Date(v + 'T00:00:00').toISOString() : null);
+const dayAfter = (v: string) => (v ? new Date(new Date(v + 'T00:00:00').getTime() + 86400000).toISOString() : null);
 function kindOf(action: string): Kind {
   if (/^session\.|^login\.(?!lockout)|^social\./.test(action)) return 'signins';
   if (/^mfa\.|^password\.|^login\.lockout/.test(action)) return 'security';
@@ -63,9 +71,9 @@ function kindOf(action: string): Kind {
 
 // ---------------------------------------------------------------- an entry as a sentence
 /** A sentence is a list of pieces; names are bold. Kept as data so the same words are searched and exported. */
-type Piece = string | { b: string };
-type Said = { parts: Piece[]; facts: string[] };
-const plain = (s: Said) => s.parts.map((p) => (typeof p === 'string' ? p : p.b)).join('');
+export type Piece = string | { b: string };
+export type Said = { parts: Piece[]; facts: string[] };
+export const plain = (s: Said) => s.parts.map((p) => (typeof p === 'string' ? p : p.b)).join('');
 
 const permLabel = (p: unknown) => PERMISSIONS.find((x) => x.id === p)?.label ?? cap(String(p));
 const list = (v: unknown) => (Array.isArray(v) ? v.map(permLabel).join(', ') || 'none' : '');
@@ -73,7 +81,7 @@ const months = (n: unknown) => (n == null ? 'inherited' : `${n} ${n === 1 ? 'mon
 const day = (v: unknown) => (typeof v === 'string' && !isNaN(+new Date(v)) ? new Date(v).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const words = (v: unknown) => (typeof v === 'string' && v ? cap(v) : '');
 
-function say(e: E, names: Record<string, string>): Said {
+export function say(e: E, names: Record<string, string>): Said {
   const m = (e.metadata && typeof e.metadata === 'object' ? e.metadata : null) as Meta;
   const str = (k: string) => (typeof m?.[k] === 'string' ? (m[k] as string) : '');
   const name = (id: unknown, fallback = 'someone') => (typeof id === 'string' && names[id]) || fallback;
@@ -171,6 +179,7 @@ function say(e: E, names: Record<string, string>): Said {
       add('Note', str('note'));
       return byWho([e.action === 'appeal.rejected' ? 'rejected ' : 'accepted ', { b: name(m?.userId) }, `'s ${words(m?.kind).toLowerCase() || ''} appeal`.replace("'s  appeal", "'s appeal")]);
     // identity checks
+    case 'verification.export': return byWho([`downloaded the spreadsheet of ${m?.status === 'verified' ? 'verified' : m?.status === 'unverified' ? 'not verified' : 'all'} people`]);
     case 'verification.verified': return byWho(['approved the identity check of ', obj]);
     case 'verification.rejected': add('Reason', words(reason)); return byWho(['rejected the identity check of ', obj]);
     case 'verification.consent_given': return s(self || !e.actorId ? obj : who, ' started an identity check');
@@ -213,6 +222,7 @@ function say(e: E, names: Record<string, string>): Said {
       if (typeof a.name === 'string' && a.name !== b.name) add('Name', `${b.name ?? ''} → ${a.name}`);
       return byWho(['changed the limits of ', { b: name(e.objectId, String(b.name ?? 'a place')) }]);
     }
+    case 'region.limits_reset': return byWho(['made ', { b: String(m?.cities ?? 0) }, ' cities follow the default limits again']);
     case 'retention.purged': return s('Old data was cleared on schedule');
     case 'oncall.shift_added': return byWho(['added an on-call shift (no longer used)']);
     case 'oncall.shift_removed': return byWho(['removed an on-call shift (no longer used)']);
@@ -234,70 +244,74 @@ const Words = ({ parts }: { parts: Piece[] }) => (
 );
 
 // ---------------------------------------------------------------- the page
-type Row = { first: E; said: Said; n: number };
-const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase();
-const looksLikeId = (s: string) => /^[a-z0-9]{20,}$/i.test(s);
+const stamp = (iso: string) => {
+  const d = new Date(iso);
+  return { day: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }), time: d.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).toUpperCase() };
+};
+const PAGE = 25;
+const shortDate = (v: string) => new Date(`${v}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const OBJECT: Record<string, string> = { user: 'A member', report: 'A report', activity: 'An activity', trip: 'A trip', message: 'A message', appeal: 'An appeal', region: 'A place' };
 
 export function AuditPage({ openReport }: { openReport?: (id: string) => void }) {
+  const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
   const [kind, setKind] = useState<'' | Kind>('');
-  const [when, setWhen] = useState<When>('today');
-  const from = since(when);
+  const [who, setWho] = useState('');
+  const [range, setRange] = useState('7d');
+  const [fromDay, setFromDay] = useState('');
+  const [toDay, setToDay] = useState('');
+  const [picking, setPicking] = useState(false);
+  const rangeRef = useRef<HTMLSpanElement>(null);
+  const [pageNo, setPageNo] = useState(1);
   const [open, setOpen] = useState<string | null>(null);
-  // a pasted id still finds its entries on the server; words search what is loaded
-  const idSearch = looksLikeId(term.trim()) ? term.trim() : '';
-  // a pasted id looks through everything; otherwise the chosen range
-  const query = new URLSearchParams({ limit: String(STEP), ...(idSearch ? { objectId: idSearch } : from && { from }) });
-  // The whole range at once (page after page), so there is no "Load more": days stack newest first and Expand all opens them all.
-  const first = useLoad(async () => {
-    const items: E[] = [];
-    const names: Record<string, string> = {};
-    let cursor: string | null = null;
-    do {
-      const r: Reply = await get<Reply>(`/v1/admin/audit?${query}${cursor ? `&cursor=${cursor}` : ''}`);
-      items.push(...r.items);
-      Object.assign(names, r.names ?? {});
-      cursor = r.nextCursor;
-    } while (cursor);
-    return { items, names };
-  }, [idSearch, from]);
-  const paged = { items: first.data?.items ?? [] };
-  const names = first.data?.names ?? {};
-  const { error, loading, reload } = first;
+  const [exporting, setExporting] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
+  useEffect(() => {
+    setPageNo(1);
+    setOpen(null);
+  }, [term, kind, who, range, fromDay, toDay]);
 
-  const words = !idSearch ? term.trim().toLowerCase() : '';
-  const days = useMemo(() => {
-    const out: { key: string; at: string; rows: Row[]; events: number }[] = [];
-    for (const e of paged.items) {
-      if (kind && kindOf(e.action) !== kind) continue;
-      const said = say(e, names);
-      if (words && !`${plain(said)} ${said.facts.join(' ')}`.toLowerCase().includes(words)) continue;
-      const key = new Date(e.createdAt).toDateString();
-      let d = out[out.length - 1];
-      if (d?.key !== key) out.push((d = { key, at: e.createdAt, rows: [], events: 0 }));
-      d.events++;
-      const prev = d.rows[d.rows.length - 1];
-      if (prev && prev.first.action === e.action && prev.first.actorId === e.actorId && prev.first.objectId === e.objectId) prev.n++;
-      else d.rows.push({ first: e, said, n: 1 });
+  const from = range === 'custom' ? dayStart(fromDay) : startOf(range);
+  const to = range === 'custom' ? dayAfter(toDay) : null;
+  const filters = () => new URLSearchParams({ ...(term && { q: term }), ...(kind && { group: kind }), ...(who && { who }), ...(from && { from }), ...(to && { to }) });
+  const list = useLoad(async () => {
+    const p = filters();
+    p.set('page', String(pageNo));
+    p.set('limit', String(PAGE));
+    return get<Reply>(`/v1/admin/audit?${p}`);
+  }, [term, kind, who, from, to, pageNo], 15000);
+  const items = list.data?.items ?? [];
+  const names = list.data?.names ?? {};
+  const filtered = !!(term || kind || who || range !== '7d');
+
+  const exportCsv = async () => {
+    const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows: E[] = [];
+    const nm: Record<string, string> = {};
+    for (let p = 1; p <= 50; p++) {
+      const f = filters();
+      f.set('page', String(p));
+      f.set('limit', '100');
+      const r = await get<Reply>(`/v1/admin/audit?${f}`);
+      rows.push(...r.items);
+      Object.assign(nm, r.names ?? {});
+      if (p >= (r.pages ?? 1)) break;
     }
-    return out;
-  }, [paged.items, kind, words, names]);
-  const shown = days.reduce((n, d) => n + d.events, 0);
-
-  const exportCsv = () => {
-    const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = [['time', 'who', 'what happened', 'details'].join(',')].concat(
-      paged.items.map((e) => {
-        const said = say(e, names);
-        return [new Date(e.createdAt).toLocaleString('en-GB'), e.actorName ?? (e.actorId ? 'Someone' : 'The system'), plain(said), said.facts.join('; ')].map(q).join(',');
+    const lines = [['Time', 'Who', 'Role', 'Category', 'What happened', 'Details', 'Entry id'].join(',')].concat(
+      rows.map((e) => {
+        const said = say(e, nm);
+        return [new Date(e.createdAt).toLocaleString('en-GB'), e.actorName ?? (e.actorId ? 'Someone' : 'The system'), ROLE(e.actorRole, e.actorId), KIND_LABEL[kindOf(e.action)], plain(said), said.facts.join('; '), e.id].map(cell).join(',');
       }),
     );
-    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' }));
+    const url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -305,80 +319,176 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
       fill
       title="Audit log"
       actions={
-        <>
-          <Segmented label="How far back" value={when} onChange={setWhen} options={WHEN.map((w) => ({ id: w.id, label: w.label }))} />
-          <button type="button" className="btn" onClick={exportCsv} disabled={paged.items.length === 0}>
-            Export CSV
-          </button>
-        </>
+        <button type="button" className="btn" disabled={exporting || items.length === 0} onClick={() => (setExporting(true), exportCsv().finally(() => setExporting(false)))}>
+          {exporting ? 'Preparing…' : 'Export CSV'}
+        </button>
       }
     >
       <div className="toolbar">
         <div className="grow">
-          <Search label="Search the audit log" placeholder="Search names or actions" value={term} onChange={setTerm} />
+          <Search label="Search the audit log" placeholder="Search a person, plan, action or id" value={q} onChange={setQ} />
         </div>
-        <Select aria-label="What to show" value={kind} onChange={(v) => setKind(v as typeof kind)}>
-          {FILTERS.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.label}
+        <Select aria-label="Who did it" value={who} onChange={setWho}>
+          {WHO.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.label}
             </option>
           ))}
         </Select>
+        <span ref={rangeRef} className="au-range">
+          <Select aria-label="Time range" value={range} onChange={(v) => (setRange(v), setPicking(v === 'custom'))}>
+            {RANGES.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </Select>
+        </span>
+        {range === 'custom' && fromDay && toDay && (
+          <button type="button" className="btn" onClick={() => setPicking(true)} aria-label="Change the dates">
+            {fromDay === toDay ? shortDate(fromDay) : `${shortDate(fromDay)} – ${shortDate(toDay)}`}
+          </button>
+        )}
+        {picking && (
+          <RangeCalendar
+            anchor={rangeRef.current}
+            from={fromDay || new Date().toISOString().slice(0, 10)}
+            to={toDay || new Date().toISOString().slice(0, 10)}
+            onClose={() => {
+              setPicking(false);
+              if (!fromDay) setRange('7d'); // closed without choosing dates: back to the last 7 days
+            }}
+            onPick={(f, t) => {
+              setFromDay(f);
+              setToDay(t);
+              setRange('custom');
+              setPicking(false);
+            }}
+          />
+        )}
+        {filtered && (
+          <button type="button" className="btn small ghost" onClick={() => (setQ(''), setKind(''), setWho(''), setRange('7d'), setFromDay(''), setToDay(''))}>
+            Reset
+          </button>
+        )}
       </div>
-      <ErrorBanner message={error} onRetry={reload} />
-      {loading && !first.data && <Loading rows={6} />}
-      {first.data && days.length === 0 && <Empty>{paged.items.length || idSearch ? 'Nothing matches.' : WHEN.find((w) => w.id === when)!.none}</Empty>}
-      {days.length > 0 && (
-        <DayLog label="Audit log" title={idSearch ? 'Search' : [WHEN.find((w) => w.id === when)!.label, kind && FILTERS.find((f) => f.id === kind)?.label].filter(Boolean).join(' · ')} count={shown}>
-          {days.map((d) => (
-            <DayCard
-              key={d.key}
-              id={d.key}
-              at={d.at}
-              count={d.events}
-              unit={['event', 'events']}
-              rows={d.rows.map((r) => {
-                const e = r.first;
-                const isOpen = open === e.id;
-                const report = e.objectType === 'report' && openReport;
-                const hasMore = r.said.facts.length > 0 || !!report;
-                return (
-                  <li key={e.id}>
-                    <div className="au-row">
-                      <span className="au-time">{clock(e.createdAt)}</span>
-                      <span className={`au-dot ${kindOf(e.action)}`} aria-hidden="true" />
-                      <span className="au-sentence">
-                        <Words parts={r.said.parts} />
-                        {r.n > 1 && <span className="au-times"> · {r.n === 2 ? 'twice' : `${r.n} times`}</span>}
-                      </span>
-                      {hasMore ? (
-                        <button type="button" className={isOpen ? 'au-chev open' : 'au-chev'} aria-expanded={isOpen} aria-label={isOpen ? 'Hide details' : 'Show details'} onClick={() => setOpen(isOpen ? null : e.id)}>
-                          <Icon name="chevron" />
-                        </button>
-                      ) : (
-                        <span />
-                      )}
-                    </div>
-                    {isOpen && (
-                      <div className="au-detail">
-                        {r.said.facts.map((fact, i) => (
-                          <p key={i}>{fact}</p>
-                        ))}
-                        {report && (
-                          <button type="button" className="au-open" onClick={() => openReport(e.objectId)}>
-                            Open report →
+      <div className="au-kinds" role="group" aria-label="Category">
+        {FILTERS.map((f) => (
+          <button key={f.id} type="button" className={`au-kind ${f.id || 'all'}${kind === f.id ? ' on' : ''}`} aria-pressed={kind === f.id} onClick={() => setKind(f.id)}>
+            {f.id && <span className={`au-dot ${f.id}`} aria-hidden="true" />}
+            {f.id ? f.label : 'All categories'}
+          </button>
+        ))}
+      </div>
+      <ErrorBanner message={list.error} onRetry={list.reload} />
+      {list.loading && !list.data && <Loading rows={6} />}
+      {list.data && items.length === 0 && <Empty>{filtered ? 'Nothing matches these filters.' : 'Nothing in the last 7 days.'}</Empty>}
+      {items.length > 0 && (
+        <div className="table-wrap audit-table">
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 170 }}>Time</th>
+                  <th style={{ width: 220 }}>Who</th>
+                  <th>What happened</th>
+                  <th style={{ width: 130 }}>Category</th>
+                  <th aria-label="Details" style={{ width: 52 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((e) => {
+                  const said = say(e, names);
+                  const k = kindOf(e.action);
+                  const t = stamp(e.createdAt);
+                  const isOpen = open === e.id;
+                  const report = e.objectType === 'report' && openReport;
+                  return (
+                    <Fragment key={e.id}>
+                      <tr>
+                        <td>
+                          <span className="strong">{t.day}</span>
+                          <span className="muted small" style={{ display: 'block' }}>
+                            {t.time}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="strong">{e.actorName ?? (e.actorId ? 'Someone' : 'The system')}</span>
+                          <span style={{ display: 'block' }}>
+                            <Chip value={ROLE(e.actorRole, e.actorId)} tone={ROLE_TONE(e.actorRole, e.actorId)} />
+                          </span>
+                        </td>
+                        <td>
+                          <Words parts={said.parts} />
+                        </td>
+                        <td>
+                          <span className={`au-cat ${k}`}>
+                            <span className={`au-dot ${k}`} aria-hidden="true" />
+                            {KIND_LABEL[k]}
+                          </span>
+                        </td>
+                        <td className="end">
+                          <button type="button" className={isOpen ? 'au-chev open' : 'au-chev'} aria-expanded={isOpen} aria-label={isOpen ? 'Hide details' : 'Show details'} onClick={() => setOpen(isOpen ? null : e.id)}>
+                            <Icon name="chevron" />
                           </button>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            />
-          ))}
-        </DayLog>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="au-detail-row">
+                          <td colSpan={5}>
+                            <div className="au-detail" style={{ margin: 0 }}>
+                              <dl className="au-facts">
+                                <div>
+                                  <dt>Done by</dt>
+                                  <dd>
+                                    {e.actorName ?? (e.actorId ? 'Someone' : 'The system')} · {ROLE(e.actorRole, e.actorId)}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>About</dt>
+                                  <dd>{e.objectName ?? OBJECT[e.objectType] ?? cap(e.objectType)}</dd>
+                                </div>
+                                <div>
+                                  <dt>Exact time</dt>
+                                  <dd>{new Date(e.createdAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'medium' })}</dd>
+                                </div>
+                                {said.facts.map((f, i) => {
+                                  const at = f.indexOf(': ');
+                                  return (
+                                    <div key={i}>
+                                      <dt>{at > 0 ? f.slice(0, at) : 'Detail'}</dt>
+                                      <dd>{at > 0 ? f.slice(at + 2) : f}</dd>
+                                    </div>
+                                  );
+                                })}
+                                <div>
+                                  <dt>Reference</dt>
+                                  <dd>
+                                    <code className="mono">{e.id.slice(-8)}</code>
+                                    <button type="button" className="au-open" style={{ marginLeft: 8 }} onClick={() => navigator.clipboard?.writeText(e.id)}>
+                                      Copy full id
+                                    </button>
+                                  </dd>
+                                </div>
+                              </dl>
+                              {report && (
+                                <button type="button" className="au-open" onClick={() => openReport(e.objectId)}>
+                                  Open report →
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <PageBar page={list.data?.page ?? 1} pages={list.data?.pages ?? 1} total={list.data?.total ?? items.length} noun={['entry', 'entries']} onPage={setPageNo} busy={list.loading} />
+        </div>
       )}
     </Page>
   );
 }
-

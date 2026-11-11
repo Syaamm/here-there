@@ -5,7 +5,7 @@
 
 /* ---- the closed field */
 .select { position: relative; width: 100%; min-width: 0; }
-.select-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 44px; padding: 9px 12px 9px 14px; font: inherit; font-weight: 600; text-align: left; color: var(--text); background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.18s ease, background-color 0.15s ease; }
+.select-btn { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 8px 12px 8px 16px; font: inherit; font-weight: 600; text-align: left; color: var(--text); background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.18s ease, background-color 0.15s ease; }
 .select-btn:hover:not(:disabled) { border-color: #b9b19f; }
 .select-btn:focus-visible, .select-btn.is-open { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
 .select-btn:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -15,7 +15,7 @@
 .select-chevron { flex: none; color: var(--accent); transition: transform 0.18s ease; }
 .select-btn.is-open .select-chevron { transform: rotate(180deg); }
 .datefield .select-chevron { color: var(--muted); }
-.select.compact .select-btn { min-height: 36px; padding: 4px 10px 4px 12px; font-size: var(--fs-md); }
+.select.compact .select-btn { min-height: 36px; padding: 4px 12px 4px 12px; font-size: var(--fs-md); }
 /* carries `required` for the form's own validation; never seen */
 .select-required { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 
@@ -24,8 +24,8 @@
 .trend-dates .select { width: auto; min-width: 150px; }
 
 /* ---- the open list */
-.select-list { position: fixed; z-index: 80; overflow-y: auto; padding: 6px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); display: grid; gap: 2px; align-content: start; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
-.select-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 8px 12px; border-radius: 9px; font-weight: 600; color: var(--text); cursor: pointer; user-select: none; }
+.select-list { position: fixed; z-index: 80; overflow-y: auto; padding: 8px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); display: grid; gap: 2px; align-content: start; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.select-opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 8px 12px; border-radius: 9px; font-weight: 600; color: var(--text); cursor: pointer; user-select: none; }
 .select-opt.active { background: var(--surface-2); }
 .select-opt.chosen { background: var(--ok-bg); color: var(--ok-fg); }
 .select-opt.chosen.active { background: #cfe4d8; }

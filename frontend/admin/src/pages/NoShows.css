@@ -1,52 +1,52 @@
 /* Attendance, in the timeline style: records on the left (date column + details), hosts to check in their own card. Each card scrolls on its own. */
 
-.ns-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 20px; }
+.ns-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
 .page-body.fill > .ns-grid { flex: 1 1 0; min-height: 0; }
-.ns-scroll, .ns-hosts { background: #fff; border: 1px solid #e4dfd4; border-radius: 18px; overflow-y: auto; min-height: 0; overscroll-behavior: contain; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: #d5cfc2 transparent; }
-.ns-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 24px; border-bottom: 1px solid #ece8df; position: sticky; top: 0; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(6px); z-index: 2; }
+.ns-scroll, .ns-hosts { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; overflow-y: auto; min-height: 0; overscroll-behavior: contain; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.ns-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid #ece8df; position: sticky; top: 0; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(6px); z-index: 2; }
 .ns-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
-.ns-head > span { font-size: var(--fs-sm); font-weight: 700; color: #3b4a43; background: #ece7dc; padding: 3px 10px; border-radius: 999px; }
-.ns-check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 600; color: #3b4a43; width: auto; }
+.ns-head > span { font-size: var(--fs-sm); font-weight: 700; color: var(--text-2); background: #ece7dc; padding: 4px 12px; border-radius: 999px; }
+.ns-check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); width: auto; }
 
-.ns-card { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: start; border-bottom: 1px solid #e4dfd4; transition: background 0.15s; }
+.ns-card { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: start; border-bottom: 1px solid var(--line); transition: background 0.15s; }
 .ns-card:hover { background: #fbfaf7; }
 .ns-card:last-of-type { border-bottom: 0; }
-.ns-date { position: sticky; top: 62px; align-self: start; display: grid; gap: 2px; justify-items: start; padding: 22px 16px 22px 24px; }
-.ns-kind { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6b756f; }
-.ns-num { font-size: var(--fs-3xl); line-height: 1; font-weight: 700; letter-spacing: -0.04em; color: #12302b; }
-.ns-mon { font-size: var(--fs-sm); font-weight: 600; color: #3b4a43; }
+.ns-date { position: sticky; top: 62px; align-self: start; display: grid; gap: 2px; justify-items: start; padding: 24px 16px 24px 24px; }
+.ns-kind { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.ns-num { font-size: var(--fs-3xl); line-height: 1; font-weight: 700; letter-spacing: -0.04em; color: var(--accent); }
+.ns-mon { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
 .ns-state { margin-top: 8px; }
-.ns-body { min-width: 0; border-left: 2px solid #e4dfd4; margin: 14px 0; padding: 8px 24px 8px 22px; display: grid; gap: 10px; }
-.ns-title { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: var(--fs-lg); }
+.ns-body { min-width: 0; border-left: 2px solid var(--line); margin: 16px 0; padding: 8px 24px 8px 24px; display: grid; gap: 12px; }
+.ns-title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: var(--fs-lg); }
 .ns-dot { width: 9px; height: 9px; border-radius: 50%; background: #c9c2b3; flex: none; }
 .ns-dot.wait { background: #9fb0a9; }
-.ns-dot.dark { background: #12302b; }
-.ns-dot.mute { background: #6b756f; }
+.ns-dot.dark { background: var(--accent); }
+.ns-dot.mute { background: var(--muted); }
 .ns-dot.ok { background: #36ad7a; }
-.ns-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 18px; margin: 0; }
-.ns-facts dt { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6b756f; margin-bottom: 2px; }
-.ns-facts dd { margin: 0; font-size: var(--fs-md); font-weight: 600; color: #14201b; overflow-wrap: anywhere; }
-.ns-meta { margin: 0; font-size: var(--fs-sm); color: #6b756f; }
-.ns-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: #14201b; cursor: pointer; text-align: left; }
+.ns-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 16px; margin: 0; }
+.ns-facts dt { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.ns-facts dd { margin: 0; font-size: var(--fs-md); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.ns-meta { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
+.ns-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: var(--text); cursor: pointer; text-align: left; }
 .ns-link:hover { text-decoration: underline; }
 .ns-link.strong { font-size: var(--fs-lg); display: block; }
-.ns-warn { margin: 0; font-size: var(--fs-sm); color: #3b4a43; padding-left: 10px; border-left: 3px solid #12302b; }
-.ns-quote { margin: 0; padding: 14px 16px; border-radius: 14px; background: #f5f3ee; border: 1px solid #ece8df; font-size: var(--fs-md); line-height: 1.5; }
+.ns-warn { margin: 0; font-size: var(--fs-sm); color: var(--text-2); padding-left: 12px; border-left: 3px solid var(--accent); }
+.ns-quote { margin: 0; padding: 16px 16px; border-radius: 14px; background: var(--surface-2); border: 1px solid #ece8df; font-size: var(--fs-md); line-height: 1.5; }
 .ns-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.ns-uphold, .ns-overturn { min-height: var(--ctl); padding: 0 22px; border-radius: 999px; font: 700 var(--fs-md) var(--font); cursor: pointer; border: 1px solid transparent; transition: background 0.15s, transform 0.15s; }
-.ns-uphold { background: #fff; color: #14201b; border-color: #d5cfc2; }
-.ns-uphold:hover:not(:disabled) { background: #f5f3ee; }
-.ns-overturn { background: #12302b; color: #fff; }
+.ns-uphold, .ns-overturn { min-height: var(--ctl); padding: 0 24px; border-radius: 999px; font: 700 var(--fs-md) var(--font); cursor: pointer; border: 1px solid transparent; transition: background 0.15s, transform 0.15s; }
+.ns-uphold { background: var(--surface); color: var(--text); border-color: var(--line-2); }
+.ns-uphold:hover:not(:disabled) { background: var(--surface-2); }
+.ns-overturn { background: var(--accent); color: var(--surface); }
 .ns-overturn:hover:not(:disabled) { background: #1d4a41; }
 .ns-uphold:active:not(:disabled), .ns-overturn:active:not(:disabled) { transform: scale(0.97); }
 .ns-uphold:disabled, .ns-overturn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .ns-host-list { list-style: none; margin: 0; padding: 8px 0; }
-.ns-host { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid #ece8df; transition: background 0.15s; }
+.ns-host { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid #ece8df; transition: background 0.15s; }
 .ns-host:hover { background: #fbfaf7; }
 .ns-host:last-child { border-bottom: 0; }
-.ns-host-sub, .ns-host-why { display: block; font-size: var(--fs-sm); color: #6b756f; margin-top: 2px; }
-.ns-host-why { color: #3b4a43; }
+.ns-host-sub, .ns-host-why { display: block; font-size: var(--fs-sm); color: var(--muted); margin-top: 2px; }
+.ns-host-why { color: var(--text-2); }
 
 @media (prefers-reduced-motion: no-preference) {
   /* no entrance animation on the Attendance tab: its cards just appear (they used to rise in one by one, which flashed) */
@@ -60,8 +60,17 @@
 }
 @media (max-width: 700px) {
   .ns-card { grid-template-columns: 1fr; }
-  .ns-date { position: static; grid-auto-flow: column; justify-content: start; align-items: baseline; gap: 10px; padding: 14px 18px 4px; }
+  .ns-date { position: static; grid-auto-flow: column; justify-content: start; align-items: baseline; gap: 12px; padding: 16px 16px 4px; }
   .ns-num { font-size: var(--fs-2xl); }
   .ns-state { margin: 0 0 0 auto; }
-  .ns-body { border-left: 0; margin: 0; padding: 8px 18px 16px; }
+  .ns-body { border-left: 0; margin: 0; padding: 8px 16px 16px; }
 }
+
+/* hosts to look at: closed until clicked */
+.ns-hosts-box { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; flex: none; }
+.ns-hosts-box > summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; cursor: pointer; font-weight: 700; list-style: none; }
+.ns-hosts-box > summary::-webkit-details-marker { display: none; }
+.ns-hosts-box > summary::after { content: '▾'; margin-left: auto; color: var(--muted); transition: transform 0.18s; }
+.ns-hosts-box[open] > summary::after { transform: rotate(180deg); }
+.ns-count { font-size: var(--fs-sm); font-weight: 700; color: var(--text-2); background: #ece7dc; padding: 4px 12px; border-radius: 999px; }
+.ns-hosts-box .ns-host-list { max-height: 260px; overflow-y: auto; }

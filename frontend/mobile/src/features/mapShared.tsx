@@ -28,6 +28,9 @@ export type Group = { key: string; lat: number; lng: number; items: Pin[] };
 
 export type Fix = { lat: number; lng: number };
 
+const FIRST_DAYS = 2; // the map first shows today and tomorrow
+const MAX_DAYS = 31; // and can be taken forward one day at a time, up to about a month
+
 /**
  * One approximate location fix, taken only because the person just asked for it. Permission is requested on every call
  * (the system only shows a prompt when it needs to), the fix is a single low-accuracy reading rounded to about 1 km,
@@ -95,6 +98,9 @@ export function useMapData() {
   const cityPos = useCityPos();
   const [near, setNear] = useNear(); // kept across screens and app restarts until the person picks a city or taps "Whole city"
   const [cat, setCat] = useState(''); // '' = every category
+  const [days, setDays] = useState(FIRST_DAYS); // how many days from today are loaded: today and tomorrow to begin with
+  const showNextDay = () => setDays((d) => Math.min(d + 1, MAX_DAYS));
+  useEffect(() => setDays(FIRST_DAYS), [city]); // another city starts again from today and tomorrow
   // zoom buttons: each press is a new command the map screen carries out (+1 in, -1 out)
   const [zoomCmd, setZoomCmd] = useState<{ d: 1 | -1; n: number } | null>(null);
   const zoom = (d: 1 | -1) => setZoomCmd((p) => ({ d, n: (p?.n ?? 0) + 1 }));
@@ -113,7 +119,9 @@ export function useMapData() {
 
   const feed = useLoad(
     () => {
-      const [from, to] = feedRange();
+      // by day: today and tomorrow first; each "Show the next day" adds one more day (the activities list and the pins follow)
+      const from = new Date();
+      const to = new Date(new Date().setHours(0, 0, 0, 0) + days * 864e5);
       // the city's area (or, with "Near me", 3 km around the person inside the city)
       const p = new URLSearchParams({ ...(near ? { city } : cityQuery(city, cityPos)), from: from.toISOString(), to: to.toISOString(), limit: '50', ...(cat && { category: cat }) });
       if (near) {
@@ -134,8 +142,10 @@ export function useMapData() {
         return { items };
       })();
     },
-    [city, cityPos, near, cat],
+    [city, cityPos, near, cat, days],
     60_000,
+    undefined,
+    { keep: true }, // adding a day keeps the pins already shown until the new ones arrive
   );
   // only rebuilt when the loaded activities change, so selecting a pin or closing the sheet never touches the map's markers
   const pins = useMemo(() => (feed.data?.items ?? []).filter((a): a is Pin => a.lat != null && a.lng != null), [feed.data]);
@@ -203,6 +213,7 @@ export function useMapData() {
         setActiveId(null);
         setDist({ status: 'idle' });
         setCat('');
+        setDays(FIRST_DAYS);
         const home = nearRef.current ? ([nearRef.current.lat, nearRef.current.lng] as [number, number]) : cityCenterRef.current;
         setTarget(home ? { lat: home[0], lng: home[1], zoom: nearRef.current ? 'near' : 'city' } : null);
       },
@@ -263,7 +274,8 @@ export function useMapData() {
     setDist(r.ok ? { status: 'done', me: { lat: r.lat, lng: r.lng } } : { status: r.reason });
   };
 
-  return { city, setCity, cityCenter, flyTo, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
+  const nextDay = days < MAX_DAYS ? new Date(new Date().setHours(0, 0, 0, 0) + days * 864e5) : null; // the day "Show the next day" would add
+  return { days, showNextDay, nextDay, city, setCity, cityCenter, flyTo, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
 }
 
 /** The teardrop pin's width: a little bigger for a place with more activities. */
@@ -471,7 +483,8 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const dock = useDockSpace();
   const { height: screenH } = useWindowDimensions();
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const { city, setCity, cityCenter, flyTo, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected, activeId, feed, pins, dist, measure } = data;
+  const { city, setCity, cityCenter, flyTo, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected, activeId, feed, pins, dist, measure, days, nextDay, showNextDay } = data;
+  const nextLabel = nextDay ? nextDay.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) : '';
   const [search, setSearchNow] = useState<'closed' | 'open' | 'closing'>('closed');
   // the pill narrows/widens and the field makes room in ONE native layout animation, so nothing jumps and nothing runs on the JS thread
   const setSearch = (next: 'closed' | 'open' | 'closing') => {
@@ -482,7 +495,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   // what the pulled-up list shows: the activities at the tapped pin, or every pin's, soonest first
   const rows = selected ? selected.items : [...pins].sort((x, y) => +new Date(x.startsAt) - +new Date(y.startsAt));
   const ROW = 92; // one row and the gap under it
-  const listMax = Math.min(rows.length * ROW + 4, Math.round(screenH * 0.42));
+  const listMax = Math.min(rows.length * ROW + 4 + (!selected && nextDay ? 52 : 0), Math.round(screenH * 0.42));
 
   // 0 = just the summary, 1 = list showing. Driven by a finger (drag), a tap on the handle, or by tapping a pin.
   // The list always has its full height and the whole sheet slides (a transform), so the pull is drawn on the native
@@ -607,10 +620,13 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
                 </Row>
               </>
             ) : feed.data && pins.length === 0 ? (
-              <Row style={{ justifyContent: 'space-between', gap: 10 }}>
-                <Txt style={{ flex: 1 }}>{t('No venues on the map for today or tomorrow.')}</Txt>
-                <Btn title={t('Create')} small onPress={() => go('/create')} />
-              </Row>
+              <>
+                <Row style={{ justifyContent: 'space-between', gap: 10 }}>
+                  <Txt style={{ flex: 1 }}>{days <= 2 ? t('No venues on the map for today or tomorrow.') : t('No venues on the map for these days yet.')}</Txt>
+                  <Btn title={t('Create')} small onPress={() => go('/create')} />
+                </Row>
+                {nextDay ? <Btn title={t('Show {day}', { day: nextLabel })} variant="secondary" onPress={showNextDay} /> : null}
+              </>
             ) : (
               <Pressable accessibilityRole="button" accessibilityLabel={openAt.current > 0.5 ? t('Hide the list') : t('Show all activities')} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)}>
                 <Row style={{ justifyContent: 'space-between', gap: 10 }}>
@@ -658,6 +674,8 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
                 </Pressable>
               </Reveal>
             ))}
+            {/* by day: today and tomorrow are loaded first; this brings in the next day's activities (and pins) */}
+            {!selected && nextDay ? <Btn title={t('Show {day}', { day: nextLabel })} variant="secondary" onPress={showNextDay} /> : null}
           </ScrollView>
         </Animated.View>
       </Animated.View>

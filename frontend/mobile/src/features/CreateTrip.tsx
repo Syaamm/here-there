@@ -22,6 +22,7 @@ import { money, parseDay } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
+import { useDroppedPin } from '@/lib/dropPin';
 import { success, tap } from '@/lib/haptics';
 import { closeKeyboard } from '@/lib/keyboard';
 import { scrollToField } from '@/lib/pageScroll';
@@ -104,7 +105,7 @@ const RANGE_TOP: Record<string, number> = { '2-3': 3, '4-6': 6, '7-10': 10, '10+
 
 // `style`: how the group gets there. `originOk` / `destOk` are false while the field holds typed text that was not picked from the
 // search results (a value picked, filled in from the profile, or from an older draft counts as picked)
-type Draft = { style: TravelStyle; originOk?: boolean; destOk?: boolean; destination: string; originCity: string; description: string; start: string; end: string; flex: string; min: string; max: string; includes: string[]; tags: string[]; capacity: number };
+type Draft = { style: TravelStyle; originOk?: boolean; destOk?: boolean; destLat?: number; destLng?: number; destination: string; originCity: string; description: string; start: string; end: string; flex: string; min: string; max: string; includes: string[]; tags: string[]; capacity: number };
 
 /** A bordered tile with a small label above the value, like the route and date boxes (also used by the trip search). */
 export function Tile({ label, children, style }: { label: string; children: ReactNode; style?: object }) {
@@ -146,6 +147,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const maxRef = useRef<InputHandle>(null);
   const aboutRef = useRef<InputHandle>(null);
   const [f, setF] = useState<Draft>({ style: 'together', destination: '', originCity: me?.profile?.homeCity ?? '', description: '', start: '', end: '', flex: 'plus_minus_3', min: '', max: '', includes: [], tags: [], capacity: 6 });
+  // a spot pinned on the THERE map ("Plan a trip here?") becomes the destination, with its position, so the trip shows as a pin
+  useDroppedPin('trip', (p) => { setF((prev) => ({ ...prev, destination: p.name.slice(0, 100), destOk: true, destLat: p.lat, destLng: p.lng })); setStep(0); });
   const [agree, setAgree] = useState(false);
   const [tried, setTried] = useState(false);
   // the review page: the card being edited in a pop-up that grows out of it and folds back into it on Done (as in HERE)
@@ -281,6 +284,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
     const created = await act.run(() =>
       post<Trip & { withdrawn?: Withdrawn[] }>('/v1/trips', {
         destination: f.destination.trim(),
+        destinationLat: f.destLat,
+        destinationLng: f.destLng,
         travelStyle: f.style,
         originCity: together ? f.originCity.trim() : undefined,
         description: f.description.trim() || undefined,
@@ -349,12 +354,12 @@ function TripForm({ onReset }: { onReset: () => void }) {
         {together ? <DestinationResults text={f.originCity} active={originFocus && originTyped} onPick={(label) => { setF((p) => ({ ...p, originCity: label.slice(0, 60), originOk: true })); setOriginTyped(false); destRef.current?.focus(); }} /> : null}
         <View ref={destBox} collapsable={false}>
           <TripField label={together ? t('Destination') : t('Where you meet')} invalid={bad(0) && destBad} hint={t('Search, then pick a place from the list.')}>
-            <TripInput ref={destRef} label={together ? t('Destination') : t('Where you meet')} autoCapitalize="words" placeholder={t('Search a place')} value={f.destination} onChangeText={(v) => { setF((p) => ({ ...p, destination: v, destOk: false })); setDestTyped(true); }} onFocus={() => { setDestFocus(true); setDestTyped(false); }} onBlur={() => setTimeout(() => setDestFocus(false), 200)} maxLength={100} returnKeyType="search" />
+            <TripInput ref={destRef} label={together ? t('Destination') : t('Where you meet')} autoCapitalize="words" placeholder={t('Search a place')} value={f.destination} onChangeText={(v) => { setF((p) => ({ ...p, destination: v, destOk: false, destLat: undefined, destLng: undefined })); setDestTyped(true); }} onFocus={() => { setDestFocus(true); setDestTyped(false); }} onBlur={() => setTimeout(() => setDestFocus(false), 200)} maxLength={100} returnKeyType="search" />
           </TripField>
         </View>
       </View>
       {/* any place in the world, named with its country ("Milan, Italy", "Kerala, India"): tap one to use it */}
-      <DestinationResults text={f.destination} active={destFocus && destTyped} onPick={(label) => { setF((p) => ({ ...p, destination: label, destOk: true })); setDestTyped(false); Keyboard.dismiss(); }} />
+      <DestinationResults text={f.destination} active={destFocus && destTyped} onPick={(label, at) => { setF((p) => ({ ...p, destination: label, destOk: true, destLat: at?.lat, destLng: at?.lng })); setDestTyped(false); Keyboard.dismiss(); }} />
     </>
   );
   const dateFields = (

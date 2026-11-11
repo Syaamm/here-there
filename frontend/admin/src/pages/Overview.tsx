@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { get } from '../api';
 import { CardHead } from '../charts';
-import { DateField } from '../controls';
 import { TrendChart } from '../trend';
+import { RangeCalendar } from '../RangeCalendar';
 import { Chip, CountUp, ErrorBanner, Loading, Page, RefreshButton, Segmented, useLoad, useRefresh } from '../ui';
 
 type Overview = {
   users: number;
   pendingVerifications: number;
+  verification?: { verified: number; unverified: number; rejected: number };
   openReports: number;
   activeActivities: number;
   activeTrips: number;
@@ -48,10 +49,9 @@ const LINES = [
   { key: 'trips', label: 'Trips', color: '#8fc9ad' },
   { key: 'reports', label: 'Reports', color: '#9fb0a9' },
 ] as const;
-type RangeId = '7d' | '30d' | 'month' | 'custom';
+type RangeId = 'today' | 'month' | 'custom';
 const RANGES: { id: RangeId; label: string }[] = [
-  { id: '7d', label: '7 days' },
-  { id: '30d', label: '30 days' },
+  { id: 'today', label: 'Today' },
   { id: 'month', label: 'This month' },
   { id: 'custom', label: 'Custom' },
 ];
@@ -59,12 +59,17 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 /** The first and last day (UTC, like the server) of a range. */
 function rangeDays(id: RangeId, custom: { from: string; to: string }) {
   const today = new Date(iso(new Date()) + 'T00:00:00Z');
-  const back = (n: number) => iso(new Date(+today - n * 864e5));
-  if (id === '7d') return { from: back(6), to: iso(today) };
-  if (id === 'month') return { from: iso(today).slice(0, 8) + '01', to: iso(today) };
+  if (id === 'today') return { from: iso(today), to: iso(today) };
+  // the whole month: first day to last day (days still to come show as empty)
+  if (id === 'month') return { from: iso(today).slice(0, 8) + '01', to: iso(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0))) };
   if (id === 'custom' && custom.from && custom.to) return custom.from <= custom.to ? custom : { from: custom.to, to: custom.from };
-  return { from: back(29), to: iso(today) };
+  return { from: iso(today), to: iso(today) };
 }
+/** "11 Nov 2026 – 14 Nov 2026", or one date when the range is a single day */
+const fullRange = (r: { from: string; to: string }) => {
+  const d = (v: string) => new Date(v + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  return r.from === r.to ? d(r.from) : `${d(r.from)} – ${d(r.to)}`;
+};
 const rangeWords = (id: RangeId, r: { from: string; to: string }) => {
   if (id !== 'custom') return RANGES.find((x) => x.id === id)!.label.toLowerCase();
   const d = (v: string) => new Date(v + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -78,12 +83,14 @@ function leftOf(r: Report, now: number) {
 }
 
 export function OverviewPage({ go, openReport }: { go: (p: string) => void; openReport?: (id: string) => void }) {
-  const [range, setRange] = useState<RangeId>('30d');
-  const [custom, setCustom] = useState(() => rangeDays('30d', { from: '', to: '' }));
+  const [range, setRange] = useState<RangeId>('month');
+  const segRef = useRef<HTMLSpanElement>(null);
+  const [picking, setPicking] = useState(false);
+  const [custom, setCustom] = useState(() => rangeDays('today', { from: '', to: '' }));
   const span = rangeDays(range, custom);
   const { data, error, loading, reload } = useLoad(() => get<Overview>(`/v1/admin/overview?from=${span.from}&to=${span.to}`), [span.from, span.to], 8000);
   // the five at the front of the queue (urgent first), and a small summary: not the whole list of reports
-  const reports = useLoad(() => get<{ items: Report[] }>('/v1/admin/reports?status=waiting&limit=5'), [], 8000);
+  const reports = useLoad(() => get<{ items: Report[] }>('/v1/admin/reports?status=waiting&limit=5&page=1'), [], 8000);
   const waitingSummary = useLoad(() => get<{ total: number; overdue: number }>('/v1/admin/reports/waiting'), [], 8000);
   // the days were just changed and their numbers are still on the way (the background refresh every few seconds never dims)
   const spanKey = span.from + '|' + span.to;
@@ -126,13 +133,28 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
       actions={
         // the days apply to the whole dashboard (the chart and the report categories), so they sit at the top of the page
         <div className="ov-controls">
-          <Segmented label="Days shown" value={range} onChange={setRange} options={RANGES.map((r) => ({ id: r.id, label: r.label }))} />
-          {range === 'custom' && (
-            <span className="trend-dates">
-              <DateField compact clearable={false} aria-label="From" placeholder="From" value={custom.from} max={custom.to || iso(new Date())} onChange={(v) => setCustom((c) => ({ ...c, from: v }))} />
-              to
-              <DateField compact clearable={false} aria-label="To" placeholder="To" value={custom.to} min={custom.from || undefined} max={iso(new Date())} onChange={(v) => setCustom((c) => ({ ...c, to: v }))} />
-            </span>
+          <span
+            ref={segRef}
+            className="ov-seg"
+            onClickCapture={(e) => {
+              // Custom opens the calendar every time it is pressed, also when it is already the chosen one
+              if ((e.target as HTMLElement).closest('button')?.textContent?.trim().startsWith('Custom')) setPicking(true);
+            }}
+          >
+            <Segmented label="Days shown" value={range} onChange={(r) => (setRange(r), r !== 'custom' && setPicking(false))} options={RANGES.map((r) => ({ id: r.id, label: r.label }))} />
+          </span>
+          {picking && (
+            <RangeCalendar
+              anchor={segRef.current}
+              from={custom.from}
+              to={custom.to}
+              onClose={() => setPicking(false)}
+              onPick={(from, to) => {
+                setCustom({ from, to });
+                setRange('custom');
+                setPicking(false);
+              }}
+            />
           )}
           <RefreshButton r={refresh} />
         </div>
@@ -154,17 +176,23 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
                   {overdueCount ? `${overdueCount} overdue` : 'Waiting for a decision'}
                 </span>
               </button>
-              <button className={data.pendingVerifications ? 'stat hot' : 'stat'} onClick={() => go('verifications')}>
+              <button className="stat" onClick={() => go('verifications')}>
                 <span className="label">Verification</span>
-                <span className="value">
-                  <CountUp value={data.pendingVerifications} />
+                <span className="ov-three">
+                  {([['verified', 'Verified'], ['unverified', 'Not verified'], ['rejected', 'Rejected']] as const).map(([k, name]) => (
+                    <span key={k}>
+                      <b>
+                        {data.verification ? <CountUp value={data.verification[k]} /> : '–'}
+                      </b>
+                      <small>{name}</small>
+                    </span>
+                  ))}
                 </span>
-                <span className="note">Pending</span>
               </button>
             </div>
 
             <section className="card" aria-labelledby="ov-trend">
-              <CardHead id="ov-trend" title={`Activity · ${rangeWords(range, span)}`} />
+              <CardHead id="ov-trend" title="Activity" right={<span className="ov-dates">{fullRange(span)}</span>} />
               {s ? (
                 <TrendChart
                   title={`Activity, ${rangeWords(range, span)}`}
@@ -216,23 +244,29 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
             </section>
 
             <section className="card" aria-labelledby="ov-cats">
-              <CardHead id="ov-cats" title={`Reports by category · ${rangeWords(range, span)}`} right={<span className="muted small">{sum(all.map((c) => c.count))}</span>} />
+              <CardHead id="ov-cats" title="Reports by category" right={<span className="ov-dates">{`${sum(all.map((c) => c.count))} ${sum(all.map((c) => c.count)) === 1 ? 'report' : 'reports'} · ${rangeWords(range, span)}`}</span>} />
               {cats.length === 0 ? (
                 <p className="muted">None in {rangeWords(range, span)}.</p>
               ) : (
-                <div className="stack" style={{ gap: 9 }}>
-                  {cats.map((c) => (
-                    <div key={c.category} className="row">
-                      <span className="clip" style={{ width: 120, textTransform: 'capitalize' }}>
-                        {words(c.category)}
-                      </span>
-                      <span className="bar grow">
-                        <i style={{ width: `${(c.count / catMax) * 100}%` }} />
-                      </span>
-                      <b style={{ width: 28, textAlign: 'right' }}>{c.count}</b>
-                    </div>
-                  ))}
-                </div>
+                <ul className="cat-list">
+                  {cats.map((c) => {
+                    const total = Math.max(1, sum(all.map((x) => x.count)));
+                    return (
+                      <li key={c.category}>
+                        <div className="cat-top">
+                          <span className="cat-name">{words(c.category)}</span>
+                          <span className="cat-num">
+                            <b>{c.count}</b>
+                            <small>{Math.round((c.count / total) * 100)}%</small>
+                          </span>
+                        </div>
+                        <span className="cat-bar" role="presentation">
+                          <i style={{ width: `${Math.max(2, (c.count / catMax) * 100)}%` }} />
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </section>
           </div>

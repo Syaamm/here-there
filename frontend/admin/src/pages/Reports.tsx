@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, can, get, post, type Session } from '../api';
 import { Select } from '../controls';
-import { askText, Avatar, Chip, Empty, ErrorBanner, fmt, urlParam, Icon, Loading, Page, Segmented, shortId, useAction, useUrlParam, useLoad, useMore } from '../ui';
+import { askChecksText, askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, urlParam, setUrlParam, Icon, Loading, Page, PageBar, Segmented, useAction, useUrlParam, useLoad } from '../ui';
 
 type R = {
   id: string;
@@ -18,8 +18,8 @@ type R = {
   ageHours: number;
   overdue: boolean;
   escalated: boolean;
-  reporter: { id: string; profile?: { displayName: string } | null };
-  subject: { userId: string; displayName: string | null; state: string | null } | null;
+  reporter: { id: string; email?: string | null; profile?: { displayName: string } | null };
+  subject: { userId: string; displayName: string | null; email?: string | null; state: string | null } | null;
   message: { id: string; body: string; moderationState: string } | null;
   repeatOffender: { flag: boolean; reasons: string[] } | null;
   open?: boolean;
@@ -40,14 +40,28 @@ type Evidence = {
 
 const NO_SHOW = 'host_no_show';
 const CATEGORIES = [NO_SHOW, 'immediate_danger', 'harassment', 'fraud', 'inappropriate_content', 'underage', 'physical_safety', 'spam', 'financial_solicitation'];
-const label = (c: string) => (c === NO_SHOW ? 'Host did not attend' : c.replace(/_/g, ' ').replace(/^./, (x) => x.toUpperCase()));
+const WORDS: Record<string, string> = {
+  host_no_show: 'Host did not show up',
+  immediate_danger: 'Someone is in danger',
+  harassment: 'Bullying or harassment',
+  fraud: 'Scam or fraud',
+  inappropriate_content: 'Inappropriate content',
+  underage: 'Person may be under 18',
+  physical_safety: 'Feels unsafe',
+  spam: 'Spam',
+  financial_solicitation: 'Asking for money',
+};
+const label = (c: string) => WORDS[c] ?? c.replace(/_/g, ' ').replace(/^./, (x) => x.toUpperCase());
+const STATUS_WORDS: Record<string, string> = { open: 'Waiting', in_review: 'Waiting', resolved: 'Action taken', dismissed: 'No action needed' };
+const statusWord = (s: string) => STATUS_WORDS[s] ?? s;
 const count = (v: Count) => (Array.isArray(v) ? v.length : v);
 const span = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))}m` : h < 48 ? `${Math.round(h)}h` : `${Math.round(h / 24)}d`);
 /** "2h left" / "Overdue 3d" */
 function due(iso: string) {
   const ms = new Date(iso).getTime() - Date.now();
   const t = span(Math.abs(ms) / 3600000);
-  return ms >= 0 ? { late: false, text: `${t} left` } : { late: true, text: `Overdue ${t}` };
+  // only an overdue report says so: there is no countdown
+  return ms >= 0 ? null : { late: true, text: `Late by ${t}` };
 }
 type Person = {
   id: string;
@@ -55,6 +69,7 @@ type Person = {
   suspendedUntil?: string | null;
   eligibility?: string; // the identity check: verified | pending | rejected | unverified | expired
   createdAt?: string;
+  email?: string;
   profile?: { displayName?: string | null; photoUrl?: string | null; homeCity?: string | null } | null;
   stats?: { reportsAgainst: number; hosted: number; joined: number };
 };
@@ -69,7 +84,7 @@ const monthYear = (iso: string) => new Date(iso).toLocaleDateString(undefined, {
 function PersonCard({ title, id, name, canOpen, onOpen, note }: { title: string; id: string | null; name: string; canOpen: boolean; onOpen?: () => void; note?: string | null }) {
   const p = useLoad(() => (id && canOpen ? get<Person>(`/v1/admin/users/${id}`).catch(() => null) : Promise.resolve(null)), [id, canOpen]);
   const u = p.data;
-  const shown = u?.profile?.displayName ?? name;
+  const shown = u?.profile?.displayName ?? u?.email ?? name;
   const facts = [u?.profile?.homeCity, u?.createdAt ? `Joined ${monthYear(u.createdAt)}` : null].filter(Boolean).join(' · ');
   return (
     <div className="box person-card">
@@ -82,9 +97,9 @@ function PersonCard({ title, id, name, canOpen, onOpen, note }: { title: string;
         </span>
       </div>
       {u && (
-        <div className="row wrap" style={{ gap: 6 }}>
+        <div className="row wrap" style={{ gap: 8 }}>
           <Chip value={u.state === 'suspended' ? (u.suspendedUntil ? `Suspended until ${fmt(u.suspendedUntil)}` : 'Suspended') : 'Active'} tone={u.state === 'suspended' ? 'dark' : 'plain'} />
-          <Chip value={u.eligibility === 'verified' ? 'Identity verified' : u.eligibility === 'pending' ? 'Identity check pending' : u.eligibility === 'rejected' ? 'Identity rejected' : 'Not verified'} tone={u.eligibility === 'verified' ? 'line' : 'plain'} />
+          <Chip value={u.eligibility === 'verified' ? 'ID verified' : u.eligibility === 'pending' ? 'ID check pending' : u.eligibility === 'rejected' ? 'ID check failed' : 'Not verified'} tone={u.eligibility === 'verified' ? 'line' : 'plain'} />
         </div>
       )}
       {u?.stats && (
@@ -102,8 +117,8 @@ function PersonCard({ title, id, name, canOpen, onOpen, note }: { title: string;
   );
 }
 
-const nameOf = (r: R) => r.subject?.displayName ?? `A ${r.targetType}`;
-const byOf = (r: R) => r.reporter.profile?.displayName ?? shortId(r.reporter.id);
+const nameOf = (r: R) => r.subject?.displayName ?? r.subject?.email ?? `A ${r.targetType}`;
+const byOf = (r: R) => r.reporter.profile?.displayName ?? r.reporter.email ?? 'A member';
 const activeOf = (r: R) => ['open', 'in_review'].includes(r.status);
 
 export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Session; openUser?: (id: string, from?: string) => void; focusId?: string | null; onClearFocus?: () => void }) {
@@ -112,28 +127,48 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   const [statusRaw, setStatus] = useUrlParam<'waiting' | 'resolved' | 'dismissed'>('status', 'waiting');
   const status = statusRaw ?? 'waiting';
   const [category, setCategory] = useState('');
-  const waiting = status === 'waiting' && !focusId;
+  // find reports by a person: reports about them, or reports they filed
+  // opened from a person's profile ("Reports against"): searched for them, on Against, across every state
+  const [q, setQ] = useState(() => urlParam('q') ?? '');
+  const [who, setWho] = useState<'both' | 'against' | 'by'>(() => (urlParam('who') === 'against' ? 'against' : 'both'));
+  const [term, setTerm] = useState(() => (urlParam('q') ?? '').trim());
+  useEffect(() => {
+    setUrlParam('q', null);
+    setUrlParam('who', null);
+  }, []);
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
+  const waiting = status === 'waiting' && !focusId && !term;
   const cat = category ? '&category=' + category : '';
-  const params = new URLSearchParams({ ...(!focusId && { status }), ...(category && { category }) });
+  // a search looks through every report of that person: all states and all types
+  const [pageNo, setPageNo] = useState(1);
+  useEffect(() => setPageNo(1), [term, who, status, category]);
+  const params = new URLSearchParams({ limit: '20', page: String(pageNo), ...(!focusId && !term && { status }), ...(category && !term && { category }), ...(term && { q: term, who }) });
   // every list is read a page at a time (Waiting too: in queue order, urgent first), "Load more" asks for the next page
-  const { data, error, loading, reload } = useLoad(() => get<{ items: R[]; nextCursor?: string | null }>('/v1/admin/reports?' + params), [status, category, focusId], 10000);
-  const more = useMore(data, (c) => get('/v1/admin/reports?' + params + '&cursor=' + c), status + '|' + category + '|' + focusId);
+  const { data, error, loading, reload } = useLoad(() => get<{ items: R[]; nextCursor?: string | null; page?: number; pages?: number; total?: number }>('/v1/admin/reports?' + params), [status, category, focusId, term, who, pageNo], 10000);
   // how many wait, for the tab's number (a small summary, not the queue)
   const summary = useLoad(() => get<{ total: number }>('/v1/admin/reports/waiting'), [], 10000);
-  const refreshAll = () => (more.reset(), reload(), summary.reload());
+  const refreshAll = () => (reload(), summary.reload());
   const act = useAction(refreshAll);
   const mod = can.moderate(me.role);
   const regional = !!me.scope;
 
   // no assigning: any staff member who sees a report can decide it (the server makes sure only one decision counts)
-  const groups: { title: string; items: R[] }[] = [{ title: '', items: focusId ? more.items.filter((r) => r.id === focusId) : more.items }];
+  const groups: { title: string; items: R[] }[] = [{ title: '', items: focusId ? (data?.items ?? []).filter((r) => r.id === focusId) : (data?.items ?? []) }];
   const items = groups.flatMap((g) => g.items);
   const ready = !!data;
   const failed = error;
 
-  const resolve = (r: R, s: 'resolved' | 'dismissed', resolution: string) =>
+  const resolve = (r: R, s: 'resolved' | 'dismissed', resolution: string, pending: { hide?: string; warn?: string; verify?: string; suspend?: { days?: number; reason: string } } = {}) =>
     act.run(async () => {
       try {
+        // the message hidden and the warning sent are only prepared in the report until Take action is pressed
+        if (pending.hide && r.message) await post('/v1/admin/messages/' + r.message.id + '/remove', { reason: pending.hide });
+        if (pending.warn && r.subject) await post('/v1/admin/users/' + r.subject.userId + '/warn', { reason: pending.warn, reportId: r.id });
+        if (pending.verify && r.subject) await post('/v1/admin/users/' + r.subject.userId + '/require-reverification', { reason: 'security', note: pending.verify });
+        if (pending.suspend && r.subject) await post('/v1/admin/users/' + r.subject.userId + '/suspend', { reason: pending.suspend.reason, ...(pending.suspend.days && { days: pending.suspend.days }) });
         await post('/v1/admin/reports/' + r.id + '/resolve', { status: s, resolution });
       } catch (e) {
         // someone else decided it a moment earlier: say who ("Already resolved by Priya.") and show the report as it is now
@@ -141,15 +176,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
         throw e;
       }
     });
-  const hide = async (r: R) => {
-    const reason = await askText('Hide message', { label: 'Reason (shown to the sender)', confirm: 'Hide' });
-    if (reason) act.run(() => post('/v1/admin/messages/' + r.message!.id + '/remove', { reason }));
-  };
   const restore = (r: R) => act.run(() => post('/v1/admin/messages/' + r.message!.id + '/restore'));
-  const warn = async (r: R) => {
-    const reason = await askText('Warn ' + (r.subject?.displayName ?? 'this person'), { label: 'Warning (shown to the person)', confirm: 'Send warning' });
-    if (reason) act.run(() => post('/v1/admin/users/' + r.subject!.userId + '/warn', { reason, reportId: r.id }));
-  };
 
   const [sel, setSel] = useUrlParam<string>('report');
   const selected = items.find((r) => r.id === sel) ?? items[0] ?? null;
@@ -171,30 +198,47 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
           </button>
         </p>
       ) : (
-        <div className="toolbar">
+        <div className="toolbar tight">
+          <div className="rs" role="search">
+            <Icon name="search" />
+            <input type="search" aria-label="Search reports by person" placeholder="Search by name or email" value={q} onChange={(e) => setQ(e.target.value)} />
+            {q && (
+              <button type="button" className="search-clear" aria-label="Clear the search" onClick={() => setQ('')}>
+                <Icon name="x" />
+              </button>
+            )}
+            <span className="rs-sep" aria-hidden="true" />
+            {(['both', 'against', 'by'] as const).map((w) => (
+              <button key={w} type="button" className={who === w ? 'on' : ''} aria-pressed={who === w} onClick={() => setWho(w)}>
+                {w === 'both' ? 'Both' : w === 'against' ? 'Against' : 'By'}
+              </button>
+            ))}
+          </div>
+          <div className="rs-end">
           <Segmented
             label="Status"
             value={status}
             onChange={setStatus}
             options={[
               { id: 'waiting', label: 'Waiting', count: summary.data?.total ?? 0 },
-              { id: 'resolved', label: 'Resolved' },
-              { id: 'dismissed', label: 'Dismissed' },
+              { id: 'resolved', label: 'Action taken' },
+              { id: 'dismissed', label: 'No action needed' },
             ]}
           />
           <Select aria-label="Category" value={category} onChange={setCategory}>
-            <option value="">All categories</option>
+            <option value="">All types</option>
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
                 {label(c)}
               </option>
             ))}
           </Select>
+          </div>
         </div>
       )}
       <ErrorBanner message={failed ?? act.error} onRetry={() => (reload(), summary.reload())} />
       {loading && !data && <Loading rows={6} />}
-      {ready && items.length === 0 && <Empty>{focusId ? 'Report not found.' : 'No reports.'}</Empty>}
+      {ready && items.length === 0 && <Empty>{focusId ? 'Report not found.' : term ? `No ${status === 'waiting' ? 'waiting ' : ''}reports ${who === 'by' ? 'filed by' : 'against'} “${term}”.` : 'No reports.'}</Empty>}
       {items.length > 0 && (
         <div className="split" data-pane={pane}>
           <section className="split-list" aria-label="Reports">
@@ -222,7 +266,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
                                   {label(r.category)} · {nameOf(r)}
                                 </span>
                               </span>
-                              <span className="aside">{d ? hot ? <Chip tone="dark" value={d.text} /> : <span className="small muted">{d.text}</span> : <Chip value={r.status} />}</span>
+                              <span className="aside">{d ? <Chip tone={hot ? 'dark' : 'plain'} value={d.text} /> : <Chip value={statusWord(r.status)} />}</span>
                             </button>
                           </li>
                         );
@@ -231,15 +275,15 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
                   </div>
                 ),
               )}
-              {more.hasMore && <div style={{ padding: 12 }}>{more.more}</div>}
             </div>
+            {!focusId && <PageBar page={data?.page ?? 1} pages={data?.pages ?? 1} total={data?.total ?? items.length} noun={['report', 'reports']} onPage={setPageNo} busy={loading} />}
           </section>
           <section className="split-detail" aria-label="Report">
             <button type="button" className="btn small split-back" onClick={() => (setPane('list'), setSel(null))}>
               <Icon name="back" />
               All reports
             </button>
-            {selected &&<Detail key={selected.id} r={selected} mod={mod} regional={regional} busy={act.busy} openUser={openUser} from={`report:${selected.id}:${status}`} canSeePeople={me.role === 'admin' || !!me.permissions?.includes('users')} me={me} onResolve={resolve} onHide={hide} onRestore={restore} onWarn={warn} />}
+            {selected &&<Detail key={selected.id} r={selected} mod={mod} regional={regional} busy={act.busy} openUser={openUser} from={`report:${selected.id}:${status}`} canSeePeople={me.role === 'admin' || !!me.permissions?.includes('users')} me={me} onResolve={resolve} onRestore={restore} />}
           </section>
         </div>
       )}
@@ -247,7 +291,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   );
 }
 
-function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: boolean; openUser?: (id: string, from?: string) => void; from: string; canSeePeople: boolean; onResolve: (r: R, s: 'resolved' | 'dismissed', note: string) => void; onHide: (r: R) => void; onRestore: (r: R) => void; onWarn: (r: R) => void }) {
+function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: boolean; openUser?: (id: string, from?: string) => void; from: string; canSeePeople: boolean; onResolve: (r: R, s: 'resolved' | 'dismissed', note: string, pending?: { hide?: string; warn?: string; verify?: string; suspend?: { days?: number; reason: string } }) => void; onRestore: (r: R) => void }) {
   const { r, mod, regional, busy } = p;
   const [note, setNote] = useState('');
   const active = activeOf(r);
@@ -255,21 +299,46 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
   const person = r.subject?.userId ?? (r.targetType === 'user' ? r.targetId : null);
   const first = (r.subject?.displayName ?? 'person').split(' ')[0];
   const noteOk = note.trim().length >= 3;
+  // "Take action": tick what to do (at least one); "No action needed" is the button beside it, so closing with nothing done is not offered here
+  const takeAction = async () => {
+    const choices: [string, string][] = [];
+    if (r.message && r.message.moderationState !== 'removed') choices.push(['hide', 'Hide the message']);
+    if (r.subject) choices.push(['warn', 'Send a warning'], ['verify', 'Ask them to verify their identity again'], ['suspend', 'Suspend them']);
+    if (choices.length === 0) {
+      const t = await askText('Close the report', { label: 'Note (kept with the report)', confirm: 'Close report' });
+      if (t) p.onResolve(r, 'resolved', note.trim() || t, {});
+      return;
+    }
+    const a = await askChecksText('Take action', choices, { label: 'Message to the person (they will be told)', confirm: 'Take action', choiceLabel: 'What to do (choose at least one)' });
+    if (!a) return;
+    const on = (k: string) => a.choices.includes(k);
+    let suspend: { days?: number; reason: string } | undefined;
+    if (on('suspend')) {
+      const sus = await askChoiceText(`Suspend ${first}`, [['1', '1 day'], ['3', '3 days'], ['7', '7 days'], ['30', '30 days'], ['0', 'Until restored']], { label: 'Reason for the suspension', confirm: 'Suspend', choiceLabel: 'For' });
+      if (!sus) return;
+      suspend = { reason: sus.text, ...(sus.choice !== '0' && { days: Number(sus.choice) }) };
+    }
+    p.onResolve(r, 'resolved', note.trim() || a.text, {
+      hide: on('hide') ? a.text : undefined,
+      warn: on('warn') ? a.text : undefined,
+      verify: on('verify') ? a.text : undefined,
+      suspend,
+    });
+  };
   const escalated = (r.escalationLevel ?? 0) > 0 || r.escalated;
   const history: { at: string; text: string }[] = [{ at: r.createdAt, text: `Filed by ${byOf(r)}` }];
-  if (escalated && r.answerBy) history.push({ at: r.answerBy, text: 'Escalated to on-call' });
+  if (escalated && r.answerBy) history.push({ at: r.answerBy, text: 'Passed to a senior team member' });
   // a decided report names who decided it (the server records the decider on the report)
-  if (!active) history.push({ at: r.createdAt, text: `${r.status === 'resolved' ? 'Resolved' : 'Dismissed'}${r.assignedName ? ` by ${r.assignedName}` : ''}${r.resolution ? `: ${r.resolution}` : ''}` });
+  if (!active) history.push({ at: r.createdAt, text: `${r.status === 'resolved' ? 'Action taken' : 'No action needed'}${r.assignedName ? ` by ${r.assignedName}` : ''}${r.resolution ? `: ${r.resolution}` : ''}` });
 
   return (
     <div className="detail-scroll">
       <div className="stack" style={{ gap: 8 }}>
         <div className="row wrap">
           <Chip tone="plain" value={label(r.category)} />
-          <Chip value={r.status} />
-          {r.priority === 'urgent' && active && <Chip tone="dark" value="Urgent" />}
-          {escalated && active && <Chip tone="dark" value={r.escalationLevel === 2 ? 'Critical' : 'Escalated'} />}
-          {r.repeatOffender?.flag && <Chip tone="dark" value="Repeat" />}
+          <Chip value={statusWord(r.status)} />
+          {r.priority === 'urgent' && active && <Chip tone="dark" value="Needs quick action" />}
+          {escalated && active && <Chip tone="dark" value={r.escalationLevel === 2 ? 'Very serious' : 'Passed to a senior'} />}
         </div>
         <h2 style={{ margin: 0 }}>{r.details || 'No details'}</h2>
         <p className="small muted">
@@ -280,9 +349,11 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
 
       {/* both people in the report, each as a small profile with a way to their full one (and back to this report) */}
       <div className="grid-2">
-        <PersonCard title="Reported" id={person} name={nameOf(r)} canOpen={p.canSeePeople} onOpen={person && p.openUser ? () => p.openUser!(person, p.from) : undefined} note={r.repeatOffender?.flag ? r.repeatOffender.reasons.join('; ') : null} />
+        <PersonCard title="Person reported" id={person} name={nameOf(r)} canOpen={p.canSeePeople} onOpen={person && p.openUser ? () => p.openUser!(person, p.from) : undefined} />
         <PersonCard title="Reported by" id={r.reporter.id} name={byOf(r)} canOpen={p.canSeePeople} onOpen={p.openUser ? () => p.openUser!(r.reporter.id, p.from) : undefined} />
       </div>
+
+      <WhatHappened id={r.id} />
 
       {r.evidence ? (
         <EvidenceBox e={r.evidence} />
@@ -306,28 +377,18 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
       </div>
 
       {mod && active && (
-        <div className="stack" style={{ gap: 10, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+        <div className="stack" style={{ gap: 12, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
           <label>
-            Decision note
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason" maxLength={500} />
+            Reason for closing without action (they will be told)
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Only needed for “No action needed”" maxLength={500} />
           </label>
           <div className="actions-bar">
-            {r.message && r.message.moderationState !== 'removed' && (
-              <button className="btn" onClick={() => p.onHide(r)} disabled={busy}>
-                Hide message
-              </button>
-            )}
-            {r.subject && (
-              <button className="btn" onClick={() => p.onWarn(r)} disabled={busy}>
-                Warn {first}
-              </button>
-            )}
             <span style={{ flex: 1 }} />
             <button className="btn" disabled={busy || !noteOk} onClick={() => p.onResolve(r, 'dismissed', note.trim())}>
-              Dismiss
+              No action needed
             </button>
-            <button className="btn primary" disabled={busy || !noteOk} onClick={() => p.onResolve(r, 'resolved', note.trim())}>
-              {r.category === NO_SHOW ? 'Confirm absence' : 'Resolve'}
+            <button className="btn primary" disabled={busy} onClick={takeAction}>
+              {r.category === NO_SHOW ? 'Host did not show up' : 'Take action'}
             </button>
           </div>
         </div>
@@ -350,29 +411,83 @@ function EvidenceBox({ e }: { e: Evidence }) {
       <p>
         <strong>{e.plan.title}</strong> · {fmt(e.plan.startsAt)}
       </p>
-      <dl className="facts" style={{ marginTop: 6 }}>
+      <dl className="facts" style={{ marginTop: 8 }}>
         <div>
-          <dt>Say host absent</dt>
+          <dt>Guests who say the host did not come</dt>
           <dd>
             {count(e.reporters)} of {count(e.attendees)}
           </dd>
         </div>
         <div>
-          <dt>Host messages</dt>
+          <dt>Messages from the host during the plan</dt>
           <dd>{e.hostMessagesDuringPlan}</dd>
         </div>
         {e.membersSaidTheyAttended != null && (
           <div>
-            <dt>Marked attended</dt>
+            <dt>Guests who say they went</dt>
             <dd>{e.membersSaidTheyAttended}</dd>
           </div>
         )}
         <div>
-          <dt>Earlier absences</dt>
+          <dt>Times the host missed a plan before</dt>
           <dd>{e.earlierConfirmedAbsences}</dd>
         </div>
       </dl>
-      {e.hostMarkedThisReporter && <span className="small muted">Host marked this reporter absent.</span>}
+      {e.hostMarkedThisReporter && <span className="small muted">The host also said this person did not come.</span>}
     </div>
+  );
+}
+
+type Info = { target: { type: string; title: string; lines: string[]; state?: string | null } | null; reporter: { filed: number; actionTaken: number; noAction: number }; events: { at: string; action: string; by: string }[] };
+const STEP: Record<string, string> = { 'report.resolved': 'Action taken', 'report.dismissed': 'Closed, no action needed', 'report.in_review': 'Taken for review', 'report.assign': 'Taken by' };
+/** The facts behind a report, read from the server: what was reported, the reporter's record, and each step taken. */
+function WhatHappened({ id }: { id: string }) {
+  const info = useLoad(() => get<Info>('/v1/admin/reports/' + id), [id]);
+  const d = info.data;
+  if (info.error) return <p className="small muted">Could not load the full details.</p>;
+  if (!d) return <Loading rows={2} />;
+  const nice = (l: string) => l.replace(/(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/g, (m) => fmt(m));
+  return (
+    <>
+      {d.target && (
+        <div className="box">
+          <span className="label">
+            What was reported · {d.target.type}
+            {d.target.state ? ` · ${d.target.state}` : ''}
+          </span>
+          <p className={d.target.type === 'Message' ? 'quote' : undefined}>
+            <strong>{d.target.type === 'Message' ? `“${d.target.title}”` : d.target.title}</strong>
+          </p>
+          <ul className="timeline">
+            {d.target.lines.map((l) => (
+              <li key={l}>
+                <span>{nice(l)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="box">
+        <span className="label">The person who reported</span>
+        <p className="small">
+          Has sent {d.reporter.filed} {d.reporter.filed === 1 ? 'report' : 'reports'} in total: {d.reporter.actionTaken} led to action, {d.reporter.noAction} needed no action.
+        </p>
+      </div>
+      {d.events.length > 0 && (
+        <div className="box">
+          <span className="label">Steps taken</span>
+          <ul className="timeline">
+            {d.events.map((e, i) => (
+              <li key={i}>
+                <span className="muted">{fmt(e.at)}</span>
+                <span>
+                  {STEP[e.action] ?? e.action.replace(/[._]/g, ' ')} · {e.by}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
   );
 }

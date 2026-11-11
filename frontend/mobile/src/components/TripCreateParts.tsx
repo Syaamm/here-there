@@ -137,14 +137,14 @@ export function TripInput({ label, style, ...rest }: TextInputProps & { label: s
   return <TextInput accessibilityLabel={label} placeholderTextColor={c.placeholder} selectionColor={c.forest} cursorColor={c.forest} underlineColorAndroid="transparent" returnKeyType="done" {...rest} style={[{ includeFontPadding: false, color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', paddingVertical: 0, minHeight: 22, minWidth: 0 }, style]} />;
 }
 
-type Found = { id: string; name: string; address: string; label: string };
+type Found = { id: string; name: string; address: string; label: string; lat?: number; lng?: number };
 
 /**
  * A place, found by searching: as you type, real places from anywhere in the world are listed (countries, regions, cities,
  * neighbourhoods), each named with its country: "Milan, Italy", "Kerala, India". Tap one and it becomes the field's value: the
  * departure city and the destination are only ever set this way (what is typed is just the search).
  */
-export function DestinationResults({ text, active, onPick }: { text: string; active: boolean; onPick: (label: string) => void }) {
+export function DestinationResults({ text, active, onPick }: { text: string; active: boolean; onPick: (label: string, at?: { lat: number; lng: number }) => void }) {
   const { t } = useT();
   const { c } = useTheme();
   const [found, setFound] = useState<Found[] | null>(null);
@@ -197,7 +197,7 @@ export function DestinationResults({ text, active, onPick }: { text: string; act
           accessibilityLabel={p.label}
           onPress={() => {
             picked.current = p.label;
-            onPick(p.label);
+            onPick(p.label, p.lat != null && p.lng != null ? { lat: p.lat, lng: p.lng } : undefined);
           }}
           style={({ pressed: isPressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 16, minHeight: 48, borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, isPressed && { backgroundColor: c.sand }]}
         >

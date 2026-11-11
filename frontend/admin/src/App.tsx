@@ -347,6 +347,13 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
   };
   const backLabel = !back ? null : back.startsWith('report:') ? 'Back to the report' : back === 'appeals' ? 'Back to appeals' : back === 'noshows' ? 'Back to attendance' : null;
   const openReport = (id: string) => (go('reports', 'reports'), setReportId(id));
+  // every report about one person, in every state: the Reports page opens searched for them, on "Against"
+  const showReportsAbout = (term: string) => {
+    setReportId(null);
+    go('reports', 'reports');
+    setUrlParam('q', term);
+    setUrlParam('who', 'against');
+  };
   const nav = (id: SectionId) => (setReportId(null), setUserId(null), go(id));
   const count = (id: SectionId) => (id === 'reports' ? badge.reports : id === 'verification' ? badge.verification : 0);
 
@@ -363,7 +370,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
   if (key === 'reports/appeals') body = <AppealsPage me={session} openUser={openUser} />;
   if (key === 'reports/noshows') body = <NoShowsPage me={session} openUser={openUser} />;
   if (key === 'verification/') body = <VerificationsPage me={session} />;
-  if (key === 'users/') body = <UsersPage me={session} focusId={userId} onClearFocus={() => (setUserId(null), setBack(null), setUrlParam('back', null))} openReport={openReport} backLabel={backLabel} onBack={goBack} />;
+  if (key === 'users/') body = <UsersPage me={session} focusId={userId} onClearFocus={() => (setUserId(null), setBack(null), setUrlParam('back', null))} openReport={openReport} onShowReports={showReportsAbout} backLabel={backLabel} onBack={goBack} />;
   if (key === 'content/') body = <ContentPage me={session} />;
   if (key === 'team/') body = <StaffPage me={session} />;
   if (key === 'settings/places') body = <RegionsPage me={session} />;
@@ -396,7 +403,12 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
         <label className="side-search">
           <span className="sr">Search or jump to a page (Ctrl K)</span>
           <Icon name="search" />
-          <input ref={searchRef} type="search" placeholder="Search or jump to" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <input ref={searchRef} type="search" placeholder="Search pages" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          {filter && (
+            <button type="button" className="search-clear" aria-label="Clear the search" onClick={() => setFilter('')}>
+              <Icon name="x" />
+            </button>
+          )}
           <kbd aria-hidden="true">Ctrl K</kbd>
         </label>
         <nav aria-label="Main">
@@ -433,6 +445,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
               <span className="switch">Switch</span>
             </button>
           )}
+          <div className="side-account">
           <PopMenu
             label="Your account"
             buttonClass="side-user"
@@ -456,9 +469,12 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
             }
             items={[
               { label: 'Security and two-step sign-in', onSelect: () => go('settings', 'security') },
-              { label: 'Sign out', danger: true, onSelect: logout },
             ]}
           />
+          <button type="button" className="side-signout" onClick={logout} aria-label="Sign out" title="Sign out">
+            <Icon name="logout" />
+          </button>
+          </div>
         </div>
       </aside>
       <div className={drawer ? 'scrim show' : 'scrim'} onClick={() => setDrawer(false)} aria-hidden="true" />
@@ -475,11 +491,11 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
         <main className="main" id="main" ref={mainRef} tabIndex={-1} key={place.key}>
           {section.tabs ? (
             // a section with tabs: its heading and tab bar are built once, only the page under them changes between tabs
-            <PageFrame key={section.id} eyebrow={`${section.group} · ${section.label}`} title={section.label} tabs={tabs}>
+            <PageFrame key={section.id} title={section.label} tabs={tabs}>
               {body}
             </PageFrame>
           ) : (
-            <PageMeta.Provider value={{ eyebrow: `${section.group} · ${section.label}` }}>{body}</PageMeta.Provider>
+            <PageMeta.Provider value={{}}>{body}</PageMeta.Provider>
           )}
         </main>
       </div>

@@ -30,6 +30,8 @@ export const createSchema = z.discriminatedUnion('kind', [
 const suspensionSchema = z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1).max(200), message: messageSchema });
 const decisionSchema = z.object({ decision: z.enum(['uphold', 'reject']), note: z.string().trim().min(3, 'Write a short note the person will see').max(500) });
 
+const replySchema = z.object({ message: z.string().trim().min(2, 'Write a short message').max(1000) });
+
 const STAFF = ['staff', 'admin'];
 /** After a suspension appeal the person may ask again no sooner than this. */
 const SUSPENSION_COOLDOWN_DAYS = 30;
@@ -149,9 +151,43 @@ export class AppealsService {
   }
 
   async mine(me: User, limitRaw?: string, cursorRaw?: string) {
-    const page = await pageOf((a) => this.prisma.appeal.findMany(a), { limit: pageLimit(limitRaw, 20), cursor: cursorRaw, where: { userId: me.id } });
+    const page = await pageOf((a) => this.prisma.appeal.findMany({ ...a, include: { thread: { orderBy: { createdAt: 'asc' } } } }), { limit: pageLimit(limitRaw, 20), cursor: cursorRaw, where: { userId: me.id } });
     const photos = await this.proofs.idsFor('appealId', page.items.map((a) => a.id));
-    return { items: page.items.map((a) => ({ ...this.dto(a), proofs: photos.get(a.id) ?? [] })), nextCursor: page.nextCursor };
+    return { items: page.items.map((a) => ({ ...this.dto(a), proofs: photos.get(a.id) ?? [], thread: a.thread.map((m) => ({ id: m.id, fromStaff: m.fromStaff, body: m.body, createdAt: m.createdAt })) })), nextCursor: page.nextCursor };
+  }
+
+  /** The person answers a question staff asked, while the appeal is still open. */
+  async userReply(me: User, id: string, body: unknown) {
+    const { message } = parse(replySchema, body);
+    const a = await this.prisma.appeal.findUnique({ where: { id } });
+    if (!a || a.userId !== me.id) throw E.notFound('Appeal');
+    if (a.state !== 'open') throw E.conflict('APPEAL_DECIDED', 'This appeal was already decided');
+    this.clean(message);
+    const m = await this.prisma.appealMessage.create({ data: { appealId: id, fromStaff: false, authorId: me.id, body: message } });
+    await this.audit.log(me.id, 'appeal.user_reply', 'appeal', id, { kind: a.kind });
+    return { id: m.id };
+  }
+
+  /** Staff write to the person before deciding: to ask a question or say what is missing. The person is told. */
+  async staffReply(actor: User, id: string, body: unknown) {
+    const { message } = parse(replySchema, body);
+    const a = await this.prisma.appeal.findUnique({ where: { id } });
+    if (!a) throw E.notFound('Appeal');
+    if (a.state !== 'open') throw E.conflict('APPEAL_DECIDED', 'This appeal was already decided');
+    if (a.userId === actor.id) throw E.forbidden('OWN_APPEAL', 'You cannot answer your own appeal');
+    if (a.kind === 'verification' && actor.role !== 'admin') throw E.forbidden('FORBIDDEN', 'Identity appeals are handled by an admin');
+    if (a.kind === 'suspension') await this.regions.assertPersonHome(actor, a.userId);
+    else await this.regions.assertPersonLocal(actor, a.userId);
+    const m = await this.prisma.appealMessage.create({ data: { appealId: id, fromStaff: true, authorId: actor.id, body: message } });
+    await this.audit.log(actor.id, 'appeal.reply', 'appeal', id, { kind: a.kind, userId: a.userId });
+    const title = 'A moderator replied to your appeal';
+    await this.notifications.notify(a.userId, 'appeal_reply', title, message).catch(() => undefined);
+    if (a.kind === 'suspension') {
+      // a suspended person cannot open the app: the question goes by email
+      const u = await this.prisma.user.findUnique({ where: { id: a.userId }, select: { email: true } });
+      if (u) await this.email.send(u.email, title, message).catch(() => undefined);
+    }
+    return { id: m.id };
   }
 
   /** What the person sees: their words, the state and the moderator's note. Never who decided. */
@@ -160,21 +196,36 @@ export class AppealsService {
   }
 
   // ---------------------------------------------------------------- staff
-  async queue(actor: User, state: string, limitRaw?: string, cursorRaw?: string) {
+  async queue(actor: User, state: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string) {
     const scope = await this.regions.scopeOf(actor);
     const size = pageLimit(limitRaw, 100, 200);
-    const { items: rows, nextCursor } = await pageOf(
-      (a) => this.prisma.appeal.findMany({ ...a, include: { user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } } }),
-      { limit: size, cursor: cursorRaw, where: { state, ...(scope && { user: this.regions.peopleWhere(scope) }) }, order: 'asc' },
-    );
+    const include = { thread: { orderBy: { createdAt: 'asc' as const } }, user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } };
+    const where = { state, ...(scope && { user: this.regions.peopleWhere(scope) }) };
+    // numbered pages ("Page 1 / 10"): newest first
+    let paging: { page: number; pages: number; total: number; pageSize: number } | null = null;
+    let found;
+    if (pageRaw) {
+      const pageSize = pageLimit(limitRaw, 20, 50);
+      const total = await this.prisma.appeal.count({ where });
+      const pages = Math.max(1, Math.ceil(total / pageSize));
+      const page = Math.min(pages, Math.max(1, Math.floor(Number(pageRaw)) || 1));
+      const dir = 'desc'; // newest first, in every state
+      found = { items: await this.prisma.appeal.findMany({ where, include, orderBy: [{ createdAt: dir }, { id: dir }], skip: (page - 1) * pageSize, take: pageSize }), nextCursor: null as string | null };
+      paging = { page, pages, total, pageSize };
+    } else {
+      found = await pageOf((a) => this.prisma.appeal.findMany({ ...a, include }), { limit: size, cursor: cursorRaw, where, order: 'asc' });
+    }
+    const { items: rows, nextCursor } = found;
     const photos = await this.proofs.idsFor('appealId', rows.map((a) => a.id));
     return {
       nextCursor,
+      ...(paging ?? {}),
       items: await Promise.all(
         rows.map(async (a) => ({
           ...this.dto(a),
           proofs: photos.get(a.id) ?? [],
           decidedBy: a.decidedBy,
+          thread: a.thread.map((m) => ({ id: m.id, fromStaff: m.fromStaff, body: m.body, createdAt: m.createdAt })),
           user: { id: a.user.id, email: a.user.email, displayName: a.user.profile?.displayName ?? null, state: a.user.state, eligibility: a.user.eligibility },
           target: await this.targetInfo(a),
         })),
@@ -192,8 +243,8 @@ export class AppealsService {
       return { type: a.targetType, title: t?.title ?? null };
     }
     if (a.kind === 'report' && a.targetId) {
-      const r = await this.prisma.report.findUnique({ where: { id: a.targetId }, select: { category: true, targetType: true, resolution: true, assignedTo: true } });
-      return r ? { reportCategory: r.category, reportAbout: r.targetType, decidedWith: r.resolution } : null;
+      const r = await this.prisma.report.findUnique({ where: { id: a.targetId }, select: { category: true, targetType: true, resolution: true, assignedTo: true, details: true, status: true, createdAt: true, resolvedAt: true } });
+      return r ? { reportCategory: r.category, reportAbout: r.targetType, decidedWith: r.resolution, reportDetails: r.details, reportStatus: r.status, reportedAt: r.createdAt, reportDecidedAt: r.resolvedAt } : null;
     }
     if (a.kind === 'warning' && a.targetId) {
       const w = await this.prisma.userWarning.findUnique({ where: { id: a.targetId }, select: { reason: true, createdAt: true } });
@@ -287,6 +338,11 @@ export class AppealsController {
     return this.appeals.mine(me, limit, cursor);
   }
 
+  @Post('me/appeals/:id/reply')
+  reply(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.appeals.userReply(me, id, body);
+  }
+
   @Public()
   @Post('appeals/suspension')
   suspension(@Body() body: unknown, @Ip() ip: string) {
@@ -297,8 +353,16 @@ export class AppealsController {
   @RegionalOk()
   @Perm('reports')
   @Get('admin/appeals')
-  queue(@CurrentUser() actor: User, @Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
-    return this.appeals.queue(actor, ['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor);
+  queue(@CurrentUser() actor: User, @Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string) {
+    return this.appeals.queue(actor, ['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor, page);
+  }
+
+  @Staff(...STAFF)
+  @RegionalOk()
+  @Perm('reports')
+  @Post('admin/appeals/:id/reply')
+  staffReply(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.appeals.staffReply(actor, id, body);
   }
 
   @Staff(...STAFF)

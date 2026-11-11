@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { can, get, post, type Session } from '../api';
 import { DayCard, dayKey, DayLog } from '../DayLog';
-import { Select } from '../controls';
-import { askText, Chip, Empty, ErrorBanner, Loading, Page, RowMenu, Search, Segmented, useAction, useLoad, useMore, Icon } from '../ui';
+import { DateField, Select } from '../controls';
+import { askText, Chip, Empty, ErrorBanner, Loading, Page, PageBar, RowMenu, Search, Segmented, useAction, useLoad, Icon } from '../ui';
 
-type A = { id: string; title: string; status: string; category: string; city: string; venueName: string; startsAt: string; endsAt: string; capacity: number; joinPolicy: string; going: number; waiting: number; host: { id: string; displayName?: string } };
-type T = { id: string; title: string; status: string; destination: string; originCity: string; travelStyle: string; dateStart: string; dateEnd: string; budgetMin: number; budgetMax: number; budgetCurrency: string; maxCapacity: number; approvalMode: string; members: number; waiting: number; host: { id: string; displayName?: string } };
+type A = { createdAt: string; id: string; title: string; status: string; category: string; city: string; venueName: string; startsAt: string; endsAt: string; capacity: number; joinPolicy: string; going: number; waiting: number; host: { id: string; displayName?: string } };
+type T = { createdAt: string; id: string; title: string; status: string; destination: string; originCity: string; travelStyle: string; dateStart: string; dateEnd: string; budgetMin: number; budgetMax: number; budgetCurrency: string; maxCapacity: number; approvalMode: string; members: number; waiting: number; host: { id: string; displayName?: string } };
 
-const STATUSES = ['published', 'full', 'planning', 'confirmed', 'completed', 'cancelled'];
+const STATUSES = [['published', 'Published'], ['cancelled', 'Cancelled'], ['completed', 'Completed']];
 const words = (v?: string | null) => (v ?? '').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const shortDay = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 const money = (cur: string | undefined, n: number | undefined) => `${cur === 'EUR' ? '€' : (cur ?? '') + ' '}${(n ?? 0).toLocaleString('en-GB')}`;
@@ -21,14 +21,21 @@ export function ContentPage({ me }: { me: Session }) {
   // which calendar month: 0 = this month, -1 = last month, 1 = next month...
   const [month, setMonth] = useState(0);
   const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth() + month, 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + month + 1, 1);
-  const monthName = from.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-  const qs = new URLSearchParams({ ...(status && { status }), from: from.toISOString(), to: to.toISOString() }).toString();
+  // one chosen day (from the calendar) replaces the month; the month arrows put the month back
+  const [day, setDay] = useState('');
+  const dayStart = day ? new Date(`${day}T00:00:00`) : null;
+  // the month in UTC days, the same days the dashboard counts
+  const from = dayStart ?? new Date(Date.UTC(now.getFullYear(), now.getMonth() + month, 1));
+  const to = dayStart ? new Date(+dayStart + 86400000) : new Date(Date.UTC(now.getFullYear(), now.getMonth() + month + 1, 1));
+  const monthName = dayStart ? dayStart.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : from.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  // activities sit on the day they take place, trips on the day they were added: the days the dashboard counts them on
+  const by = tab === 'trips' ? 'created' : 'when';
+  const [pageNo, setPageNo] = useState(1);
+  useEffect(() => setPageNo(1), [tab, status, month, by, day]);
+  const qs = new URLSearchParams({ limit: '50', page: String(pageNo), ...(status && { status }), ...(by === 'created' && { by }), from: from.toISOString(), to: to.toISOString() }).toString();
   const base = `/v1/admin/${tab}?${qs}`;
-  const list = useLoad(() => get<{ items: (A | T)[]; nextCursor: string | null }>(base), [tab, status, month]);
-  const more = useMore(list.data, (c) => get(`${base}&cursor=${c}`), `${tab}|${status}|${month}`);
-  const act = useAction(() => (more.reset(), list.reload()));
+  const list = useLoad(() => get<{ items: (A | T)[]; page?: number; pages?: number; total?: number }>(base), [tab, status, month, pageNo, by, day]);
+  const act = useAction(() => list.reload());
   const mod = can.moderate(me.role);
   const isAct = tab === 'activities';
 
@@ -37,9 +44,9 @@ export function ContentPage({ me }: { me: Session }) {
     if (reason) act.run(() => post(`/v1/admin/${tab}/${id}/remove`, { reason }));
   };
 
-  const at = (x: A | T) => (isAct ? (x as A).startsAt : (x as T).dateStart);
+  const at = (x: A | T) => (by === 'created' && x.createdAt ? x.createdAt : isAct ? (x as A).startsAt : (x as T).dateStart);
   const needle = q.trim().toLowerCase();
-  const items = more.items.filter((x) => !needle || [x.title, (x as A).venueName, (x as A).city, (x as T).destination, x.host.displayName].some((f) => f?.toLowerCase().includes(needle)));
+  const items = (list.data?.items ?? []).filter((x) => !needle || [x.title, (x as A).venueName, (x as A).city, (x as T).destination, x.host.displayName].some((f) => f?.toLowerCase().includes(needle)));
   const days = useMemo(() => {
     const sorted = [...items].sort((a, b) => +new Date(at(a)) - +new Date(at(b)));
     const out: { key: string; at: string; items: (A | T)[] }[] = [];
@@ -50,13 +57,14 @@ export function ContentPage({ me }: { me: Session }) {
       else out.push({ key: k, at: at(x), items: [x] });
     }
     return out;
-  }, [items, isAct]);
+  }, [items, isAct, by]);
 
   // this month opens at today (or the next day with something on): earlier days are a scroll up
   const scrolled = useRef('');
   useEffect(() => {
     const key = `${tab}|${status}|${month}`;
-    if (month !== 0 || days.length === 0 || scrolled.current === key) return;
+    // only activities jump to today; trips always start at the 1st of the month
+    if (day || tab !== 'activities' || month !== 0 || days.length === 0 || scrolled.current === key) return;
     scrolled.current = key;
     const today = dayKey(new Date().toISOString());
     const target = days.find((d) => d.key >= today);
@@ -86,28 +94,29 @@ export function ContentPage({ me }: { me: Session }) {
           <Search label="Search" placeholder="Search titles, places or hosts" value={q} onChange={setQ} />
         </div>
         <Select aria-label="Status" value={status} onChange={setStatus}>
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
+          <option value="">All</option>
+          {STATUSES.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
             </option>
           ))}
         </Select>
       </div>
       <div className="toolbar" role="group" aria-label="Month">
-        <button type="button" className="btn small" onClick={() => setMonth((m) => m - 1)} aria-label="Previous month">
+        <button type="button" className="btn small" onClick={() => (setDay(''), setMonth((m) => m - 1))} aria-label="Previous month">
           <span style={{ display: 'grid', transform: 'rotate(90deg)' }}>
             <Icon name="chevron" />
           </span>
         </button>
         <strong style={{ minWidth: 150, textAlign: 'center' }}>{monthName}</strong>
-        <button type="button" className="btn small" onClick={() => setMonth((m) => m + 1)} aria-label="Next month">
+        <button type="button" className="btn small" onClick={() => (setDay(''), setMonth((m) => m + 1))} aria-label="Next month">
           <span style={{ display: 'grid', transform: 'rotate(-90deg)' }}>
             <Icon name="chevron" />
           </span>
         </button>
-        {month !== 0 && (
-          <button type="button" className="btn small ghost" onClick={() => setMonth(0)}>
+        <DateField aria-label="Pick a date" placeholder="Pick a date" value={day} onChange={setDay} compact />
+        {(month !== 0 || day) && (
+          <button type="button" className="btn small ghost" onClick={() => (setDay(''), setMonth(0))}>
             This month
           </button>
         )}
@@ -116,7 +125,7 @@ export function ContentPage({ me }: { me: Session }) {
       {list.loading && !list.data && <Loading rows={5} />}
       {list.data && days.length === 0 && <Empty>Nothing in {monthName}.</Empty>}
       {days.length > 0 && (
-        <DayLog key={`${tab}|${status}|${month}`} label={isAct ? 'Activities' : 'Trips'} title={isAct ? 'Activities' : 'Trips'} count={`${items.length}${more.hasMore ? '+' : ''}`} footer={more.more}>
+        <DayLog key={`${tab}|${status}|${month}|${by}|${day}`} label={isAct ? 'Activities' : 'Trips'} title={isAct ? 'Activities' : 'Trips'} count={`${list.data?.total ?? items.length}`} footer={<PageBar page={list.data?.page ?? 1} pages={list.data?.pages ?? 1} total={list.data?.total ?? items.length} noun={isAct ? ['activity', 'activities'] : ['trip', 'trips']} onPage={setPageNo} busy={list.loading} />}>
           {days.map((d) => (
             <DayCard
               key={d.key}
@@ -139,7 +148,7 @@ export function ContentPage({ me }: { me: Session }) {
                         </span>
                       </span>
                       <span className="ct-side">
-                        {a.waiting > 0 && x.status !== 'completed' && x.status !== 'cancelled' ? <Chip value={`${a.waiting} waiting`} tone="warn" /> : null}
+                        <span>{a.waiting > 0 && x.status !== 'completed' && x.status !== 'cancelled' ? <Chip value={`${a.waiting} waiting`} tone="warn" /> : null}</span>
                         <span className="ct-going">
                           {isAct ? (
                             <>

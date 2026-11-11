@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Injectable, Param, Post, Query } from '@nestjs/common';
-import { User } from '@prisma/client';
+import { AttendanceMark, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { beforeKeyset, decodeKeyset, pageLimit, pageOf, sliceKeyset } from '../common/paging';
@@ -327,11 +327,25 @@ export class ReliabilityService {
   }
 
   // ---------------------------------------------------------------- moderators
-  async adminList(state?: string, limitRaw?: string, cursorRaw?: string) {
+  async adminList(state?: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string) {
     // a state shows just that state; "all" (and nothing asked) shows every record, decided ones too.
     // Records still waiting for a decision go oldest first; the rest, newest first. A page at a time (default 50), nextCursor for the next.
     const waiting = state === 'disputed' || state === 'marked';
-    const page = await pageOf((a) => this.prisma.attendanceMark.findMany(a), { limit: pageLimit(limitRaw, 50, 100), cursor: cursorRaw, where: state && state !== 'all' ? { state } : {}, sortBy: 'markedAt', order: waiting ? 'asc' : 'desc' });
+    const where = state && state !== 'all' ? { state } : {};
+    let numbered: { page: number; pages: number; total: number; pageSize: number } | null = null;
+    let page: { items: AttendanceMark[]; nextCursor: string | null };
+    if (pageRaw) {
+      // numbered pages ("Page 1 / 10")
+      const pageSize = pageLimit(limitRaw, 20, 50);
+      const total = await this.prisma.attendanceMark.count({ where });
+      const pages = Math.max(1, Math.ceil(total / pageSize));
+      const no = Math.min(pages, Math.max(1, Math.floor(Number(pageRaw)) || 1));
+      const dir = 'desc'; // the newest record first, in every state
+      page = { items: await this.prisma.attendanceMark.findMany({ where, orderBy: [{ markedAt: dir }, { id: dir }], skip: (no - 1) * pageSize, take: pageSize }), nextCursor: null };
+      numbered = { page: no, pages, total, pageSize };
+    } else {
+      page = await pageOf((a) => this.prisma.attendanceMark.findMany(a), { limit: pageLimit(limitRaw, 50, 100), cursor: cursorRaw, where, sortBy: 'markedAt', order: waiting ? 'asc' : 'desc' });
+    }
     const rows = page.items;
     const people = await this.prisma.user.findMany({ where: { id: { in: [...new Set(rows.flatMap((r) => [r.userId, r.markedById]))] } }, select: { id: true, email: true, profile: { select: { displayName: true } } } });
     const name = new Map(people.map((p) => [p.id, { id: p.id, email: p.email, displayName: p.profile?.displayName ?? p.email }]));
@@ -348,7 +362,7 @@ export class ReliabilityService {
       ...trips.map((x) => [x.id, { at: x.dateStart, city: x.destination, place: x.originCity ? 'from ' + x.originCity : null }] as const),
     ]);
     const photos = await this.proofs.idsFor('markId', rows.map((r) => r.id));
-    return { items: rows.map((r) => ({ proofs: photos.get(r.id) ?? [], id: r.id, kind: r.kind, targetId: r.targetId, title: r.title, plan: plan.get(r.targetId) ?? null, state: r.state, markedAt: r.markedAt, disputedAt: r.disputedAt, disputeNote: r.disputeNote, decisionNote: r.decisionNote, member: name.get(r.userId), host: name.get(r.markedById), hostUnusual: flagged.get(r.markedById) ?? null })), nextCursor: page.nextCursor };
+    return { items: rows.map((r) => ({ proofs: photos.get(r.id) ?? [], id: r.id, kind: r.kind, targetId: r.targetId, title: r.title, plan: plan.get(r.targetId) ?? null, state: r.state, markedAt: r.markedAt, disputedAt: r.disputedAt, disputeNote: r.disputeNote, decisionNote: r.decisionNote, member: name.get(r.userId), host: name.get(r.markedById), hostUnusual: flagged.get(r.markedById) ?? null })), nextCursor: page.nextCursor, ...(numbered ?? {}) };
   }
 
   /** A moderator settles a note: uphold it (it counts) or overturn it (it never counts). Works on any note, to fix mistakes. */
@@ -549,8 +563,8 @@ export class ReliabilityController {
   // ---- moderators
   @Staff(...ALL)
   @Get('admin/no-shows')
-  adminList(@Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
-    return this.reliability.adminList(state, limit, cursor);
+  adminList(@Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string) {
+    return this.reliability.adminList(state, limit, cursor, page);
   }
 
   /** Hosts who say many people did not come (or whose notes keep being overturned): the check from the reliability hardening list. */
