@@ -16,6 +16,7 @@ import { useT } from '@/lib/i18n';
 import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
 import { ThereFiltersSheet, useThereFilters } from './ThereFilters';
+import { LivePill } from './ExploreHere';
 
 type When = 'any' | 'month' | 'quarter' | 'later';
 const DAY = 864e5;
@@ -80,15 +81,16 @@ export function ExploreThere() {
   const next = style ? [] : ahead.slice(0, 2);
   const more = style ? [] : ahead.slice(2);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [liveOpen, setLiveOpen] = useState(false); // the trips under way, when there are several
   const { width, gutter } = useLayout();
   const cardW = Math.min(480, width - gutter * 2 - 28); // a bit of the next card peeks in, so it is clear you can swipe
   const MAX = 4;
   // only the first section on the page has big cards: Taking part / Next up when shown, else the first trip list that has any
   const lists = [when === 'any' || when === 'month' ? soon : [], when === 'any' || when === 'quarter' ? season : [], when === 'any' || when === 'later' ? later : []];
-  const bigAt = taking.length > 0 || next.length > 0 ? -1 : lists.findIndex((l) => l.length > 0);
+  const bigAt = next.length > 0 ? -1 : lists.findIndex((l) => l.length > 0);
 
   return (
-    <Screen tabBar wide collapse onRefresh={onRefresh} refreshing={refreshing} header={<ThereHomeHeader city={city} onPickCity={setCity} />} bandTall style={{ paddingTop: 20 }}>
+    <Screen tabBar wide collapse onRefresh={onRefresh} refreshing={refreshing} header={<ThereHomeHeader city={city} onPickCity={setCity} />} bandTall style={{ paddingTop: 14 }}>
 
       <VerifyBanner />
 
@@ -100,42 +102,25 @@ export function ExploreThere() {
       <ErrorBanner message={feed.error?.message} />
       {feed.loading && !feed.data && <Spinner />}
 
-      {taking.length > 0 && (
-        <Reveal index={0} style={{ gap: 12 }}>
-          <SectionHeader title={t('Taking part')} />
-          {taking.length === 1 ? (
-            <View style={{ width: '100%', maxWidth: 480 }}>
-              <TripNextUpCard t={taking[0].t} status={{ label: t(taking[0].label), tone: taking[0].tone }} />
-            </View>
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={cardW + 12} snapToAlignment="start" decelerationRate="fast" disableIntervalMomentum style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }}>
-              {taking.map((x) => (
-                <View key={x.key} style={{ width: cardW }}>
-                  <TripNextUpCard t={x.t} status={{ label: t(x.label), tone: x.tone }} />
-                </View>
-              ))}
-            </ScrollView>
-          )}
-        </Reveal>
-      )}
+      {/* a trip you are on right now: a small pill with a pulsing dot, as in HERE (one opens it, several open a list) */}
+      {taking.length > 0 && !q.trim() ? (
+        <LivePill
+          label={taking.length === 1 ? t("You're on {title} now", { title: taking[0].t.destination }) : t('{n} of your trips are under way', { n: taking.length })}
+          onPress={() => (taking.length === 1 ? go(`/trip/${taking[0].t.id}`) : setLiveOpen(true))}
+        />
+      ) : null}
 
       {next.length > 0 && (
         <Reveal index={0} style={{ gap: 12 }}>
           <SectionHeader title={t('Next up')} />
-          {next.length === 1 ? (
-            <View style={{ width: '100%', maxWidth: 480 }}>
-              <TripNextUpCard t={next[0].t} status={{ label: t(next[0].label), tone: next[0].tone }} />
-            </View>
-          ) : (
-            // several trips of yours: swipe through them, soonest first
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={cardW + 12} snapToAlignment="start" decelerationRate="fast" disableIntervalMomentum style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }}>
-              {next.map((x) => (
-                <View key={x.key} style={{ width: cardW }}>
-                  <TripNextUpCard t={x.t} status={{ label: t(x.label), tone: x.tone }} />
-                </View>
-              ))}
-            </ScrollView>
-          )}
+          {/* each plan of yours is a card of its own, one under the other, soonest first */}
+          <View style={{ gap: 12 }}>
+            {next.map((x) => (
+              <View key={x.key} style={{ width: '100%', maxWidth: 480 }}>
+                <TripNextUpCard t={x.t} status={{ label: t(x.label), tone: x.tone }} />
+              </View>
+            ))}
+          </View>
           {more.length > 0 ? (
             <Pressable
               accessibilityRole="button"
@@ -169,6 +154,14 @@ export function ExploreThere() {
           <Btn title={t('Propose')} small onPress={() => go('/create')} />
         </Card>
       </Reveal>
+
+      <Sheet visible={liveOpen && taking.length > 1} title={t('Under way now')} onClose={() => setLiveOpen(false)}>
+        <View style={{ gap: 10 }}>
+          {taking.map((x) => (
+            <TripRow key={x.key} t={x.t} />
+          ))}
+        </View>
+      </Sheet>
 
       <Sheet visible={moreOpen && more.length > 0} title={t('Also on your trips')} onClose={() => setMoreOpen(false)}>
         {more.map((x) => (

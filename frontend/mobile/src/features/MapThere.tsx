@@ -9,6 +9,7 @@ import { Text, TextInput } from '@/components/ScaledText';
 import { Reveal } from '@/components/Reveal';
 import { DestinationResults } from '@/components/TripCreateParts';
 import { Btn, ErrorBanner, Pill, PillRow, Txt } from '@/components/ui';
+import { MapHint } from '@/components/MapHint';
 import { get, type Trip } from '@/lib/api';
 import { useCity, useCityPos } from '@/lib/city';
 import { useDockSpace } from '@/lib/dock';
@@ -206,22 +207,32 @@ export function MapThere() {
 
   // what the sheet lists: the trips at the tapped pin, or every trip in view (soonest first, 20 at a time)
   const { height: screenH } = useWindowDimensions();
-  const rows = useMemo(() => (selected ? selected.items : [...pins].sort((x, y) => +new Date(x.dateStart) - +new Date(y.dateStart)).slice(0, shown)), [selected, pins, shown]);
+  const [isOpen, setIsOpen] = useState(false);
+  const rowsAll = useMemo(() => (selected ? selected.items : [...pins].sort((x, y) => +new Date(x.dateStart) - +new Date(y.dateStart)).slice(0, shown)), [selected, pins, shown]);
+  // pulled up, the search bar only narrows this list (no place suggestions, and the map stays where it is)
+  const listMode = isOpen && !selected;
+  const needleT = listMode ? q.trim().toLowerCase() : '';
+  const rows = needleT ? rowsAll.filter((x) => `${x.title} ${x.destination} ${x.tags.join(' ')}`.toLowerCase().includes(needleT)) : rowsAll;
   const hasMore = !selected && pins.length > shown;
   // the sheet is as tall as the trips really are (measured), up to just over half the screen, so a trip card shows whole and only a long list scrolls
   const [contentH, setContentH] = useState(0);
-  const listMax = Math.min(contentH > 0 ? contentH + 10 : rows.length * 150 + 10, Math.round(screenH * 0.55));
+  // Pulled up, the card rises over the map as far as the search bar (not a new page: the map stays where it was, and pulling the card
+  // down shows the very same map again), so the list is as tall as the room between the bar and the card's top part.
+  const [baseH, setBaseH] = useState(96); // the card's top part (handle and summary), measured
+  const fullMax = Math.max(160, Math.round(screenH - (top + 58 + 12) - baseH - dock));
+  // a tapped pin shows a short card of just its trips (as tall as they are); the card pulled up goes the whole way to the bar
+  const listMax = selected ? Math.min(fullMax, contentH > 0 ? contentH + 10 : rows.length * 150 + 10) : fullMax;
 
   // 0 = just the summary, 1 = list showing: moved by a finger (drag), a tap on the handle, or a tap on a pin. The sheet slides as one
   // piece (a transform), so the movement is drawn on the native thread and stays smooth, as on HERE.
   const open = useRef(new Animated.Value(0)).current;
   const openAt = useRef(0);
-  const [isOpen, setIsOpen] = useState(false);
   const dragFrom = useRef(0);
   const maxRef = useRef(listMax);
   maxRef.current = listMax;
   const settle = useCallback(
     (to: 0 | 1, velocity = 0) => {
+      if (to === 0) Keyboard.dismiss(); // the card goes down: so does the keyboard
       openAt.current = to;
       setIsOpen(to === 1);
       Animated.spring(open, { toValue: to, velocity, friction: 11, tension: 90, useNativeDriver: true }).start();
@@ -292,7 +303,7 @@ export function MapThere() {
             <View style={[{ flex: 1, height: 58, borderRadius: 29, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 18, paddingRight: 6 }, shadow]}>
               <Ionicons name="search-outline" size={20} color={c.muted} />
               <TextInput
-                accessibilityLabel={t('Search a country or place')}
+                accessibilityLabel={listMode ? t('Search these trips') : t('Search a country or place')}
                 value={q}
                 onChangeText={(v) => {
                   setQ(v);
@@ -303,7 +314,7 @@ export function MapThere() {
                   setTyped(false);
                 }}
                 onBlur={() => setTimeout(() => setFocus(false), 200)}
-                placeholder={t('Where next? For example, Japan')}
+                placeholder={listMode ? t('Search these trips') : t('Where next? For example, Japan')}
                 placeholderTextColor={c.placeholder}
                 returnKeyType="search"
                 autoCorrect={false}
@@ -311,7 +322,7 @@ export function MapThere() {
                 style={{ flex: 1, color: c.text, fontSize: 15, paddingVertical: 0 }}
               />
               {q ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={t('Clear the search')} hitSlop={8} onPress={() => { setQ(''); setTyped(false); }} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('Clear the search')} hitSlop={8} onPress={() => { setQ(''); setTyped(false); Keyboard.dismiss(); }} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
                   <Ionicons name="close" size={20} color={c.text} />
                 </Pressable>
               ) : null}
@@ -332,7 +343,7 @@ export function MapThere() {
           </View>
           <DestinationResults
             text={q}
-            active={focus && typed}
+            active={focus && typed && !listMode}
             onPick={(label, at) => {
               setQ(label);
               setTyped(false);
@@ -370,11 +381,12 @@ export function MapThere() {
           </View>
         ) : null}
         {feed.error ? <View style={{ width: '100%', maxWidth: 560 }}><ErrorBanner message={feed.error.message} /></View> : null}
+        <MapHint id="there" title={t('Finding your trip')}>{t('Zoom out to find your destination, then zoom in on the place. Tap a pin to see the trips that go there, or search a country or a place.')}</MapHint>
       </View>
 
       {/* bottom sheet, the same movement as HERE: it rises with the trips of a tapped pin, or is pulled up (or tapped) for every trip in view */}
       <Animated.View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingBottom: 12 + dock, paddingHorizontal: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, transform: [{ translateY: sheetY }] }}>
-        <View {...pan.panHandlers} style={{ width: '100%', alignItems: 'center' }}>
+        <View {...pan.panHandlers} onLayout={(e) => setBaseH(e.nativeEvent.layout.height + 12)} style={{ width: '100%', alignItems: 'center' }}>
           <Pressable accessibilityRole="adjustable" accessibilityLabel={t('Trips list. Swipe up to open, down to close')} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={(e) => settle(e.nativeEvent.actionName === 'increment' ? 1 : 0)} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)} hitSlop={{ top: 6, bottom: 6 }} style={{ width: '100%', alignItems: 'center', paddingTop: 8, paddingBottom: 14 }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.line }} />
           </Pressable>

@@ -2,7 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { tap } from './haptics';
 import { usePathname } from 'expo-router';
 import { createContext, memo, useContext, useEffect, useRef, useSyncExternalStore } from 'react';
-import { Animated, Easing, Platform, Pressable, View } from 'react-native';
+import { Animated, Easing, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '@/lib/layout';
 import { scBase } from '@/lib/scale';
@@ -94,13 +94,17 @@ export const DOCK = {
 } as const;
 
 /**
- * Bottom spacing per platform. iPhone: the home-indicator inset is large, so the dock sits closer to the edge.
- * Android: lift above the gesture bar or the 3-button bar (whatever inset the system reports) plus a small gap.
+ * The gap under the dock, worked out from what each phone reports at its bottom edge (the same rule on iPhone and Android):
+ *  - a tall system bar (Android's 3-button bar, 40 pt and up): the dock sits above it, inset + 6;
+ *  - a gesture line or home indicator (any smaller inset above 0): 28 pt, so the dock sits at the same height on every such phone;
+ *  - nothing at the bottom (home-button iPhones, phones with no bar): 12 pt.
  */
+export const dockGap = (inset: number) => (inset >= 40 ? inset + 6 : inset > 0 ? 28 : 12);
+
 export function useDockMetrics() {
   const { isWide } = useLayout();
   const insets = useSafeAreaInsets();
-  const bottom = Platform.OS === 'ios' ? Math.max(insets.bottom - 6, 12) : Math.max(insets.bottom, 12) + 6;
+  const bottom = dockGap(insets.bottom);
   const pill = Math.max(DOCK.pill, scBase(DOCK.pill)); // the dock does not grow with the text size
   return { isWide, pill, bottom, barHeight: pill + bottom, space: isWide ? 0 : pill + bottom };
 }

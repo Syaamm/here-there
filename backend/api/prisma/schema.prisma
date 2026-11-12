@@ -427,6 +427,10 @@ model PushSubscription {
   token      String   @unique
   createdAt  DateTime @default(now())
   lastUsedAt DateTime @default(now())
+  // the last push that did not arrive on this device (Firebase's reason); cleared by the next one that did
+  lastFailureAt     DateTime?
+  lastFailureDetail String?
+  failureCount      Int       @default(0)
 
   @@index([userId])
 }

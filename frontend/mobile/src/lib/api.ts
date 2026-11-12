@@ -523,4 +523,4 @@ export type GroupInfo = {
   members: { id: string; displayName: string; photoUrl: string | null; verifiedAdult: boolean; role: 'host' | 'member'; isMe: boolean }[];
 };
 
-export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip' | 'match'; scopeId: string; title: string; category?: string | null; startsAt?: string; endsAt?: string; /** the newest message: who wrote it ("You" for yours), the first 140 characters and when */ lastMessage?: { body: string; at: string; from: string | null } | null };
+export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip' | 'match'; scopeId: string; title: string; category?: string | null; startsAt?: string; endsAt?: string; /** the time the server orders and pages the list by: the newest message, or when the chat was made if nobody has written yet */ lastMessageAt?: string; /** the newest message: who wrote it ("You" for yours), the first 140 characters and when */ lastMessage?: { body: string; at: string; from: string | null } | null };

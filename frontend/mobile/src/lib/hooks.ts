@@ -148,6 +148,9 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
   if (lastDeps.current !== depsKey) {
     // a different thing is being loaded: show its remembered answer, or nothing (never the old thing's)
     lastDeps.current = depsKey;
+    // the "loaded moments ago" stamp belonged to the previous thing (another tab, another filter): this one has not been asked yet,
+    // so its remembered answer (possibly old) is shown at once and refreshed right away
+    fetched.current = { at: 0, writes: -1 };
     if (!(opts?.keep && dataRef.current !== null)) {
       have.current = start !== null;
       dataRef.current = start;

@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Animated, Easing, Modal, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DockSpace } from '@/lib/dock';
@@ -19,6 +19,7 @@ import { Text, TextInput } from './ScaledText';
 import { Avatar, pressed } from './ui';
 import { CityPicker } from './CityPicker';
 import { TRIP_TAGS } from '@/lib/constants';
+import { FS, LH } from '@/lib/type';
 
 /** THERE's pieces from the Figma pages (home, search and the filter sheet), shared by ExploreThere and SearchThere. */
 
@@ -161,35 +162,41 @@ export function TripStylePicker({ value, onToggle }: { value: string[]; onToggle
 
 // ---------------------------------------------------------------- the filter sheet
 
+/** True inside a compact ThereFilterSheet: its chips, labels and fields are drawn smaller without each being told. */
+const CompactSheet = createContext(false);
+
 /** A pill choice for the filter sheet: deep green when chosen, white when not. */
-export function ThereChip({ label, active, onPress, spoken }: { label: string; active: boolean; onPress: () => void; spoken?: string }) {
+export function ThereChip({ label, active, onPress, spoken, compact: own }: { label: string; active: boolean; onPress: () => void; spoken?: string; /** a smaller chip with the label text (a compact filter sheet does this by itself) */ compact?: boolean }) {
   const { c } = useTheme();
+  const compact = useContext(CompactSheet) || !!own;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={spoken ?? label}
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={({ pressed: p }) => [{ minHeight: 44, paddingHorizontal: 20, borderRadius: 22, borderWidth: 1, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
+      style={({ pressed: p }) => [{ minHeight: compact ? 36 : 44, paddingHorizontal: compact ? 14 : 20, borderRadius: compact ? 18 : 22, borderWidth: 1, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
     >
-      <Text style={{ color: active ? '#fff' : c.forest, fontSize: 15, lineHeight: 20, includeFontPadding: false, textAlign: 'center' }}>{label}</Text>
+      <Text style={{ color: active ? '#fff' : c.forest, fontSize: compact ? FS.button : 15, lineHeight: compact ? LH.button : 20, includeFontPadding: false, textAlign: 'center' }}>{label}</Text>
     </Pressable>
   );
 }
 
 /** The small heading above a group of filter fields. */
-export function ThereLabel({ children }: { children: ReactNode }) {
+export function ThereLabel({ children, compact: own }: { children: ReactNode; compact?: boolean }) {
   const { c } = useTheme();
-  return <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{children}</Text>;
+  const compact = useContext(CompactSheet) || !!own;
+  return <Text accessibilityRole="header" style={{ color: c.text, fontSize: compact ? FS.button : 15, lineHeight: compact ? LH.button : 20, fontWeight: '500' }}>{children}</Text>;
 }
 
 /** A labelled white pill to type in. */
 export function ThereInput({ label, value, onChangeText, placeholder, ...rest }: { label: string; value: string; onChangeText: (v: string) => void; placeholder?: string } & Omit<React.ComponentProps<typeof TextInput>, 'style'>) {
   const { c } = useTheme();
+  const compact = useContext(CompactSheet);
   return (
-    <View style={{ flex: 1, gap: 12 }}>
+    <View style={{ flex: 1, gap: compact ? 8 : 12 }}>
       <ThereLabel>{label}</ThereLabel>
-      <TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={c.placeholder} {...rest} style={{ minHeight: sc(55), borderRadius: 28, backgroundColor: c.surface, paddingHorizontal: 17, paddingVertical: 0, fontSize: 16, color: c.text, includeFontPadding: false, textAlignVertical: 'center' }} />
+      <TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={c.placeholder} {...rest} style={{ minHeight: sc(compact ? 46 : 55), borderRadius: sc(compact ? 23 : 28), backgroundColor: c.surface, paddingHorizontal: 17, paddingVertical: 0, fontSize: FS.body, color: c.text, includeFontPadding: false, textAlignVertical: 'center' }} />
     </View>
   );
 }
@@ -199,10 +206,11 @@ export function ThereDateBox({ label, date, onPress, spoken }: { label: string; 
   const { c } = useTheme();
   const p2 = (n: number) => String(n).padStart(2, '0');
   const { t } = useT();
+  const compact = useContext(CompactSheet);
   return (
-    <View style={{ flex: 1, gap: 12 }}>
+    <View style={{ flex: 1, gap: compact ? 8 : 12 }}>
       <ThereLabel>{label}</ThereLabel>
-      <Pressable accessibilityRole="button" accessibilityLabel={spoken} onPress={onPress} style={({ pressed: p }) => [{ minHeight: sc(55), borderRadius: 28, backgroundColor: c.surface, paddingHorizontal: 17, justifyContent: 'center' }, pressed(p)]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={spoken} onPress={onPress} style={({ pressed: p }) => [{ minHeight: sc(compact ? 46 : 55), borderRadius: sc(compact ? 23 : 28), backgroundColor: c.surface, paddingHorizontal: 17, justifyContent: 'center' }, pressed(p)]}>
         <Text style={{ fontSize: 16, color: date ? c.text : c.placeholder }}>{date ? `${p2(date.getDate())}-${p2(date.getMonth() + 1)}-${date.getFullYear()}` : t('DD-MM-YYYY')}</Text>
       </Pressable>
     </View>
@@ -279,7 +287,7 @@ export function ThereBudgetSlider({ value, onChange, min = 300, max = 5000, step
  * The Filter sheet (Figma): an ivory sheet with big rounded top corners, "Filter" and a close X over a hairline, the fields
  * in a scrolling body, and the action buttons pinned at the bottom. `overlay` is drawn above the sheet (the calendar).
  */
-export function ThereFilterSheet({ visible, onClose, children, footer, overlay }: { visible: boolean; onClose: () => void; children: ReactNode; footer: ReactNode; overlay?: ReactNode }) {
+export function ThereFilterSheet({ visible, onClose, children, footer, overlay, compact, heightRatio }: { visible: boolean; onClose: () => void; children: ReactNode; footer: ReactNode; overlay?: ReactNode; /** smaller chips, labels and fields and tighter spacing: every filter in the app */ compact?: boolean; /** how much of the screen the sheet takes (0.9 by default; the map's is about half, so the map stays in view) */ heightRatio?: number }) {
   const { c } = useTheme();
   const { t } = useT();
   const insets = useSafeAreaInsets();
@@ -318,23 +326,23 @@ export function ThereFilterSheet({ visible, onClose, children, footer, overlay }
           <Animated.View
             accessibilityViewIsModal
             style={[
-              { backgroundColor: c.bg, borderTopLeftRadius: 44, borderTopRightRadius: 44, height: height * 0.9, overflow: 'hidden', transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] },
-              isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 30, height: Math.min(height * 0.9, 760), opacity: slide },
+              { backgroundColor: c.bg, borderTopLeftRadius: compact ? 32 : 44, borderTopRightRadius: compact ? 32 : 44, height: height * (heightRatio ?? (compact ? 0.5 : 0.9)), overflow: 'hidden', transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] },
+              isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 30, height: Math.min(height * (heightRatio ?? (compact ? 0.5 : 0.9)), compact ? 560 : 760), opacity: slide },
             ]}
           >
-            <View style={{ paddingHorizontal: 20, paddingTop: 22 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 }}>
-                <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t('Filter')}</Text>
+            <View style={{ paddingHorizontal: 20, paddingTop: compact ? 14 : 22 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: compact ? 40 : 44 }}>
+                <Text accessibilityRole="header" style={{ color: c.forest, fontSize: compact ? FS.body : 20, lineHeight: compact ? LH.body : 26, fontWeight: '600' }}>{t('Filter')}</Text>
                 <Pressable accessibilityRole="button" accessibilityLabel={t('Close')} hitSlop={6} onPress={onClose} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -10 }}>
                   <Ionicons name="close" size={22} color={c.text} />
                 </Pressable>
               </View>
               <View style={{ height: 1, backgroundColor: 'rgba(0,0,0,0.12)', marginTop: 8 }} />
             </View>
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 22, paddingBottom: 20, gap: 26 }}>
-              {shown.current.children}
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: compact ? 14 : 22, paddingBottom: compact ? 12 : 20, gap: compact ? 16 : 26 }}>
+              <CompactSheet.Provider value={!!compact}>{shown.current.children}</CompactSheet.Provider>
             </ScrollView>
-            <View style={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: insets.bottom + 16, gap: 8, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)', backgroundColor: c.bg }}>{shown.current.footer}</View>
+            <View style={{ paddingHorizontal: 20, paddingTop: compact ? 8 : 10, paddingBottom: insets.bottom + (compact ? 12 : 16), gap: compact ? 8 : 8, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)', backgroundColor: c.bg }}>{shown.current.footer}</View>
           </Animated.View>
           {shown.current.overlay}
         </Animated.View>

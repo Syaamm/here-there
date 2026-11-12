@@ -284,6 +284,8 @@ function Chat({ id }: { id: string }) {
   const shown = settled ? [...older, ...(msgs.data?.items ?? [])] : [];
 
   const [text, setText] = useState('');
+  const boxRef = useRef<{ focus?: () => void } | null>(null);
+  const [boxKey, setBoxKey] = useState(0); // a new value starts the writing box again, one line tall (after a long message was sent)
   const [composerFocused, setComposerFocused] = useState(false);
   const typing = useKeyboardShown();
   const z = useSmallPhoneShrink(); // narrow phones: the box and the buttons are drawn smaller, as the writing is
@@ -466,12 +468,43 @@ function Chat({ id }: { id: string }) {
       });
   }, [newest?.id]);
 
+  // Reading a chat takes it off the inbox's unread list at once. The inbox shows a chat as unread from the list of chat ids the
+  // server sent (and from its alert rows); the server marks it read when the messages are fetched in front, but the inbox keeps its
+  // own remembered copy until it asks again, so without this the dot stayed on after Back. Done when the chat is the screen in
+  // front and its messages have arrived, not only when a new message does.
+  const readyToRead = !!msgs.data;
+  useEffect(() => {
+    if (!focused || !readyToRead) return;
+    const product = info.data ? (info.data.scope === 'activity' ? 'here' : 'there') : mode;
+    patchCache<{ items: Notif[]; unreadCount: number; unreadChatIds?: string[] }>('inbox:notifs', [product], (old) => {
+      const mine = (n: Notif) => n.type === 'chat_message' && n.data?.conversationId === id && !n.readAt;
+      const unreadRows = old.items.filter(mine).length;
+      const listed = old.unreadChatIds?.includes(id) ?? false;
+      if (!unreadRows && !listed) return old;
+      return {
+        ...old,
+        unreadCount: Math.max(0, old.unreadCount - Math.max(unreadRows, listed ? 1 : 0)),
+        unreadChatIds: old.unreadChatIds?.filter((x) => x !== id),
+        items: old.items.map((n) => (mine(n) ? { ...n, readAt: new Date().toISOString() } : n)),
+      };
+    });
+    refreshUnread();
+  }, [focused, readyToRead, id, info.data?.scope]);
+
   const submit = async () => {
     const body = text.trim();
     if (!body) return;
     stick.current = true;
     const r = await send.run(() => post(`/v1/conversations/${id}/messages`, { body }));
-    if (r) setText(''); // on failure the text stays so nothing is lost
+    if (r) {
+      const tall = body.includes('\n') || body.length > 36;
+      setText('');
+      if (tall) {
+        // the phone's field does not always shrink back by itself: a fresh one is one line tall, and takes the cursor at once
+        setBoxKey((k) => k + 1);
+        setTimeout(() => boxRef.current?.focus?.(), 30);
+      }
+    } // on failure the text stays so nothing is lost
   };
 
   const leave = async () => {
@@ -707,23 +740,28 @@ function Chat({ id }: { id: string }) {
               <Ionicons name="add" size={22} color={c.forest} />
             </Pressable>
           ) : null}
-          <TextInput
-            accessibilityLabel={t('Write a message')}
-            value={text}
-            onChangeText={(v) => {
-              setText(v);
-              if (send.error) send.setError(null); // the refusal was about the old text
-            }}
-            // the hint goes as soon as the field is active (keyboard up, cursor blinking), and comes back if it is left empty
-            placeholder={composerFocused ? '' : t('Say something to the group…')}
-            placeholderTextColor={c.placeholder}
-            onFocus={() => setComposerFocused(true)}
-            onBlur={() => setComposerFocused(false)}
-            maxLength={2000}
-            multiline
-            numberOfLines={1}
-            style={{ flex: 1, minHeight: Math.max(44, Math.round(52 * z)), maxHeight: 120, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 28, backgroundColor: c.surface, color: c.text, paddingHorizontal: Math.round(22 * z), paddingVertical: Math.round(14 * z), textAlignVertical: 'center', fontSize: mode === 'there' ? 15 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 }}
-          />
+          <View style={{ flex: 1 }}>
+            <TextInput
+              key={boxKey}
+              ref={boxRef}
+              accessibilityLabel={t('Write a message')}
+              value={text}
+              onChangeText={(v) => {
+                setText(v);
+                if (send.error) send.setError(null); // the refusal was about the old text
+              }}
+              // the hint goes as soon as the field is active (keyboard up, cursor blinking), and comes back if it is left empty
+              placeholder={composerFocused ? '' : t('Say something to the group…')}
+              placeholderTextColor={c.placeholder}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={() => setComposerFocused(false)}
+              maxLength={2000}
+              multiline
+              scrollEnabled
+              {...({ showsVerticalScrollIndicator: false } as Record<string, unknown>)} // no scroll bar on the writing box (the iPhone's field takes this like a scroll view; it is not in the typed list)
+              style={{ width: '100%', minHeight: Math.max(44, Math.round(52 * z)), maxHeight: 150,  borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 28, backgroundColor: c.surface, color: c.text, paddingHorizontal: Math.round(22 * z), paddingVertical: Math.round(12 * z), textAlignVertical: 'center', fontSize: mode === 'there' ? 15 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 }}
+            />
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t('Send message')}

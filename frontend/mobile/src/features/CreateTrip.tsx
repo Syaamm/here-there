@@ -12,6 +12,7 @@ import { Text, TextInput, type InputHandle } from '@/components/ScaledText';
 import { StepTransition } from '@/components/StepMotion';
 import { DestinationResults, TRIP_WHITE, TripAmount, TripCard, TripField, TripHeading, TripInput, TripLabel, TripPill, TripTop, TripValue, TravelStyleChoice, type TravelStyle } from '@/components/TripCreateParts';
 import { Banner, CheckRow, Chip, ErrorBanner, Screen, Txt, useGo } from '@/components/ui';
+import { TripThumb } from '@/components/Cards';
 import { get, post, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useVerifyGate } from '@/lib/verifyGate';
@@ -40,7 +41,7 @@ function ReviewCard({ title, onEdit, children, missing }: { title: string; onEdi
   const { t } = useT();
   const box = useRef<HostInstance>(null);
   return (
-    <View ref={box} collapsable={false} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 6, borderWidth: missing ? 1.2 : 0, borderColor: c.danger }}>
+    <View ref={box} collapsable={false} style={{ backgroundColor: TRIP_WHITE, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 6, borderWidth: missing ? 1.2 : 0, borderColor: c.danger }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <Text style={{ color: c.text, fontSize: 14, fontWeight: '700' }}>{title}</Text>
         <Pressable
@@ -549,11 +550,44 @@ function TripForm({ onReset }: { onReset: () => void }) {
             {!gate.verified && <Banner onPress={() => void gate.ask('publish')}>{gate.isGuest ? t("You're exploring as a guest. To publish, create a free account and verify your identity ›") : t('Verify your identity to publish. Everything you entered stays here ›')}</Banner>}
             <ErrorBanner message={act.error} />
             {/* every part can be changed from here: Edit opens its fields in a pop-up that grows out of the card, Done folds it back */}
-            <ReviewCard title={t('Route and dates')} onEdit={(from) => openPop('route', from)} missing={(routeProblems.length > 0 || busy) && t('Missing or not right: {what}. Tap Edit.', { what: busy ? t('you already have a plan on these days') : routeProblems.join(', ') })}>
-              <Txt variant="h3" style={{ fontSize: 18, lineHeight: 24 }}>{together ? `${f.originCity || '—'} → ${f.destination || '—'}` : f.destination || '—'}</Txt>
-              <Text style={{ color: c.muted, fontSize: 13 }}>{together ? t('Travel together from {city}', { city: f.originCity || '—' }) : t('Meet at destination: everyone travels on their own')}</Text>
-              <Text style={{ color: c.text, fontSize: 14 }}>{start && end ? `${dayText(start)} – ${dayText(end)}` : '—'}</Text>
-              <Text style={{ color: c.muted, fontSize: 13 }}>{nights !== null ? tn(nights, '{n} night', '{n} nights') : '—'}{' · '}{t('Dates: {flex}', { flex: flexLabel })}</Text>
+            {/* the trip at a glance: its picture, the route, how long, how many people (Edit opens the route and dates) */}
+            <ReviewCard title={t('Your trip')} onEdit={(from) => openPop('route', from)} missing={(routeProblems.length > 0 || busy) && t('Missing or not right: {what}. Tap Edit.', { what: busy ? t('you already have a plan on these days') : routeProblems.join(', ') })}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                <TripThumb t={{ tags: f.tags } as unknown as Trip} size={26} style={{ width: 96, height: 76, borderRadius: 20 }} />
+                <View style={{ flex: 1, gap: 5 }}>
+                  {together ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                      <Text numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: 14, fontWeight: '600' }}>{f.originCity || '—'}</Text>
+                      <Ionicons accessibilityElementsHidden name="airplane" size={14} color={c.muted} />
+                      <Text numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: 14, fontWeight: '600' }}>{f.destination || '—'}</Text>
+                    </View>
+                  ) : (
+                    <Text numberOfLines={2} style={{ color: c.text, fontSize: 15, fontWeight: '600' }}>{f.destination || '—'}</Text>
+                  )}
+                  <Text style={{ color: c.muted, fontSize: 12 }}>{nights !== null && nights >= 0 ? t('{days} days / {n} nights', { days: nights + 1, n: nights }) : '—'}</Text>
+                  <Text style={{ color: c.muted, fontSize: 12 }}>{together ? t('Travel together') : t('Meet at destination')} · {groupLabel}</Text>
+                </View>
+              </View>
+            </ReviewCard>
+
+            {/* the dates, as two boxes side by side with a round mark between them */}
+            <ReviewCard title={t('Travel dates')} onEdit={(from) => openPop('route', from)}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {([[t('Departure date'), start], [t('Return date'), end]] as const).map(([label, day], i) => (
+                  <Fragment key={label}>
+                    {i === 1 ? (
+                      <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons name="swap-horizontal" size={16} color="#fff" />
+                      </View>
+                    ) : null}
+                    <View style={{ flex: 1, backgroundColor: c.bg, borderRadius: 22, paddingVertical: 10, paddingHorizontal: 14, gap: 2 }}>
+                      <Text style={{ color: c.muted, fontSize: 11 }}>{label}</Text>
+                      <Text numberOfLines={1} style={{ color: c.text, fontSize: 13, fontWeight: '500' }}>{day ? dayText(day) : '—'}</Text>
+                    </View>
+                  </Fragment>
+                ))}
+              </View>
+              <Text style={{ color: c.muted, fontSize: 12 }}>{t('Dates: {flex}', { flex: flexLabel })}</Text>
             </ReviewCard>
 
             <ReviewCard title={t('Budget')} onEdit={(from) => openPop('budget', from)} missing={budgetProblems.length > 0 && t('Missing or not right: {what}. Tap Edit.', { what: budgetProblems.join(', ') })}>
@@ -586,6 +620,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
         {step === STEPS - 1 ? <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" creating="trip" onChanged={() => void clash.reload()} /> : null}
 
         <AuthButton
+          compact
           title={step < STEPS - 1 ? t('Continue') : gate.verified ? t('Publish trip') : gate.title('publish')}
           loading={step === STEPS - 1 && act.busy}
           onPress={() => (step < STEPS - 1 ? next() : void publish())}

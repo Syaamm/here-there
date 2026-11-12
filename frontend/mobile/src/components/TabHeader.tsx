@@ -27,14 +27,16 @@ export function ModeTabs() {
     switchMode(m, MAIN_TABS.includes(path) ? undefined : () => router.dismissTo('/' as never));
   };
   const opts: [Mode, string][] = [['here', 'HERE'], ['there', 'THERE']];
-  // One look for both products (the THERE design): a soft off-white pill with a shadow, one word per side, the open one a deep green pill with white letters
+  // Two looks, one per product (the designs): HERE is a white bar whose open side is a soft light-green-grey pill with dark letters;
+  // THERE is an off-white bar whose open side is a deep green pill with white letters. A soft shadow on both, one word per side.
+  const hereLook = mode === 'here';
   return (
-    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 40, backgroundColor: '#F6F4EF', padding: 8, gap: 4, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
+    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 40, backgroundColor: hereLook ? '#FFFFFF' : '#F6F4EF', padding: 8, gap: 4, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
       {opts.map(([m, label]) => {
         const on = mode === m;
         return (
-          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}', { name: label })} onPress={() => flip(m)} style={({ pressed: p }) => [{ flex: 1, minHeight: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.forest : 'transparent' }, p && { opacity: 0.85 }]}>
-            <Text style={{ color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 14, letterSpacing: 1.2, lineHeight: 18 }}>{label}</Text>
+          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}', { name: label })} onPress={() => flip(m)} style={({ pressed: p }) => [{ flex: 1, minHeight: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (hereLook ? '#E9EDEA' : c.forest) : 'transparent' }, p && { opacity: 0.85 }]}>
+            <Text style={{ color: on && !hereLook ? '#fff' : c.text, fontWeight: '700', fontSize: 14, letterSpacing: 1.2, lineHeight: 18 }}>{label}</Text>
           </Pressable>
         );
       })}

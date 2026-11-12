@@ -14,7 +14,8 @@ import { Collapse, StepTransition } from '@/components/StepMotion';
 import { CategoryPill, CountPill, CreateLabel, dateFormat, MonthCalendar, PillArea, PillInput, PlacePick, RoundBtn, SmallPill, Wheel, WizardActions, WizardTop } from '@/components/CreateParts';
 import { OnboardingHeading } from '@/components/OnboardingParts';
 import { type Place } from '@/components/PlaceSearch';
-import { Banner, Between, CheckRow, ErrorBanner, Row, Screen, Sheet, Txt, useGo } from '@/components/ui';
+import { Banner, BottomBar, Between, CheckRow, ErrorBanner, Row, Screen, Sheet, Txt, useGo } from '@/components/ui';
+import { PlaceMapPreview } from '@/components/PlaceMapPreview';
 import { shortDay } from '@/components/DateRangeSheet';
 import { get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -38,7 +39,7 @@ import { backFromMain } from '@/lib/nav';
 /** the description: one or two light lines, not a paragraph (the server keeps the same limit) */
 const DESC_MAX = 150;
 const MINUTES = Array.from({ length: 60 }, (_, i) => i); // every minute of the hour
-const DURATIONS = [1, 2, 3, 4, 6, 8];
+const DURATIONS = [1, 2, 3, 4, 6]; // no 8-hour option: the five fit on one line
 const LEAD_MIN = 10; // an activity can start no sooner than this many minutes from now
 
 /** The earliest start the person can pick: now + 10 minutes, rounded up to the next 5. */
@@ -238,6 +239,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   // AM / PM are offered only where a valid start exists (at 3 pm today there is no AM), and follow the chosen hour
   const period: 'AM' | 'PM' = hour >= 12 ? 'PM' : 'AM';
   const periods = (['AM', 'PM'] as const).filter((p) => hours.some((h) => (h >= 12 ? 'PM' : 'AM') === p));
+  const otherHalf = (h: number) => (h >= 12 ? h - 12 : h + 12); // the same clock number in the other half of the day
   const pickPeriod = (p: 'AM' | 'PM') => {
     const inP = hours.filter((h) => (h >= 12 ? 'PM' : 'AM') === p);
     set('hour', inP.find((h) => h % 12 === hour % 12) ?? inP[0]); // keep the same clock number when it exists
@@ -312,6 +314,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const clock = (d: Date) => timeText(d); // the app's one time format (lib/format)
 
   const [step, setStep] = useState(0);
+  const [barH, setBarH] = useState(0); // the height of the pinned Continue bar, so the page can scroll clear of it
   // a Continue that found something missing: that field is shown to the person (scrolled to, marked red), no message
   const [tried, setTried] = useState(false);
   useEffect(() => setTried(false), [step]);
@@ -487,7 +490,17 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         <Row style={{ gap: 10, alignItems: 'center' }}>
           <RoundBtn filled icon="remove" label={t('Earlier')} disabled={!canMove(-1)} onPress={() => move(-1)} onLongPress={() => move(canMove(-5) ? -5 : -1)} />
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Wheel items={periodHours} value={hour} onChange={(h) => set('hour', h)} label={(h) => String(h % 12 || 12)} disabled={(h) => !hours.includes(h)} spoken={t('Hour')} />
+            {/* An hour that is already past today is not refused when the same clock number is still ahead in the other half of the
+                day: at 10:05 AM, picking 12 (AM, midnight) becomes 12 PM, and at 3 PM picking 1 PM gives 1 AM only when that is ahead
+                (on today's date it is not, so it stays greyed). Other days have no past hours, so nothing flips there. */}
+            <Wheel
+              items={periodHours}
+              value={hour}
+              onChange={(h) => set('hour', hours.includes(h) ? h : hours.includes(otherHalf(h)) ? otherHalf(h) : h)}
+              label={(h) => String(h % 12 || 12)}
+              disabled={(h) => !hours.includes(h) && !hours.includes(otherHalf(h))}
+              spoken={t('Hour')}
+            />
             <Text style={{ fontSize: 26, lineHeight: 32, fontWeight: '700', color: c.text }}>:</Text>
             <Wheel items={MINUTES} value={minute} onChange={(m) => set('minute', m)} label={(m) => String(m).padStart(2, '0')} disabled={(m) => !minutes.includes(m)} spoken={t('Minute')} />
           </View>
@@ -505,9 +518,9 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       <Collapse open={quickHere.length > 0} gap={reviewing ? 14 : 16}>
         <View style={{ gap: 16 }}>
           <CreateLabel style={{ marginTop: 6 }}>{t('Quick pick')}</CreateLabel>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
             {quickHere.map((q) => (
-              <SmallPill key={q.label} label={q.label} active={startsAt.getTime() === q.at.getTime()} onPress={() => setStart(q.at)} />
+              <SmallPill compact key={q.label} label={q.label} active={startsAt.getTime() === q.at.getTime()} onPress={() => setStart(q.at)} />
             ))}
           </View>
         </View>
@@ -517,26 +530,15 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         <CreateLabel>{t('Duration')}</CreateLabel>
         <Text style={{ color: c.muted, fontSize: 12 }}>{t('Ends {time}', { time: clock(endsAt) })}</Text>
       </Between>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
         {DURATIONS.map((h) => (
-          <SmallPill key={h} label={`${h}h`} active={f.duration === h} onPress={() => set('duration', h)} />
+          <SmallPill compact key={h} label={`${h}h`} active={f.duration === h} onPress={() => set('duration', h)} />
         ))}
       </View>
     </>
   );
   const whereFields = (
     <>
-      {/* the city is the app's city: shown here, not chosen (change it on Home or the map); the neighbourhood is searched inside it */}
-      <View accessible accessibilityLabel={t('City: {city}', { city })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 54, borderRadius: 32, backgroundColor: c.sand, paddingHorizontal: 20 }}>
-        <Ionicons name="location" size={18} color={c.forest} />
-        <Text numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: 14, fontWeight: '600' }}>{city}</Text>
-        <Ionicons name="lock-closed-outline" size={15} color={c.muted} />
-      </View>
-      {cityKnown ? (
-        <Text style={{ color: c.muted, fontSize: 12, marginTop: -6, paddingLeft: 4 }}>{t('Your activity is in your current city. To post somewhere else, change the city on Home first.')}</Text>
-      ) : (
-        <Banner tone="warn" onPress={() => go('/')}>{t('Choose your city on Home first. Your activity is posted in your city.')}</Banner>
-      )}
       <View ref={placeBox} collapsable={false}>
       <PlacePick
         invalid={bad(2) && !placeOk}
@@ -551,6 +553,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         onSubmit={reviewing ? () => Keyboard.dismiss() : nextFromKeyboard}
       />
       </View>
+      {/* a small piece of map: the picked place with a pin, or the city until one is picked */}
+      <PlaceMapPreview at={f.place ? { lat: f.place.lat, lng: f.place.lng } : centre ? { lat: centre[0], lng: centre[1] } : null} picked={!!f.place} />
       {/* only a neighbourhood picked from the list, in or near the city, lets the step go on: say why when it cannot */}
       {placeFar && f.place ? (
         <Banner tone="bad">{t('{place} is about {km} km from {city}. Pick a neighbourhood in or near {city} (within {limit} km), or change the city above.', { place: f.place.name, km: Math.round(placeKm!), city, limit: CITY_AREA_KM })}</Banner>
@@ -559,7 +563,18 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       ) : !f.place && bad(2) ? (
         <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 13, lineHeight: 18 }}>{t('Search for a neighbourhood and pick it from the list.')}</Text>
       ) : null}
-      <View ref={publicBox} collapsable={false} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 16, marginTop: 6, borderWidth: bad(2) && placeOk && !publicPlace ? 1.2 : 0, borderColor: c.danger }}>
+      {/* the city is the app's city: shown here, not chosen (change it on Home or the map); the neighbourhood is searched inside it */}
+      <View accessible accessibilityLabel={t('City: {city}', { city })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 54, borderRadius: 32, backgroundColor: c.sand, paddingHorizontal: 20 }}>
+        <Ionicons name="location" size={18} color={c.forest} />
+        <Text numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: 14, fontWeight: '600' }}>{city}</Text>
+        <Ionicons name="lock-closed-outline" size={15} color={c.muted} />
+      </View>
+      {cityKnown ? (
+        <Text style={{ color: c.muted, fontSize: 12, marginTop: -6, paddingLeft: 4 }}>{t('Your activity is in your current city. To post somewhere else, change the city on Home first.')}</Text>
+      ) : (
+        <Banner tone="warn" onPress={() => go('/')}>{t('Choose your city on Home first. Your activity is posted in your city.')}</Banner>
+      )}
+      <View ref={publicBox} collapsable={false} style={{ backgroundColor: '#F7F7F5', borderRadius: 24, paddingVertical: 16, paddingHorizontal: 16, marginTop: 6, borderWidth: bad(2) && placeOk && !publicPlace ? 1.2 : 0, borderColor: c.danger }}>
         <CheckRow checked={publicPlace} onChange={setPublicPlace}>
           <Text style={{ color: c.text, fontSize: 14, lineHeight: 24 }}>{t('This is a public place. First meetings never happen at a private home.')}</Text>
         </CheckRow>
@@ -638,7 +653,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
           </ReviewSection>
           <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />
           {reviewTried && !valid ? <Banner tone="bad">{t('Some details are missing. Fix the parts marked in red, then publish.')}</Banner> : null}
-          <AuthButton title={gate.verified ? t('Publish activity') : gate.title('publish')} loading={act.busy} onPress={publishNow} style={{ marginTop: 10 }} />
+          <AuthButton compact title={gate.verified ? t('Publish activity') : gate.title('publish')} loading={act.busy} onPress={publishNow} style={{ marginTop: 10 }} />
           <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t("Your activity is public in the feed. Only the venue is shown, never anyone's live location.")}</Text>
         </Screen>
       ) : null}
@@ -659,7 +674,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       ) : null}
       {/* the steps stay mounted under the review page, so going back to edit keeps everything (and a draft opened meanwhile still loads) */}
       <View style={reviewing ? { display: 'none' } : { flex: 1 }}>
-      <Screen tabBar plain header={
+      <Screen tabBar plain bottomRoom={barH} header={
     <WizardTop
       step={step}
       title={stepTitles[step]}
@@ -702,10 +717,13 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         )}
         </StepTransition>
 
-        <AuthButton title={step < 3 ? t('Continue') : t('Review')} disabled={step === 2 && placeFar && !!f.place} onPress={next} style={{ marginTop: 10 }} />
         {/* on every step: saving a draft (a draft opened from My drafts loads whichever step is showing) */}
         <DraftBar kind="activity" data={f} onLoad={loadDraft} beforeLoad={stashNow} showMyDrafts={step === 0} named={f.title.trim().length > 0} />
       </Screen>
+      {/* Continue stays at the bottom of the screen, whatever the step is long */}
+      <BottomBar onHeight={setBarH}>
+        <AuthButton compact title={step < 3 ? t('Continue') : t('Review')} disabled={step === 2 && placeFar && !!f.place} onPress={next} />
+      </BottomBar>
       </View>
     </View>
   );

@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, LayoutAnimation, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Animated, Easing, Keyboard, LayoutAnimation, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CatPhoto } from '@/components/CatPhoto';
@@ -13,6 +13,9 @@ import { statusTop } from '@/lib/layout';
 import { get, type Activity } from '@/lib/api';
 import { CITY_AREA_KM, cityQuery, type Near, useCity, useCityPos, useNear } from '@/lib/city';
 import { CitySearch } from '@/components/CitySearch';
+import { MapHint } from '@/components/MapHint';
+import { MonthCalendar } from '@/components/CreateParts';
+import { ThereChip, ThereFilterSheet, ThereLabel } from '@/components/ThereParts';
 import { useDockSpace } from '@/lib/dock';
 import { catColor, CATS, CITY_CENTERS } from '@/lib/constants';
 import { feedRange } from '@/lib/feed';
@@ -20,7 +23,9 @@ import { when } from '@/lib/format';
 import { useLoad } from '@/lib/hooks';
 import { t as tr, useT } from '@/lib/i18n';
 import { keyboardTaps } from '@/lib/keyboard';
+import { useScale } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
+import { FS } from '@/lib/type';
 
 export type Pin = Activity & { lat: number; lng: number };
 /** Every activity at (about) the same place: one icon on the map, however many are there. */
@@ -28,7 +33,7 @@ export type Group = { key: string; lat: number; lng: number; items: Pin[] };
 
 export type Fix = { lat: number; lng: number };
 
-const FIRST_DAYS = 2; // the map first shows today and tomorrow
+const FIRST_DAYS = 1; // the map first shows today; "Show tomorrow" adds the next day, and the filter can pick one day at a time
 const MAX_DAYS = 31; // and can be taken forward one day at a time, up to about a month
 
 /**
@@ -98,9 +103,16 @@ export function useMapData() {
   const cityPos = useCityPos();
   const [near, setNear] = useNear(); // kept across screens and app restarts until the person picks a city or taps "Whole city"
   const [cat, setCat] = useState(''); // '' = every category
-  const [days, setDays] = useState(FIRST_DAYS); // how many days from today are loaded: today and tomorrow to begin with
+  const [days, setDays] = useState(FIRST_DAYS); // how many days from today are loaded: today to begin with
   const showNextDay = () => setDays((d) => Math.min(d + 1, MAX_DAYS));
-  useEffect(() => setDays(FIRST_DAYS), [city]); // another city starts again from today and tomorrow
+  // day by day (from the filter): one chosen day only, counted from today (0 = today, 1 = tomorrow...); null = today and on, as above
+  const [dayPick, setDayPick] = useState<number | null>(null);
+  const autoNext = useRef(false); // today had no venues, so tomorrow was added by itself: only once per visit and city
+  useEffect(() => {
+    setDays(FIRST_DAYS); // another city starts again from today
+    setDayPick(null);
+    autoNext.current = false;
+  }, [city]);
   // zoom buttons: each press is a new command the map screen carries out (+1 in, -1 out)
   const [zoomCmd, setZoomCmd] = useState<{ d: 1 | -1; n: number } | null>(null);
   const zoom = (d: 1 | -1) => setZoomCmd((p) => ({ d, n: (p?.n ?? 0) + 1 }));
@@ -117,11 +129,35 @@ export function useMapData() {
   // "How far?": the person's approximate position, kept in memory for the open card only and dropped when it closes
   const [dist, setDist] = useState<Distance>({ status: 'idle' });
 
+  // The map's search: words ("coffee", "yoga") and/or a place picked in the search ("Brera"). Either one switches the map from
+  // "today and tomorrow" to a search: the next month, a page of 20 at a time, only when the person asks (never per keystroke).
+  const [query, setQuery] = useState('');
+  const [area, setArea] = useState<{ lat: number; lng: number; name: string } | null>(null);
+  const searching = query !== '' || area !== null;
+  const searchKey = JSON.stringify([city, near, cat, query, area]);
+  const searchKeyRef = useRef(searchKey);
+  searchKeyRef.current = searchKey;
+  const lastSearch = useRef(''); // the question of the search page on screen, so "more" asks the same one
+  const [extra, setExtra] = useState<{ key: string; items: Activity[]; cursor: string | null } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const busyMore = useRef(false);
+  useEffect(() => setArea(null), [city]); // another city: the picked place no longer applies
+
   const feed = useLoad(
     () => {
-      // by day: today and tomorrow first; each "Show the next day" adds one more day (the activities list and the pins follow)
-      const from = new Date();
-      const to = new Date(new Date().setHours(0, 0, 0, 0) + days * 864e5);
+      if (searching) {
+        const from = new Date();
+        const to = new Date(new Date().setHours(0, 0, 0, 0) + MAX_DAYS * 864e5);
+        const base = area ? { lat: String(area.lat), lng: String(area.lng), radiusKm: '3' } : near ? { city } : cityQuery(city, cityPos);
+        const p = new URLSearchParams({ ...base, from: from.toISOString(), to: to.toISOString(), limit: '20', ...(cat && { category: cat }), ...(query && { q: query }) });
+        lastSearch.current = p.toString();
+        return get<{ items: Activity[]; nextCursor?: string | null }>(`/v1/activities?${p}`).then((r) => ({ items: r.items, nextCursor: r.nextCursor ?? null, key: searchKey }));
+      }
+      // by day: today first; each "Show the next day" adds one more day (the activities list and the pins follow). With a day
+      // picked in the filter: just that one day (today counts from now)
+      const dayStart = new Date().setHours(0, 0, 0, 0) + (dayPick ?? 0) * 864e5;
+      const from = dayPick !== null && dayPick > 0 ? new Date(dayStart) : new Date();
+      const to = new Date(dayPick !== null ? dayStart + 864e5 : new Date().setHours(0, 0, 0, 0) + days * 864e5);
       // the city's area (or, with "Near me", 3 km around the person inside the city)
       const p = new URLSearchParams({ ...(near ? { city } : cityQuery(city, cityPos)), from: from.toISOString(), to: to.toISOString(), limit: '50', ...(cat && { category: cat }) });
       if (near) {
@@ -139,16 +175,47 @@ export function useMapData() {
           cursor = r.nextCursor ?? null;
           if (!cursor) break;
         }
-        return { items };
+        return { items, nextCursor: null as string | null, key: '' };
       })();
     },
-    [city, cityPos, near, cat, days],
-    60_000,
+    [city, cityPos, near, cat, days, dayPick, query, area],
+    searching ? undefined : 60_000, // a search is not polled: it is asked again only when the person changes it
     undefined,
     { keep: true }, // adding a day keeps the pins already shown until the new ones arrive
   );
+  // the search's own pages: the first one came with the feed, the rest are asked for as the list is scrolled
+  const extraNow = extra?.key === searchKey ? extra : null;
+  const cursor = searching ? (extraNow ? extraNow.cursor : feed.data?.key === searchKey ? feed.data.nextCursor : null) : null;
+  const loadMore = async () => {
+    if (!cursor || busyMore.current) return;
+    busyMore.current = true;
+    setLoadingMore(true);
+    const asked = searchKey;
+    try {
+      const r = await get<{ items: Activity[]; nextCursor?: string | null }>(`/v1/activities?${lastSearch.current}&cursor=${cursor}`);
+      if (searchKeyRef.current !== asked) return; // the search changed meanwhile
+      setExtra((prev) => ({ key: asked, items: [...(prev?.key === asked ? prev.items : []), ...r.items], cursor: r.nextCursor ?? null }));
+    } catch {
+      // the next scroll to the end asks again
+    } finally {
+      busyMore.current = false;
+      setLoadingMore(false);
+    }
+  };
   // only rebuilt when the loaded activities change, so selecting a pin or closing the sheet never touches the map's markers
-  const pins = useMemo(() => (feed.data?.items ?? []).filter((a): a is Pin => a.lat != null && a.lng != null), [feed.data]);
+  const pins = useMemo(() => {
+    const all = [...(feed.data?.items ?? []), ...(extraNow?.items ?? [])];
+    const seen = new Set<string>();
+    return all.filter((a): a is Pin => a.lat != null && a.lng != null && !seen.has(a.id) && !!seen.add(a.id));
+  }, [feed.data, extraNow]);
+  // Nothing on the map for today: tomorrow is shown by itself (once), instead of an empty map with a button to press
+  useEffect(() => {
+    if (searching || dayPick !== null || days !== FIRST_DAYS || autoNext.current || !feed.data || feed.error) return;
+    if (feed.data.items.length === 0) {
+      autoNext.current = true;
+      setDays(FIRST_DAYS + 1);
+    }
+  }, [feed.data]); // eslint-disable-line react-hooks/exhaustive-deps
   // Group by place (~100 m): several activities at one venue share one icon with a count.
   const groups = useMemo(() => {
     const by = new Map<string, Group>();
@@ -213,7 +280,11 @@ export function useMapData() {
         setActiveId(null);
         setDist({ status: 'idle' });
         setCat('');
+        setQuery('');
+        setArea(null);
         setDays(FIRST_DAYS);
+        setDayPick(null);
+        autoNext.current = false;
         const home = nearRef.current ? ([nearRef.current.lat, nearRef.current.lng] as [number, number]) : cityCenterRef.current;
         setTarget(home ? { lat: home[0], lng: home[1], zoom: nearRef.current ? 'near' : 'city' } : null);
       },
@@ -266,6 +337,24 @@ export function useMapData() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   /** The map flies to a place picked in the map's search. */
   const flyTo = (at: Fix) => setTarget({ lat: at.lat, lng: at.lng, zoom: 'near' });
+  /** A place picked in the search: the map flies there and shows the activities in and around it (3 km), with the search words if any. */
+  const pickPlace = (at: Fix, name: string) => {
+    setSelected(null);
+    setArea({ lat: at.lat, lng: at.lng, name });
+    flyTo(at);
+  };
+  /** Search words from the field ('' clears them). */
+  const searchWords = (text: string) => {
+    setSelected(null);
+    setQuery(text.trim().replace(/\s+/g, ' ').slice(0, 40));
+  };
+  const clearSearch = () => {
+    setQuery('');
+    setArea(null);
+    setSelected(null);
+    const home = cityCenterRef.current;
+    if (area && home) setTarget({ lat: home[0], lng: home[1], zoom: 'city' });
+  };
 
   // Ask for the position (and the permission) again every time, so the person always decides; also used by Refresh.
   const measure = async () => {
@@ -274,8 +363,15 @@ export function useMapData() {
     setDist(r.ok ? { status: 'done', me: { lat: r.lat, lng: r.lng } } : { status: r.reason });
   };
 
-  const nextDay = days < MAX_DAYS ? new Date(new Date().setHours(0, 0, 0, 0) + days * 864e5) : null; // the day "Show the next day" would add
-  return { days, showNextDay, nextDay, city, setCity, cityCenter, flyTo, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
+  const nextDay = !searching && dayPick === null && days < MAX_DAYS ? new Date(new Date().setHours(0, 0, 0, 0) + days * 864e5) : null; // the day "Show the next day" would add (a search already covers the month)
+  /** What the map asked the server for, as parameters the results page can ask again (no paging in it). */
+  const searchQuery = () => {
+    const o = Object.fromEntries(new URLSearchParams(lastSearch.current));
+    delete o.limit;
+    delete o.cursor;
+    return { ...o, ...(area ? { place: area.name } : {}) } as Record<string, string>;
+  };
+  return { searchQuery, query, area, searching, hasMore: !!cursor, loadingMore, loadMore, pickPlace, searchWords, clearSearch, days, dayPick, setDayPick, showNextDay, nextDay, city, setCity, cityCenter, flyTo, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
 }
 
 /** The teardrop pin's width: a little bigger for a place with more activities. */
@@ -328,12 +424,16 @@ function GreetingPill({ city, onPick, compact }: { city: string; onPick: (c: str
   // system's layout animation (started by the map, together with the search field), so both move as one, off the JS thread.
   const v = useRef(new Animated.Value(compact ? 1 : 0)).current;
   useEffect(() => {
-    Animated.timing(v, { toValue: compact ? 1 : 0, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    // the words go quickly when the search opens (the pill is narrowing at the same moment), and come back a little slower
+    Animated.timing(v, { toValue: compact ? 1 : 0, duration: compact ? 110 : 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, [compact]); // eslint-disable-line react-hooks/exhaustive-deps
+  // narrowed to a circle, the face sits exactly in the middle of it (58 wide); in the full pill it is 6 from the left edge
+  const face = 46 * useScale();
+  const faceLeft = compact ? Math.max(0, (58 - face) / 2) : 6;
   return (
     <>
       <View style={[{ flexShrink: 1, minHeight: 58, borderRadius: 32, backgroundColor: c.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, compact && { width: 58, flexShrink: 0 }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 58, paddingLeft: 6, overflow: 'hidden', borderRadius: 32 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 58, paddingLeft: faceLeft, overflow: 'hidden', borderRadius: 32 }}>
         <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={46} />
         <Animated.View style={{ flexShrink: 1, marginLeft: 12, paddingRight: 22, opacity: v.interpolate({ inputRange: [0, 0.6], outputRange: [1, 0], extrapolate: 'clamp' }) }}>
           {name ? <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Hi, {name}', { name })}</Text> : null}
@@ -358,7 +458,7 @@ function GreetingPill({ city, onPick, compact }: { city: string; onPick: (c: str
  * The map's search: type a neighbourhood or area of the city shown, pick it, and the map flies there. Only places within the
  * city's area (CITY_AREA_KM of its centre) are offered, the same area the map and Home show.
  */
-function MapSearchField({ city, centre, onPick, closing, onClose, onClosed }: { city: string; centre: [number, number] | null; onPick: (at: Fix) => void; /** set while it plays its closing animation */ closing: boolean; /** asks to close (the face grows back at once) */ onClose: () => void; /** the closing animation has finished */ onClosed: () => void }) {
+function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClosed, listMode, onListText }: { /** the card is pulled up: typing only narrows its list (no place search, the map stays put) */ listMode?: boolean; onListText?: (text: string) => void; city: string; centre: [number, number] | null; onPick: (at: Fix, name: string) => void; /** the words to find activities by (Enter, or the first row) */ onWords: (text: string) => void; /** set while it plays its closing animation */ closing: boolean; /** asks to close (the face grows back at once) */ onClose: () => void; /** the closing animation has finished */ onClosed: () => void }) {
   const { t } = useT();
   const { c } = useTheme();
   const [q, setQ] = useState('');
@@ -378,6 +478,11 @@ function MapSearchField({ city, centre, onPick, closing, onClose, onClosed }: { 
   useEffect(() => {
     const text = q.trim();
     const mine = ++latest.current;
+    if (listMode) {
+      setFound(null);
+      setState('idle');
+      return;
+    }
     if (text.length < 2) {
       setFound(null);
       setState('idle');
@@ -398,29 +503,59 @@ function MapSearchField({ city, centre, onPick, closing, onClose, onClosed }: { 
       }
     }, 350);
     return () => clearTimeout(timer);
-  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, listMode]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Animated.View style={{ flex: 1, opacity: grow.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0.9, 1] }), transform: [{ translateX: grow.interpolate({ inputRange: [0, 1], outputRange: [36, 0] }) }] }}>
       <View style={{ height: 58, borderRadius: 29, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 16, paddingRight: 6, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
         <Ionicons name="search-outline" size={20} color={c.muted} />
         <TextInput
-          accessibilityLabel={t('Search a neighbourhood')}
+          accessibilityLabel={t('Search a place or an activity')}
           autoFocus
           value={q}
-          onChangeText={setQ}
-          placeholder={t('Neighbourhood in {city}', { city })}
+          onChangeText={(v) => {
+            setQ(v);
+            onListText?.(v);
+          }}
+          placeholder={listMode ? t('Search these activities') : t('Place or activity in {city}', { city })}
           placeholderTextColor={c.placeholder}
           returnKeyType="search"
+          onSubmitEditing={() => {
+            if (listMode) return void Keyboard.dismiss(); // the list is already narrowed as you type
+            // Enter: look for activities with these words (nothing is asked of the server while typing, only here)
+            if (q.trim().length >= 2) {
+              onWords(q);
+              onClose();
+            }
+          }}
           autoCorrect={false}
           style={{ flex: 1, color: c.text, fontSize: 15, paddingVertical: 0 }}
         />
         {/* ✕ first clears what was typed; with the field empty it closes the search */}
-        <Pressable accessibilityRole="button" accessibilityLabel={q ? t('Clear the search') : t('Close the search')} hitSlop={8} onPress={() => (q ? setQ('') : onClose())} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={q ? t('Clear the search') : t('Close the search')} hitSlop={8} onPress={() => {
+          if (q) {
+            setQ('');
+            onListText?.('');
+            Keyboard.dismiss(); // clear search: the keyboard goes down
+          } else onClose();
+        }} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="close" size={20} color={c.text} />
         </Pressable>
       </View>
       {state !== 'idle' && !closing ? (
         <View style={{ position: 'absolute', top: 64, left: 0, right: -68, backgroundColor: c.surface, borderRadius: 20, paddingVertical: 6, elevation: 4, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } }}>
+          {/* the words as an activity search: "coffee", "yoga", a venue's name; a category word finds that category */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('Show activities for {words}', { words: q.trim() })}
+            onPress={() => {
+              onWords(q);
+              onClose();
+            }}
+            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 }, pressed && { backgroundColor: c.bg }]}
+          >
+            <Ionicons name="search-outline" size={18} color={c.forest} />
+            <Text numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: FS.body, fontWeight: '600' }}>{t('Activities for “{words}”', { words: q.trim() })}</Text>
+          </Pressable>
           {state === 'searching' && !found ? <Text style={{ color: c.muted, fontSize: 13, paddingHorizontal: 16, paddingVertical: 10 }}>{t('Searching…')}</Text> : null}
           {state === 'error' ? <Text style={{ color: c.muted, fontSize: 13, paddingHorizontal: 16, paddingVertical: 10 }}>{t('Search is not available right now. Try again in a moment.')}</Text> : null}
           {found?.map((x) => (
@@ -429,7 +564,7 @@ function MapSearchField({ city, centre, onPick, closing, onClose, onClosed }: { 
               accessibilityRole="button"
               accessibilityLabel={x.address ? `${x.name}, ${x.address}` : x.name}
               onPress={() => {
-                onPick({ lat: x.lat, lng: x.lng });
+                onPick({ lat: x.lat, lng: x.lng }, x.name);
                 onClose();
               }}
               style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 }, pressed && { backgroundColor: c.bg }]}
@@ -443,7 +578,7 @@ function MapSearchField({ city, centre, onPick, closing, onClose, onClosed }: { 
           ))}
           {state === 'done' && found?.length === 0 ? (
             <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18, paddingHorizontal: 16, paddingVertical: 10 }}>
-              {far > 0 ? t('Nothing with that name within {km} km of {city}. Change the city to look further away.', { km: CITY_AREA_KM, city }) : t('No neighbourhood found with that name.')}
+              {far > 0 ? t('No place with that name within {km} km of {city}. Change the city to look further away.', { km: CITY_AREA_KM, city }) : t('No place found with that name.')}
             </Text>
           ) : null}
         </View>
@@ -483,31 +618,64 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const dock = useDockSpace();
   const { height: screenH } = useWindowDimensions();
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const { city, setCity, cityCenter, flyTo, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected, activeId, feed, pins, dist, measure, days, nextDay, showNextDay } = data;
+  const { city, setCity, cityCenter, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected: selectedLive, activeId, feed, pins, dist, measure, days, dayPick, setDayPick, nextDay, showNextDay, query, area, searching, hasMore, loadingMore, loadMore, pickPlace, searchWords, clearSearch, searchQuery } = data;
+  // tapping the map empty lowers the card: its pin's activities stay on it while it slides down (swapping to the full list at once made it flash)
+  const [held, setHeld] = useState<typeof selectedLive>(null);
+  useEffect(() => {
+    if (selectedLive) return setHeld(selectedLive);
+    const id = setTimeout(() => setHeld(null), 400);
+    return () => clearTimeout(id);
+  }, [selectedLive]);
+  const selected = selectedLive ?? held;
   const nextLabel = nextDay ? nextDay.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) : '';
+  // the button that adds a day: "Show tomorrow" while only today is loaded, then "Show Saturday, 14 Nov" and so on
+  const nextTitle = nextDay ? (days === 1 ? t('Show tomorrow') : t('Show {day}', { day: nextLabel })) : '';
+  const today0 = new Date(new Date().setHours(0, 0, 0, 0));
+  const [calMonth, setCalMonth] = useState(today0); // the month the filter's calendar shows
+  const [sheetH, setSheetH] = useState(0); // the bottom sheet's real height (grip, summary and list), so the buttons above it never sit on it
   const [search, setSearchNow] = useState<'closed' | 'open' | 'closing'>('closed');
   // the pill narrows/widens and the field makes room in ONE native layout animation, so nothing jumps and nothing runs on the JS thread
   const setSearch = (next: 'closed' | 'open' | 'closing') => {
-    LayoutAnimation.configureNext({ duration: next === 'open' ? 300 : 240, update: { type: LayoutAnimation.Types.easeInEaseOut } });
+    // opening: the same fast-start easing as the search field growing in (easeInEaseOut starts slowly, so the pill looked late);
+    // closing: the field's own ease-in-out, shrinking back
+    LayoutAnimation.configureNext({ duration: next === 'open' ? 260 : 240, update: { type: next === 'open' ? LayoutAnimation.Types.easeOut : LayoutAnimation.Types.easeInEaseOut } });
     setSearchNow(next);
   };
 
   // what the pulled-up list shows: the activities at the tapped pin, or every pin's, soonest first
-  const rows = selected ? selected.items : [...pins].sort((x, y) => +new Date(x.startsAt) - +new Date(y.startsAt));
+  const [isOpen, setIsOpen] = useState(false);
+  const [listQ, setListQ] = useState(''); // what is typed in the search bar while the card is pulled up: it only narrows that list
+  const listMode = isOpen && !selected;
+  useEffect(() => {
+    if (search === 'closed' || !isOpen) setListQ('');
+  }, [search, isOpen]);
+  const allRows = selected ? selected.items : [...pins].sort((x, y) => +new Date(x.startsAt) - +new Date(y.startsAt));
+  const needle = listMode ? listQ.trim().toLowerCase() : '';
+  const rows = needle ? allRows.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')} ${CATS[a.category]?.label ?? a.category}`.toLowerCase().includes(needle)) : allRows;
+  // a search with many answers: the card lists the first 5, and a button opens every one of them as a paged list
+  const SEARCH_FIRST = 5;
+  const listRows = !selected && searching ? rows.slice(0, SEARCH_FIRST) : rows;
+  const showAll = !selected && searching && (rows.length > SEARCH_FIRST || hasMore);
   const ROW = 92; // one row and the gap under it
-  const listMax = Math.min(rows.length * ROW + 4 + (!selected && nextDay ? 52 : 0), Math.round(screenH * 0.42));
+  // Pulled up, the card rises over the map as far as the search bar (it is not a new page: the map stays where it was underneath,
+  // and pulling the card down shows the very same map again). So the list is as tall as the room between the bar and the card's top part.
+  const [baseH, setBaseH] = useState(96); // the sheet without its list: handle + summary
+  const topBarBottom = statusTop(insets.top) + 8 + 58 + 12;
+  const fullMax = Math.max(160, Math.round(screenH - topBarBottom - baseH - dock));
+  // a tapped pin shows a short card of just its activities; the card pulled up (or tapped open) goes the whole way to the bar
+  const listMax = selected ? Math.min(fullMax, rows.length * ROW + 4) : fullMax;
 
   // 0 = just the summary, 1 = list showing. Driven by a finger (drag), a tap on the handle, or by tapping a pin.
   // The list always has its full height and the whole sheet slides (a transform), so the pull is drawn on the native
   // thread: a changing height would re-lay-out the page every frame, which is what made the sheet jerky on Android.
   const open = useRef(new Animated.Value(0)).current;
   const openAt = useRef(0); // where the sheet is heading or being held (0 closed .. 1 open), readable at any time
-  const [isOpen, setIsOpen] = useState(false);
   const dragFrom = useRef(0);
   const maxRef = useRef(listMax);
   maxRef.current = listMax;
   const settle = useCallback(
     (to: 0 | 1, velocity = 0) => {
+      if (to === 0) Keyboard.dismiss(); // the card goes down: so does the keyboard
       openAt.current = to;
       setIsOpen(to === 1);
       Animated.spring(open, { toValue: to, velocity, friction: 11, tension: 90, useNativeDriver: true }).start();
@@ -515,10 +683,25 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
     [open],
   );
   // tapping a pin raises the sheet to its list; tapping the map empty lowers it again
-  const key = selected?.key ?? '';
+  const key = selectedLive?.key ?? '';
   useEffect(() => {
     settle(key ? 1 : 0);
   }, [key, settle]);
+  // a search that has just been confirmed (Enter, a result row, a place): once its results are in, the list rises by itself;
+  // clearing the search lowers it again. Only once per search, so pulling the list down afterwards is respected.
+  const searchSig = searching ? `${query}|${area?.lat},${area?.lng}` : '';
+  const openedFor = useRef('');
+  useEffect(() => {
+    if (!searchSig) {
+      if (openedFor.current) settle(0);
+      openedFor.current = '';
+      return;
+    }
+    if (feed.data && openedFor.current !== searchSig) {
+      openedFor.current = searchSig;
+      settle(1);
+    }
+  }, [searchSig, feed.data, settle]);
   // The grip and the summary under it are the part you drag. Taps go to what is inside; only a clearly vertical drag is taken over.
   const pan = useRef(
     PanResponder.create({
@@ -545,10 +728,9 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   ).current;
 
   const sheetY = open.interpolate({ inputRange: [0, 1], outputRange: [listMax, 0] });
-  const [baseH, setBaseH] = useState(96); // the sheet without its list: handle + summary
 
   const todayCount = pins.filter((a) => new Date(a.startsAt).toDateString() === new Date().toDateString()).length;
-  const count = todayCount > 0 ? todayCount : pins.length;
+  const count = pins.length; // every activity on the map, whichever day (the card used to count only today's, so it said 1 with more in the list)
   const nextStart = pins.length ? pins.reduce((m, a) => (a.startsAt < m ? a.startsAt : m), pins[0].startsAt) : null;
   const noteText =
     dist.status === 'locating'
@@ -561,35 +743,42 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
             ? t('No location. Try again.')
             : t('Your location is only used when you tap, and is never saved or shared.');
 
+  // closing the filter with something chosen (a kind of activity, a day): the activities card rises to show the results, once the
+  // filter sheet has slid away
+  const closeFilters = () => {
+    setFiltersOpen(false);
+    if (cat !== '' || dayPick !== null) setTimeout(() => settle(1), 260);
+  };
+
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       {/* top: your greeting and the city on the left, search and filters on the right; the category chips open under the filter button */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top: statusTop(insets.top) + 8, left: 16, right: 16, gap: 10, alignItems: 'center' }}>
         <View style={{ width: '100%', maxWidth: 560, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <GreetingPill city={city} onPick={setCity} compact={search === 'open'} />
-          {search !== 'closed' ? <MapSearchField city={city} centre={cityCenter} closing={search === 'closing'} onClose={() => setSearch('closing')} onClosed={() => setSearch('closed')} onPick={(at) => flyTo(at)} /> : null}
+          {search !== 'closed' ? <MapSearchField listMode={listMode} onListText={setListQ} city={city} centre={cityCenter} closing={search === 'closing'} onClose={() => setSearch('closing')} onClosed={() => setSearch('closed')} onPick={pickPlace} onWords={searchWords} /> : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             {/* search: a field opens here, from your face to the filter button, to find a neighbourhood of this city on the map */}
-            {search !== 'closed' ? null : <TopTool icon="search-outline" label={t('Search a neighbourhood')} onPress={() => setSearch('open')} />}
-            <TopTool icon="options-outline" label={cat ? t('Filters, on') : t('Filters')} on={filtersOpen || cat !== ''} onPress={() => setFiltersOpen((v) => !v)} />
+            {search !== 'closed' ? null : <TopTool icon="search-outline" label={t('Search a place or an activity')} on={searching} onPress={() => setSearch('open')} />}
+            <TopTool icon="options-outline" label={cat || dayPick !== null ? t('Filters, on') : t('Filters')} on={cat !== '' || dayPick !== null} onPress={() => setFiltersOpen(true)} />
           </View>
         </View>
-        {filtersOpen || cat !== '' ? (
-          <View style={{ width: '100%', maxWidth: 560 }}>
-            <PillRow>
-              <Pill label={t('All')} active={cat === ''} onPress={() => setCat('')} />
-              {Object.entries(CATS).map(([k, v]) => (
-                <Pill key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(k)} />
-              ))}
-            </PillRow>
+        {/* what is being searched for: the words and/or the place, with ✕ to go back to today and tomorrow */}
+        {searching ? (
+          <View style={{ width: '100%', maxWidth: 560, flexDirection: 'row' }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Clear the search: {what}', { what: [query, area?.name].filter(Boolean).join(', ') })} onPress={clearSearch} style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 8, height: 38, paddingLeft: 14, paddingRight: 10, borderRadius: 19, backgroundColor: c.forest }}>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: '#fff', fontSize: FS.button, fontWeight: '500' }}>{[query && `“${query}”`, area?.name].filter(Boolean).join(' · ')}</Text>
+              <Ionicons name="close" size={16} color="#fff" />
+            </Pressable>
           </View>
         ) : null}
         {geoMsg ? <View style={{ width: '100%', maxWidth: 560 }}><Banner>{geoMsg}</Banner></View> : null}
         {feed.error ? <View style={{ width: '100%', maxWidth: 560 }}><ErrorBanner message={feed.error.message} /></View> : null}
+        <MapHint id="here" title={t('Finding activities')}>{t('Tap a pin to see what is on there. Use + and − or pinch to move around, search for a place or an activity, and open the filter to pick a day or a kind.')}</MapHint>
       </View>
 
       {/* tools: "Near me" bottom left, zoom bottom right; they ride up with the sheet */}
-      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: baseH + 12 + dock + listMax, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', transform: [{ translateY: sheetY }] }}>
+      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: (sheetH > 0 ? sheetH : baseH + dock + listMax) + 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', opacity: open.interpolate({ inputRange: [0, 0.35], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateY: sheetY }] }}>
         <PillButton icon="locate-outline" title={locating ? t('Finding you…') : t('Near me')} onPress={locate} disabled={locating} />
         <View style={{ gap: 8 }}>
           <RoundTool icon="add" label={t('Zoom in')} onPress={() => zoom(1)} />
@@ -598,7 +787,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
       </Animated.View>
 
       {/* bottom sheet */}
-      <Animated.View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingBottom: 12 + dock, // runs down behind the dock, so no strip of map shows between them
+      <Animated.View onLayout={(e) => setSheetH(Math.round(e.nativeEvent.layout.height))} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingBottom: 12 + dock, // runs down behind the dock, so no strip of map shows between them
          paddingHorizontal: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, transform: [{ translateY: sheetY }] }}>
         <View {...pan.panHandlers} onLayout={(e) => setBaseH(e.nativeEvent.layout.height + 12)} style={{ width: '100%', alignItems: 'center' }}>
           {/* the grip and the summary are the part you drag; tapping the grip opens or closes the list */}
@@ -612,7 +801,6 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
                   <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600', flex: 1 }}>
                     {tn(selected.items.length, '{n} activity here', '{n} activities here')}
                   </Text>
-                  <PillButton icon={dist.status === 'done' ? 'refresh' : 'location-outline'} title={dist.status === 'done' ? t('Refresh') : dist.status === 'locating' ? t('Finding…') : dist.status === 'idle' ? t('How far?') : t('Try again')} onPress={measure} disabled={dist.status === 'locating'} />
                 </Row>
                 <Row style={{ gap: 6, alignItems: 'flex-start' }}>
                   <Ionicons name="lock-closed-outline" size={13} color={c.muted} style={{ marginTop: 2 }} />
@@ -622,17 +810,17 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
             ) : feed.data && pins.length === 0 ? (
               <>
                 <Row style={{ justifyContent: 'space-between', gap: 10 }}>
-                  <Txt style={{ flex: 1 }}>{days <= 2 ? t('No venues on the map for today or tomorrow.') : t('No venues on the map for these days yet.')}</Txt>
-                  <Btn title={t('Create')} small onPress={() => go('/create')} />
+                  <Txt style={{ flex: 1 }}>{searching ? t('Nothing found in the next month. Try other words or another place.') : dayPick !== null ? t('No venues on the map for this day.') : days <= 1 ? t('No venues on the map for today.') : t('No venues on the map for these days yet.')}</Txt>
+                  {searching ? <Btn title={t('Clear')} small variant="secondary" onPress={clearSearch} /> : <Btn title={t('Create')} small onPress={() => go('/create')} />}
                 </Row>
-                {nextDay ? <Btn title={t('Show {day}', { day: nextLabel })} variant="secondary" onPress={showNextDay} /> : null}
+                {nextDay ? <Btn title={nextTitle} variant="secondary" onPress={showNextDay} /> : null}
               </>
             ) : (
               <Pressable accessibilityRole="button" accessibilityLabel={openAt.current > 0.5 ? t('Hide the list') : t('Show all activities')} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)}>
                 <Row style={{ justifyContent: 'space-between', gap: 10 }}>
                   <View style={{ flex: 1 }}>
                     <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600' }}>
-                      {feed.data ? (todayCount > 0 ? tn(count, '{n} activity today', '{n} activities today') : tn(count, '{n} activity coming up', '{n} activities coming up')) : t('Loading…')}
+                      {feed.data ? (searching ? tn(pins.length, hasMore ? '{n}+ activity found' : '{n} activity found', hasMore ? '{n}+ activities found' : '{n} activities found') : todayCount === count && count > 0 ? tn(count, '{n} activity today', '{n} activities today') : tn(count, '{n} activity coming up', '{n} activities coming up')) : t('Loading…')}
                     </Text>
                     <Text style={{ color: c.muted, fontSize: 15, lineHeight: 22, marginTop: 4 }}>{t('Tap a pin to preview, or pull up for the list')}</Text>
                   </View>
@@ -649,8 +837,20 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
 
         {/* the list: its height follows the pull, rows ease in one after another each time the list changes */}
         <Animated.View pointerEvents={isOpen ? 'auto' : 'none'} style={{ width: '100%', maxWidth: 560, height: listMax, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
-          <ScrollView style={{ marginTop: 10 }} contentContainerStyle={{ gap: 10, paddingBottom: 4 }} nestedScrollEnabled showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
-            {rows.map((a, i) => (
+          <ScrollView
+            style={{ marginTop: 10 }}
+            contentContainerStyle={{ gap: 10, paddingBottom: 4 }}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps={keyboardTaps}
+            scrollEventThrottle={100}
+            // a search comes a page of 20 at a time: the next page is asked for when the end of the list is near
+            onScroll={(e) => {
+              const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+              if (!selected && !searching && hasMore && contentOffset.y + layoutMeasurement.height > contentSize.height - 240) void loadMore();
+            }}
+          >
+            {listRows.map((a, i) => (
               <Reveal key={`${key}:${a.id}`} index={i}>
                 <Pressable
                   accessibilityRole="button"
@@ -675,10 +875,58 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
               </Reveal>
             ))}
             {/* by day: today and tomorrow are loaded first; this brings in the next day's activities (and pins) */}
-            {!selected && nextDay ? <Btn title={t('Show {day}', { day: nextLabel })} variant="secondary" onPress={showNextDay} /> : null}
+            {!selected && nextDay ? <Btn title={nextTitle} variant="secondary" onPress={showNextDay} /> : null}
+            {showAll ? <Btn title={t('Show all results')} variant="secondary" onPress={() => go(`/search-results?${new URLSearchParams(searchQuery()).toString()}`)} /> : null}
           </ScrollView>
         </Animated.View>
       </Animated.View>
+
+      {/* the filters open as a page of their own, the same sheet as THERE's: what kind of activity, and which day */}
+      <ThereFilterSheet
+        compact
+        visible={filtersOpen}
+        onClose={closeFilters}
+        footer={
+          <>
+            <Btn title={t('Show results')} onPress={closeFilters} />
+            <Btn
+              title={t('Clear all')}
+              variant="secondary"
+              onPress={() => {
+                setCat('');
+                setDayPick(null);
+              }}
+            />
+          </>
+        }
+      >
+        <View style={{ gap: 8 }}>
+          <ThereLabel compact>{t('What kind of activity')}</ThereLabel>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <ThereChip compact label={t('All')} active={cat === ''} onPress={() => setCat('')} />
+            {Object.entries(CATS).map(([k, v]) => (
+              <ThereChip compact key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(k)} />
+            ))}
+          </View>
+        </View>
+        {/* day by day: one chosen day at a time (a search covers the month and has no day) */}
+        {searching ? null : (
+          <View style={{ gap: 8 }}>
+            <ThereLabel compact>{t('Which day')}</ThereLabel>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <ThereChip compact label={t('All days')} active={dayPick === null} onPress={() => setDayPick(null)} />
+            </View>
+            <MonthCalendar
+              month={calMonth}
+              onMonth={setCalMonth}
+              selected={dayPick === null ? new Date(0) : new Date(today0.getTime() + dayPick * 864e5)}
+              min={today0}
+              max={new Date(today0.getTime() + 365 * 864e5)}
+              onPick={(d) => setDayPick(Math.round((new Date(d).setHours(0, 0, 0, 0) - today0.getTime()) / 864e5))}
+            />
+          </View>
+        )}
+      </ThereFilterSheet>
     </View>
   );
 }

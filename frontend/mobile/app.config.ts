@@ -29,8 +29,11 @@ const hasMapKeys = Object.values(mapKeys).some(Boolean);
 // Phone push goes through Firebase (FCM) on both iPhone and Android. Each platform needs the file Firebase gives for the app
 // (Firebase console > Project settings > Your apps). Put them next to this file, or point GOOGLE_SERVICES_JSON /
 // GOOGLE_SERVICES_PLIST at them (on EAS: a file secret). Without a file that platform is built without Firebase, as before.
-const androidFirebase = process.env.GOOGLE_SERVICES_JSON ?? './google-services.json';
-const iosFirebase = process.env.GOOGLE_SERVICES_PLIST ?? './GoogleService-Info.plist';
+// Where each one is read from, in this order: the path in the setting (on EAS: a file secret), then the git-ignored `secrets/` folder
+// next to this file, then (an older setup) the file next to this one. Keep them in `secrets/`: the files hold Google API keys and are not committed.
+const firebaseFile = (setting: string | undefined, name: string): string => setting ?? (existsSync(path.resolve(process.cwd(), 'secrets', name)) ? `./secrets/${name}` : `./${name}`);
+const androidFirebase = firebaseFile(process.env.GOOGLE_SERVICES_JSON, 'google-services.json');
+const iosFirebase = firebaseFile(process.env.GOOGLE_SERVICES_PLIST, 'GoogleService-Info.plist');
 // The Android build fails if google-services.json has no entry for the app's package, so the Firebase file is only used when it
 // lists this build's package.
 const hasAndroidPackage = (file: string, pkg: string): boolean => {

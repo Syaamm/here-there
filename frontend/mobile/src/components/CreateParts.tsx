@@ -79,7 +79,7 @@ export function PillInput({ label, style, ...rest }: TextInputProps & { label: s
       underlineColorAndroid="transparent"
       returnKeyType="done"
       {...rest}
-      style={[{ includeFontPadding: false, minHeight: sc(54), borderWidth: 1, borderRadius: 32, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, paddingHorizontal: 20, paddingVertical: 10 }, style]}
+      style={[{ includeFontPadding: false, minHeight: sc(46), borderWidth: 1, borderRadius: 28, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, paddingHorizontal: 18, paddingVertical: 8 }, style]}
     />
   );
 }
@@ -97,7 +97,7 @@ export function PillArea({ label, style, ...rest }: TextInputProps & { label: st
       cursorColor={c.forest}
       underlineColorAndroid="transparent"
       {...rest}
-      style={[{ minHeight: sc(100), borderWidth: 1, borderRadius: 32, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, lineHeight: 20, paddingHorizontal: 22, paddingTop: 16, paddingBottom: 16 }, style]}
+      style={[{ minHeight: sc(84), borderWidth: 1, borderRadius: 26, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, lineHeight: 20, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 12 }, style]}
     />
   );
 }
@@ -134,7 +134,7 @@ export function CategoryPill({ label, spoken, photo, selected, onPress, width }:
 }
 
 /** A small pill choice (am / pm, quick picks, durations, neighbourhoods): white with a thin rim, dark when picked. */
-export function SmallPill({ label, spoken, active, onPress }: { label: string; spoken?: string; active: boolean; onPress: () => void }) {
+export function SmallPill({ label, spoken, active, onPress, compact }: { label: string; spoken?: string; active: boolean; onPress: () => void; /** a smaller pill that may share a row with others (the quick picks) */ compact?: boolean }) {
   const { c } = useTheme();
   return (
     <Pressable
@@ -143,9 +143,9 @@ export function SmallPill({ label, spoken, active, onPress }: { label: string; s
       accessibilityState={{ selected: active }}
       hitSlop={{ top: 4, bottom: 4 }}
       onPress={onPress}
-      style={({ pressed: p }) => [{ minHeight: 40, paddingHorizontal: 18, borderRadius: 32, borderWidth: 1.2, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
+      style={({ pressed: p }) => [{ minHeight: compact ? 34 : 40, paddingHorizontal: compact ? 10 : 18, borderRadius: compact ? 28 : 32, ...(compact ? { flexShrink: 1 } : null), borderWidth: 1.2, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
     >
-      <Text style={{ color: active ? '#fff' : c.forest, fontSize: 14, fontWeight: active ? '600' : '400' }}>{label}</Text>
+      <Text numberOfLines={1} style={{ color: active ? '#fff' : c.forest, fontSize: compact ? 12.5 : 14, fontWeight: active ? '600' : '400' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -569,13 +569,13 @@ export function MonthCalendar({ month, onMonth, selected, min, max, onPick, mark
   const days = useMemo(
     () =>
       cells.map((n, i) => {
-        if (n == null) return <View key={i} style={{ width: `${100 / 7}%`, height: 44 }} />;
+        if (n == null) return <View key={i} style={{ flex: 1, height: 44 }} />;
         const d = new Date(month.getFullYear(), month.getMonth(), n);
         const off = d < lo || d > hi;
         const on = +d === +sel;
         const mark = marks?.[`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`];
         return (
-          <View key={i} style={{ width: `${100 / 7}%`, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+          <View key={i} style={{ flex: 1, height: 44, alignItems: 'center', justifyContent: 'center' }}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={dateFormat(tag, { weekday: 'long', day: 'numeric', month: 'long' }).format(d) + (mark ? `. ${mark === 'trip' ? t('You are on a trip this day') : t('You have a plan this day')}` : '')}
@@ -603,14 +603,17 @@ export function MonthCalendar({ month, onMonth, selected, min, max, onPick, mark
       </View>
       <View style={{ flexDirection: 'row' }}>
         {weekdays.map((w, i) => (
-          <View key={i} style={{ width: `${100 / 7}%`, alignItems: 'center', paddingVertical: 6 }}>
+          <View key={i} style={{ flex: 1, alignItems: 'center', paddingVertical: 6 }}>
             <Text numberOfLines={1} style={{ color: c.text, fontSize: 13 }}>{w}</Text>
           </View>
         ))}
       </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {days}
-      </View>
+      {/* explicit rows of seven equal cells: percentage widths in a wrapping row can overflow by a pixel on Android and push Saturday to the next line */}
+      {Array.from({ length: 6 }, (_, r) => (
+        <View key={r} style={{ flexDirection: 'row' }}>
+          {days.slice(r * 7, r * 7 + 7)}
+        </View>
+      ))}
     </View>
   );
 }

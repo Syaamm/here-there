@@ -27,6 +27,8 @@ export function alertText(n: Pick<Notif, 'type' | 'title' | 'body' | 'data'>, t:
       return { title: n.title, body: t('Tap to see the details.') };
     case 'appeal_decided':
       return { title: n.title, body: t('Tap to see the answer.') };
+    case 'appeal_reply':
+      return { title: n.title, body: n.body };
     default:
       return { title: n.title, body: n.body };
   }
@@ -46,7 +48,7 @@ export function alertRoute(n: Pick<Notif, 'type' | 'data'>): string | null {
   const about = plan?.aboutId ? `&aboutType=${plan.aboutType}&aboutId=${plan.aboutId}&aboutTitle=${encodeURIComponent(plan.aboutTitle ?? '')}` : '';
   if (n.type === 'warning' && d?.warningId) return `/appeal?kind=warning&targetId=${d.warningId}${why}${about}`;
   if (n.type === 'message_removed' && d?.messageId) return `/appeal?kind=message&targetId=${d.messageId}${why}`;
-  if (n.type === 'appeal_decided') return '/reports-blocked';
+  if (n.type === 'appeal_decided' || n.type === 'appeal_reply') return '/reports-blocked';
   if (n.type === 'report_decision') return '/reports-blocked';
   if (d?.conversationId) return `/chat/${d.conversationId}`;
   if (n.type === 'join_request' && d?.activityId) return `/host/${d.activityId}`;
