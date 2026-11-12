@@ -9,6 +9,11 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Google keys and other secrets: never committed (see app.config.ts)
+secrets/
+google-services.json
+GoogleService-Info.plist
+
 # Native
 .kotlin/
 *.orig.*

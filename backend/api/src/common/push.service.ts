@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as webpush from 'web-push';
-import { fcmAccount, sendFcm, sendFcmDetailed } from './fcm';
+import { fcmAccount, sendFcmDetailed } from './fcm';
 import { JobsService } from './jobs.service';
 import { NotificationPrefsService } from '../notifications/preference-rules';
 import { LiveService } from './live.service';
@@ -142,7 +142,7 @@ export class PushService implements OnModuleInit {
     if (subs.length === 0) return;
     if (!p.only && p.msg.group) this.noteSent(p.userId, p.msg.group);
     const results = await Promise.all(
-      subs.map(async (s) => ((s.kind === 'fcm' ? await this.sendFirebase(s.token, p.msg) : s.kind === 'expo' ? await this.sendExpo(s.token, p.msg) : await this.sendWeb(s.token, p.msg)) ? null : s.token)),
+      subs.map(async (s) => ((s.kind === 'fcm' ? await this.sendFirebase(s, p.msg) : s.kind === 'expo' ? await this.sendExpo(s.token, p.msg) : await this.sendWeb(s.token, p.msg)) ? null : s.token)),
     );
     const failed = results.filter((t): t is string => !!t);
     if (failed.length && p.round < 2) await this.jobs.enqueue('push.send', { ...p, only: failed, round: p.round + 1 }, { delayMs: 30_000 * 2 ** p.round, maxAttempts: 3 });
@@ -166,7 +166,7 @@ export class PushService implements OnModuleInit {
     const msg = { title: 'LAMIS test', body: 'If you can read this, push works on this phone.' };
     const devices = await Promise.all(
       subs.map(async (s) => {
-        const base = { kind: s.kind, token: `${s.token.slice(0, 12)}…`, registeredAt: s.createdAt };
+        const base = { kind: s.kind, token: `${s.token.slice(0, 12)}…`, registeredAt: s.createdAt, lastFailureAt: s.lastFailureAt, lastFailureDetail: s.lastFailureDetail, failureCount: s.failureCount };
         if (s.kind !== 'fcm') return { ...base, result: s.kind === 'expo' ? ((await this.sendExpo(s.token, msg)) ? 'sent' : 'retry') : (await this.sendWeb(s.token, msg)) ? 'sent' : 'retry' };
         const r = await sendFcmDetailed(s.token, msg);
         if (r.result === 'gone') await this.prisma.pushSubscription.deleteMany({ where: { token: s.token } });
@@ -182,10 +182,23 @@ export class PushService implements OnModuleInit {
   }
 
   /** true = delivered, or nothing more can be done (the device is gone, or Firebase is not set up here); false = worth trying again. */
-  private async sendFirebase(token: string, msg: PushMessage) {
-    const r = await sendFcm(token, msg);
-    if (r === 'gone') await this.prisma.pushSubscription.deleteMany({ where: { token } });
-    return r !== 'retry';
+  private async sendFirebase(sub: { token: string; lastFailureAt: Date | null }, msg: PushMessage) {
+    const { token } = sub;
+    const r = await sendFcmDetailed(token, msg);
+    if (r.result === 'gone') {
+      await this.prisma.pushSubscription.deleteMany({ where: { token } });
+      return true;
+    }
+    // Remember a failure on the device (a refusal comes back as 'sent' with a detail, a retry as 'retry'). A clean send writes
+    // nothing, except to clear an earlier failure, so the happy path (every chat push) still costs no database write.
+    const failed = r.result === 'retry' || (r.result === 'sent' && !!r.detail);
+    try {
+      if (failed) await this.prisma.pushSubscription.updateMany({ where: { token }, data: { lastFailureAt: new Date(), lastFailureDetail: (r.detail ?? r.result).slice(0, 500), failureCount: { increment: 1 } } });
+      else if (r.result === 'sent' && sub.lastFailureAt) await this.prisma.pushSubscription.updateMany({ where: { token }, data: { lastFailureAt: null, lastFailureDetail: null } });
+    } catch {
+      /* bookkeeping only */
+    }
+    return r.result !== 'retry';
   }
 
   /** true = delivered, or nothing more can be done (the device is gone); false = worth trying again. */

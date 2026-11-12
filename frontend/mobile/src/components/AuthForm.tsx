@@ -78,7 +78,7 @@ export function AuthField({ label, hint, error, style, inputRef, ...rest }: Text
 }
 
 /** The full-width pill button in deep forest. */
-export function AuthButton({ title, onPress, loading, disabled, style }: { title: string; onPress: () => void; loading?: boolean; disabled?: boolean; style?: StyleProp<ViewStyle> }) {
+export function AuthButton({ title, onPress, loading, disabled, style, compact }: { title: string; onPress: () => void; loading?: boolean; disabled?: boolean; style?: StyleProp<ViewStyle>; /** a slimmer button (the Continue and Publish of the create forms) */ compact?: boolean }) {
   const { c } = useTheme();
   const off = disabled || loading;
   return (
@@ -90,9 +90,9 @@ export function AuthButton({ title, onPress, loading, disabled, style }: { title
         tap('Medium');
         onPress();
       }}
-      style={({ pressed: p }) => [{ minHeight: sc(54), borderRadius: 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, opacity: off ? 0.5 : 1 }, style, !off && pressed(p)]}
+      style={({ pressed: p }) => [{ minHeight: sc(compact ? 44 : 54), borderRadius: compact ? 26 : 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, opacity: off ? 0.5 : 1 }, style, !off && pressed(p)]}
     >
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: '#fff', fontSize: 15, fontWeight: '500' }}>{loading ? '…' : title}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: '#fff', fontSize: compact ? 14 : 15, fontWeight: '500' }}>{loading ? '…' : title}</Text>
     </Pressable>
   );
 }

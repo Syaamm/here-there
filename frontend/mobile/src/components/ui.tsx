@@ -50,8 +50,8 @@ export const SHEET_OVERLAP = 30;
 /** Radius of the sheet's rounded top corners. */
 const SHEET_RADIUS = 40;
 /** Extra band of the home screens, in points: the Figma band is about 50 taller than a title band (22 above the wordmark, 28 under the switch). */
-const BAND_TALL_TOP = 22;
-const BAND_TALL_BOTTOM = 28;
+const BAND_TALL_TOP = 8; // room above the wordmark (it was 22: the home header is slimmer so the activities get the room)
+const BAND_TALL_BOTTOM = 12; // room under the tagline, before the white sheet (it was 28)
 /** a collapsing header (the home pages): the height of its small row once the page is scrolled, and the band left under it */
 const COMPACT_ROW = 44;
 const COMPACT_BELOW = 10;
@@ -291,6 +291,10 @@ export function Screen({
     }
     if (onScreen && savedTop.current > 40) requestAnimationFrame(() => scrolled.current < savedTop.current - 40 && scroller.current?.scrollTo({ y: savedTop.current, animated: false }));
   }, [onScreen]); // and the field being typed in is scrolled above it
+  // a page with the dock that goes out of front (another page opened over it, another tab) never leaves the dock hidden
+  useEffect(() => {
+    if (tabBar && !onScreen) setDockScrollHidden(false);
+  }, [tabBar, onScreen]);
   const dockRoom = useDockSpace();
   const dock = typing ? 0 : dockRoom; // the floating dock covers the bottom of the page, so leave room under the content (it hides while typing)
   const pad = { paddingTop: bandHeader ? (bg ? 20 : 8) : hasHeader ? 12 : top + 8, paddingBottom: bottomRoom !== undefined ? bottomRoom + 16 : (tabBar && dockRoom > 0 ? 24 : insets.bottom + 24) + dock, paddingHorizontal: gutter };
@@ -332,14 +336,18 @@ export function Screen({
       fireEnd(); // near the end: the next batch is shown before the reader gets there
     }
     if (onScreen) savedTop.current = scrolled.current; // only while the page is in front: a reset after it left must not overwrite it
-    if (collapsing && onScreen) {
-      // the dock: away while scrolling down, back as soon as the page moves up (and always near the top)
+    if ((tabBar || collapsing) && onScreen) {
+      // the dock: away while scrolling down, back as soon as the page moves up (and always near the top). Every page that shows the
+      // dock does this, not only the home pages.
       const y = scrolled.current;
       const dy = y - lastY.current;
       lastY.current = y;
       if (y < 24) setDockScrollHidden(false);
       else if (dy > 6) setDockScrollHidden(true);
       else if (dy < -6) setDockScrollHidden(false);
+    }
+    if (collapsing && onScreen) {
+      const y = scrolled.current;
       // the header pieces that fade out stop taking taps once they are gone
       const gone = y > R * 0.4;
       if (gone !== collapsedRef.current) {
@@ -851,21 +859,27 @@ export function Empty({ title, children, icon, action }: { title: string; childr
 export const Spinner = ({ rows = 4 }: { rows?: number; label?: string }) => <SkeletonRows count={rows} />;
 
 /** Soft green-led tints behind the initial, picked from the name so each person keeps the same colour everywhere. */
-const AVATAR_TINTS = ['#D9EBE2', '#CFE3DA', '#DCE8D2', '#D3E4E6', '#E2E4EF', '#E6E9D8'];
-/** A person's picture when they have one, otherwise their initial. */
+/** A person's picture when they have one; otherwise their initials (the first letters of the first two words of the name) on the app's own deep green, the same for everyone. */
+const initialsOf = (name?: string) =>
+  (name ?? '')
+    .trim()
+    .split(/s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => [...w][0]?.toUpperCase() ?? '')
+    .join('') || '?';
 export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: number; uri?: string | null }) {
   const { c } = useTheme();
   const size = base * useScale();
   const [failed, setFailed] = useState(false);
-  const tint = AVATAR_TINTS[[...(name ?? '?')].reduce((n, ch) => n + ch.charCodeAt(0), 0) % AVATAR_TINTS.length];
   const src = photoSrc(uri, size);
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: tint, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
       {src && !failed ? (
         // the address carries the upload time, so a kept copy never goes stale; expo-image keeps it on disk and in memory
         <Image source={{ uri: src }} contentFit="cover" cachePolicy="memory-disk" recyclingKey={src} transition={120} onError={() => setFailed(true)} style={{ width: size, height: size }} />
       ) : (
-        <Text style={{ color: c.forest, fontWeight: '800', fontSize: size * 0.42 }}>{name?.[0]?.toUpperCase() ?? '?'}</Text>
+        <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: size * (initialsOf(name).length > 1 ? 0.36 : 0.42) }}>{initialsOf(name)}</Text>
       )}
     </View>
   );

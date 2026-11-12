@@ -380,12 +380,12 @@ export default function ActivityDetail() {
 
       {/* fixed over the page: back on the left; favourite, share and more on the right */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top, left: gutter, right: gutter, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <FloatingButton round size={38} fx="nudge" icon="chevron-back" label={t('Go back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
+        <FloatingButton round size={44} fx="nudge" icon="chevron-back" label={t('Go back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {isGuest || !(ahead || fav) ? null : (
             <FloatingButton
               round
-              size={38}
+              size={44}
               fx="pop"
               icon={fav ? 'heart' : 'heart-outline'}
               color={fav ? '#FF6B6B' : '#fff'}
@@ -397,8 +397,8 @@ export default function ActivityDetail() {
               }}
             />
           )}
-          {ahead ? <FloatingButton round size={38} icon="share-social-outline" label={t('Share this activity')} onPress={share} /> : null}
-          {isGuest ? null : <Menu floating round size={38} items={menu} />}
+          {ahead ? <FloatingButton round size={44} icon="share-social-outline" label={t('Share this activity')} onPress={share} /> : null}
+          {isGuest ? null : <Menu floating round size={44} items={menu} />}
         </View>
       </View>
     </View>

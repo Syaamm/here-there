@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, can, get, post, type Session } from '../api';
 import { Select, useBackdropClose } from '../controls';
-import { Empty, ErrorBanner, Icon, Loading, Page, RowMenu, useAction, useLoad, Chip } from '../ui';
+import { Empty, ErrorBanner, Icon, Loading, Page, PageBar, RowMenu, Search, useAction, useLoad, Chip } from '../ui';
 
 type Place = {
   key: string;
@@ -36,22 +36,16 @@ export function RegionsPage({ me }: { me: Session }) {
   const admin = can.admin(me.role);
   const items = data?.items ?? [];
   const byKey = new Map(items.map((p) => [p.key, p]));
-  const [shut, setShut] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState<string | null>(null); // null = closed; '' = blank; a city key = prefilled
 
-  // the places as a tree: each one right under the place it belongs to, skipping folded branches
-  const order = (parent: string | null, depth: number): { p: Place; depth: number }[] =>
-    items
-      .filter((p) => (p.parentKey && byKey.has(p.parentKey) ? p.parentKey : null) === parent)
-      .flatMap((p) => [{ p, depth }, ...(shut.has(p.key) ? [] : order(p.key, depth + 1))]);
-  const rows = order(null, 0);
-  const toggle = (k: string) =>
-    setShut((x) => {
-      const n = new Set(x);
-      if (n.has(k)) n.delete(k);
-      else n.add(k);
-      return n;
-    });
+  const [cq, setCq] = useState('');
+  const cities = items.filter((p) => p.kind === 'city' && p.name.toLowerCase().includes(cq.trim().toLowerCase()));
+  const root = items.find((p) => p.kind === 'global') ?? null;
+  const [cityPage, setCityPage] = useState(1);
+  useEffect(() => setCityPage(1), [cq]);
+  const CITY_PAGE = 10;
+  const cityPages = Math.max(1, Math.ceil(cities.length / CITY_PAGE));
+  const shownCities = cities.slice((Math.min(cityPage, cityPages) - 1) * CITY_PAGE, Math.min(cityPage, cityPages) * CITY_PAGE);
 
   // a changed limit waits in the row until Save; Cancel puts it back
   const [drafts, setDrafts] = useState<Record<string, Partial<Record<Which, string>>>>({});
@@ -80,6 +74,11 @@ export function RegionsPage({ me }: { me: Session }) {
   const remove = (p: Place) => {
     if (confirm(`Remove ${p.name}?`)) act.run(() => api('DELETE', `/v1/admin/regions/${p.key}`));
   };
+  const customCities = items.filter((p) => p.kind === 'city' && (p.hereMonths !== null || p.thereMonths !== null)).length;
+  const resetCities = () => {
+    if (customCities === 0) return;
+    if (confirm(`Make ${customCities} ${customCities === 1 ? 'city' : 'cities'} follow the default again? Their own values will be cleared.`)) act.run(() => api('POST', '/v1/admin/regions/reset-city-limits'));
+  };
   const parents = items.filter((p) => p.canEdit || (me.scope && p.key === me.scope.key)).filter((p) => p.kind !== 'city');
   const uncovered = unassigned.data?.items ?? [];
 
@@ -87,27 +86,22 @@ export function RegionsPage({ me }: { me: Session }) {
     if (!data) return null;
     const here = which === 'hereMonths';
     const eff = here ? p.effective.here : p.effective.there;
-    const from = here ? p.effective.hereFrom : p.effective.thereFrom;
     const own = p[which];
-    const inherited = own === null && p.kind !== 'global' && drafts[p.key]?.[which] === undefined;
     if (admin && p.canEdit)
       return (
-        <div style={{ display: 'grid', gap: 3, justifyItems: 'start' }}>
-        <Select aria-label={`${here ? 'Activities' : 'Trips'} limit for ${p.name}`} value={drafts[p.key]?.[which] ?? (own === null ? '' : String(own))} onChange={(v) => draft(p, which, v)} disabled={act.busy} highlight={drafts[p.key]?.[which] !== undefined} style={{ width: 172 }}>
-          {p.kind !== 'global' && <option value="">Inherit ({months(eff)})</option>}
+        <div style={{ display: 'grid', gap: 4, justifyItems: 'start' }}>
+        <Select aria-label={`${here ? 'Activities' : 'Trips'} limit for ${p.name}`} value={drafts[p.key]?.[which] ?? String(own ?? eff)} onChange={(v) => draft(p, which, v)} disabled={act.busy} highlight={drafts[p.key]?.[which] !== undefined} style={{ width: 172 }}>
           {options(here ? data.ranges.here : data.ranges.there).map((n) => (
             <option key={n} value={n}>
               {months(n)}
             </option>
           ))}
         </Select>
-        {inherited && <span className="muted small">Same as {from ?? 'Whole service'}</span>}
         </div>
       );
     return (
       <span>
         <span className={own !== null ? 'strong' : ''}>{months(eff)}</span>
-        {own === null && p.kind !== 'global' && <span className="muted small"> · {from ?? 'default'}</span>}
       </span>
     );
   };
@@ -121,27 +115,15 @@ export function RegionsPage({ me }: { me: Session }) {
         parents.length > 0 && (
           <button className="btn primary" onClick={() => (act.clear(), setAdding(''))}>
             <Icon name="plus" />
-            Add place
+            Add city
           </button>
         )
       }
     >
       <ErrorBanner message={error ?? act.error} onRetry={reload} />
       {loading && !data && <Loading rows={5} />}
-      {data && (
+      {data && me.scope && (
         <div className="stats">
-          <div className="stat">
-            <span className="label">Places</span>
-            <span className="value">{items.filter((p) => p.kind !== 'global').length}</span>
-          </div>
-          <div className="stat">
-            <span className="label">HERE default</span>
-            <span className="value">{months(data.defaults.here)}</span>
-          </div>
-          <div className="stat">
-            <span className="label">THERE default</span>
-            <span className="value">{months(data.defaults.there)}</span>
-          </div>
           {me.scope && (
             <div className="stat">
               <span className="label">Your area</span>
@@ -168,63 +150,105 @@ export function RegionsPage({ me }: { me: Session }) {
       )}
       {data && items.length === 0 && <Empty>No places.</Empty>}
       {data && items.length > 0 && (
-        <div className="table-wrap">
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Place</th>
-                  <th style={{ width: 220 }}>Activities</th>
-                  <th style={{ width: 220 }}>Trips</th>
-                  <th className="end" aria-label="Actions" style={{ width: 200 }} />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ p, depth }) => {
-                  const kids = items.some((k) => k.parentKey === p.key);
-                  return (
-                    <tr key={p.key}>
-                      <td>
-                        <div className="row" style={{ paddingLeft: depth * 20 }}>
-                          {kids && p.kind !== 'global' ? (
-                            <button type="button" className="icon-btn" onClick={() => toggle(p.key)} aria-expanded={!shut.has(p.key)} aria-label={`${shut.has(p.key) ? 'Show' : 'Hide'} places in ${p.name}`} style={{ minWidth: 26, minHeight: 26, padding: 2 }}>
-                              <span style={{ display: 'grid', transform: shut.has(p.key) ? 'rotate(-90deg)' : undefined }}>
-                                <Icon name="chevron" />
-                              </span>
-                            </button>
-                          ) : (
-                            <span style={{ width: 26, flex: 'none' }} />
-                          )}
-                          <span className="strong">{p.kind === 'global' ? 'Whole service' : p.name}</span>
-                          {p.kind !== 'global' && <span className="chip">{p.kind}</span>}
-                          {p.staff > 0 && <span className="muted small">{p.staff} staff</span>}
-                        </div>
-                      </td>
-                      <td>{limit(p, 'hereMonths')}</td>
-                      <td>{limit(p, 'thereMonths')}</td>
-                      <td className="end" style={{ width: 200 }}>
-                        {drafts[p.key] ? (
-                          <div className="cell-actions">
-                            <button className="btn small" onClick={() => cancel(p)} disabled={act.busy}>
-                              Cancel
-                            </button>
-                            <button className="btn small primary" onClick={() => save(p)} disabled={act.busy}>
-                              {act.busy ? 'Saving…' : 'Save'}
-                            </button>
-                          </div>
-                        ) : saved === p.key ? (
-                          <Chip value="Saved" tone="ok" icon="check" />
-                        ) : (
-                          admin && p.canDelete && <RowMenu label={`More for ${p.name}`} items={[{ label: 'Remove', danger: true, onSelect: () => remove(p) }]} />
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <>
+          {root && (
+            <section className="card ret-default" aria-label="Default retention">
+              <div>
+                <h2 style={{ margin: 0 }}>Data retention</h2>
+                <p className="muted small" style={{ margin: '4px 0 0' }}>How long activity and trip data are kept. Every city follows this default unless it has its own value.</p>
+              </div>
+              <div className="ret-default-set">
+                <label>
+                  <span className="label">Activities</span>
+                  {limit(root, 'hereMonths')}
+                </label>
+                <label>
+                  <span className="label">Trips</span>
+                  {limit(root, 'thereMonths')}
+                </label>
+                {drafts[root.key] ? (
+                  <div className="cell-actions">
+                    <button className="btn small" onClick={() => cancel(root)} disabled={act.busy}>Cancel</button>
+                    <button className="btn small primary" onClick={() => save(root)} disabled={act.busy}>{act.busy ? 'Saving…' : 'Save'}</button>
+                  </div>
+                ) : (
+                  saved === root.key && <Chip value="Saved" tone="ok" icon="check" />
+                )}
+                {admin && (
+                  <button className="btn ret-reset" onClick={resetCities} disabled={act.busy || customCities === 0} title="Clear every city's own value so all cities follow the default">
+                    Reset all cities to the default
+                    {customCities > 0 && <span className="ret-reset-n">{customCities}</span>}
+                  </button>
+                )}
+              </div>
+            </section>
+          )}
+          <div className="toolbar">
+            <div className="grow">
+              <Search label="Search cities" placeholder="Search cities" value={cq} onChange={setCq} />
+            </div>
+            <span className="ret-legend">
+              <span><i className="ret-dot on" /> Custom value</span>
+              <span><i className="ret-dot" /> Default value</span>
+            </span>
           </div>
-        </div>
+          {cities.length === 0 ? (
+            <Empty>{cq ? 'No city matches.' : 'No cities yet.'}</Empty>
+          ) : (
+            <div className="table-wrap">
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>City</th>
+                      <th style={{ width: 380 }}>Activities</th>
+                      <th style={{ width: 380 }}>Trips</th>
+                      <th className="end" aria-label="Actions" style={{ width: 160 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shownCities.map((p) => (
+                      <tr key={p.key}>
+                        <td>
+                          <div className="row">
+                            <span className="strong">{p.name}</span>
+                            {p.staff > 0 && <span className="muted small">{p.staff} staff</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <span className="ret-cell"><i className={p.hereMonths !== null || drafts[p.key]?.hereMonths !== undefined ? 'ret-dot on' : 'ret-dot'} />{limit(p, 'hereMonths')}</span>
+                        </td>
+                        <td>
+                          <span className="ret-cell"><i className={p.thereMonths !== null || drafts[p.key]?.thereMonths !== undefined ? 'ret-dot on' : 'ret-dot'} />{limit(p, 'thereMonths')}</span>
+                        </td>
+                        <td className="end">
+                          {drafts[p.key] ? (
+                            <div className="cell-actions">
+                              <button className="btn small" onClick={() => cancel(p)} disabled={act.busy}>Cancel</button>
+                              <button className="btn small primary" onClick={() => save(p)} disabled={act.busy}>{act.busy ? 'Saving…' : 'Save'}</button>
+                            </div>
+                          ) : saved === p.key ? (
+                            <Chip value="Saved" tone="ok" icon="check" />
+                          ) : (
+                            admin && p.canDelete && <RowMenu
+                              label={`More for ${p.name}`}
+                              items={[
+                                ...(p.hereMonths !== null ? [{ label: 'Use the default for activities', onSelect: () => act.run(() => api('PATCH', `/v1/admin/regions/${p.key}`, { hereMonths: null })) }] : []),
+                                ...(p.thereMonths !== null ? [{ label: 'Use the default for trips', onSelect: () => act.run(() => api('PATCH', `/v1/admin/regions/${p.key}`, { thereMonths: null })) }] : []),
+                                { label: 'Remove', danger: true, onSelect: () => remove(p) },
+                              ]}
+                            />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <PageBar page={Math.min(cityPage, cityPages)} pages={cityPages} total={cities.length} noun={['city', 'cities']} onPage={setCityPage} />
+            </div>
+          )}
+        </>
       )}
       {adding !== null && data && (
         <AddPlace
@@ -246,22 +270,20 @@ function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, err
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => ref.current?.showModal(), []);
   const backdrop = useBackdropClose(ref, onClose); // a click on the dark area closes it
-  const [kind, setKind] = useState<'country' | 'region' | 'city'>('city');
   const [name, setName] = useState(preset ? title(preset) : '');
   const [cityKey, setCityKey] = useState(preset);
-  const [parent, setParent] = useState('');
   const [hereM, setHereM] = useState('');
   const [thereM, setThereM] = useState('');
-  const parents = all.filter((p) => (kind === 'country' ? p.kind === 'global' : true));
-  const parentKey = parents.some((p) => p.key === parent) ? parent : (parents[0]?.key ?? '');
-  const parentPlace = parents.find((p) => p.key === parentKey);
+  // a new city sits directly under the default (a staff member's area: under that area)
+  const parentPlace = all.find((p) => p.kind === 'global') ?? all[0];
+  const parentKey = parentPlace?.key ?? '';
   const submit = (e: FormEvent) => {
     e.preventDefault();
     onAdd({
       name: name.trim(),
-      kind,
+      kind: 'city',
       parentKey,
-      ...(kind === 'city' && cityKey.trim() && { cityKey: cityKey.trim() }),
+      ...(cityKey.trim() && { cityKey: cityKey.trim() }),
       ...(hereM && { hereMonths: Number(hereM) }),
       ...(thereM && { thereMonths: Number(thereM) }),
     });
@@ -270,7 +292,7 @@ function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, err
     <label>
       {label}
       <Select value={value} onChange={set} disabled={busy}>
-        <option value="">Same as {called(parentPlace)}</option>
+        <option value="">Same as the default ({months(label === 'Activities' ? data.defaults.here : data.defaults.there)})</option>
         {options(range).map((n) => (
           <option key={n} value={n}>
             {months(n)}
@@ -282,38 +304,17 @@ function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, err
   return (
     <dialog ref={ref} className="dialog" aria-labelledby="add-place-h" onCancel={(e) => (e.preventDefault(), onClose())} {...backdrop}>
       <form onSubmit={submit}>
-        <h2 id="add-place-h">Add place</h2>
+        <h2 id="add-place-h">Add city</h2>
+        <p className="muted small" style={{ margin: 0 }}>A city follows the default retention unless you give it its own.</p>
         <ErrorBanner message={error} />
-        <div className="grid-2">
-          <label>
-            Kind
-            <Select value={kind} onChange={(v) => setKind(v as typeof kind)} disabled={busy}>
-              {wholeService && <option value="country">Country</option>}
-              <option value="region">Region</option>
-              <option value="city">City</option>
-            </Select>
-          </label>
-          <label>
-            Inside
-            <Select value={parentKey} onChange={setParent} disabled={busy}>
-              {parents.map((p) => (
-                <option key={p.key} value={p.key}>
-                  {p.kind === 'global' ? 'Whole service' : p.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-        </div>
         <label>
-          Name
+          City name
           <input required minLength={2} maxLength={60} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </label>
-        {kind === 'city' && (
-          <label>
-            Spellings
-            <input placeholder={name.trim().toLowerCase() || 'florence, firenze'} maxLength={60} value={cityKey} onChange={(e) => setCityKey(e.target.value.toLowerCase())} />
-          </label>
-        )}
+        <label>
+          Other spellings
+          <input placeholder={name.trim().toLowerCase() || 'florence, firenze'} maxLength={60} value={cityKey} onChange={(e) => setCityKey(e.target.value.toLowerCase())} />
+        </label>
         <div className="grid-2">
           {monthSelect(hereM, setHereM, data.ranges.here, 'Activities')}
           {monthSelect(thereM, setThereM, data.ranges.there, 'Trips')}
@@ -323,7 +324,7 @@ function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, err
             Cancel
           </button>
           <button className="btn primary" disabled={busy || name.trim().length < 2 || !parentKey}>
-            Add
+            Add city
           </button>
         </div>
       </form>

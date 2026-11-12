@@ -125,6 +125,7 @@ function Gate() {
           <Stack.Screen name="safety" options={banded} />
           <Stack.Screen name="settings" options={banded} />
           <Stack.Screen name="activities" options={banded} />
+          <Stack.Screen name="search-results" options={banded} />
           <Stack.Screen name="trips" options={banded} />
           <Stack.Screen name="edit-profile" options={banded} />
           <Stack.Screen name="change-password" options={banded} />

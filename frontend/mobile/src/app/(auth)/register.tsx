@@ -29,7 +29,11 @@ export default function Register() {
   const set = (k: keyof typeof f) => (v: string) => setF((p) => ({ ...p, [k]: v }));
 
   // the city is picked (search or "Use my location"), never typed by hand, so it is always a real one
-  const valid = f.displayName.trim().length >= 2 && /\S+@\S+\.\S+/.test(f.email) && f.password.length >= 10 && f.homeCity.length >= 2 && adult;
+  // the password rule, said while typing: at least 10 characters (how many so far), and no line breaks or other control characters
+  const pwLen = f.password.length;
+  const pwBadChars = /[\u0000-\u001F\u007F]/.test(f.password);
+  const pwHint = pwLen === 0 ? t('At least {n} characters', { n: 10 }) : pwLen < 10 ? t('{len} of {n} characters. {more} more to go.', { len: pwLen, n: 10, more: 10 - pwLen }) : t('✓ {n} or more characters', { n: 10 });
+  const valid = f.displayName.trim().length >= 2 && /\S+@\S+\.\S+/.test(f.email) && pwLen >= 10 && !pwBadChars && f.homeCity.length >= 2 && adult;
   const submit = () =>
     act.run(async () => {
       // the answer is the same whether or not the address already has an account; the email says which
@@ -87,7 +91,7 @@ export default function Register() {
       <View style={{ gap: 18 }}>
         <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="name" textContentType="name" autoCapitalize="words" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => emailRef.current?.focus()} />
         <AuthField label={t('Email')} placeholder={t('Enter your email')} value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" inputRef={emailRef} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => pwRef.current?.focus()} />
-        <AuthField label={t('Password')} placeholder={t('Enter your password')} hint={t('At least {n} characters', { n: 10 })} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" inputRef={pwRef} returnKeyType="done" />
+        <AuthField label={t('Password')} placeholder={t('Enter your password')} hint={pwHint} error={pwBadChars ? t('A password cannot contain line breaks or control characters. Letters, numbers, spaces and symbols are fine.') : null} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" inputRef={pwRef} returnKeyType="done" />
         <View style={{ gap: 8 }}>
           <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Home city')}</Text>
           <CityField value={f.homeCity} onPick={(name) => setF((p) => ({ ...p, homeCity: name }))} />

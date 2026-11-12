@@ -280,6 +280,8 @@ model Trip {
   destination             String
   destinationKey          String // lowercased for search
   destinationPlaceId      String?
+  destLat                 Float? // where the destination is on the map (set when it is picked from the search); trips without one are not pinned
+  destLng                 Float?
   originCity              String // where the group leaves from together; empty for a "meet at destination" trip
   originKey               String? // the place whose planning limit applies to this trip: the departure city, or the destination's city for a "meet at destination" trip
   // how the group gets there: "together" (companions leave from originCity together) or "meet_at_destination" (everyone travels
@@ -425,6 +427,10 @@ model PushSubscription {
   token      String   @unique
   createdAt  DateTime @default(now())
   lastUsedAt DateTime @default(now())
+  // the last push that did not arrive on this device (Firebase's reason); cleared by the next one that did
+  lastFailureAt     DateTime?
+  lastFailureDetail String?
+  failureCount      Int       @default(0)
 
   @@index([userId])
 }
@@ -611,9 +617,23 @@ model Appeal {
   createdAt  DateTime  @default(now())
   decidedAt  DateTime?
   proofs     ProofImage[]
+  thread     AppealMessage[]
 
   @@index([state, createdAt])
   @@index([userId, createdAt])
+}
+
+/** A message in the conversation between the person and staff about one appeal, before it is decided. */
+model AppealMessage {
+  id        String   @id @default(cuid())
+  appealId  String
+  appeal    Appeal   @relation(fields: [appealId], references: [id], onDelete: Cascade)
+  fromStaff Boolean
+  authorId  String?
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([appealId, createdAt])
 }
 
 /**

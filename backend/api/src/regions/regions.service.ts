@@ -262,6 +262,18 @@ export class RegionsService implements OnModuleInit {
     return { key };
   }
 
+  /** Every city in the actor's area stops having its own limits and follows the place above (the default) again. */
+  async resetCityLimits(actor: User) {
+    const rows = await this.all();
+    const scope = scopeFor(rows, actor.adminRegionKey);
+    const keys = rows.filter((r) => r.kind === 'city' && (!scope || scope.regionKeys.has(r.key)) && (r.hereMonths !== null || r.thereMonths !== null)).map((r) => r.key);
+    if (keys.length === 0) return { reset: 0 };
+    await this.prisma.region.updateMany({ where: { key: { in: keys } }, data: { hereMonths: null, thereMonths: null, updatedById: actor.id } });
+    this.changed();
+    await this.audit.log(actor.id, 'region.limits_reset', 'region', scope?.regionKey ?? GLOBAL_KEY, { cities: keys.length });
+    return { reset: keys.length };
+  }
+
   async remove(actor: User, key: string) {
     const { rows, scope, row } = await this.mustBeInside(actor, key);
     if (key === GLOBAL_KEY) throw E.badRequest('INVALID_PLACE', 'The whole service cannot be removed');
@@ -334,6 +346,13 @@ export class RegionsAdminController {
   @Post('regions')
   create(@CurrentUser() me: User, @Body() body: unknown) {
     return this.regions.create(me, body);
+  }
+
+  @Staff('admin')
+  @RegionalOk()
+  @Post('regions/reset-city-limits')
+  resetCityLimits(@CurrentUser() me: User) {
+    return this.regions.resetCityLimits(me);
   }
 
   @Staff('admin')

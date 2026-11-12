@@ -12,8 +12,8 @@ import { useVerifyGate } from '@/lib/verifyGate';
 import { confirmAsync } from '@/lib/confirm';
 import { useAction } from '@/lib/hooks';
 import { LANGS, useLang, useT } from '@/lib/i18n';
-import { enablePush, pushState, testPush, type PushState } from '@/lib/push';
-import { TEXT_SIZES, useTextSize } from '@/lib/scale';
+import { enablePush, pushState, type PushState } from '@/lib/push';
+import { TEXT_SIZES, sc, useTextSize } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { useReportsBadge } from '@/lib/reportsSeen';
 
@@ -94,7 +94,7 @@ export default function Settings() {
           icon="notifications-outline"
           title={t('Alerts on this device')}
           subtitle={push === 'granted' ? t('On · Open phone settings') : push === 'denied' ? t('Blocked · Open phone settings to allow') : push === 'unsupported' ? t('Not available here') : t('Off')}
-          last={Platform.OS === 'web'}
+          last
           // tapping the row opens this app's notification settings on the phone (sound, banners, lock screen, or allowing them again)
           onPress={push === 'unsupported' || Platform.OS === 'web' ? undefined : () => void Linking.openSettings()}
           right={
@@ -108,15 +108,6 @@ export default function Settings() {
             )
           }
         />
-        {Platform.OS === 'web' ? null : (
-          <AccountRow
-            icon="paper-plane-outline"
-            title={t('Send a test push')}
-            subtitle={t('Checks this phone, the server and Firebase')}
-            last
-            onPress={() => void testPush().then((report) => Alert.alert(t('Push test'), report))}
-          />
-        )}
       </RoundCard>
 
       <GroupLabel>{t('Language')}</GroupLabel>
@@ -136,7 +127,16 @@ export default function Settings() {
         <AccountRow icon="information-circle-outline" title="LAMIS" subtitle={t('Version {v}', { v: Constants.expoConfig?.version ?? '0.1.0' })} last />
       </RoundCard>
 
-      <AuthButton title={t('Sign out')} onPress={() => void signOut()} />
+      {/* a white button with the sign-out icon and the words in red */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('Sign out')}
+        onPress={() => void signOut()}
+        style={({ pressed }) => [{ minHeight: sc(54), borderRadius: 32, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(0,0,0,0.09)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 20 }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+      >
+        <Ionicons name="log-out-outline" size={20} color={c.danger} />
+        <Text style={{ color: c.danger, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{t('Sign out')}</Text>
+      </Pressable>
       {!guest ? <Btn title={t('Sign out of every device')} variant="ghost" onPress={() => void signOutEverywhere()} /> : null}
     </Screen>
   );

@@ -98,12 +98,13 @@ export class PlacesController {
     const hit = this.cache.get(key);
     if (hit && Date.now() - hit.at < TTL_MS) return hit.items[0] ?? null;
     const items = await this.queued(async () => {
-      const params = new URLSearchParams({ lat: String(at.lat), lon: String(at.lng), format: 'jsonv2', zoom: '10', 'accept-language': 'en' });
+      const params = new URLSearchParams({ lat: String(at.lat), lon: String(at.lng), format: 'jsonv2', zoom: '12', 'accept-language': 'en' }); // 12 = a town; 10 gave the wider area ("Chalakkudy" the taluk, not Chalakudy the town)
       const res = await fetch(`${NOMINATIM}/reverse?${params}`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(6000) });
       if (!res.ok) throw new Error(String(res.status));
       const j = (await res.json()) as { name?: string; lat?: string; lon?: string; osm_type?: string; osm_id?: number; address?: Record<string, string> };
       const a = j.address ?? {};
-      const name = j.name || a.city || a.town || a.county || a.state_district;
+      // the settlement the person is in (city, town, municipality, village) comes first; the wider area's name only when there is none
+      const name = a.city || a.town || a.municipality || a.village || j.name || a.county || a.state_district;
       if (!name || !j.lat || !j.lon) return [];
       const where = [a.state_district, a.state, a.country].filter((x, i, all): x is string => !!x && x !== name && all.indexOf(x) === i);
       return [{ id: `osm:${j.osm_type ?? 'x'}:${j.osm_id ?? 0}`, name, address: where.slice(0, 3).join(', '), lat: round(Number(j.lat)), lng: round(Number(j.lon)) }];

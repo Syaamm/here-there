@@ -187,14 +187,14 @@ export function useAction(after: () => void) {
 }
 
 // ---------------------------------------------------------------- reason dialog
-type Ask = { title: string; label: string; confirm: string; required: boolean; choices?: [string, string][]; choiceLabel?: string; resolve: (v: string | null) => void };
+type Ask = { title: string; label: string; confirm: string; required: boolean; choices?: [string, string][]; choiceLabel?: string; multi?: boolean; initial?: string[]; resolve: (v: string | null) => void };
 let openAsk: ((a: Ask) => void) | null = null;
 
 /** Promise-based replacement for window.prompt. Resolves null when cancelled. */
-export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean; choices?: [string, string][]; choiceLabel?: string } = {}) {
+export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean; choices?: [string, string][]; choiceLabel?: string; multi?: boolean; initial?: string[] } = {}) {
   return new Promise<string | null>((resolve) => {
     if (!openAsk) return resolve(null);
-    openAsk({ title, label: opts.label ?? 'Reason', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, choiceLabel: opts.choiceLabel, resolve });
+    openAsk({ title, label: opts.label ?? 'Reason', confirm: opts.confirm ?? 'Confirm', required: opts.required ?? true, choices: opts.choices, choiceLabel: opts.choiceLabel, multi: opts.multi, initial: opts.initial, resolve });
   });
 }
 
@@ -206,16 +206,26 @@ export async function askChoiceText(title: string, choices: [string, string][], 
   return { choice: r.slice(0, i), text: r.slice(i + 1) };
 }
 
+/** Like askChoiceText, but the choices are ticked, any number of them, and at least one must be. Resolves null when cancelled. */
+export async function askChecksText(title: string, choices: [string, string][], opts: { label?: string; confirm?: string; choiceLabel?: string; initial?: string[] } = {}) {
+  const r = await askText(title, { ...opts, choices, multi: true });
+  if (r === null) return null;
+  const i = r.indexOf('|');
+  return { choices: r.slice(0, i).split(',').filter(Boolean), text: r.slice(i + 1) };
+}
+
 export function DialogHost() {
   const [ask, setAsk] = useState<Ask | null>(null);
   const [value, setValue] = useState('');
   const [choice, setChoice] = useState('');
+  const [ticked, setTicked] = useState<string[]>([]);
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     openAsk = (a) => {
       setValue('');
       setChoice(a.choices?.[0]?.[0] ?? '');
+      setTicked(a.multi ? (a.initial ?? []).filter((v) => a.choices?.some(([c]) => c === v)) : []);
       setAsk(a);
     };
     return () => {
@@ -231,7 +241,7 @@ export function DialogHost() {
     ask?.resolve(v);
     setAsk(null);
   };
-  const tooShort = ask?.required && value.trim().length < 3;
+  const tooShort = (ask?.required && value.trim().length < 3) || (!!ask?.multi && ticked.length === 0);
   const backdrop = useBackdropClose(ref, () => close(null)); // a click on the dark area closes it, like Cancel
 
   if (!ask) return null;
@@ -241,11 +251,22 @@ export function DialogHost() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!tooShort) close(ask.choices ? `${choice}|${value.trim()}` : value.trim());
+          if (!tooShort) close(ask.multi ? `${ticked.join(',')}|${value.trim()}` : ask.choices ? `${choice}|${value.trim()}` : value.trim());
         }}
       >
         <h2 id="dlg-title">{ask.title}</h2>
-        {ask.choices && (
+        {ask.choices && ask.multi && (
+          <fieldset className="picks">
+            <legend>{ask.choiceLabel ?? 'Choose at least one'}</legend>
+            {ask.choices.map(([v, l]) => (
+              <label key={v} className={ticked.includes(v) ? 'pick on' : 'pick'}>
+                <input type="checkbox" checked={ticked.includes(v)} onChange={() => setTicked((t) => (t.includes(v) ? t.filter((x) => x !== v) : [...t, v]))} />
+                <span>{l}</span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {ask.choices && !ask.multi && (
           <label>
             {ask.choiceLabel ?? 'Reason'}
             <Select value={choice} onChange={setChoice}>
@@ -359,19 +380,9 @@ export function useRefresh(load: () => Promise<unknown>) {
 }
 
 export function RefreshButton({ r }: { r: ReturnType<typeof useRefresh> }) {
-  // 12-hour clock, hours and minutes only (e.g. 2:32 PM)
-  const time = r.at?.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   return (
     <span className="refresh">
-      <span className={r.fresh ? 'refresh-note fresh' : 'refresh-note'} role="status" aria-live="polite">
-        {r.busy ? 'Refreshing…' : r.at ? (
-          <>
-            {r.fresh && <Icon name="check" />}
-            Updated {time}
-          </>
-        ) : null}
-      </span>
-      <button className={r.busy ? 'icon-btn refresh-btn busy' : 'icon-btn refresh-btn'} onClick={() => void r.run()} disabled={r.busy} aria-label="Refresh" title="Refresh">
+      <button className={r.busy ? 'icon-btn refresh-btn busy' : 'icon-btn refresh-btn'} onClick={() => void r.run()} disabled={r.busy} aria-label={r.busy ? 'Refreshing' : 'Refresh'} title="Refresh">
         <Icon name="refresh" />
       </button>
     </span>
@@ -413,28 +424,35 @@ export const Empty = ({ children, title }: { children: ReactNode; title?: string
 );
 
 /** The same loading state on every page. `rows` > 0 draws grey placeholder lines instead of a spinner. */
-export const Loading = ({ label = 'Loading…', rows = 0 }: { label?: string; rows?: number }) =>
-  rows > 0 ? (
-    <div className="skeleton" role="status" aria-label={label}>
-      {Array.from({ length: rows }, (_, i) => (
-        <i key={i} />
-      ))}
-    </div>
-  ) : (
-    <div className="state" role="status">
-      <span className="spinner" aria-hidden="true" />
-      <p>{label}</p>
-    </div>
-  );
+export const Loading = ({ label = 'Loading…', rows = 6 }: { label?: string; rows?: number }) => (
+  <div className="skeleton" role="status" aria-label={label}>
+    {Array.from({ length: rows }, (_, i) => (
+      <div className="sk-row" key={i}>
+        <i className="sk-dot" />
+        <span>
+          <i />
+          <i />
+        </span>
+      </div>
+    ))}
+  </div>
+);
 
 /**
  * Status chips always carry a text label. Tones: ok = green, dark = needs attention (urgent, overdue, suspended),
  * line = waiting (outlined), plain = everything else. The old names still work: warn -> line, bad -> dark, info -> plain.
  */
 export type Tone = 'ok' | 'dark' | 'line' | 'plain' | 'warn' | 'bad' | 'info';
-/** The proof photos sent with an appeal or a dispute (a screenshot of a chat, say). Click one to open it full size in a new tab. */
+/** The proof photos sent with an appeal or a dispute (a screenshot of a chat, say). Click one to see it full size here on the page. */
 export function ProofImages({ ids }: { ids?: string[] }) {
   const [urls, setUrls] = useState<(string | null)[]>([]);
+  const [big, setBig] = useState<number | null>(null);
+  useEffect(() => {
+    if (big === null) return;
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && setBig(null);
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [big]);
   useEffect(() => {
     let alive = true;
     const made: string[] = [];
@@ -460,9 +478,9 @@ export function ProofImages({ ids }: { ids?: string[] }) {
       <div className="proof-row">
         {ids.map((id, i) =>
           urls[i] ? (
-            <a key={id} href={urls[i]!} target="_blank" rel="noreferrer" title="Open full size">
+            <button key={id} type="button" className="proof-thumb" title="View full size" onClick={() => setBig(i)}>
               <img src={urls[i]!} alt={`Proof photo ${i + 1}`} />
-            </a>
+            </button>
           ) : (
             <span key={id} className="proof-ph small muted">
               {urls[i] === null ? 'Could not load' : 'Loading…'}
@@ -470,6 +488,20 @@ export function ProofImages({ ids }: { ids?: string[] }) {
           ),
         )}
       </div>
+      {big !== null && urls[big] && createPortal(
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label="Photo" onClick={() => setBig(null)}>
+          <button type="button" className="lightbox-close" aria-label="Close photo" onClick={() => setBig(null)}>
+            ✕
+          </button>
+          {ids.length > 1 && (
+            <span className="lightbox-count">
+              {big + 1} / {ids.length}
+            </span>
+          )}
+          <img src={urls[big]!} alt={`Proof photo ${big + 1}`} onClick={(e) => e.stopPropagation()} />
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -553,6 +585,11 @@ export const Search = ({ value, onChange, placeholder, label }: { value: string;
     <span className="sr">{label}</span>
     <Icon name="search" />
     <input type="search" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+    {value && (
+      <button type="button" className="search-clear" aria-label="Clear the search" onClick={(e) => (e.preventDefault(), onChange(''))}>
+        <Icon name="x" />
+      </button>
+    )}
   </label>
 );
 

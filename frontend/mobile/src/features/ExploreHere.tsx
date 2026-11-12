@@ -8,6 +8,7 @@ import { CategoryChips } from '@/components/CategoryChips';
 import { HERE_BAND, HereHeader } from '@/components/HereHeader';
 import { Reveal } from '@/components/Reveal';
 import { ModeTabs } from '@/components/TabHeader';
+import { ThereChip, ThereFilterSheet, ThereLabel } from '@/components/ThereParts';
 import { VerifyBanner } from '@/components/VerifyBanner';
 import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type Activity } from '@/lib/api';
@@ -40,6 +41,7 @@ export function ExploreHere() {
   const [month, setMonth] = useState(() => new Date());
   const dayStart = day ? new Date(day.getFullYear(), day.getMonth(), day.getDate()) : null;
   const [filterOpen, setFilterOpen] = useState(false);
+  const [openOnly, setOpenOnly] = useState(false); // only the activities that still have a place
 
   const feed = useLoad(
     () => {
@@ -64,9 +66,9 @@ export function ExploreHere() {
   );
   const dayItems = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const all = (onDay.data?.items ?? []).filter((a) => !cat || a.category === cat);
+    const all = (onDay.data?.items ?? []).filter((a) => (!cat || a.category === cat) && (!openOnly || a.spotsLeft > 0));
     return needle ? all.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
-  }, [onDay.data, q, cat]);
+  }, [onDay.data, q, cat, openOnly]);
   // Next up is about YOU: the soonest upcoming activity you host, are going to, or have asked to join
   // an activity was created, filled or cancelled somewhere: ask again at once (the app holds one nudge per few seconds)
   useLiveEvents((e) => {
@@ -79,9 +81,9 @@ export function ExploreHere() {
   // The API has no free-text search yet, so search filters the loaded feed on the device.
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const all = (feed.data?.items ?? []).filter((a) => !cat || a.category === cat);
+    const all = (feed.data?.items ?? []).filter((a) => (!cat || a.category === cat) && (!openOnly || a.spotsLeft > 0));
     return needle ? all.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
-  }, [feed.data, q, cat]);
+  }, [feed.data, q, cat, openOnly]);
 
   // The clock moves on once a minute: an activity leaves "Happening soon" the minute it starts.
   const now = useClock(60_000);
@@ -114,7 +116,7 @@ export function ExploreHere() {
   const bigAt = next.length > 0 ? -1 : lists.findIndex((l) => l.length > 0);
 
   return (
-    <Screen tabBar wide collapse onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} bandTall style={{ paddingTop: 20 }}>
+    <Screen tabBar wide collapse onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} bandTall style={{ paddingTop: 14 }}>
 
       <VerifyBanner />
 
@@ -128,7 +130,7 @@ export function ExploreHere() {
         />
       ) : null}
 
-      <SearchBar value={q} onChangeText={setQ} placeholder={t('Search activities or neighborhoods')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any'} />
+      <SearchBar value={q} onChangeText={setQ} placeholder={t('Search activities or neighborhoods')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || cat !== null || openOnly} />
       <CategoryChips value={cat} onChange={setCat} />
 
       <ErrorBanner message={feed.error?.message} />
@@ -137,20 +139,14 @@ export function ExploreHere() {
       {next.length > 0 && (
         <Reveal index={0} style={{ gap: 12 }}>
           <SectionHeader title={t('Next up')} />
-          {next.length === 1 ? (
-            <View style={{ width: '100%', maxWidth: 480 }}>
-              <NextUpCard a={next[0].activity} status={{ label: t(next[0].label), tone: next[0].tone }} />
-            </View>
-          ) : (
-            // several plans in the next 3 hours: swipe through them, soonest first
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={cardW + 12} snapToAlignment="start" decelerationRate="fast" disableIntervalMomentum style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 12 }}>
-              {next.map((x) => (
-                <View key={x.key} style={{ width: cardW }}>
-                  <NextUpCard a={x.activity} status={{ label: t(x.label), tone: x.tone }} />
-                </View>
-              ))}
-            </ScrollView>
-          )}
+          {/* each plan of yours is a card of its own, one under the other, soonest first */}
+          <View style={{ gap: 12 }}>
+            {next.map((x) => (
+              <View key={x.key} style={{ width: '100%', maxWidth: 480 }}>
+                <NextUpCard a={x.activity} status={{ label: t(x.label), tone: x.tone }} />
+              </View>
+            ))}
+          </View>
           {more.length > 0 ? (
             <Pressable
               accessibilityRole="button"
@@ -250,19 +246,43 @@ export function ExploreHere() {
         ))}
       </Sheet>
 
-      <Sheet visible={filterOpen} title={t('Show')} onClose={() => setFilterOpen(false)}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {(
-            [
-              ['any', 'Everything'],
-              ['soon', 'Next 2 hours'],
-              ['tonight', 'Tonight'],
-              ['tomorrow', 'Tomorrow'],
-              ['later', 'Later'],
-            ] as const
-          ).map(([k, label]) => (
-            <Pill key={k} label={t(label)} active={when === k || (k === 'later' && when === 'date')} onPress={() => (setWhen(k), setDay(null))} />
-          ))}
+      {/* the filter is the same sheet as THERE's: when, what kind of activity, and only the ones with room */}
+      <ThereFilterSheet
+        compact
+        heightRatio={0.78}
+        visible={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        footer={
+          <>
+            <Btn title={t('Show results')} onPress={() => setFilterOpen(false)} />
+            <Btn
+              title={t('Clear all')}
+              variant="secondary"
+              onPress={() => {
+                setWhen('any');
+                setDay(null);
+                setCat(null);
+                setOpenOnly(false);
+              }}
+            />
+          </>
+        }
+      >
+        <View style={{ gap: 8 }}>
+          <ThereLabel>{t('When')}</ThereLabel>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {(
+              [
+                ['any', 'Everything'],
+                ['soon', 'Next 2 hours'],
+                ['tonight', 'Tonight'],
+                ['tomorrow', 'Tomorrow'],
+                ['later', 'Later'],
+              ] as const
+            ).map(([k, label]) => (
+              <ThereChip key={k} label={t(label)} active={when === k || (k === 'later' && when === 'date')} onPress={() => (setWhen(k), setDay(null))} />
+            ))}
+          </View>
         </View>
         {/* Later: everything after tomorrow, or pick one day in the calendar to see only that day */}
         {when === 'later' || when === 'date' ? (
@@ -282,8 +302,19 @@ export function ExploreHere() {
             />
           </View>
         ) : null}
-        <Btn title={t('Done')} onPress={() => setFilterOpen(false)} />
-      </Sheet>
+        <View style={{ gap: 8 }}>
+          <ThereLabel>{t('What kind of activity')}</ThereLabel>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <ThereChip label={t('All')} active={cat === null} onPress={() => setCat(null)} />
+            {Object.entries(CATS).map(([k, v]) => (
+              <ThereChip key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(cat === k ? null : k)} />
+            ))}
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <ThereChip label={t('Only activities with open places')} active={openOnly} onPress={() => setOpenOnly(!openOnly)} />
+        </View>
+      </ThereFilterSheet>
 
       <Sheet visible={liveOpen} title={t('Happening now')} onClose={() => setLiveOpen(false)}>
         <View style={{ gap: 10 }}>
@@ -297,7 +328,7 @@ export function ExploreHere() {
 }
 
 /** "You're at Brunch in Brera now ›": a pill with a softly pulsing green dot (the pulse runs on the native driver). */
-function LivePill({ label, onPress }: { label: string; onPress: () => void }) {
+export function LivePill({ label, onPress }: { label: string; onPress: () => void }) {
   const { c } = useTheme();
   const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {

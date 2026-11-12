@@ -39,6 +39,7 @@ export function resetFcm() {
   cached = null;
   warned = false;
   loginWarned = false;
+  refusedCount.clear();
 }
 
 const b64 = (v: object | Buffer) => Buffer.from(v instanceof Buffer ? v : JSON.stringify(v)).toString('base64url');
@@ -64,16 +65,20 @@ async function accessToken(a: Account): Promise<string> {
 /** sent: delivered. gone: the device's token is dead, delete it. retry: worth another go. skipped: Firebase is not set up here. */
 export type FcmResult = 'sent' | 'gone' | 'retry' | 'skipped';
 
-const refusedOnce = new Set<string>();
+const refusedCount = new Map<string, number>();
 const HINT: Record<string, string> = {
   SENDER_ID_MISMATCH: 'the server key (FIREBASE_SERVICE_ACCOUNT_*) belongs to another Firebase project than the one built into the app',
   THIRD_PARTY_AUTH_ERROR: "Apple's push key (.p8) is missing or wrong in Firebase > Project settings > Cloud Messaging (iPhone)",
   PERMISSION_DENIED: 'the service account may not send messages for this Firebase project',
 };
-function refused(code: string) {
-  if (refusedOnce.has(code)) return;
-  refusedOnce.add(code);
-  console.warn(`Phone push refused by Firebase: ${code}${HINT[code] ? ` (${HINT[code]})` : ''}. Nothing was delivered for this message.`);
+/** Every refusal is counted per reason. The first, then every 20th, is logged with the running total and the device (token start). */
+function refused(code: string, token: string, message?: string) {
+  const n = (refusedCount.get(code) ?? 0) + 1;
+  refusedCount.set(code, n);
+  if (n !== 1 && n % 20 !== 0) return;
+  console.warn(
+    `Phone push refused by Firebase: ${code}${HINT[code] ? ` (${HINT[code]})` : ''}${message ? ` [${message.slice(0, 200)}]` : ''}. Nothing was delivered for this message. Device ${token.slice(0, 12)}…, refused ${n} time(s) since the server started.`,
+  );
 }
 
 /** One send and what Firebase answered (`detail`: its error code or reason, for the push test and the logs). */
@@ -130,7 +135,7 @@ export async function sendFcmDetailed(token: string, msg: { title: string; body:
     // any other refusal cannot be fixed by trying again, but it means nothing arrived: say so once per reason, so a set-up
     // problem shows in the logs (SENDER_ID_MISMATCH: the server key is for another Firebase project than the app;
     // THIRD_PARTY_AUTH_ERROR: Apple's push key is missing or wrong in Firebase)
-    refused(code);
+    refused(code, token, j?.error?.message);
     return { result: 'sent', detail };
   } catch (e) {
     return { result: 'retry', detail: `no connection to Google: ${(e as Error).message}` }; // no connection to Google

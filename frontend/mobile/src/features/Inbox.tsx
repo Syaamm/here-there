@@ -57,6 +57,7 @@ const ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   travel_match: 'heart-circle-outline',
   activity_confirmed: 'checkmark-done-circle-outline',
   appeal_decided: 'chatbox-ellipses-outline',
+  appeal_reply: 'chatbox-ellipses-outline',
   host_absence_reported: 'person-remove-outline',
   host_absence_decided: 'checkmark-done-outline',
   report_update: 'flag-outline',
@@ -123,7 +124,7 @@ function SectionLabel({ title, count }: { title: string; count?: number }) {
   const { c, mode } = useTheme();
   return (
     <Row style={{ justifyContent: 'space-between', marginTop: 6 }}>
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 22, fontWeight: '600' }}>{title}</Text>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 22, fontWeight: '700' }}>{title}</Text>
       {count ? <Txt variant="label" color={c.muted} style={{ fontSize: 12 }}>{count}</Txt> : null}
     </Row>
   );
@@ -143,8 +144,9 @@ export function Inbox() {
   // each product has its own alerts and chats: HERE shows activity ones, THERE shows trip ones (follows, warnings and the like show in both)
   const notifs = useLoad(() => get<{ items: Notif[]; unreadCount: number; unreadByProduct?: { here: number; there: number }; unreadAlerts?: number; unreadChatIds?: string[] }>(`/v1/notifications?product=${mode}`), [mode], 60_000, 'inbox:notifs', { animate: true, live: true }); // new alerts arrive by the live connection; this is only the slow fallback
   // the alert rows themselves: the server sends them a few at a time, newest first (chat messages are on the Chats tab)
-  const alertList = useCursorList<Notif, { unreadCount: number }>('/v1/notifications', { scope: 'alerts', product: mode }, 'inbox:alerts', { pollMs: 60_000, live: true, animate: true, rowHeight: 76 });
-  const convs = useCursorList<ConversationRef>('/v1/me/conversations', { product: mode }, 'inbox:convs', { animate: true, rowHeight: 73 });
+  // both lists listen to the same page scroll, so only the one on screen asks for its next page (the other keeps its first page)
+  const alertList = useCursorList<Notif, { unreadCount: number }>('/v1/notifications', { scope: 'alerts', product: mode }, 'inbox:alerts', { pollMs: 60_000, live: true, animate: true, rowHeight: 76, pauseMore: tab !== 'alerts' });
+  const convs = useCursorList<ConversationRef>('/v1/me/conversations', { product: mode }, 'inbox:convs', { animate: true, rowHeight: 73, pauseMore: tab !== 'chats' });
 
   useEffect(() => {
     if (notifs.data) setUnread(notifs.data.unreadCount);
@@ -186,7 +188,10 @@ export function Inbox() {
   // Chats are in the order of their LAST MESSAGE, newest first, whoever wrote it (you included). Reading a chat, or
   // another chat having unread messages, never moves it: it only moves when a newer message appears somewhere. Chats
   // nobody has written in yet follow, in the order the server gives.
-  const chatRows = [...convs.items].filter((cv) => !q.trim() || cv.title.toLowerCase().includes(q.trim().toLowerCase())).sort((x, y) => (y.lastMessage ? +new Date(y.lastMessage.at) : 0) - (x.lastMessage ? +new Date(x.lastMessage.at) : 0));
+  // The same key the server pages by (the newest message, or when the chat was made if nobody has written), so a page that arrives
+  // as you scroll lands below the rows already shown instead of jumping in among them.
+  const chatTime = (cv: ConversationRef) => +new Date(cv.lastMessage?.at ?? cv.lastMessageAt ?? 0);
+  const chatRows = [...convs.items].filter((cv) => !q.trim() || cv.title.toLowerCase().includes(q.trim().toLowerCase())).sort((x, y) => chatTime(y) - chatTime(x) || (x.conversationId < y.conversationId ? 1 : -1));
 
 
   const refreshAll = () => Promise.all([notifs.reload(), alertList.reload(), convs.reload(), waiting.reload()]);
@@ -276,8 +281,8 @@ export function Inbox() {
             <Ionicons name={ICON[n.type] ?? 'notifications-outline'} size={mode === 'there' ? 17 : 19} color={c.forest} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
-            <Text numberOfLines={2} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '600' }}>{alertText(n, t).title}</Text>
-            <Text numberOfLines={2} style={{ color: c.muted, fontSize: mode === 'there' ? 13 : 14, lineHeight: 19 }}>{alertText(n, t).body}</Text>
+            <Text numberOfLines={2} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '700' }}>{alertText(n, t).title}</Text>
+            <Text numberOfLines={2} style={{ color: c.muted, fontSize: mode === 'there' ? 13 : 14, lineHeight: 19, fontWeight: '500' }}>{alertText(n, t).body}</Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
             <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(n.createdAt)}</Text>
@@ -297,7 +302,7 @@ export function Inbox() {
     <Screen tabBar plain onRefresh={onRefresh} refreshing={refreshing} header={mode === 'there' ? <ThereHeader /> : <TabHeader plain />}>
       {/* the same on both tabs, at a fixed height: switching Chats / Alerts never moves the title or the switch below it */}
       <Row style={{ justifyContent: 'space-between', alignItems: 'center', height: 44 }}>
-        <Text accessibilityRole="header" numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '600' }}>{t('Inbox')}</Text>
+        <Text accessibilityRole="header" numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '700' }}>{t('Inbox')}</Text>
         {(() => {
           // Chats: every chat read. Alerts: the news read; requests, offers and dates to confirm stay until you act on them.
           const n = tab === 'chats' ? unreadChats.size : clearable;
@@ -333,7 +338,7 @@ export function Inbox() {
           const on = tab === k;
           return (
             <Pressable key={k} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}${n ? `, ${t('{n} new', { n })}` : ''}`} onPress={() => setTab(k)} style={{ flex: 1, minHeight: 44, borderRadius: 25, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.sand : 'transparent' }}>
-              <Text style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, fontWeight: '600' }}>{label}</Text>
+              <Text style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, fontWeight: '700' }}>{label}</Text>
               {n > 0 ? (
                 <View style={{ minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ color: '#fff', fontSize: 10, lineHeight: 13, fontWeight: '800', textAlign: 'center', includeFontPadding: false }}>{n}</Text>
@@ -402,8 +407,8 @@ export function Inbox() {
                   >
                     {cv.category ? <CatPhoto category={cv.category} style={{ width: 40, height: 40, borderRadius: 20 }} /> : <Avatar name={cv.title} size={40} />}
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Text numberOfLines={1} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '600' }}>{cv.title}</Text>
-                      <Text numberOfLines={1} style={[{ color: c.muted, fontSize: mode === 'there' ? 14 : 15, lineHeight: 20 }, unreadChats.has(cv.conversationId) ? { color: c.text, fontWeight: '700' } : null]}>
+                      <Text numberOfLines={1} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '700' }}>{cv.title}</Text>
+                      <Text numberOfLines={1} style={[{ color: c.muted, fontSize: mode === 'there' ? 14 : 15, lineHeight: 20, fontWeight: '500' }, unreadChats.has(cv.conversationId) ? { color: c.text, fontWeight: '700' } : null]}>
                         {cv.lastMessage ? `${cv.lastMessage.from ? `${cv.lastMessage.from === 'You' ? t('You') : cv.lastMessage.from}: ` : ''}${cv.lastMessage.body}` : `${t('No messages yet')}${cv.startsAt ? ` · ${when(cv.startsAt)}` : ''}`}
                       </Text>
                     </View>
@@ -436,11 +441,11 @@ export function Inbox() {
                         <Avatar name={name} uri={r.applicant.photoUrl} size={40} />
                         <View style={{ flex: 1, gap: 2 }}>
                           <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <Text style={{ color: c.text, fontSize: mode === 'there' ? 16.5 : 17, lineHeight: 22, fontWeight: '600' }}>{name}</Text>
+                            <Text style={{ color: c.text, fontSize: mode === 'there' ? 16.5 : 17, lineHeight: 22, fontWeight: '700' }}>{name}</Text>
                             {mode === 'there' && joinedAt(w.id) ? <Text style={{ color: c.muted, fontSize: 11, lineHeight: 22 }}>{`${ago(joinedAt(w.id)!)} ${t('ago')}`}</Text> : null}
                           </Row>
-                          <Text style={{ color: c.muted, fontSize: mode === 'there' ? 14.5 : 15, lineHeight: 21 }}>
-                            {t('wants to join')} <Text style={{ color: c.text, fontWeight: '600' }}>{w.title || t('your activity')}</Text>
+                          <Text style={{ color: c.muted, fontSize: mode === 'there' ? 14.5 : 15, lineHeight: 21, fontWeight: '500' }}>
+                            {t('wants to join')} <Text style={{ color: c.text, fontWeight: '700' }}>{w.title || t('your activity')}</Text>
                             {w.pending.length > 1 ? ` ${t('(+{n} more waiting)', { n: w.pending.length - 1 })}` : ''}
                           </Text>
                         </View>

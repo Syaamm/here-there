@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
-import { ActivityCard, TripCard } from '@/components/Cards';
+import { ActivityCard, TripCompactCard } from '@/components/Cards';
 import { Text } from '@/components/ScaledText';
 import { StatsCard } from '@/components/StatsCard';
 import { ReliabilityIcon } from '@/components/ProfileParts';
@@ -19,7 +19,8 @@ import { backFromMain } from '@/lib/nav';
 import { useReportsBadge } from '@/lib/reportsSeen';
 
 
-const HERE_MINT = '#B7DBCF';
+const HERE_MINT = '#E1F0E9'; // the wash behind the photo: a soft pale green (it was a stronger mint), fading in from white above
+const THERE_WASH = '#D9CDB4'; // THERE's: white at the top fading to sand behind the stats card (as in the design)
 /** the guest's "get verified to edit" badge on the photo */
 const WARN_AMBER = '#D4930F';
 const csv = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
@@ -131,7 +132,7 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
   );
 
   return (
-    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={band} headerBg={there ? c.sand : HERE_MINT} bandFade="#FFFFFF" bandDark={false} style={{ paddingTop: 20 }}>
+    <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} header={band} headerBg={there ? THERE_WASH : HERE_MINT} bandFade="#FFFFFF" bandDark={false} style={{ paddingTop: 20 }}>
       <>
           <StatsCard hosted={stats.data?.stats.activitiesHosted} joined={stats.data?.stats.activitiesJoined} trips={stats.data?.stats.tripsDone} />
           {there ? <>{reliabilityRow}{travelRow}{buddiesRow}</> : <>{buddiesRow}{reliabilityRow}</>}
@@ -208,7 +209,7 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
             {tripItems.slice(0, TRIPS_SHOWN).map((x) =>
               'joined' in x ? (
                 <View key={x.key} style={{ gap: 6 }}>
-                  <TripCard t={x.joined} />
+                  <TripCompactCard t={x.joined} />
                   <Row>
                     <Chip label={x.joined.role === 'organizer' ? t('You organize this') : t('In the group')} tone="ok" />
                     {x.joined.role === 'organizer' && <Btn title={t('Review applications ›')} variant="ghost" small onPress={() => go(`/review/${x.joined.id}`)} />}
@@ -216,7 +217,7 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
                 </View>
               ) : (
                 <View key={x.key} style={{ gap: 6 }}>
-                  <TripCard t={x.app.trip} />
+                  <TripCompactCard t={x.app.trip} />
                   <Chip label={x.app.state === 'pending' ? t('Pending organizer review') : x.app.state === 'waitlisted' ? t('Waitlisted') : t('Not approved')} tone={x.app.state === 'declined' ? 'bad' : 'warn'} />
                 </View>
               ),

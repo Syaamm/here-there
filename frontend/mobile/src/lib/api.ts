@@ -352,7 +352,7 @@ export const put = <T = any>(p: string, b: unknown = {}) => api<T>('PUT', p, b);
 /** An activity or trip saved for later. `data` is the form as the person left it. */
 export type ServerDraft = { id: string; kind: 'activity' | 'trip'; title: string | null; data: Record<string, unknown>; updatedAt: string };
 /** A person's request to have a decision looked at again. */
-export type MyAppeal = { proofs?: string[]; targetId?: string | null; id: string; kind: 'verification' | 'suspension' | 'removal' | 'report' | 'warning' | 'message'; what: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null; message: string; createdAt: string; decidedAt: string | null };
+export type MyAppeal = { thread?: { id: string; fromStaff: boolean; body: string; createdAt: string }[]; proofs?: string[]; targetId?: string | null; id: string; kind: 'verification' | 'suspension' | 'removal' | 'report' | 'warning' | 'message'; what: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null; message: string; createdAt: string; decidedAt: string | null };
 
 // ---------------------------------------------------------------- shared types
 /** One row of "my trips" from the server: a trip you organise or are in, or one you applied to. */
@@ -455,6 +455,9 @@ export type Trip = {
   favorited?: boolean;
   title: string;
   destination: string;
+  /** where the destination is on the map (trips made before this existed have none) */
+  lat?: number | null;
+  lng?: number | null;
   /** where the group leaves from together; empty for a "meet at destination" trip */
   originCity: string;
   /** how the group gets there: leaving together from originCity, or each on their own and meeting at the destination */
@@ -520,4 +523,4 @@ export type GroupInfo = {
   members: { id: string; displayName: string; photoUrl: string | null; verifiedAdult: boolean; role: 'host' | 'member'; isMe: boolean }[];
 };
 
-export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip' | 'match'; scopeId: string; title: string; category?: string | null; startsAt?: string; endsAt?: string; /** the newest message: who wrote it ("You" for yours), the first 140 characters and when */ lastMessage?: { body: string; at: string; from: string | null } | null };
+export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip' | 'match'; scopeId: string; title: string; category?: string | null; startsAt?: string; endsAt?: string; /** the time the server orders and pages the list by: the newest message, or when the chat was made if nobody has written yet */ lastMessageAt?: string; /** the newest message: who wrote it ("You" for yours), the first 140 characters and when */ lastMessage?: { body: string; at: string; from: string | null } | null };

@@ -1,0 +1,14 @@
+.rc { position: fixed; z-index: 60; width: 308px; padding: 16px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: 0 12px 32px rgba(18, 48, 43, 0.18); display: grid; gap: 8px; }
+.rc-head { display: flex; align-items: center; justify-content: space-between; }
+.rc-nav { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 50%; background: var(--surface); color: var(--text); cursor: pointer; padding: 0; }
+.rc-nav:disabled { opacity: 0.35; cursor: default; }
+.rc-nav:hover:not(:disabled) { background: var(--surface-2); }
+.rc-hint { margin: 0; text-align: center; font-size: var(--fs-sm); color: var(--muted); }
+.rc-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 4px; }
+.rc-dow { text-align: center; font-size: var(--fs-xs); color: var(--muted); padding: 4px 0; }
+.rc-day { height: 36px; border: 0; background: none; font: inherit; font-size: var(--fs-sm); color: var(--text); cursor: pointer; padding: 0; border-radius: 0; }
+.rc-day:hover:not(:disabled):not(.edge) { background: var(--surface-2); border-radius: 50%; }
+.rc-day:disabled { color: var(--line-2); cursor: default; }
+.rc-day.in { background: var(--ok-bg); }
+.rc-day.edge { background: var(--accent-strong, #12302b); color: #fff; border-radius: 50%; font-weight: 700; }
+.rc-day.today:not(.edge) { font-weight: 700; text-decoration: underline; }

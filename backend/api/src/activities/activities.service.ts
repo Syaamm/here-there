@@ -55,6 +55,9 @@ export const updateSchema = createSchema
 export const listSchema = z.object({
   city: z.string().trim().optional(),
   category: z.enum(CATEGORIES).optional(),
+  // words to look for (the map's search): in the title, venue, tags and category. 2 to 40 characters, at most 3 words, so one
+  // search stays a cheap query; it only ever runs inside the date window and the area, which are indexed.
+  q: z.string().trim().min(2).max(40).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   lat: z.coerce.number().min(-90).max(90).optional(),
@@ -310,6 +313,18 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const area = geo && q.area === 'true'; // the city's area: by distance, or by name for activities with no position
     if (q.city && !area) and.push({ cityKey: q.city.toLowerCase() });
     if (q.category) and.push({ category: q.category });
+    // every word has to match somewhere (title, venue, tags), or be a category ("coffee" finds the Coffee ones)
+    for (const word of q.q?.toLowerCase().split(/\s+/).filter((w) => w.length >= 2).slice(0, 3) ?? []) {
+      const cats = CATEGORIES.filter((c) => c.startsWith(word) || word.startsWith(c));
+      and.push({
+        OR: [
+          { title: { contains: word, mode: 'insensitive' } },
+          { venueName: { contains: word, mode: 'insensitive' } },
+          { tags: { contains: word, mode: 'insensitive' } },
+          ...(cats.length ? [{ category: { in: [...cats] } }] : []),
+        ],
+      });
+    }
 
     if (geo) {
       const dLat = q.radiusKm! / 111;

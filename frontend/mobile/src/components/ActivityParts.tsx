@@ -122,7 +122,7 @@ export function GoingGrid({ people, capacity, a11y, onOpen }: { people: Slot[]; 
   const scrolls = slots > 5;
   const cellW = scrolls ? Math.max(58, (width - GAP * 5) / 5.4) : undefined; // five and a bit: the peeking sixth says "scroll"
   const cell = (x: (typeof cells)[number]) => (
-    <View key={x.p.id} style={[{ alignItems: 'center', gap: 14 }, cellW ? { width: cellW } : { flex: 1 }]}>
+    <View key={x.p.id} style={[{ alignItems: 'center', gap: 10 }, cellW ? { width: cellW } : { flex: 1 }]}>
       <View style={{ alignSelf: 'stretch', height: 4, borderRadius: 2, backgroundColor: x.kind === 'person' ? c.forest : c.line }} />
       <Pressable
         accessible={!!onOpen && x.kind === 'person'}
@@ -130,11 +130,11 @@ export function GoingGrid({ people, capacity, a11y, onOpen }: { people: Slot[]; 
         accessibilityLabel={x.kind === 'person' ? `${t('Open the profile of {name}', { name: x.p.name ?? '' })}${x.p.friend ? `, ${t('Friend')}` : ''}${x.p.answered === true ? `, ${t('answered')}` : x.p.answered === false ? `, ${t('not answered yet')}` : ''}` : undefined}
         disabled={!onOpen || x.kind !== 'person'}
         onPress={() => onOpen?.(x.p.id)}
-        style={({ pressed: p }) => [{ alignItems: 'center', gap: 8 }, p && { opacity: 0.7, transform: [{ scale: 0.96 }] }]}
+        style={({ pressed: p }) => [{ alignItems: 'center', gap: 5 }, p && { opacity: 0.7, transform: [{ scale: 0.96 }] }]}
       >
         {x.kind === 'person' ? (
           <View style={{ borderRadius: 999, borderWidth: 2, borderColor: x.p.host ? c.green : c.bg, opacity: x.p.answered === false ? 0.55 : 1 }}>
-            <Avatar name={x.p.name} uri={x.p.uri} size={52} />
+            <Avatar name={x.p.name} uri={x.p.uri} size={42} />
             {/* after it ended: a check on everyone who has answered whether they were there; the others are faded */}
             {x.p.answered ? (
               <View accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', right: -3, top: -3, width: 20, height: 20, borderRadius: 10, backgroundColor: c.forest, borderWidth: 2, borderColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -149,11 +149,11 @@ export function GoingGrid({ people, capacity, a11y, onOpen }: { people: Slot[]; 
             ) : null}
           </View>
         ) : (
-          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="person-add-outline" size={20} color={c.forest} />
+          <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="person-add-outline" size={18} color={c.forest} />
           </View>
         )}
-        <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{x.kind === 'open' ? t('Open') : x.p.host ? t('Host') : x.p.friend ? `${(x.p.name ?? '').split(' ')[0]} · ${t('Friend')}` : (x.p.name ?? '').split(' ')[0]}</Text>
+        <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 15 }}>{x.kind === 'open' ? t('Open') : x.p.host ? t('Host') : x.p.friend ? `${(x.p.name ?? '').split(' ')[0]} · ${t('Friend')}` : (x.p.name ?? '').split(' ')[0]}</Text>
       </Pressable>
     </View>
   );

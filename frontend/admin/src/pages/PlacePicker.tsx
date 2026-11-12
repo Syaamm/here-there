@@ -26,7 +26,7 @@ export function PlaceSwitcher({ current, onPick, onClose }: { current: string; o
 
   const row = (key: string, name: string, meta: string, depth = 0) => (
     <li key={key}>
-      <button className={key === current ? 'list-item active' : 'list-item'} aria-current={key === current ? 'true' : undefined} style={{ paddingLeft: 14 + depth * 20 }} onClick={() => onPick(key, name)}>
+      <button className={key === current ? 'list-item active' : 'list-item'} aria-current={key === current ? 'true' : undefined} style={{ paddingLeft: 16 + depth * 20 }} onClick={() => onPick(key, name)}>
         <span className="body">
           <span className="title">{name}</span>
           <span className="meta">{meta}</span>
@@ -44,6 +44,11 @@ export function PlaceSwitcher({ current, onPick, onClose }: { current: string; o
           <span className="sr">Search places</span>
           <Icon name="search" />
           <input type="search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+          {q && (
+            <button type="button" className="search-clear" aria-label="Clear the search" onClick={(e) => (e.preventDefault(), setQ(''))}>
+              <Icon name="x" />
+            </button>
+          )}
         </label>
         <ErrorBanner message={error} />
         {loading && !data ? (

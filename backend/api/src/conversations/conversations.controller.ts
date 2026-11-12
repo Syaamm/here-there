@@ -535,6 +535,7 @@ export class ConversationsService {
       return {
         conversationId: c.id,
         ...base,
+        lastMessageAt: c.lastMessageAt, // the key the list is ordered and paged by, so the app can keep the same order
         lastMessage: m ? { body: m.body.slice(0, 140), at: m.createdAt, from: m.senderId === me.id ? 'You' : (m.sender.profile?.displayName ?? null) } : null,
       };
     });

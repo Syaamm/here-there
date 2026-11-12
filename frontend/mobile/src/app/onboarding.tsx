@@ -12,6 +12,7 @@ import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { keyboardTaps } from '@/lib/keyboard';
+import { StepTransition } from '@/components/StepMotion';
 
 type Step = 'email' | 'wishlist' | 'window' | 'companions' | 'interests' | 'city' | 'languages';
 
@@ -129,6 +130,8 @@ export default function Onboarding() {
     <Screen scroll={false} maxWidth={600}>
       <OnboardingTop progress={progress} onBack={at > 0 ? () => setStep(order[at - 1]) : undefined} onSkip={step === 'city' ? undefined : next} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24, paddingBottom: 12 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
+        {/* swipe left for the next question (once this one is answered), right for the one before: the same as the steps of creating an activity */}
+        <StepTransition step={at} style={{ gap: 24 }} swipe={{ canNext: !last && ready, canBack: at > 0, onNext: () => setStep(order[at + 1]), onBack: () => setStep(order[at - 1]) }}>
         {step === 'wishlist' && (
           <>
             <OnboardingHeading title={t('Where would you love to go?')} subtitle={t('Choose a few destinations on your travel wishlist.')} />
@@ -186,6 +189,7 @@ export default function Onboarding() {
             </View>
           </>
         )}
+        </StepTransition>
       </ScrollView>
       <ErrorBanner message={act.error} />
       <AuthButton title={t('Next')} onPress={next} loading={act.busy} disabled={!ready} />

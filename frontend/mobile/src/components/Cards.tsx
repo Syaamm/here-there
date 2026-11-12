@@ -10,6 +10,7 @@ import { localeTag, t as tr, tn as trn, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { CatPhoto } from './CatPhoto';
 import { sc } from '@/lib/scale';
+import { FS, LH, type } from '@/lib/type';
 import { Avatar, Btn, Card, Chip, Row, Txt, useGo } from './ui';
 import { tripFrom } from '@/lib/travelStyle';
 import { TravelStyleBadge } from './TravelStyleBadge';
@@ -83,7 +84,7 @@ function startsIn(iso: string) {
  * sends the first three in `faces`), then a dark "+n" circle when more are going. If a face is missing (an older answer from
  * the server) the host's own face and a plain person circle stand in.
  */
-function Faces({ a }: { a: Activity }) {
+function Faces({ a, size = 29 }: { a: Activity; size?: number }) {
   const { c } = useTheme();
   const people = Math.min(Math.max(1, a.going), 3);
   const extra = a.going - people;
@@ -94,16 +95,16 @@ function Faces({ a }: { a: Activity }) {
       {faces.map((f, i) =>
         f ? (
           <View key={f.id} style={[ring, { marginLeft: i === 0 ? 0 : -7 }]}>
-            <Avatar name={f.displayName} uri={f.photoUrl} size={29} />
+            <Avatar name={f.displayName} uri={f.photoUrl} size={size} />
           </View>
         ) : (
-          <View key={`p${i}`} style={[ring, { marginLeft: -7, width: 32, height: 32, backgroundColor: c.line, alignItems: 'center', justifyContent: 'center' }]}>
+          <View key={`p${i}`} style={[ring, { marginLeft: -7, width: sc(size + 3), height: sc(size + 3), backgroundColor: c.line, alignItems: 'center', justifyContent: 'center' }]}>
             <Ionicons name="person" size={15} color={c.muted} />
           </View>
         ),
       )}
       {extra > 0 ? (
-        <View style={[ring, { marginLeft: -7, width: 32, height: 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }]}>
+        <View style={[ring, { marginLeft: -7, width: sc(size + 3), height: sc(size + 3), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }]}>
           <Text style={{ color: '#fff', fontSize: 11.5, lineHeight: 16, fontWeight: '600', textAlign: 'center', ...FLAT }}>{extra > 99 ? '99+' : `+${extra}`}</Text>
         </View>
       ) : null}
@@ -127,12 +128,12 @@ export function ActivityBigCard({ a, tag, status: given, accessibilityLabel }: {
   const full = a.spotsLeft === 0;
   const open = () => go(`/activity/${a.id}`);
   return (
-    <View style={{ backgroundColor: c.surface, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 13, gap: 12 }}>
+    <View style={{ backgroundColor: c.surface, borderRadius: sc(30), borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: sc(13), gap: sc(12) }}>
       {/* the picture and the facts open the activity; the button below is its own control (a button cannot sit inside another) */}
-      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? goingLine(a)} onPress={open} style={{ gap: 12 }}>
-        <CatPhoto category={a.category} style={{ height: sc(173), borderRadius: 24 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? goingLine(a)} onPress={open} style={{ gap: sc(12) }}>
+        <CatPhoto category={a.category} style={{ height: sc(145), borderRadius: sc(24) }}>
           {tag ? (
-            <View style={{ position: 'absolute', left: 14, top: 14, backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 }}>
+            <View style={{ position: 'absolute', left: sc(14), top: sc(14), backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: sc(11), paddingVertical: sc(4) }}>
               <Text style={{ color: '#fff', fontSize: 11.5, lineHeight: 16, fontWeight: '500', ...FLAT }}>{tag}</Text>
             </View>
           ) : null}
@@ -147,14 +148,14 @@ export function ActivityBigCard({ a, tag, status: given, accessibilityLabel }: {
             </View>
           ) : null}
         </CatPhoto>
-        <View style={{ paddingHorizontal: 5, gap: 8 }}>
+        <View style={{ paddingHorizontal: 8, gap: 10 }}>
           <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-            <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{a.title}</Txt>
-            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 26, fontWeight: '600', ...FLAT }}>{full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+            <Txt variant="h2" numberOfLines={2} style={[type.cardTitle, { flex: 1 }]}>{a.title}</Txt>
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: FS.caption, lineHeight: LH.caption, fontWeight: '500', ...FLAT }}>{full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
           </Row>
           <Row style={{ gap: 5 }}>
             <Ionicons name="location-outline" size={16} color={c.muted} />
-            <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 14, lineHeight: 19 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
+            <Txt variant="muted" numberOfLines={1} style={[type.button, { flex: 1, fontWeight: '400' }]}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
           </Row>
           <Row style={{ gap: 10 }}>
             <Faces a={a} />
@@ -167,9 +168,9 @@ export function ActivityBigCard({ a, tag, status: given, accessibilityLabel }: {
         accessibilityLabel={tr('See details: {title}', { title: a.title })}
         onPress={open}
         hitSlop={{ top: 2, bottom: 2 }}
-        style={({ pressed }) => [{ height: 42, borderRadius: 21, borderWidth: 1, borderColor: 'rgba(0,0,0,0.16)', backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+        style={({ pressed }) => [{ height: sc(42), borderRadius: sc(21), borderWidth: 1, borderColor: 'rgba(0,0,0,0.16)', backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
       >
-        <Txt variant="h3" color={c.text} style={{ fontSize: 13, fontWeight: '500' }}>{tr('See details')}</Txt>
+        <Txt variant="h3" color={c.text} style={type.button}>{tr('See details')}</Txt>
       </Pressable>
     </View>
   );
@@ -196,36 +197,43 @@ function ActivityRowBase({ a }: { a: Activity }) {
   const full = a.spotsLeft === 0;
   const circle = circleLine(a.buddiesGoing, a.followingGoing);
   const mine = mineStatus(a);
+  const live = a.status === 'in_progress';
+  // one layout for every row card (activities and trips): picture on the left; title with the places left at its right end, the
+  // time and place, small tags; and along the bottom the faces, how many are going, and your friends at the right
   return (
     <Pressable
       accessibilityRole="button"
       onPress={() => go(`/activity/${a.id}`)}
       accessibilityLabel={goingLine(a)}
-      style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 11, gap: 10, minHeight: 44 }, pressed && { opacity: 0.92 }]}
+      style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: sc(20), borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: sc(10), gap: sc(8), minHeight: 44 }, pressed && { opacity: 0.92 }]}
     >
-      <Row style={{ gap: 14, alignItems: 'flex-start' }}>
-        <CatPhoto category={a.category} style={{ width: sc(72), height: sc(72), borderRadius: 18 }} />
-        <View style={{ flex: 1, gap: 4, paddingTop: 1 }}>
-          <Txt variant="h3" numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{a.title}</Txt>
-          {a.host?.sample ? <SampleTag /> : null}
+      <Row style={{ gap: sc(12), alignItems: 'flex-start' }}>
+        <CatPhoto category={a.category} style={{ width: sc(56), height: sc(56), borderRadius: sc(14) }} />
+        <View style={{ flex: 1, gap: 4 }}>
+          <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <Txt variant="h3" numberOfLines={2} style={{ flex: 1, fontSize: FS.body, lineHeight: LH.body, fontWeight: '600' }}>{a.title}</Txt>
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: FS.caption, lineHeight: LH.body, fontWeight: '600', ...FLAT }}>{full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+          </Row>
           <Row style={{ gap: 4 }}>
             <Ionicons name="location-outline" size={14} color={c.muted} />
             <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 13, lineHeight: 17 }}>{clock(a.startsAt)} · {place(a.venueName)}</Txt>
           </Row>
-          <Row style={{ gap: 8, flexWrap: 'wrap' }}>
-            {mine ? <Chip label={mine.label} tone={mine.tone} /> : null}
-            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 16, fontWeight: '600', ...FLAT }}>
-              {a.status === 'in_progress' ? `${tr('Happening now')} · ` : ''}
-              {full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')}
-            </Text>
-          </Row>
+          {mine || live || a.host?.sample ? (
+            <Row style={{ gap: 6, flexWrap: 'wrap' }}>
+              {live ? <Chip label={tr('Happening now')} tone="ok" /> : null}
+              {mine ? <Chip label={mine.label} tone={mine.tone} /> : null}
+              {a.host?.sample ? <SampleTag /> : null}
+            </Row>
+          ) : null}
         </View>
       </Row>
       <Row style={{ gap: 10 }}>
-        <Faces a={a} />
-        <Txt variant="small" numberOfLines={1} style={{ flex: 1 }}>{tr('{going} of {capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
+        <Faces a={a} size={22} />
+        <Txt variant="small" numberOfLines={1} style={{ flex: 1 }}>
+          {tr('{going} of {capacity} going', { going: a.going, capacity: a.capacity })}
+          {circle ? <Text style={{ color: c.green, fontWeight: '600' }}>{` · ${circle}`}</Text> : null}
+        </Txt>
       </Row>
-      {circle ? <Txt variant="small" bold color={c.green}>{circle}</Txt> : null}
     </Pressable>
   );
 }
@@ -256,23 +264,23 @@ function ActivityCardBase({ a, onPress, plain }: { a: Activity; onPress?: () => 
     <Card
       onPress={onPress ?? (() => go(`/activity/${a.id}`))}
       accessibilityLabel={`${a.title}, ${ended ? `${ended.text}, ` : ''}${when(a.startsAt)}, ${a.venueName}, ${trn(a.spotsLeft, '{n} spot left', '{n} spots left')}${onPress ? tr('. Show on the map') : ''}`}
-      style={{ flexDirection: 'row', gap: 10, alignItems: 'center', borderRadius: 12, padding: 8 }}
+      style={{ flexDirection: 'row', gap: sc(14), alignItems: 'center', borderRadius: sc(20), padding: sc(12) }}
     >
-      <CatPhoto category={a.category} style={{ width: 42, height: 42, borderRadius: 10, opacity: ended ? 0.4 : 1 }} />
-      <View style={{ flex: 1, gap: 1 }}>
-        <View style={{ opacity: ended ? 0.5 : 1, gap: 1 }}>
-          <Txt variant="h3" numberOfLines={1} style={{ fontSize: 13, lineHeight: 17 }}>{a.title}</Txt>
-          <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
+      <CatPhoto category={a.category} style={{ width: sc(60), height: sc(60), borderRadius: sc(14), opacity: ended ? 0.4 : 1 }} />
+      <View style={{ flex: 1, gap: 4 }}>
+        <View style={{ opacity: ended ? 0.5 : 1, gap: 4 }}>
+          <Txt variant="h3" numberOfLines={1} style={[type.body, { fontWeight: '600' }]}>{a.title}</Txt>
+          <Txt variant="small" numberOfLines={1} style={[type.button, { fontWeight: '400' }]}>
             {clock(a.startsAt)} · {a.venueName}
             {a.distanceKm !== undefined ? ` · ${a.distanceKm} km` : ''}
           </Txt>
-          <Txt variant="small" numberOfLines={1} style={{ fontSize: 11, lineHeight: 15 }}>
+          <Txt variant="small" numberOfLines={1} style={[type.button, { fontWeight: '400' }]}>
             {tr('{n} going', { n: a.going })} · {full ? tr('Full') : trn(a.spotsLeft, '{n} spot left', '{n} spots left')} · {catLabel(a.category)}
           </Txt>
-          {circleLine(a.buddiesGoing, a.followingGoing) ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>{circleLine(a.buddiesGoing, a.followingGoing)}</Txt> : null}
+          {circleLine(a.buddiesGoing, a.followingGoing) ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={type.button}>{circleLine(a.buddiesGoing, a.followingGoing)}</Txt> : null}
         </View>
-        {ended ? <Txt variant="small" bold color={ended.color} style={{ fontSize: 11, lineHeight: 15 }}>{ended.text}</Txt> : null}
-        {live ? <Txt variant="small" bold color={c.green} style={{ fontSize: 11, lineHeight: 15 }}>{tr('Happening now')}</Txt> : null}
+        {ended ? <Txt variant="small" bold color={ended.color} style={type.button}>{ended.text}</Txt> : null}
+        {live ? <Txt variant="small" bold color={c.green} style={type.button}>{tr('Happening now')}</Txt> : null}
       </View>
     </Card>
   );
@@ -351,6 +359,39 @@ function TripCardBase({ t }: { t: Trip }) {
   );
 }
 
+/**
+ * A trip in the same compact card as ActivityCard (a small picture, the destination, when and from where, how many are going and
+ * the places left): for lists of your own trips, so they look like your activities.
+ */
+function TripCompactCardBase({ t }: { t: Trip }) {
+  useT();
+  const go = useGo();
+  const { c } = useTheme();
+  const full = t.spotsLeft === 0 || t.status === 'full';
+  const ended = t.status === 'cancelled' ? { text: tr('Cancelled'), color: c.danger } : t.status === 'completed' ? { text: tr('Completed'), color: c.green } : null;
+  const circle = circleLine(t.buddiesGoing, t.followingGoing);
+  return (
+    <Card
+      onPress={() => go(`/trip/${t.id}`)}
+      accessibilityLabel={`${t.destination}, ${ended ? `${ended.text}, ` : ''}${dateSpan(t.dateStart, t.dateEnd)}, ${tr('{members} of {capacity} going', { members: t.members, capacity: t.maxCapacity })}, ${full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}`}
+      style={{ flexDirection: 'row', gap: sc(14), alignItems: 'center', borderRadius: sc(20), padding: sc(12) }}
+    >
+      <TripThumb t={t} size={26} style={{ width: sc(60), height: sc(60), borderRadius: sc(14), opacity: ended ? 0.4 : 1 }} />
+      <View style={{ flex: 1, gap: 4 }}>
+        <View style={{ opacity: ended ? 0.5 : 1, gap: 4 }}>
+          <Txt variant="h3" numberOfLines={1} style={[type.body, { fontWeight: '600' }]}>{t.destination}</Txt>
+          <Txt variant="small" numberOfLines={1} style={[type.button, { fontWeight: '400' }]}>{tripWhen(t)}</Txt>
+          <Txt variant="small" numberOfLines={1} style={[type.button, { fontWeight: '400' }]}>
+            {tr('{n} going', { n: t.members })} · {full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}
+          </Txt>
+          {circle ? <Txt variant="small" numberOfLines={1} bold color={c.green} style={type.button}>{circle}</Txt> : null}
+        </View>
+        {ended ? <Txt variant="small" bold color={ended.color} style={type.button}>{ended.text}</Txt> : null}
+      </View>
+    </Card>
+  );
+}
+
 /** "in 5 days", "in 3 weeks", "in 2 months", or "under way" once the trip has begun. */
 function tripStartsIn(iso: string) {
   const days = Math.ceil((+new Date(iso) - Date.now()) / 864e5);
@@ -387,17 +428,17 @@ export function TripThumb({ t, style, size, children }: { t: Trip; style: object
 }
 
 /** Who is going: the organiser's face, then a dark "+n" circle for the others (the server sends no other faces for trips). */
-function TripFaces({ t }: { t: Trip }) {
+function TripFaces({ t, size = 29 }: { t: Trip; size?: number }) {
   const { c } = useTheme();
   const extra = Math.max(0, t.members - 1);
   const ring = { borderRadius: 999, borderWidth: 1.5, borderColor: c.surface };
   return (
     <View accessibilityElementsHidden importantForAccessibility="no" style={{ flexDirection: 'row', alignItems: 'center' }}>
       <View style={ring}>
-        <Avatar name={t.host.displayName} uri={t.host.photoUrl} size={29} />
+        <Avatar name={t.host.displayName} uri={t.host.photoUrl} size={size} />
       </View>
       {extra > 0 ? (
-        <View style={[ring, { marginLeft: -7, width: 32, height: 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }]}>
+        <View style={[ring, { marginLeft: -7, width: sc(size + 3), height: sc(size + 3), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }]}>
           <Text style={{ color: '#fff', fontSize: 11.5, lineHeight: 16, fontWeight: '600', textAlign: 'center', ...FLAT }}>{extra > 99 ? '99+' : `+${extra}`}</Text>
         </View>
       ) : null}
@@ -421,12 +462,12 @@ export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; t
   const open = () => go(`/trip/${t.id}`);
   const circle = circleLine(t.buddiesGoing, t.followingGoing);
   return (
-    <View style={{ backgroundColor: c.surface, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 13, gap: 12 }}>
+    <View style={{ backgroundColor: c.surface, borderRadius: sc(30), borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: sc(13), gap: sc(12) }}>
       {/* the picture and the facts open the trip; the button below is its own control (a button cannot sit inside another) */}
-      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} spot left', ', {n} spots left'))} onPress={open} style={{ gap: 12 }}>
-        <TripThumb t={t} size={44} style={{ height: sc(173), borderRadius: 24 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} spot left', ', {n} spots left'))} onPress={open} style={{ gap: sc(12) }}>
+        <TripThumb t={t} size={44} style={{ height: sc(145), borderRadius: sc(24) }}>
           {tag ? (
-            <View style={{ position: 'absolute', left: 14, top: 14, backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 }}>
+            <View style={{ position: 'absolute', left: sc(14), top: sc(14), backgroundColor: 'rgba(0,0,0,0.32)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: sc(11), paddingVertical: sc(4) }}>
               <Text style={{ color: '#fff', fontSize: 11.5, lineHeight: 16, fontWeight: '500', ...FLAT }}>{tag}</Text>
             </View>
           ) : null}
@@ -445,14 +486,14 @@ export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; t
             </View>
           ) : null}
         </TripThumb>
-        <View style={{ paddingHorizontal: 5, gap: 8 }}>
+        <View style={{ paddingHorizontal: 8, gap: 10 }}>
           <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-            <Txt variant="h2" numberOfLines={2} style={{ flex: 1, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t.destination}</Txt>
-            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 26, fontWeight: '600', ...FLAT }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+            <Txt variant="h2" numberOfLines={2} style={[type.cardTitle, { flex: 1 }]}>{t.destination}</Txt>
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: FS.caption, lineHeight: LH.caption, fontWeight: '500', ...FLAT }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
           </Row>
           <Row style={{ gap: 5 }}>
             <Ionicons name="location-outline" size={16} color={c.muted} />
-            <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 14, lineHeight: 19 }}>{tripWhen(t)}</Txt>
+            <Txt variant="muted" numberOfLines={1} style={[type.button, { flex: 1, fontWeight: '400' }]}>{tripWhen(t)}</Txt>
           </Row>
           <Row style={{ gap: 10 }}>
             <TripFaces t={t} />
@@ -467,9 +508,9 @@ export function TripBigCard({ t, tag, status, accessibilityLabel }: { t: Trip; t
         accessibilityLabel={tr('See details: {title}', { title: t.destination })}
         onPress={open}
         hitSlop={{ top: 2, bottom: 2 }}
-        style={({ pressed }) => [{ height: 42, borderRadius: 21, borderWidth: 1, borderColor: 'rgba(0,0,0,0.16)', backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+        style={({ pressed }) => [{ height: sc(42), borderRadius: sc(21), borderWidth: 1, borderColor: 'rgba(0,0,0,0.16)', backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
       >
-        <Txt variant="h3" color={c.text} style={{ fontSize: 13, fontWeight: '500' }}>{tr('See details')}</Txt>
+        <Txt variant="h3" color={c.text} style={type.button}>{tr('See details')}</Txt>
       </Pressable>
     </View>
   );
@@ -482,34 +523,39 @@ function TripRowBase({ t }: { t: Trip }) {
   const { c } = useTheme();
   const full = t.spotsLeft === 0 || t.status === 'full';
   const circle = circleLine(t.buddiesGoing, t.followingGoing);
+  // the same layout as the activity row (ActivityRowBase)
   return (
     <Pressable
       accessibilityRole="button"
       onPress={() => go(`/trip/${t.id}`)}
       accessibilityLabel={tripLine(t) + (full ? tr(', full') : trn(t.spotsLeft, ', {n} spot left', ', {n} spots left'))}
-      style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: 11, gap: 10, minHeight: 44 }, pressed && { opacity: 0.92 }]}
+      style={({ pressed }) => [{ backgroundColor: c.surface, borderRadius: sc(20), borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', padding: sc(10), gap: sc(8), minHeight: 44 }, pressed && { opacity: 0.92 }]}
     >
-      <Row style={{ gap: 14, alignItems: 'flex-start' }}>
-        <TripThumb t={t} size={26} style={{ width: sc(72), height: sc(72), borderRadius: 18 }} />
-        <View style={{ flex: 1, gap: 5, paddingTop: 2 }}>
-          <Txt variant="h3" numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{t.destination}</Txt>
-          <Row style={{ gap: 6, flexWrap: 'wrap' }}>
-            <TravelStyleBadge trip={t} small />
-            {t.host?.sample ? <SampleTag /> : null}
+      <Row style={{ gap: sc(12), alignItems: 'flex-start' }}>
+        <TripThumb t={t} size={26} style={{ width: sc(56), height: sc(56), borderRadius: sc(14) }} />
+        <View style={{ flex: 1, gap: 4 }}>
+          <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <Txt variant="h3" numberOfLines={2} style={{ flex: 1, fontSize: FS.body, lineHeight: LH.body, fontWeight: '600' }}>{t.destination}</Txt>
+            <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: FS.caption, lineHeight: LH.body, fontWeight: '600', ...FLAT }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
           </Row>
           <Row style={{ gap: 4 }}>
             <Ionicons name="location-outline" size={14} color={c.muted} />
             <Txt variant="muted" numberOfLines={1} style={{ flex: 1, fontSize: 13, lineHeight: 17 }}>{tripWhen(t)}</Txt>
           </Row>
-          <Text style={{ color: full ? c.danger : SPOTS_GREEN, fontSize: 12, lineHeight: 16, fontWeight: '600', ...FLAT }}>{full ? tr('Full') : trn(t.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
+          <Row style={{ gap: 6, flexWrap: 'wrap' }}>
+            <TravelStyleBadge trip={t} small />
+            {t.host?.sample ? <SampleTag /> : null}
+            {t.match?.dates === 'approximate' ? <Chip label={tr('Approximate dates')} tone="warn" /> : null}
+          </Row>
         </View>
       </Row>
       <Row style={{ gap: 10 }}>
-        <TripFaces t={t} />
-        <Txt variant="small" numberOfLines={1} style={{ flex: 1 }}>{tr('{members} of {capacity} going', { members: t.members, capacity: t.maxCapacity })}</Txt>
+        <TripFaces t={t} size={22} />
+        <Txt variant="small" numberOfLines={1} style={{ flex: 1 }}>
+          {tr('{members} of {capacity} going', { members: t.members, capacity: t.maxCapacity })}
+          {circle ? <Text style={{ color: c.green, fontWeight: '600' }}>{` · ${circle}`}</Text> : null}
+        </Txt>
       </Row>
-      {t.match?.dates === 'approximate' ? <Txt variant="small" bold color={c.warnFg}>{tr('Approximate dates')}</Txt> : null}
-      {circle ? <Txt variant="small" bold color={c.green}>{circle}</Txt> : null}
     </Pressable>
   );
 }
@@ -566,5 +612,6 @@ export const ActivityBig = memo(ActivityBigCard, sameCard);
 export const ActivityCard = memo(ActivityCardBase, sameCard);
 export const TripFeatureCard = memo(TripFeatureCardBase, sameCard);
 export const TripCard = memo(TripCardBase, sameCard);
+export const TripCompactCard = memo(TripCompactCardBase, sameCard);
 export const TripRow = memo(TripRowBase, sameCard);
 export const TripBig = memo(TripBigCard, sameCard);

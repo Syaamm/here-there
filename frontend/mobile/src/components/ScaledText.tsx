@@ -2,7 +2,7 @@ import { createContext, useContext, useState, type Ref } from 'react';
 import { Platform, StyleSheet, Text as RNText, TextInput as RNTextInput, type TextInputProps, type TextProps } from 'react-native';
 import { interFamily } from '@/lib/fonts';
 import { notifyInputFocus } from '@/lib/keyboard';
-import { scaleText, useScale } from '@/lib/scale';
+import { scaleText, useTextScale } from '@/lib/scale';
 
 /** Text and TextInput that follow the screen-size scale (see lib/scale). Use these instead of the react-native ones. */
 // The phone's own font-size setting is applied on top of the app's Text size; capped so the band, chips, pills and dock never break.
@@ -46,7 +46,7 @@ function withFont(style: TextProps['style'], nested: boolean): TextProps['style'
 }
 
 export function Text(props: TextProps) {
-  const k = useScale();
+  const k = useTextScale();
   const nested = useContext(InText);
   const style = withFont(withLineHeight(scaleText(props.style, k)), nested);
   // text on screen is never selectable (only what is typed in a field is), whatever a screen passes
@@ -62,7 +62,7 @@ export type InputHandle = { focus: () => void; blur: () => void; clear: () => vo
 
 /** `ref` is passed on to the real input (React 19 hands it over as a prop). */
 export function TextInput(props: TextInputProps & { ref?: Ref<any> }) {
-  const k = useScale();
+  const k = useTextScale();
   // the faded hint ("Say something...") goes away the moment the field is tapped and the keyboard comes up, not only once something is typed
   const [focused, setFocused] = useState(false);
   return (

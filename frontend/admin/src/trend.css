@@ -4,19 +4,19 @@
 .ov-top { display: grid; grid-template-columns: minmax(230px, 0.3fr) minmax(0, 1fr); gap: var(--gap); align-items: stretch; }
 .ov-bottom { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--gap); align-items: stretch; margin-top: var(--gap); }
 .ov-tiles { display: grid; gap: 12px; grid-auto-rows: 1fr; }
-.ov-tiles .stat { padding: 22px 24px; align-content: space-between; }
+.ov-tiles .stat { padding: 24px 24px; align-content: space-between; }
 .ov-tiles .stat .value { font-size: var(--fs-3xl); letter-spacing: -0.03em; }
 .ov-top > .card, .ov-bottom > .card { min-width: 0; }
 .ov-top .card { margin: 0; }
-.ov-bottom .items { padding: 10px 12px 12px; gap: 8px; }
-.ov-bottom .list-item { padding: 10px 12px; }
-.ov-bottom .state { padding: 28px 16px; margin: 0 12px 12px; }
+.ov-bottom .items { padding: 12px 12px 12px; gap: 8px; }
+.ov-bottom .list-item { padding: 12px 12px; }
+.ov-bottom .state { padding: 24px 16px; margin: 0 12px 12px; }
 /* the dashboard fits on one screen: no scrollbar (it still scrolls on small screens, just without the bar) */
 .page-body:has(> .ov-top) { scrollbar-width: none; }
 .page-body:has(> .ov-top)::-webkit-scrollbar { display: none; }
 
 .trend { display: grid; gap: 12px; }
-.trend-legend { display: flex; flex-wrap: wrap; gap: 10px; }
+.trend-legend { display: flex; flex-wrap: wrap; gap: 12px; }
 .trend-key { --c: #36ad7a; display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font: inherit; font-size: var(--fs-md); color: var(--text); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
 .trend-key:hover { background: var(--surface-2); }
 .trend-key.on { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
@@ -40,10 +40,10 @@
 .trend-tip b, .trend-tip span { font-variant-numeric: tabular-nums; }
 
 /* the days picker and Refresh at the top of the dashboard: they apply to the whole page */
-.ov-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.ov-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; }
 .trend-range { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
-.trend-dates { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
-.trend-dates input[type='date'] { width: auto; min-height: 36px; padding: 4px 10px; font-size: var(--fs-md); }
+.trend-dates { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--muted); }
+.trend-dates input[type='date'] { width: auto; min-height: 36px; padding: 4px 12px; font-size: var(--fs-md); }
 
 @media (prefers-reduced-motion: no-preference) {
   .trend-dates { animation: trend-fade 0.2s ease-out; }
@@ -77,3 +77,28 @@
   .trend-plot { height: 180px; }
   .trend-range, .ov-controls { justify-content: flex-start; }
 }
+
+/* dashboard header: the range tabs and the refresh button sit together as one row, the same height */
+.ov-controls { justify-content: flex-end; align-items: center; gap: 12px; }
+.ov-controls .refresh { gap: 0; }
+.ov-controls .refresh-btn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text-2); display: grid; place-items: center; }
+.ov-controls .refresh-btn:hover { color: var(--text); border-color: var(--line-2); }
+
+/* the dates the dashboard is showing, in the corner of the chart card */
+.ov-dates { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); background: var(--surface-2); border-radius: 999px; padding: 4px 12px; white-space: nowrap; }
+
+/* the Verification card: three numbers side by side */
+.ov-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; text-align: left; }
+.ov-three span { display: grid; gap: 4px; min-width: 0; }
+.ov-three b { font-size: var(--fs-2xl); line-height: 1.1; letter-spacing: -0.02em; color: var(--text); }
+.ov-three small { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
+
+/* reports by category: name and count on one line, the bar under it, so no name is ever cut off */
+.cat-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+.cat-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.cat-name { text-transform: capitalize; font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.cat-num { display: inline-flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.cat-num b { font-size: var(--fs-md); color: var(--text); }
+.cat-num small { font-size: var(--fs-sm); color: var(--muted); min-width: 36px; text-align: right; }
+.cat-bar { display: block; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.cat-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent-strong, #12302b); }

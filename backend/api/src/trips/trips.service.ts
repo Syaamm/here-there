@@ -52,6 +52,9 @@ export const createSchema = z
     title: z.string().trim().min(2).max(80).optional(),
     destination: z.string().trim().min(2).max(100),
     destinationPlaceId: z.string().max(200).optional(),
+    // the destination's position on the map (from the place search), so the trip shows as a pin
+    destinationLat: z.number().min(-90).max(90).optional(),
+    destinationLng: z.number().min(-180).max(180).optional(),
     // the destination's time zone (an IANA name such as Asia/Tokyo), if the app knows it; decides which day of the trip it is
     timeZone: z.string().max(60).refine(isZone, 'Unknown time zone').optional(),
     // "together": companions leave from the same city (originCity, required); "meet_at_destination": everyone gets there on their
@@ -104,6 +107,11 @@ export const searchSchema = z.object({
   openOnly: z.enum(['true', 'false']).optional(),
   /** leave out the trips the person hosts, is on, or has applied to (THERE Home and its "See all": those are in Next up) */
   excludeMine: z.enum(['true', 'false']).optional(),
+  /** only trips whose destination is inside this part of the map (the THERE map sends what is on screen); trips with no position yet are still included */
+  south: z.coerce.number().min(-90).max(90).optional(),
+  north: z.coerce.number().min(-90).max(90).optional(),
+  west: z.coerce.number().min(-180).max(180).optional(),
+  east: z.coerce.number().min(-180).max(180).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
@@ -182,6 +190,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       id: t.id,
       title: t.title,
       destination: t.destination,
+      lat: t.destLat,
+      lng: t.destLng,
       timeZone: t.timeZone,
       originCity: t.originCity,
       travelStyle: t.travelStyle,
@@ -307,6 +317,11 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
           ...(q.travelStyle === 'together' ? [] : [{ travelStyle: 'meet_at_destination' }]),
         ],
       });
+    // the part of the map on screen: a trip whose destination is in it (a view across the 180° line is two parts), or one with no position yet
+    if (q.south !== undefined && q.north !== undefined && q.west !== undefined && q.east !== undefined) {
+      const lng: Prisma.TripWhereInput = q.west <= q.east ? { destLng: { gte: q.west, lte: q.east } } : { OR: [{ destLng: { gte: q.west } }, { destLng: { lte: q.east } }] };
+      filters.push({ OR: [{ destLat: null }, { AND: [{ destLat: { gte: q.south, lte: q.north } }, lng] }] });
+    }
     if (q.budgetMax !== undefined) filters.push({ budgetMin: { lte: q.budgetMax } });
     if (q.includesTransport !== undefined) filters.push({ budgetIncludesTransport: q.includesTransport === 'true' });
     if (q.groupSize) {
@@ -483,6 +498,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
           destination: dto.destination,
           destinationKey: dto.destination.toLowerCase(),
           destinationPlaceId: dto.destinationPlaceId,
+          destLat: dto.destinationLat !== undefined && dto.destinationLng !== undefined ? dto.destinationLat : undefined,
+          destLng: dto.destinationLat !== undefined && dto.destinationLng !== undefined ? dto.destinationLng : undefined,
           timeZone: dto.timeZone,
           originCity,
           originKey: cityKeyOf(limitCity),

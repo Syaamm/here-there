@@ -335,6 +335,62 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  private async personFilter(needle: string, who: 'by' | 'against' | 'both'): Promise<Prisma.ReportWhereInput> {
+    const people = await this.prisma.user.findMany({ where: { OR: [{ email: { contains: needle, mode: 'insensitive' } }, { profile: { displayName: { contains: needle, mode: 'insensitive' } } }, { id: needle }] }, select: { id: true }, take: 50 });
+    const ids = people.map((p) => p.id);
+    if (ids.length === 0) return { id: '__none__' };
+    if (who === 'by') return { reporterId: { in: ids } };
+    const by: Prisma.ReportWhereInput = { reporterId: { in: ids } };
+    const reportedMessages = await this.prisma.report.findMany({ where: { targetType: 'message' }, select: { targetId: true }, take: 5000 });
+    const [msgs, acts, trips] = await Promise.all([
+      this.prisma.message.findMany({ where: { senderId: { in: ids }, id: { in: reportedMessages.map((m) => m.targetId) } }, select: { id: true } }),
+      this.prisma.activity.findMany({ where: { hostId: { in: ids } }, select: { id: true }, take: 2000 }),
+      this.prisma.trip.findMany({ where: { hostId: { in: ids } }, select: { id: true }, take: 2000 }),
+    ]);
+    return {
+      OR: [
+        ...(who === 'both' ? [by] : []),
+        { targetType: 'user', targetId: { in: ids } },
+        { targetType: 'message', targetId: { in: msgs.map((m) => m.id) } },
+        { targetType: 'activity', targetId: { in: acts.map((a) => a.id) } },
+        { targetType: 'trip', targetId: { in: trips.map((t) => t.id) } },
+      ],
+    };
+  }
+
+  /** One report with what it was about, how the reporter's earlier reports went, and every step taken on it. */
+  async detail(id: string, scope: Scope | null) {
+    const r = await this.prisma.report.findUnique({ where: { id } });
+    if (!r) throw E.notFound('Report');
+    await this.assertReportInScope(scope, r);
+    const name = async (userId: string | null | undefined) => (userId ? ((await this.prisma.profile.findUnique({ where: { userId }, select: { displayName: true } }))?.displayName ?? null) : null);
+    let target: { type: string; title: string; lines: string[]; state?: string | null } | null = null;
+    if (r.targetType === 'activity') {
+      const a = await this.prisma.activity.findUnique({ where: { id: r.targetId }, include: { _count: { select: { memberships: { where: { state: 'approved' } } } } } });
+      if (a) target = { type: 'Activity', title: a.title, state: a.status, lines: [`When: ${a.startsAt.toISOString()}`, `Where: ${[a.venueName, a.city].filter(Boolean).join(', ')}`, `Hosted by: ${(await name(a.hostId)) ?? 'unknown'}`, `Going: ${a._count.memberships} of ${a.capacity}`] };
+    } else if (r.targetType === 'trip') {
+      const t = await this.prisma.trip.findUnique({ where: { id: r.targetId }, include: { _count: { select: { memberships: { where: { state: 'approved' } } } } } });
+      if (t) target = { type: 'Trip', title: t.title, state: t.status, lines: [`Dates: ${t.dateStart.toISOString()} to ${t.dateEnd.toISOString()}`, `Going to: ${t.destination}`, `Hosted by: ${(await name(t.hostId)) ?? 'unknown'}`, `Members: ${t._count.memberships} of ${t.maxCapacity}`] };
+    } else if (r.targetType === 'message') {
+      const m = await this.prisma.message.findUnique({ where: { id: r.targetId } });
+      if (m) target = { type: 'Message', title: m.body, state: m.moderationState, lines: [`Sent by: ${(await name(m.senderId)) ?? 'unknown'}`, `Sent: ${m.createdAt.toISOString()}`, ...(m.removedReason ? [`Hidden because: ${m.removedReason}`] : [])] };
+    }
+    const [filed, actionTaken, noAction, events] = await Promise.all([
+      this.prisma.report.count({ where: { reporterId: r.reporterId } }),
+      this.prisma.report.count({ where: { reporterId: r.reporterId, status: 'resolved' } }),
+      this.prisma.report.count({ where: { reporterId: r.reporterId, status: 'dismissed' } }),
+      this.prisma.auditEvent.findMany({ where: { objectType: 'report', objectId: id }, orderBy: { createdAt: 'asc' }, take: 50 }),
+    ]);
+    const actors = await this.prisma.profile.findMany({ where: { userId: { in: [...new Set(events.map((e) => e.actorId).filter((x): x is string => !!x))] } }, select: { userId: true, displayName: true } });
+    const who = new Map(actors.map((a) => [a.userId, a.displayName]));
+    return {
+      id,
+      target,
+      reporter: { filed, actionTaken, noAction },
+      events: events.map((e) => ({ at: e.createdAt, action: e.action, by: e.actorId ? (who.get(e.actorId) ?? 'A staff member') : 'The system' })),
+    };
+  }
+
   /** How many reports wait, how many are urgent or overdue, and the ids of the open ones (the console's badge and overview read this, not the whole queue). */
   async waitingSummary(scope: Scope | null, now = new Date()) {
     const light = await this.waitingLight({ status: { in: ['open', 'in_review'] } }, now, scope);
@@ -342,18 +398,44 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     return { total, open: light.filter((x) => x.status === 'open').length, inReview: light.filter((x) => x.status === 'in_review').length, urgent: light.filter((x) => x.priority === 'urgent').length, overdue: light.filter((x) => x.overdue).length, openIds: light.filter((x) => x.status === 'open').map((x) => x.id) };
   }
 
-  async queue(status?: string, category?: string, now = new Date(), scope: Scope | null = null, paging: { limit?: string; cursor?: string } = {}) {
+  async queue(status?: string, category?: string, now = new Date(), scope: Scope | null = null, paging: { limit?: string; cursor?: string; q?: string; who?: string; page?: string } = {}) {
     // Waiting reports (status open, in_review, or waiting for both): in queue order, a page at a time (default 50) with a cursor for the next; only the
     // page is filled in. Finished ones: newest first, a page at a time (default 200) with a cursor for the next.
     const waiting = status === 'open' || status === 'in_review' || status === 'waiting';
     const size = waiting ? pageLimit(paging.limit, 50, 100) : pageLimit(paging.limit, 200, 200);
     let nextCursor: string | null = null;
     const where: Prisma.ReportWhereInput = { ...(status === 'waiting' ? { status: { in: ['open', 'in_review'] } } : status ? { status } : {}), ...(category && { category }) };
-    const include = { reporter: { select: { id: true, profile: { select: { displayName: true } } } } };
-    const found = waiting
+    // search by person: "against" = reports about them (or their message, activity or trip), "by" = reports they filed
+    const needle = paging.q?.trim().slice(0, 80);
+    if (needle) where.AND = [await this.personFilter(needle, paging.who === 'by' ? 'by' : paging.who === 'against' ? 'against' : 'both')];
+    // a search is read by page number ("Page 1 / 10"): every state, newest first
+    let numbered: { page: number; pages: number; total: number; pageSize: number } | null = null;
+    const include = { reporter: { select: { id: true, email: true, profile: { select: { displayName: true } } } } };
+    const found = paging.page && !waiting
       ? await (async () => {
-          const ordered = await this.waitingLight(where, now, scope);
+          const pageSize = pageLimit(paging.limit, 20, 50);
+          const total = await this.prisma.report.count({ where });
+          const pages = Math.max(1, Math.ceil(total / pageSize));
+          const page = Math.min(pages, Math.max(1, Math.floor(Number(paging.page)) || 1));
+          numbered = { page, pages, total, pageSize };
+          return this.prisma.report.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize, include });
+        })()
+      : waiting
+      ? await (async () => {
+          let ordered = await this.waitingLight(where, now, scope);
           let start = 0;
+          if (paging.page) {
+            // the console lists the newest report first, always; urgent ones are marked, not moved
+            ordered = [...ordered].sort((a, b) => +b.createdAt - +a.createdAt || (a.id < b.id ? 1 : -1));
+            const pageSize = pageLimit(paging.limit, 20, 50);
+            const pages = Math.max(1, Math.ceil(ordered.length / pageSize));
+            const page = Math.min(pages, Math.max(1, Math.floor(Number(paging.page)) || 1));
+            numbered = { page, pages, total: ordered.length, pageSize };
+            start = (page - 1) * pageSize;
+            const rowsOfPage = ordered.slice(start, start + pageSize);
+            const full = new Map((await this.prisma.report.findMany({ where: { id: { in: rowsOfPage.map((x) => x.id) } }, include })).map((r) => [r.id, r]));
+            return rowsOfPage.map((x) => full.get(x.id)).filter((r): r is NonNullable<typeof r> => !!r);
+          }
           if (paging.cursor) {
             let cur: QueueKey;
             try {
@@ -387,7 +469,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     const subjects = [...new Set([...who.values()].filter((x): x is string => !!x))];
     const [flags, people, assignees, msgs] = await Promise.all([
       this.offenderFlags(subjects, now),
-      this.prisma.user.findMany({ where: { id: { in: subjects } }, select: { id: true, state: true, profile: { select: { displayName: true } } } }),
+      this.prisma.user.findMany({ where: { id: { in: subjects } }, select: { id: true, email: true, state: true, profile: { select: { displayName: true } } } }),
       this.prisma.user.findMany({ where: { id: { in: rows.map((r) => r.assignedTo).filter((x): x is string => !!x) } }, select: { id: true, profile: { select: { displayName: true } }, email: true } }),
       this.prisma.message.findMany({ where: { id: { in: rows.filter((r) => r.targetType === 'message').map((r) => r.targetId) } }, select: { id: true, body: true, moderationState: true, conversationId: true } }),
     ]);
@@ -410,12 +492,12 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
         overdue: open && ageHours > (urgent ? ANSWER_WITHIN_HOURS.urgent : ANSWER_WITHIN_HOURS.normal),
         escalated: !!r.escalatedAt,
         assignedName: r.assignedTo ? (assignee.get(r.assignedTo) ?? 'A moderator') : null,
-        subject: subject ? { userId: subject, displayName: person.get(subject)?.profile?.displayName ?? null, state: person.get(subject)?.state ?? null } : null,
+        subject: subject ? { userId: subject, displayName: person.get(subject)?.profile?.displayName ?? null, email: person.get(subject)?.email ?? null, state: person.get(subject)?.state ?? null } : null,
         message: r.targetType === 'message' ? (message.get(r.targetId) ?? null) : null,
         repeatOffender: subject ? (flags.get(subject) ?? null) : null,
       };
     });
-    return { items: orderQueue(items), nextCursor };
+    return { items: numbered ? items : orderQueue(items), nextCursor, ...(numbered ?? {}) };
   }
 
   /** Who is carrying what: each moderator's open reports, how long the oldest has waited, and what the queue looks like. */
@@ -490,14 +572,6 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ---------------------------------------------------------------- acting on a message or a person
-  private async settleReports(actor: User, targetType: string, targetId: string, action: string) {
-    const open = await this.prisma.report.findMany({ where: { targetType, targetId, status: { in: ['open', 'in_review'] } }, select: { id: true } });
-    if (open.length === 0) return;
-    const resolution = `Action taken: ${action}`;
-    await this.prisma.report.updateMany({ where: { id: { in: open.map((r) => r.id) } }, data: { status: 'resolved', resolution, assignedTo: actor.id, resolvedAt: new Date() } });
-    for (const r of open) await this.audit.log(actor.id, 'report.resolved', 'report', r.id, { resolution, automatic: true });
-  }
-
   /** A message with a little of what was said around it, for deciding a report about it. */
   async message(id: string) {
     const m = await this.prisma.message.findUnique({ where: { id }, include: { sender: { select: { id: true, profile: { select: { displayName: true } } } }, conversation: { select: { scopeType: true, tripId: true, activityId: true } } } });
@@ -527,7 +601,6 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     if (!m) throw E.notFound('Message');
     if (m.moderationState === 'removed') return { ok: true, state: 'removed' };
     await this.prisma.message.update({ where: { id }, data: { moderationState: 'removed', removedBy: actor.id, removedReason: reason, removedAt: new Date() } });
-    await this.settleReports(actor, 'message', id, 'message removed');
     await this.audit.log(actor.id, 'message.removed', 'message', id, { reason, senderId: m.senderId });
     // in the app the chat belongs to (an activity's chat: HERE; a trip's or a travel match's: THERE)
     if (m.senderId !== actor.id) await this.notifications.notify(m.senderId, 'message_removed', 'A moderator removed your message', 'Tap to read why. You can ask for a review.', { messageId: id, reason, product: scopeProduct(m.conversation.scopeType) });
@@ -559,11 +632,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     const w = await this.prisma.userWarning.create({ data: { userId, reason: dto.reason, reportId: dto.reportId, messageId: dto.messageId, createdById: actor.id, aboutType: about?.type, aboutId: about?.id } });
     await this.notifications.notify(userId, 'warning', 'A moderator warned you', about ? `${about.title} · Tap to read why.` : 'Tap to read why. You can ask for a review.', { warningId: w.id, reason: dto.reason, ...(about && { aboutType: about.type, aboutId: about.id, aboutTitle: about.title }), ...(product && { product }) });
     await this.audit.log(actor.id, 'user.warned', 'user', userId, { warningId: w.id, reason: dto.reason, reportId: dto.reportId });
-    if (report) {
-      // the warning settles its report, unless someone decided it meanwhile (one step: only while still open or in review)
-      const closed = await this.prisma.report.updateMany({ where: { id: report.id, status: { in: ['open', 'in_review'] } }, data: { status: 'resolved', resolution: 'Action taken: the person was warned', assignedTo: actor.id, resolvedAt: new Date() } });
-      if (closed.count) await this.audit.log(actor.id, 'report.resolved', 'report', report.id, { resolution: 'warned', automatic: true });
-    }
+    // the warning does not decide its report: a moderator closes the report by hand, with a reason
     const flag = (await this.offenderFlags([userId])).get(userId)!;
     return { id: w.id, warningsInLastSixMonths: flag.warnings, repeatOffender: flag };
   }

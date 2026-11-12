@@ -1,11 +1,11 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { AcctCard, AcctScreen, StatusTag } from '@/components/AccountParts';
 import { SkeletonReportRow } from '@/components/Skeleton';
 import { Btn, Empty, ErrorBanner, Spinner, Txt } from '@/components/ui';
-import { del, type MyAppeal } from '@/lib/api';
+import { del, post, type MyAppeal } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
@@ -17,6 +17,33 @@ import { dateText } from '@/lib/format';
 type AboutMe = { id: string; category: string; targetType: string; decidedAt: string | null; decision: string | null; canAppeal: boolean; appeal: { id: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null } | null };
 type Blocked = { userId: string; displayName?: string };
 type Tone = 'warn' | 'ok' | 'bad' | 'neutral';
+/** The conversation with a moderator about an open appeal, and a box to answer them. */
+function AppealThread({ a, onSent }: { a: MyAppeal; onSent: () => void }) {
+  const { c } = useTheme();
+  const { t } = useT();
+  const [text, setText] = useState('');
+  const send = useAction();
+  const thread = a.thread ?? [];
+  if (thread.length === 0) return null;
+  const lastFromStaff = thread[thread.length - 1].fromStaff;
+  return (
+    <View style={{ gap: 6, marginTop: 4 }}>
+      {thread.map((m) => (
+        <View key={m.id} style={{ alignSelf: m.fromStaff ? 'flex-start' : 'flex-end', maxWidth: '90%', backgroundColor: m.fromStaff ? c.accentSoft : c.accent, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 }}>
+          <Text style={{ color: m.fromStaff ? c.text : '#fff', fontSize: 14, lineHeight: 20 }}>{m.body}</Text>
+        </View>
+      ))}
+      {a.state === 'open' && lastFromStaff ? (
+        <>
+          <TextInput value={text} onChangeText={setText} placeholder={t('Write your answer')} placeholderTextColor={c.muted} multiline maxLength={1000} accessibilityLabel={t('Your answer')} style={{ borderWidth: 1, borderColor: c.line, borderRadius: 12, padding: 12, minHeight: 48, color: c.text, fontSize: 15 }} />
+          <ErrorBanner message={send.error} />
+          <Btn title={t('Send answer')} small disabled={send.busy || text.trim().length < 2} onPress={() => send.run(async () => { await post(`/v1/me/appeals/${a.id}/reply`, { message: text.trim() }); setText(''); onSent(); })} style={{ alignSelf: 'flex-start' }} />
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 /** how many of each list show before "See all" */
 const PREVIEW = 3;
 
@@ -159,6 +186,7 @@ export default function ReportsAndBlocked() {
                   <Row key={a.id} title={t(a.what.charAt(0).toUpperCase() + a.what.slice(1))} state={a.state} dot={isNew(keyOf('appeal', a.id, a.state), a.state)} last={i === shownRequests.length - 1}>
                     <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Sent {date}', { date: dateText(a.createdAt) })}</Text>
                     {a.proofs?.length ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{a.proofs.length === 1 ? t('1 photo sent as proof') : t('{n} photos sent as proof', { n: a.proofs.length })}</Text> : null}
+                    <AppealThread a={a} onSent={appeals.reload} />
                     {a.decision ? <Text style={{ color: c.text, fontSize: 14, lineHeight: 20 }}>{a.decision}</Text> : null}
                   </Row>
                 ))}
