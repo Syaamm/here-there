@@ -94,6 +94,8 @@
 .ov-three span { display: grid; gap: 4px; min-width: 0; justify-items: center; text-align: center; }
 .stat .value, .ov-three b { color: var(--accent); }
 .ov-three b { font-size: var(--fs-2xl); line-height: 1.1; letter-spacing: -0.02em; color: var(--accent); }
+/* the dark "hot" Reports tile: its number is white (the green above would vanish on the dark green background) */
+.stat.hot .value { color: #fff; }
 .ov-three small { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
 
 /* reports by category: name and count on one line, the bar under it, so no name is ever cut off */
