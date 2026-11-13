@@ -58,7 +58,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: (require('./package.json') as { version: string }).version,
   // Raise runtimeVersion whenever native code changes (new library, permission, icon, push setup). A code-only change is sent as an
   // update (OTA) to builds with the same runtimeVersion. The app asks first (see components/UpdatePrompt), so checkAutomatically is off.
-  runtimeVersion: '4', // 4: LAMIS launch screen (3: LAMIS app icons and the Android notification icon)
+  runtimeVersion: '5', // 5: Google Maps key for Android (4: LAMIS launch screen (3: LAMIS app icons and the Android notification icon)
   updates: {
     url: `https://u.expo.dev/${process.env.EAS_PROJECT_ID ?? '4005c1f6-33e1-4757-b262-cfa7643b5b9b'}`,
     checkAutomatically: 'NEVER',
