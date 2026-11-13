@@ -6,7 +6,8 @@ import { del, get, post, type NoShowList } from '@/lib/api';
 import { confirmAsync } from '@/lib/confirm';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp } from '@/lib/scale';
 const STATE: Record<string, [string, 'warn' | 'ok' | 'neutral' | 'info']> = {
   marked: ['Noted', 'warn'],
   disputed: ['Disputed', 'info'],
@@ -47,11 +48,11 @@ export default function NoShows() {
           {!d.canMark ? <Banner tone="warn">{t('This list is closed.')}</Banner> : null}
           {d.items.length === 0 && <Empty title={t('Nobody else was in this one')} />}
           {d.items.map((m0) => (local[m0.userId] === 'marked' ? { ...m0, mark: { ...(m0.mark ?? {}), state: 'marked' } } : local[m0.userId] === 'none' ? { ...m0, mark: null } : m0) as typeof m0).map((m) => (
-            <Card key={m.userId} style={{ padding: 12, borderRadius: 18, gap: 8 }}>
-              <Row style={{ gap: 12, alignItems: 'center' }}>
+            <Card key={m.userId} style={{ padding: sp(12), borderRadius: sc(18), gap: sp(8) }}>
+              <Row style={{ gap: sp(12), alignItems: 'center' }}>
                 <Avatar name={m.displayName} uri={m.photoUrl} />
                 <View style={{ flex: 1 }}>
-                  <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20 }}>{m.displayName}</Txt>
+                  <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{m.displayName}</Txt>
                   {m.mark ? <Chip label={t(STATE[m.mark.state]?.[0] ?? m.mark.state)} tone={STATE[m.mark.state]?.[1] ?? 'neutral'} /> : null}
                 </View>
                 {!m.mark && d.canMark ? <Btn title={t('Did not come')} variant="danger" small onPress={() => void mark(m.userId, m.displayName)} /> : null}

@@ -11,7 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { photoSrc } from '@/lib/api';
 import { tap } from '@/lib/haptics';
 import { headerGap, statusTop, useLayout } from '@/lib/layout';
-import { sc, useScale } from '@/lib/scale';
+import { sc, useScale, sp, sph } from '@/lib/scale';
+import { BTN } from '@/lib/buttons';
 import { PageTransition } from './PageTransition';
 import { SkeletonRows } from './Skeleton';
 import { onTabSwitch, setDockScrollHidden, useDockSpace } from '@/lib/dock';
@@ -27,7 +28,7 @@ import { PAGE_TITLES, PLAIN_PAGES } from '@/lib/pageTitles';
  * Android buttons: a 1.5 px border draws heavier there than on iPhone, and the text sits a little tight in the 42 px box, so the
  * border is a fine 1 px and the button has a little more room (it is a pill-like, easy target). iPhone is untouched.
  */
-const android = Platform.OS === 'android' ? StyleSheet.create({ btn: { borderWidth: 1, borderRadius: 12, paddingVertical: 8 }, btnSmall: { paddingVertical: 5, borderRadius: 12 } }) : { btn: null, btnSmall: null };
+const android = Platform.OS === 'android' ? StyleSheet.create({ btn: { borderWidth: 1, borderRadius: sc(12), paddingVertical: sp(8) }, btnSmall: { paddingVertical: sp(5), borderRadius: sc(12) } }) : { btn: null, btnSmall: null };
 
 export const pressed = (p: boolean) => (p ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null);
 
@@ -96,9 +97,9 @@ export function BandBack({ onBack }: { onBack?: () => void }) {
       accessibilityLabel={t('Go back')}
       hitSlop={6}
       onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/' as never)))}
-      style={({ pressed: p }) => [{ width: 44, height: 44, borderRadius: 22, backgroundColor: c.bandBack, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
+      style={({ pressed: p }) => [{ width: sc(44), height: sc(44), borderRadius: sc(22), backgroundColor: c.bandBack, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
     >
-      <Ionicons name="chevron-back" size={22} color={c.onBand} />
+      <Ionicons name="chevron-back" size={sc(22)} color={c.onBand} />
     </Pressable>
   );
 }
@@ -107,12 +108,12 @@ export function BandBack({ onBack }: { onBack?: () => void }) {
 export function BandTitle({ title, onBack, right, custom }: { title?: string; onBack?: () => void; right?: ReactNode; custom?: ReactNode }) {
   const { c } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: 8 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: sc(44), gap: sp(8) }}>
       <BandBack onBack={onBack} />
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        {custom ?? <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.onBand, fontSize: 18, lineHeight: 24, fontWeight: '600', textAlign: 'center' }}>{title}</Text>}
+        {custom ?? <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.onBand, fontSize: 20, lineHeight: 27, fontWeight: '500', textAlign: 'center' }}>{title}</Text>}
       </View>
-      <View style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}>{right}</View>
+      <View style={{ minWidth: sc(44), minHeight: sc(44), alignItems: 'flex-end', justifyContent: 'center' }}>{right}</View>
     </View>
   );
 }
@@ -128,9 +129,9 @@ export function PlainBack({ onBack }: { onBack?: () => void }) {
       accessibilityLabel={t('Go back')}
       hitSlop={6}
       onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/' as never)))}
-      style={({ pressed: p }) => [{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', borderWidth: 1, borderColor: 'rgba(0,0,0,0.09)', alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
+      style={({ pressed: p }) => [{ width: sc(44), height: sc(44), borderRadius: sc(22), backgroundColor: '#fff', borderWidth: 1, borderColor: 'rgba(0,0,0,0.09)', alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
     >
-      <Ionicons name="chevron-back" size={22} color={c.text} />
+      <Ionicons name="chevron-back" size={sc(22)} color={c.text} />
     </Pressable>
   );
 }
@@ -139,12 +140,12 @@ export function PlainBack({ onBack }: { onBack?: () => void }) {
 export function PlainTitle({ title, onBack, right, custom }: { title?: string; onBack?: () => void; right?: ReactNode; custom?: ReactNode }) {
   const { c } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: 8 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: sc(44), gap: sp(8) }}>
       <PlainBack onBack={onBack} />
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        {custom ?? <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 18, lineHeight: 24, fontWeight: '600', textAlign: 'center' }}>{title}</Text>}
+        {custom ?? <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 20, lineHeight: 27, fontWeight: '500', textAlign: 'center' }}>{title}</Text>}
       </View>
-      <View style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}>{right}</View>
+      <View style={{ minWidth: sc(44), minHeight: sc(44), alignItems: 'flex-end', justifyContent: 'center' }}>{right}</View>
     </View>
   );
 }
@@ -297,7 +298,7 @@ export function Screen({
   }, [tabBar, onScreen]);
   const dockRoom = useDockSpace();
   const dock = typing ? 0 : dockRoom; // the floating dock covers the bottom of the page, so leave room under the content (it hides while typing)
-  const pad = { paddingTop: bandHeader ? (bg ? 20 : 8) : hasHeader ? 12 : top + 8, paddingBottom: bottomRoom !== undefined ? bottomRoom + 16 : (tabBar && dockRoom > 0 ? 24 : insets.bottom + 24) + dock, paddingHorizontal: gutter };
+  const pad = { paddingTop: bandHeader ? (bg ? sp(20) : sp(8)) : hasHeader ? sp(12) : top + sc(8), paddingBottom: bottomRoom !== undefined ? bottomRoom + sc(28) : (tabBar && dockRoom > 0 ? sc(24) : insets.bottom + sc(24)) + dock, paddingHorizontal: gutter };
   // a collapsing header (home pages): where the page's top edge stops once scrolled (under the small header row), the band's full
   // height, how far the page scrolls before the header is small (D), and how far the header row moves up to sit in the small row
   const collapsing = collapse && !!bandHeader && !!bg && scroll;
@@ -317,7 +318,7 @@ export function Screen({
   const contentTop = (StyleSheet.flatten(style)?.paddingTop as number | undefined) ?? pad.paddingTop;
   // The content sits in a centred column: full width on phones, a comfortable measure on tablets and desktops.
   const columnWidth = maxWidth ?? (wide ? 1180 : 760);
-  const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: 16 };
+  const column: ViewStyle = { width: '100%', maxWidth: columnWidth, alignSelf: 'center', gap: sp(16) };
   // a fixed-picture page feeds the scroll position straight to the native side (Animated.event with the native driver), so the picture's
   // grow and dim follow the finger on the UI thread and never wait for the JS thread (which is what lags on a weaker Android)
   const ScrollBox = (fixedHero || collapsing ? Animated.ScrollView : ScrollView) as typeof ScrollView;
@@ -374,8 +375,10 @@ export function Screen({
       // a picture page starts at the very top edge: iOS must not push the content down by a navigation bar's height (it did, leaving a white band above the photo)
       // a picture page does not stretch when pulled down at the top (no bounce on iPhone, no glow on Android): the picture stays put and only scrolls up. A fixed-picture page is the exception: it gives a little springy pull (and the picture eases larger) so it feels alive even at the top
       {...(collapsing ? { contentInsetAdjustmentBehavior: 'never' as const, automaticallyAdjustsScrollIndicatorInsets: false } : null)}
-      {...(hero || stickyHero || fixedHero ? { bounces: !!fixedHero, overScrollMode: fixedHero ? ('always' as const) : ('never' as const), contentInsetAdjustmentBehavior: 'never' as const, automaticallyAdjustContentInsets: false, automaticallyAdjustsScrollIndicatorInsets: false, contentInset: { top: 0, left: 0, bottom: 0, right: 0 }, contentOffset: { x: 0, y: 0 } } : null)}
+      {...(hero || stickyHero || fixedHero ? { bounces: !!fixedHero, overScrollMode: fixedHero ? ('always' as const) : ('never' as const), contentInsetAdjustmentBehavior: 'never' as const, automaticallyAdjustContentInsets: false, automaticallyAdjustsScrollIndicatorInsets: false, contentInset: { top: 0, left: 0, bottom: 0, right: 0 }, contentOffset: { x: 0, y: 0 } } : { overScrollMode: 'always' as const })}
       scrollEventThrottle={16}
+      // Android's default fling stops far sooner than iPhone's (0.985 against 0.998), which makes every scroll feel braked: glide like iPhone
+      decelerationRate={Platform.OS === 'android' ? 0.996 : undefined}
       onScroll={fixedHero || collapsing ? Animated.event([{ nativeEvent: { contentOffset: { y: fixedY } } }], { useNativeDriver: true, listener: handleScroll as never }) : handleScroll}
       // a photo page: the phone's own spinner would sit on the photo, so it is hidden there and the page's own one shows at the top
       // of the white card instead (below); pulling down still refreshes as anywhere else
@@ -412,7 +415,7 @@ export function Screen({
           contentH.current = e.nativeEvent.layout.height;
           if (viewH.current && contentH.current < viewH.current) fireEnd();
         }}
-        style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: 16 } : null, fixedHero ? { flexGrow: 1, backgroundColor: c.bg, paddingHorizontal: gutter, paddingTop: 0, maxWidth: undefined } : null, collapsing ? { transform: [{ translateY: refreshHold }] } : null]}
+        style={[column, hero || stickyHero ? { paddingHorizontal: gutter, paddingTop: sp(16) } : null, fixedHero ? { flexGrow: 1, backgroundColor: c.bg, paddingHorizontal: gutter, paddingTop: 0, maxWidth: undefined } : null, collapsing ? { transform: [{ translateY: refreshHold }] } : null]}
       >
         {fixedHero && onRefresh && Platform.OS === 'ios' ? (
           // the photo page's own pull-to-refresh spinner: floats in the card's rounded top edge (out of the layout, so the content
@@ -455,7 +458,7 @@ export function Screen({
               </Animated.View>
             ) : null}
             {/* content melts away under the sheet's top edge (it moves with the edge) */}
-            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 26, transform: [{ translateY: sheetTop }], opacity: fixedY.interpolate({ inputRange: [0, 30], outputRange: [0, 1], extrapolate: 'clamp' }) }}>
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: sc(26), transform: [{ translateY: sheetTop }], opacity: fixedY.interpolate({ inputRange: [0, 30], outputRange: [0, 1], extrapolate: 'clamp' }) }}>
               <LinearGradient colors={[c.bg, c.fadeFrom]} style={{ flex: 1 }} />
             </Animated.View>
             {/* above the edge it is still band: content that scrolls past the rising edge slides under the band, and the band fills the
@@ -488,7 +491,7 @@ export function Screen({
         <View style={{ flex: 1, marginTop: -SHEET_OVERLAP, zIndex: 1, backgroundColor: c.bg }}>
           <PageTransition>{body}</PageTransition>
           {/* content melts away as it passes under the header: a static overlay (no scroll work), the page colour fading to nothing */}
-          <LinearGradient pointerEvents="none" colors={[c.bg, c.fadeFrom]} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 26 }} />
+          <LinearGradient pointerEvents="none" colors={[c.bg, c.fadeFrom]} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: sc(26) }} />
           <View pointerEvents="none" style={{ position: 'absolute', top: -1, left: 0, width: SHEET_RADIUS, height: SHEET_RADIUS + 1 }}>
             <Svg width={SHEET_RADIUS} height={SHEET_RADIUS + 1} viewBox={`0 -1 ${SHEET_RADIUS} ${SHEET_RADIUS + 1}`}>
               <Path d={`M0 -1 H${SHEET_RADIUS} V0 A${SHEET_RADIUS} ${SHEET_RADIUS} 0 0 0 0 ${SHEET_RADIUS} Z`} fill={bg} />
@@ -513,7 +516,7 @@ export function Screen({
             <PageTransition>{body}</PageTransition>
             {/* content melts away as it slides up into the card's rounded top edge: the same soft fade as the Profile page (a fixed overlay, no scroll work) */}
             {/* shown only once the card has risen to its stop line (scroll = the empty room above the card); before that it would wash over the picture */}
-            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 34, opacity: fixedY.interpolate({ inputRange: [fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop - 1, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop + 24], outputRange: [0, 1], extrapolate: 'clamp' }) }}>
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: sc(34), opacity: fixedY.interpolate({ inputRange: [fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop - 1, fixedHero.height - FIXED_CARD_RADIUS - fixedHero.stop + 24], outputRange: [0, 1], extrapolate: 'clamp' }) }}>
               <LinearGradient colors={[c.bg, c.fadeFrom]} style={{ flex: 1 }} />
             </Animated.View>
           </View>
@@ -555,14 +558,26 @@ export function Split({ left, right, leftWidth = 380 }: { left: ReactNode; right
       </>
     );
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 20 }}>
-      <View style={{ width: leftWidth, gap: 14 }}>{left}</View>
-      <View style={{ flex: 1, gap: 12 }}>{right}</View>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: sp(20) }}>
+      <View style={{ width: leftWidth, gap: sp(14) }}>{left}</View>
+      <View style={{ flex: 1, gap: sp(12) }}>{right}</View>
     </View>
   );
 }
 
 export const Row = ({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) => <View style={[s.row, style]}>{children}</View>;
+/**
+ * A small link at the end of a row that also holds a tag ("You organize this" ... "Review applications ›"): the same height and size of writing as the
+ * tag, so the two sit on one line, with the room to tap it around it (it was a 44 pt button with its own padding, which stood out of line).
+ */
+export function RowLink({ title, onPress }: { title: string; onPress: () => void }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={title} hitSlop={{ top: 12, bottom: 12, left: 12, right: 8 }} onPress={onPress} style={({ pressed: p }) => [{ minHeight: sc(24), justifyContent: 'center' }, pressed(p)]}>
+      <Text style={{ color: c.forest, fontSize: 12, lineHeight: 16, fontWeight: '600' }}>{title}</Text>
+    </Pressable>
+  );
+}
 export const Between = ({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) => <View style={[s.row, s.between, style]}>{children}</View>;
 
 // ---------------------------------------------------------------- text
@@ -570,19 +585,19 @@ type Variant = 'h1' | 'h2' | 'h3' | 'body' | 'small' | 'muted' | 'label';
 export function Txt({ children, variant = 'body', style, bold, color, numberOfLines, accessibilityRole }: { children: ReactNode; variant?: Variant; style?: StyleProp<TextStyle>; bold?: boolean; color?: string; numberOfLines?: number; accessibilityRole?: 'header' }) {
   const { c } = useTheme();
   return (
-    <Text accessibilityRole={accessibilityRole} numberOfLines={numberOfLines} style={[{ color: c.text, fontSize: 14, lineHeight: 20 }, textStyles[variant], variant === 'muted' || variant === 'small' ? { color: c.muted } : null, bold ? { fontWeight: '700' } : null, color ? { color } : null, style]}>
+    <Text accessibilityRole={accessibilityRole} numberOfLines={numberOfLines} style={[{ color: c.text, fontSize: 16, lineHeight: 23 }, textStyles[variant], variant === 'muted' || variant === 'small' ? { color: c.muted } : null, bold ? { fontWeight: '700' } : null, color ? { color } : null, style]}>
       {children}
     </Text>
   );
 }
 const textStyles: Record<Variant, TextStyle> = {
-  h1: { fontSize: 24, lineHeight: 30, fontWeight: '800' },
-  h2: { fontSize: 17, lineHeight: 23, fontWeight: '800' },
-  h3: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  h1: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
+  h2: { fontSize: 20, lineHeight: 27, fontWeight: '500' },
+  h3: { fontSize: 16, lineHeight: 23, fontWeight: '700' },
   body: {},
-  label: { fontSize: 13, fontWeight: '600' },
+  label: { fontSize: 12, fontWeight: '600' },
   small: { fontSize: 12, lineHeight: 17 },
-  muted: { fontSize: 13, lineHeight: 18 },
+  muted: { fontSize: 12, lineHeight: 17 },
 };
 
 // ---------------------------------------------------------------- buttons & inputs
@@ -596,15 +611,15 @@ export function BottomBar({ children, onHeight }: { children: ReactNode; onHeigh
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   return (
-    <View onLayout={(e) => onHeight(Math.round(e.nativeEvent.layout.height))} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: c.bg, paddingTop: 8, paddingBottom: insets.bottom + 8, paddingHorizontal: gutter, alignItems: 'center' }}>
-      <LinearGradient pointerEvents="none" colors={[c.fadeFrom, c.bg]} style={{ position: 'absolute', left: 0, right: 0, bottom: '100%', height: 26 }} />
-      <View style={{ width: '100%', maxWidth: 760, gap: 6 }}>{children}</View>
+    <View onLayout={(e) => onHeight(Math.round(e.nativeEvent.layout.height))} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: c.bg, paddingTop: sp(8), paddingBottom: insets.bottom + 8, paddingHorizontal: gutter, alignItems: 'center' }}>
+      <LinearGradient pointerEvents="none" colors={[c.fadeFrom, c.bg]} style={{ position: 'absolute', left: 0, right: 0, bottom: '100%', height: sc(26) }} />
+      <View style={{ width: '100%', maxWidth: sc(760), gap: sp(6) }}>{children}</View>
     </View>
   );
 }
 
 type BtnVariant = 'primary' | 'accent' | 'secondary' | 'danger' | 'ghost' | 'light' | 'mint' | 'outlineLight' | 'ghostLight' | 'off';
-export function Btn({ title, onPress, variant = 'primary', disabled, loading, small, style }: { title: string; onPress?: () => void; variant?: BtnVariant; disabled?: boolean; loading?: boolean; small?: boolean; style?: StyleProp<ViewStyle> }) {
+export function Btn({ title, onPress, variant = 'primary', disabled, loading, small, style, icon }: { title: string; onPress?: () => void; variant?: BtnVariant; disabled?: boolean; loading?: boolean; small?: boolean; style?: StyleProp<ViewStyle>; /** a small icon after the title */ icon?: React.ComponentProps<typeof Ionicons>['name'] }) {
   const { c } = useTheme();
   const look: Record<BtnVariant, { bg: string; fg: string; border: string }> = {
     primary: { bg: c.forest, fg: '#fff', border: c.forest },
@@ -631,9 +646,18 @@ export function Btn({ title, onPress, variant = 'primary', disabled, loading, sm
         tap(variant === 'primary' || variant === 'accent' || variant === 'light' || variant === 'mint' ? 'Medium' : 'Light');
         onPress?.();
       }}
-      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { minHeight: sc(small ? 34 : 42) }, android.btn, small && android.btnSmall, { backgroundColor: v.bg, borderColor: v.border, opacity: off && variant !== 'off' ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
+      style={({ pressed: isPressed }) => [s.btn, small && s.btnSmall, { minHeight: sc(small ? BTN.small : BTN.large), borderRadius: small ? BTN.radiusSmall : BTN.radiusLarge, borderWidth: 1, paddingVertical: 0, paddingHorizontal: sph(18) }, { backgroundColor: v.bg, borderColor: v.border, opacity: off && variant !== 'off' ? 0.5 : 1 }, style, !off && pressed(isPressed)]}
     >
-      {loading ? <ActivityIndicator color={v.fg} /> : <Text numberOfLines={2} style={{ color: v.fg, fontWeight: '700', fontSize: small ? 13 : 14, textAlign: 'center' }}>{title}</Text>}
+      {loading ? (
+        <ActivityIndicator color={v.fg} />
+      ) : icon ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(8) }}>
+          <Text numberOfLines={2} style={{ color: v.fg, ...BTN.text, textAlign: 'center', flexShrink: 1 }}>{title}</Text>
+          <Ionicons name={icon} size={sc(20)} color={v.fg} />
+        </View>
+      ) : (
+        <Text numberOfLines={2} style={{ color: v.fg, ...BTN.text, textAlign: 'center' }}>{title}</Text>
+      )}
     </Pressable>
   );
 }
@@ -641,7 +665,7 @@ export function Btn({ title, onPress, variant = 'primary', disabled, loading, sm
 export function Field({ label, hint, error, icon, style, inputRef, ...rest }: TextInputProps & { label: string; hint?: string; error?: string | null; icon?: React.ComponentProps<typeof Ionicons>['name']; /** to focus the field from outside (the page then scrolls it into view) */ inputRef?: React.Ref<React.ComponentRef<typeof RNTextInputType>> }) {
   const { c } = useTheme();
   return (
-    <View style={{ gap: 4 }}>
+    <View style={{ gap: sp(4) }}>
       <Txt variant="label">{label}</Txt>
       <View>
         <TextInput
@@ -649,16 +673,16 @@ export function Field({ label, hint, error, icon, style, inputRef, ...rest }: Te
           accessibilityLabel={label}
           placeholderTextColor={c.placeholder}
           {...rest}
-          style={[s.input, { minHeight: sc(42) }, { backgroundColor: c.surface, borderColor: error ? c.danger : c.line, color: c.text }, icon ? { paddingRight: 44 } : null, rest.multiline && { minHeight: 92, textAlignVertical: 'top' }, style]}
+          style={[s.input, { minHeight: sc(42) }, { backgroundColor: c.surface, borderColor: error ? c.danger : c.line, color: c.text }, icon ? { paddingRight: sph(44) } : null, rest.multiline && { minHeight: sc(92), textAlignVertical: 'top' }, style]}
         />
         {/* a small icon on the right edge of the field (clock, people, pin…) */}
-        {icon ? <Ionicons name={icon} size={22} color={c.muted} style={{ position: 'absolute', right: 14, top: 13 }} pointerEvents="none" /> : null}
+        {icon ? <Ionicons name={icon} size={sc(22)} color={c.muted} style={{ position: 'absolute', right: sc(14), top: sc(13) }} pointerEvents="none" /> : null}
       </View>
       {hint && !error ? <Txt variant="small">{hint}</Txt> : null}
       {error ? <Txt variant="small" color={c.danger}>{error}</Txt> : null}
       {/* every longer text box says its real limit, the same way everywhere ("120/500"): the limit is the server's */}
       {rest.multiline && rest.maxLength && !hint && !error ? (
-        <Txt variant="small" style={{ alignSelf: 'flex-end', marginRight: 6 }} color={(rest.value ?? '').length >= rest.maxLength ? c.text : c.muted}>
+        <Txt variant="small" style={{ alignSelf: 'flex-end', marginRight: sph(6) }} color={(rest.value ?? '').length >= rest.maxLength ? c.text : c.muted}>
           {`${(rest.value ?? '').length}/${rest.maxLength}`}
         </Txt>
       ) : null}
@@ -676,7 +700,7 @@ export function IconTile({ name, size: base = 36 }: { name: React.ComponentProps
   const { c } = useTheme();
   const size = base * useScale();
   return (
-    <View style={{ width: size, height: size, borderRadius: 11, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: size, height: size, borderRadius: sc(11), backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
       <Ionicons name={name} size={size * 0.5} color={c.forest} />
     </View>
   );
@@ -686,10 +710,10 @@ export function IconTile({ name, size: base = 36 }: { name: React.ComponentProps
 export function ListRow({ icon, title, subtitle, right, onPress, last }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; subtitle?: string; right?: ReactNode; onPress?: () => void; last?: boolean }) {
   const { c } = useTheme();
   const body = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingVertical: sp(9), borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
       <IconTile name={icon} />
       <View style={{ flex: 1 }}>
-        <Txt variant="h3" style={{ fontSize: 14, lineHeight: 19 }}>{title}</Txt>
+        <Txt variant="h3" style={{ fontSize: 16, lineHeight: 22 }}>{title}</Txt>
         {subtitle ? <Txt variant="small" numberOfLines={2}>{subtitle}</Txt> : null}
       </View>
       {right}
@@ -706,8 +730,8 @@ export function ListRow({ icon, title, subtitle, right, onPress, last }: { icon:
 export function ProgressBar({ value, max }: { value: number; max: number }) {
   const { c } = useTheme();
   return (
-    <View accessible accessibilityRole="progressbar" accessibilityValue={{ min: 0, max, now: value }} style={{ height: 8, borderRadius: 4, backgroundColor: c.accentSoft, overflow: 'hidden' }}>
-      <View style={{ width: `${Math.min(100, (value / Math.max(1, max)) * 100)}%`, height: 8, backgroundColor: c.green }} />
+    <View accessible accessibilityRole="progressbar" accessibilityValue={{ min: 0, max, now: value }} style={{ height: sc(8), borderRadius: sc(4), backgroundColor: c.accentSoft, overflow: 'hidden' }}>
+      <View style={{ width: `${Math.min(100, (value / Math.max(1, max)) * 100)}%`, height: sc(8), backgroundColor: c.green }} />
     </View>
   );
 }
@@ -717,9 +741,9 @@ export function SearchBar({ value, onChangeText, placeholder, onFilter, filterAc
   const { c } = useTheme();
   const { t } = useT();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-      <View style={[s.search, { flex: 1, minHeight: sc(49), borderRadius: 25, paddingHorizontal: 16, backgroundColor: c.surface, borderColor: c.line }]}>
-        <Ionicons name="search-outline" size={18} color={c.muted} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10) }}>
+      <View style={[s.search, { flex: 1, minHeight: sc(49), borderRadius: sc(25), paddingHorizontal: sph(16), backgroundColor: c.surface, borderColor: c.line }]}>
+        <Ionicons name="search-outline" size={sc(18)} color={c.muted} />
         <TextInput
           accessibilityLabel={placeholder}
           value={value}
@@ -727,20 +751,20 @@ export function SearchBar({ value, onChangeText, placeholder, onFilter, filterAc
           placeholder={placeholder}
           placeholderTextColor={c.placeholder}
           returnKeyType="search"
-          style={{ flex: 1, fontSize: 15, color: c.text, paddingVertical: 0, minHeight: 24 }}
+          style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: sc(24) }}
         />
         {/* one clear (X) on both phones: the built-in one exists on iPhone only */}
         {value ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} hitSlop={8} onPress={() => onChangeText('')} style={{ width: 28, height: 36, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="close-circle" size={18} color={c.muted} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} hitSlop={8} onPress={() => onChangeText('')} style={{ width: sc(28), height: sc(36), alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="close-circle" size={sc(18)} color={c.muted} />
           </Pressable>
         ) : null}
       </View>
       {/* the filter button sits outside the field: a dark round button; a small dot says a filter is on */}
       {onFilter ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} onPress={onFilter} hitSlop={4} style={({ pressed: p }) => [{ width: 45, height: 45, borderRadius: 23, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>
-          <Ionicons name="options-outline" size={21} color="#fff" />
-          {filterActive ? <View style={{ position: 'absolute', top: 1, right: 1, width: 12, height: 12, borderRadius: 6, backgroundColor: c.accent, borderWidth: 2, borderColor: c.surface }} /> : null}
+        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} onPress={onFilter} hitSlop={4} style={({ pressed: p }) => [{ width: sc(45), height: sc(45), borderRadius: sc(23), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>
+          <Ionicons name="options-outline" size={sc(21)} color="#fff" />
+          {filterActive ? <View style={{ position: 'absolute', top: 1, right: 1, width: sc(12), height: sc(12), borderRadius: sc(6), backgroundColor: c.accent, borderWidth: 2, borderColor: c.surface }} /> : null}
         </Pressable>
       ) : null}
     </View>
@@ -751,7 +775,8 @@ export function SearchBar({ value, onChangeText, placeholder, onFilter, filterAc
 export function SectionHeader({ title, right }: { title: string; right?: ReactNode }) {
   return (
     <View style={[s.row, s.between]}>
-      <Txt variant="h2" accessibilityRole="header">{title}</Txt>
+      {/* a little bolder than a card title (600), so the section names stand out on the page */}
+      <Txt variant="h2" accessibilityRole="header" style={{ fontWeight: '600' }}>{title}</Txt>
       {right}
     </View>
   );
@@ -760,9 +785,9 @@ export function SectionHeader({ title, right }: { title: string; right?: ReactNo
 export function Pill({ label, active, onPress, icon }: { label: string; active?: boolean; onPress: () => void; icon?: React.ComponentProps<typeof Ionicons>['name'] }) {
   const { c } = useTheme();
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} hitSlop={6} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, { minHeight: sc(32), backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
-      {icon ? <Ionicons name={icon} size={15} color={active ? '#fff' : c.text} style={{ marginRight: 6 }} /> : null}
-      <Text style={{ color: active ? '#fff' : c.text, fontWeight: '600', fontSize: 13 }}>{label}</Text>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} hitSlop={6} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, { minHeight: sc(BTN.pill), borderRadius: BTN.radiusPill, borderWidth: 1, paddingHorizontal: sph(16), backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
+      {icon ? <Ionicons name={icon} size={sc(15)} color={active ? '#fff' : c.text} style={{ marginRight: sph(6) }} /> : null}
+      <Text style={{ color: active ? '#fff' : c.text, ...BTN.text }}>{label}</Text>
     </Pressable>
   );
 }
@@ -770,7 +795,7 @@ export function Pill({ label, active, onPress, icon }: { label: string; active?:
 /** Horizontal scrolling row of pills (category filters, time chips…). */
 export function PillRow({ children }: { children: ReactNode }) {
   return (
-    <ScrollView horizontal overScrollMode="never" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 2 }} keyboardShouldPersistTaps={keyboardTaps}>
+    <ScrollView horizontal overScrollMode="never" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: sp(8), paddingVertical: 2 }} keyboardShouldPersistTaps={keyboardTaps}>
       {children}
     </ScrollView>
   );
@@ -779,9 +804,9 @@ export function PillRow({ children }: { children: ReactNode }) {
 export function CheckRow({ checked, onChange, children, disabled }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode; disabled?: boolean }) {
   const { c } = useTheme();
   return (
-    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: disabled ? 0.6 : 1 }}>
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', gap: sp(12), alignItems: 'center', opacity: disabled ? 0.6 : 1 }}>
       {/* the box is centred on its text (one line or several), so it always sits level with what it confirms */}
-      <View style={[s.check, { borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : 'transparent' }]}>{checked ? <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>✓</Text> : null}</View>
+      <View style={[s.check, { borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : 'transparent' }]}>{checked ? <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>✓</Text> : null}</View>
       <View style={{ flex: 1 }}>{children}</View>
     </Pressable>
   );
@@ -792,9 +817,9 @@ export function Stepper({ value, onChange, min, max, label }: { value: number; o
   const { t } = useT();
   const bump = (d: number) => onChange(Math.min(max, Math.max(min, value + d)));
   return (
-    <View style={{ gap: 4 }}>
+    <View style={{ gap: sp(4) }}>
       <Txt variant="label">{label}</Txt>
-      <View style={[s.row, { gap: 14 }]}>
+      <View style={[s.row, { gap: sp(14) }]}>
         <Pressable accessibilityRole="button" hitSlop={6} accessibilityLabel={t('Decrease {label}', { label })} onPress={() => bump(-1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>−</Text></Pressable>
         <Txt variant="h2">{value}</Txt>
         <Pressable accessibilityRole="button" hitSlop={6} accessibilityLabel={t('Increase {label}', { label })} onPress={() => bump(1)} style={[s.stepBtn, { borderColor: c.line, backgroundColor: c.surface }]}><Text style={s.stepTxt}>+</Text></Pressable>
@@ -820,7 +845,7 @@ type Tone = 'info' | 'ok' | 'warn' | 'bad';
 export function Banner({ children, tone = 'info', onPress }: { children: ReactNode; tone?: Tone; onPress?: () => void }) {
   const { c } = useTheme();
   const t = { info: [c.infoBg, c.infoFg], ok: [c.okBg, c.okFg], warn: [c.warnBg, c.warnFg], bad: [c.badBg, c.badFg] }[tone];
-  const body = <Text style={{ color: t[1], fontSize: 14, lineHeight: 20 }}>{children}</Text>;
+  const body = <Text style={{ color: t[1], fontSize: 16, lineHeight: 23 }}>{children}</Text>;
   return onPress ? (
     <Pressable accessibilityRole="button" onPress={onPress} style={[s.banner, { backgroundColor: t[0] }]}>{body}</Pressable>
   ) : (
@@ -844,13 +869,13 @@ export function Empty({ title, children, icon, action }: { title: string; childr
   return (
     <View style={[s.empty, { borderColor: c.line }]}>
       {icon ? (
-        <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
-          <Ionicons name={icon} size={24} color={c.forest} />
+        <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: sc(52), height: sc(52), borderRadius: sc(26), backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
+          <Ionicons name={icon} size={sc(24)} color={c.forest} />
         </View>
       ) : null}
       <Txt variant="h3" style={{ textAlign: 'center' }}>{title}</Txt>
       {children ? <Txt variant="muted" style={{ textAlign: 'center' }}>{children}</Txt> : null}
-      {action ? <Btn title={action.label} variant="secondary" small onPress={action.onPress} style={{ marginTop: 6, alignSelf: 'center' }} /> : null}
+      {action ? <Btn title={action.label} variant="secondary" small onPress={action.onPress} style={{ marginTop: sp(6), alignSelf: 'center' }} /> : null}
     </View>
   );
 }
@@ -874,12 +899,12 @@ export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: n
   const [failed, setFailed] = useState(false);
   const src = photoSrc(uri, size);
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: c.ivory /* a soft green, the same in HERE and THERE, for people without a photo */, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
       {src && !failed ? (
         // the address carries the upload time, so a kept copy never goes stale; expo-image keeps it on disk and in memory
         <Image source={{ uri: src }} contentFit="cover" cachePolicy="memory-disk" recyclingKey={src} transition={120} onError={() => setFailed(true)} style={{ width: size, height: size }} />
       ) : (
-        <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: size * (initialsOf(name).length > 1 ? 0.36 : 0.42) }}>{initialsOf(name)}</Text>
+        <Text style={{ color: c.forest, fontWeight: '700', fontSize: size * (initialsOf(name).length > 1 ? 0.36 : 0.42) }}>{initialsOf(name)}</Text>
       )}
     </View>
   );
@@ -968,20 +993,20 @@ export function Sheet({ visible, title, onClose, children, bg, onClosed }: { /**
           accessibilityViewIsModal
           style={[
             s.sheet,
-            { backgroundColor: bg ?? c.surface, paddingBottom: typing ? 16 : insets.bottom + 16, transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
-            isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 22, paddingBottom: 18, opacity: slide },
+            { backgroundColor: bg ?? c.surface, paddingBottom: typing ? sp(16) : insets.bottom + 16, transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
+            isTablet && { alignSelf: 'center', width: sc(560), maxWidth: '92%', borderRadius: sc(22), paddingBottom: sp(18), opacity: slide },
           ]}
         >
           {isTablet ? (
             <Txt variant="h2">{shown.current.title}</Txt>
           ) : (
             // grab bar plus title: the part to tap or pull down. Padding makes the touch area generous.
-            <View {...handle.panHandlers} accessible accessibilityRole="button" accessibilityLabel={tr('Close')} style={{ marginTop: -18, paddingTop: 10, paddingBottom: 4, gap: 10 }}>
-              <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: c.line }} />
+            <View {...handle.panHandlers} accessible accessibilityRole="button" accessibilityLabel={tr('Close')} style={{ marginTop: -sc(18), paddingTop: sp(10), paddingBottom: sp(4), gap: sp(10) }}>
+              <View style={{ alignSelf: 'center', width: sc(40), height: sc(4), borderRadius: 2, backgroundColor: c.line }} />
               <Txt variant="h2">{shown.current.title}</Txt>
             </View>
           )}
-          <ScrollView ref={body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} scrollEventThrottle={16} onScroll={(e) => (bodyY.current = e.nativeEvent.contentOffset.y)} contentContainerStyle={{ gap: 12 }}>{shown.current.children}</ScrollView>
+          <ScrollView ref={body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} scrollEventThrottle={16} onScroll={(e) => (bodyY.current = e.nativeEvent.contentOffset.y)} contentContainerStyle={{ gap: sp(12) }}>{shown.current.children}</ScrollView>
         </Animated.View>
       </Animated.View>
     </Modal>
@@ -995,20 +1020,20 @@ export function useGo() {
 }
 
 const s = StyleSheet.create({
-  screen: { paddingHorizontal: 16, gap: 14 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  screen: { paddingHorizontal: sph(16), gap: sp(14) },
+  row: { flexDirection: 'row', alignItems: 'center', gap: sp(10) },
   between: { justifyContent: 'space-between' },
-  btn: { minHeight: 42, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  btnSmall: { minHeight: 34, paddingVertical: 5, paddingHorizontal: 12 },
-  input: { minHeight: 42, borderWidth: 1.5, borderRadius: 11, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
-  pill: { minHeight: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  check: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 42, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12 },
-  stepBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  btn: { minHeight: sc(42), paddingHorizontal: sph(16), paddingVertical: sp(8), borderRadius: sc(12), borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  btnSmall: { minHeight: sc(34), paddingVertical: sp(5), paddingHorizontal: sph(12) },
+  input: { minHeight: sc(42), borderWidth: 1.5, borderRadius: sc(11), paddingHorizontal: sph(12), paddingVertical: sp(8), fontSize: 16 },
+  pill: { minHeight: sc(32), paddingHorizontal: sph(12), borderRadius: sc(999), borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  check: { width: sc(24), height: sc(24), borderRadius: sc(6), borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  search: { flexDirection: 'row', alignItems: 'center', gap: sp(8), minHeight: sc(42), borderWidth: 1, borderRadius: sc(14), paddingHorizontal: sph(12) },
+  stepBtn: { width: sc(38), height: sc(38), borderRadius: sc(19), borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   stepTxt: { fontSize: 22, fontWeight: '700' },
-  card: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 6 },
-  banner: { padding: 12, borderRadius: 12 },
-  chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
-  empty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 16, paddingVertical: 28, paddingHorizontal: 24, alignItems: 'center', gap: 8 },
-  sheet: { borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, gap: 12, maxHeight: '88%' },
+  card: { borderWidth: 1, borderRadius: sc(14), padding: sp(12), gap: sp(6) },
+  banner: { padding: sp(12), borderRadius: sc(12) },
+  chip: { paddingHorizontal: sph(10), paddingVertical: sc(3), borderRadius: sc(999), alignSelf: 'flex-start' },
+  empty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: sc(16), paddingVertical: sp(28), paddingHorizontal: sph(24), alignItems: 'center', gap: sp(8) },
+  sheet: { borderTopLeftRadius: sc(22), borderTopRightRadius: sc(22), padding: sp(18), gap: sp(12), maxHeight: '88%' },
 });

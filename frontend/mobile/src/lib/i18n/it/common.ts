@@ -9,8 +9,8 @@ export const common: Record<string, string> = {
   d: 'g',
   '{n} friend going': '{n} amico va',
   '{n} friends going': '{n} amici vanno',
-  '{n} you follow is going': '{n} persona che segui va',
-  '{n} you follow are going': '{n} persone che segui vanno',
+  '{n} person you follow is going': '{n} persona che segui va',
+  '{n} people you follow are going': '{n} persone che segui vanno',
   Language: 'Lingua',
   'Language of the app. Posts written by other people stay in the language they were written in.': "La lingua dell'app. I post scritti dagli altri restano nella lingua in cui sono stati scritti.",
 };

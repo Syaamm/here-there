@@ -1,64 +1,65 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>LAMIS: work log, 12 November 2026</title>
+<html lang="en"><head><meta charset="utf-8"><title>LAMIS: what changed today, 12 November 2026</title>
 <style>
-@page { size: A4; margin: 13mm 12mm 17mm; @bottom-left { content: "LAMIS · work log"; font: 9.5px system-ui,sans-serif; color:#66726d; } @bottom-right { content: "12 November 2026 · page " counter(page) " of " counter(pages); font: 9.5px system-ui,sans-serif; color:#66726d; } }
+@page { size: A4; margin: 13mm 12mm 17mm; @bottom-left { content: "LAMIS · what changed today"; font: 9.5px system-ui,sans-serif; color:#66726d; } @bottom-right { content: "12 November 2026 · page " counter(page) " of " counter(pages); font: 9.5px system-ui,sans-serif; color:#66726d; } }
 :root { --forest:#102f29; --green:#2f7d65; --ink:#1c2622; --muted:#66726d; --line:#dfe3de; }
 * { box-sizing:border-box; }
 body { margin:0; color:var(--ink); font:11.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
 .top { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid var(--forest); padding-bottom:8px; }
 .brand { font-size:9.5px; letter-spacing:.14em; font-weight:700; text-transform:uppercase; color:var(--green); }
 h1 { font-size:22px; margin:2px 0 0; color:var(--forest); } .date { color:var(--muted); }
-h2 { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--forest); margin:18px 0 6px; padding-bottom:3px; border-bottom:1px solid var(--line); break-after:avoid; }
-p { margin:4px 0; } ul { margin:3px 0; padding-left:17px; } li { margin:2px 0; }
-.sum { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:10px 0; }
-.sum div { border:1px solid var(--line); border-radius:6px; padding:7px 10px; background:#f7f9f6; }
-.sum b { display:block; font-size:19px; color:var(--forest); }
-.feat { display:grid; grid-template-columns:150px 1fr; gap:16px; align-items:center; margin:10px 0; break-inside:avoid; border:1px solid var(--line); border-radius:8px; padding:10px 14px; background:#fbfcfa; }
-.feat h3 { margin:0 0 3px; font-size:13px; color:var(--forest); }
-.feat svg { width:150px; height:auto; display:block; }
-.note { margin:8px 0; border:1px solid #ecce9f; border-left:5px solid #a8680f; border-radius:6px; background:#fdf6e8; padding:8px 12px; }
-.tag { display:inline-block; font-size:9.5px; font-weight:700; padding:1px 7px; border-radius:9px; background:#fbe9e5; color:#8a2f1e; }
+h2 { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--forest); margin:16px 0 6px; padding-bottom:3px; border-bottom:1px solid var(--line); break-after:avoid; }
+p { margin:4px 0; } ul { margin:3px 0; padding-left:17px; } li { margin:3px 0; }
+.shots { display:flex; gap:10px; margin:8px 0 4px; break-inside:avoid; }
+.shots { justify-content:center; } .shots figure { flex:0 0 27%; margin:0; text-align:center; }
+.shots img { width:100%; height:auto; border:1px solid var(--line); border-radius:12px; display:block; }
+.shots figcaption { font-size:10px; color:var(--muted); margin-top:4px; line-height:1.35; }
+table{width:100%;border-collapse:collapse;margin:6px 0}th{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#66726d;text-align:left;padding:4px 6px;border-bottom:1px solid #102f29}td{padding:4px 6px;border-bottom:1px solid #dfe3de}
+.sw { display:flex; gap:10px; margin:6px 0; } .sw div { flex:1; border:1px solid var(--line); border-radius:8px; overflow:hidden; font-size:10px; color:var(--muted); } .sw i { display:block; height:34px; } .sw span { display:block; padding:4px 7px; }
+.pb { break-before:page; }
 </style></head><body>
-<div class="top"><div><div class="brand">LAMIS · HERE &amp; THERE</div><h1>Work log, phone app and API</h1></div><div class="date">12 November 2026</div></div>
+<div class="top"><div><div class="brand">LAMIS · Be here. Go there.</div><h1>What changed in the app today</h1></div><div class="date">12 November 2026</div></div>
 
-<div class="sum"><div><b>9</b>map changes</div><div><b>3</b>text sizes</div><div><b>1</b>setting removed</div><div><b>1</b>profile colour</div></div>
-<p>What changed in the app today, compared with the version you last saw. The drawings are simple sketches of each change, not screenshots.</p>
+<h2>Screens</h2>
+<div class="shots">
+<figure><img src="screenshots/w1112-36.png"><figcaption>THERE home</figcaption></figure>
+<figure><img src="screenshots/w1112-41.png"><figcaption>HERE home</figcaption></figure>
+<figure><img src="screenshots/w1112-39.png"><figcaption>Inbox</figcaption></figure>
+</div>
+<div class="shots">
+<figure><img src="screenshots/w1112-37.png"><figcaption>Trip page</figcaption></figure>
+<figure><img src="screenshots/w1112-38.png"><figcaption>Trip page: Who's going</figcaption></figure>
+<figure><img src="screenshots/w1112-40.png"><figcaption>Activity page</figcaption></figure>
+</div>
 
-<h2>Maps</h2>
+<h2>Fonts</h2>
+<p><b>Typeface:</b> Inter, on iPhone and Android. Weights: Regular 400, Medium 500, SemiBold 600, Bold 700.</p>
+<table>
+<tr><th>Text style</th><th>Used for</th><th>Weight</th><th>Compact</th><th>Medium</th><th>Large</th></tr>
+<tr><td>App title</td><td>screen titles</td><td>Bold</td><td>20</td><td>24</td><td>27</td></tr>
+<tr><td>Card title</td><td>titles of cards and sheets</td><td>Bold</td><td>14</td><td>17</td><td>19</td></tr>
+<tr><td>Body</td><td>normal text, fields, lists</td><td>Regular</td><td>11.5</td><td>14</td><td>16</td></tr>
+<tr><td>Button / label</td><td>buttons, pills, chips</td><td>SemiBold</td><td>10.5</td><td>13</td><td>14.5</td></tr>
+<tr><td>Caption</td><td>notes, hints, times, counts</td><td>Regular</td><td>10</td><td>12</td><td>13.5</td></tr>
+</table>
+<p style="color:#66726d;font-size:10px">Sizes in points. Compact is the default text size.</p>
 
-<div class="feat"><svg viewBox="0 0 150 230"><rect x="1" y="1" width="148" height="228" rx="16" fill="#e9e5dd" stroke="#102f29" stroke-width="2"/><rect x="10" y="12" width="130" height="22" rx="11" fill="#fff" stroke="#dfe3de"/><text x="22" y="27" font-size="9" fill="#66726d">Search a place</text><rect x="1" y="62" width="148" height="167" rx="14" fill="#fff" stroke="#102f29" stroke-width="1.5"/><rect x="62" y="68" width="26" height="4" rx="2" fill="#bbb"/><rect x="14" y="84" width="122" height="30" rx="7" fill="#f3f5f1"/><rect x="14" y="120" width="122" height="30" rx="7" fill="#f3f5f1"/><rect x="14" y="156" width="122" height="30" rx="7" fill="#f3f5f1"/><path d="M75 52 L75 40 M70 45 L75 40 L80 45" stroke="#2f7d65" stroke-width="2" fill="none"/></svg>
-<div><h3>Card pulls up over the map</h3><p>Pulling the activity card up takes it to the search bar and covers the map. While it is up, the search bar only filters that list; the map stays where it is. Clearing the search with the x, or pulling the card down, lowers the keyboard.</p></div></div>
+<h2>Colours</h2>
+<div class="sw">
+<div><i style="background:#fff;border-bottom:1px solid #dfe3de"></i><span>HERE · White</span></div>
+<div><i style="background:#2f7d65"></i><span>HERE · Green</span></div>
+<div><i style="background:#e9e5dd"></i><span>THERE · Ivory #E9E5DD</span></div>
+<div><i style="background:#102f29"></i><span>Deep forest #102F29</span></div>
+<div><i style="background:#d9cdb4"></i><span>Sand #D9CDB4</span></div>
+</div>
 
-<div class="feat"><svg viewBox="0 0 150 230"><rect x="1" y="1" width="148" height="228" rx="16" fill="#fff" stroke="#102f29" stroke-width="2"/><text x="14" y="26" font-size="10" font-weight="700" fill="#102f29">Which day</text><rect x="14" y="34" width="46" height="16" rx="8" fill="#102f29"/><text x="22" y="45" font-size="8" fill="#fff">All days</text><g font-size="7" fill="#66726d" text-anchor="middle"><text x="25" y="70">S</text><text x="43" y="70">M</text><text x="61" y="70">T</text><text x="79" y="70">W</text><text x="97" y="70">T</text><text x="115" y="70">F</text><text x="133" y="70">S</text></g><g font-size="8" text-anchor="middle" fill="#1c2622"><text x="25" y="88">1</text><text x="43" y="88">2</text><text x="61" y="88">3</text><text x="79" y="88">4</text><text x="97" y="88">5</text><text x="115" y="88">6</text><text x="133" y="88">7</text><text x="25" y="108">8</text><text x="43" y="108">9</text><text x="61" y="108">10</text><text x="79" y="108">11</text><text x="97" y="108">12</text><text x="133" y="108">14</text></g><circle cx="115" cy="105" r="9" fill="#2f7d65"/><text x="115" y="108" font-size="8" fill="#fff" text-anchor="middle">13</text><rect x="14" y="190" width="122" height="26" rx="13" fill="#102f29"/><text x="75" y="207" font-size="9" fill="#fff" text-anchor="middle">Show results</text></svg>
-<div><h3>HERE filter: calendar for the day</h3><p>The row of upcoming dates is replaced by a calendar, from today to one year ahead. Tap a day to see only that day. "All days" clears it. It is hidden while you search.</p></div></div>
-
-<div class="feat"><svg viewBox="0 0 150 120"><rect x="1" y="1" width="148" height="118" rx="12" fill="#e9e5dd" stroke="#102f29" stroke-width="2"/><circle cx="75" cy="44" r="9" fill="#2f7d65"/><path d="M75 58 L69 44 L81 44 Z" fill="#2f7d65"/><rect x="1" y="74" width="148" height="45" rx="10" fill="#fff" stroke="#102f29"/><text x="14" y="92" font-size="10" font-weight="700" fill="#102f29">1 activity here</text><text x="14" y="106" font-size="8" fill="#66726d">Your location is only used when you tap</text></svg>
-<div><h3>Pin card: "How far?" removed, no flash</h3><p>The "How far?" button is gone from the card that opens when you tap a pin. The flicker when you tap the empty map is fixed: the card keeps the pin's activities while it slides down, instead of switching to the full list too early.</p></div></div>
-
-<div class="feat"><svg viewBox="0 0 150 90"><rect x="1" y="1" width="148" height="88" rx="12" fill="#f7f9f6" stroke="#102f29" stroke-width="2"/><text x="14" y="28" font-size="9" fill="#8a2f1e" text-decoration="line-through">Near: wider area</text><path d="M14 40 L136 40" stroke="#dfe3de"/><text x="14" y="62" font-size="11" font-weight="700" fill="#2f7d65">Chalakudy</text><text x="14" y="78" font-size="8" fill="#66726d">town name first, then city, village</text></svg>
-<div><h3>"Near me" names your town</h3><p>In Chalakudy it now says Chalakudy. The lookup uses a closer zoom and takes the town name first. <span class="tag">Needs an API restart</span> and a deploy on the live site.</p></div></div>
-
-<div class="feat"><svg viewBox="0 0 150 110"><rect x="1" y="1" width="148" height="108" rx="12" fill="#fff" stroke="#102f29" stroke-width="2"/><text x="14" y="26" font-size="8" fill="#66726d">Search maps: place or activity</text><rect x="14" y="36" width="122" height="14" rx="7" fill="#f3f5f1"/><rect x="14" y="56" width="122" height="14" rx="7" fill="#f3f5f1"/><rect x="14" y="76" width="122" height="14" rx="7" fill="#f3f5f1"/><text x="75" y="102" font-size="8" fill="#2f7d65" text-anchor="middle">Show all results</text></svg>
-<div><h3>HERE map search</h3><p>Search by place name, activity name or category (coffee, yoga, sports). Results arrive 20 at a time, with "Show all results", and the server does a light query.</p></div></div>
-
-<h2>Settings and look</h2>
-<div class="feat"><svg viewBox="0 0 150 110"><rect x="1" y="1" width="148" height="108" rx="12" fill="#fff" stroke="#102f29" stroke-width="2"/><text x="14" y="24" font-size="9" font-weight="700" fill="#102f29">Text size</text><rect x="14" y="34" width="38" height="20" rx="10" fill="#102f29"/><text x="33" y="48" font-size="8" fill="#fff" text-anchor="middle">Compact</text><rect x="56" y="34" width="38" height="20" rx="10" fill="#f3f5f1" stroke="#dfe3de"/><text x="75" y="48" font-size="8" fill="#1c2622" text-anchor="middle">Medium</text><rect x="98" y="34" width="38" height="20" rx="10" fill="#f3f5f1" stroke="#dfe3de"/><text x="117" y="48" font-size="8" fill="#1c2622" text-anchor="middle">Large</text><text x="14" y="82" font-size="8" fill="#66726d">"Send a test push" removed</text></svg>
-<div><h3>Text size: Compact, Medium, Large</h3><p>Three sizes instead of five. Compact is the smallest and the default; Medium and Large are one step up each. Anyone who had picked a size keeps the same look under the new name. The "Send a test push" row is removed from Settings.</p></div></div>
-
-<div class="feat"><svg viewBox="0 0 150 110"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#d9cdb4"/></linearGradient></defs><rect x="1" y="1" width="148" height="108" rx="12" fill="url(#g)" stroke="#102f29" stroke-width="2"/><circle cx="75" cy="36" r="16" fill="#102f29"/><text x="75" y="72" font-size="10" font-weight="700" fill="#102f29" text-anchor="middle">Alex</text><rect x="18" y="82" width="114" height="20" rx="8" fill="#fff"/></svg>
-<div><h3>THERE profile colour</h3><p>The THERE profile header now fades from white at the top to sand behind the stats card, as in the design.</p></div></div>
-
-<div class="feat"><svg viewBox="0 0 150 110"><rect x="1" y="1" width="148" height="108" rx="12" fill="#e9e5dd" stroke="#102f29" stroke-width="2"/><rect x="12" y="14" width="80" height="18" rx="9" fill="#fff"/><rect x="58" y="38" width="80" height="18" rx="9" fill="#2f7d65"/><rect x="12" y="66" width="126" height="34" rx="12" fill="#fff" stroke="#dfe3de"/><text x="22" y="80" font-size="8" fill="#1c2622">A longer message grows the</text><text x="22" y="92" font-size="8" fill="#1c2622">white box, up to a limit</text></svg>
-<div><h3>Chat</h3><p>Only the white input box grows with the text and fits it tightly, then shrinks back after sending. The unread count updates correctly when you open a chat.</p></div></div>
-
-<h2>Create, sign-up and fixes</h2>
+<h2>What changed</h2>
 <ul>
-<li><b>Time picker:</b> the hour wheel flips AM/PM (PM goes to AM, AM goes to PM). Create's place step shows a map preview. Durations 1, 2, 3, 4, 6 hours.</li>
-<li><b>Sign-up:</b> password length hint, control characters refused, "email already used" message. Onboarding swipes.</li>
-<li><b>Android calendar:</b> Saturday was missing in the date picker, fixed.</li>
-<li><b>Counts:</b> Following and Followers numbers now match their lists.</li>
-<li><b>Trip review:</b> white cards, summary and dates cards, no dark colour.</li>
+<li><b>Text size:</b> Compact (default), Medium and Large. "Send a test push" removed from Settings.</li>
+<li><b>Look:</b> smaller text, cards, pills and photos; slimmer Home header; "Leaving soon" and "Next up" as separate cards; default profile picture dark green with white initials; bottom bar hides while scrolling.</li>
+<li><b>Trips and activities:</b> smaller faces in "Who's going"; trip review with white cards and summary; AM/PM switch in the time picker; map preview in Create; Saturday shown in the Android date picker.</li>
+<li><b>Maps:</b> search by place, activity or category; activity card pulls up to the search bar; calendar in the HERE filter; "How far?" removed; no flicker on the pin card; "Near me" shows your town.</li>
+<li><b>Profile and chat:</b> THERE profile header fades from white to sand; message box grows with the text; Following and Followers numbers match their lists.</li>
+<li><b>Sign-up:</b> password length hint, email already used message, swipeable welcome screens.</li>
 </ul>
-
-<p>Still to come: the same pin-card fix on the THERE map, and Italian text for the new labels.</p>
 </body></html>

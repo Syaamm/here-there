@@ -87,10 +87,13 @@
 /* the dates the dashboard is showing, in the corner of the chart card */
 .ov-dates { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); background: var(--surface-2); border-radius: 999px; padding: 4px 12px; white-space: nowrap; }
 
-/* the Verification card: three numbers side by side */
-.ov-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; text-align: left; }
-.ov-three span { display: grid; gap: 4px; min-width: 0; }
-.ov-three b { font-size: var(--fs-2xl); line-height: 1.1; letter-spacing: -0.02em; color: var(--text); }
+/* the Verification card: the title stays where it was (top left); the three counts sit in the middle of the space under it,
+   each count centred in its own third, in the dark green of the admin */
+.stat:has(> .ov-three) { grid-template-rows: auto 1fr; align-content: stretch; }
+.ov-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 0; align-self: center; text-align: center; }
+.ov-three span { display: grid; gap: 4px; min-width: 0; justify-items: center; text-align: center; }
+.stat .value, .ov-three b { color: var(--accent); }
+.ov-three b { font-size: var(--fs-2xl); line-height: 1.1; letter-spacing: -0.02em; color: var(--accent); }
 .ov-three small { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
 
 /* reports by category: name and count on one line, the bar under it, so no name is ever cut off */

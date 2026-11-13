@@ -14,7 +14,8 @@ import { useTheme } from '@/lib/theme';
 import { CheckLine } from '@/components/CheckLine';
 import { ClashNotice, useClashes } from '@/components/ClashNotice';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp } from '@/lib/scale';
 /** THERE · Application. Structured so the organizer can decide; no payment, no documents. */
 export default function Apply() {
   const { t } = useT();
@@ -25,6 +26,7 @@ export default function Apply() {
   const go = useGo();
   const { data: trip, loading } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip');
   const [intro, setIntro] = useState('');
+  const [tried, setTried] = useState(false); // Send was tapped with a too short introduction: the box says what is wrong
   const [exp, setExp] = useState('intermediate');
   const [budgetOk, setBudgetOk] = useState(false);
   const [datesOk, setDatesOk] = useState(false);
@@ -42,10 +44,12 @@ export default function Apply() {
   // Send stays grey until the three boxes are ticked (and the person is 18+ and verified, with nothing clashing); then it
   // turns green. The introduction is not part of that: tapping Send without one simply takes you to its box.
   const ready = budgetOk && datesOk && guidelines && adult && verified && clash.firm.length === 0;
+  const introShort = intro.trim().length < 10; // the organizer needs at least 10 characters to know who is asking
 
   const submit = async () => {
-    if (intro.trim().length < 10) {
-      // no message: the page scrolls to the introduction and opens the keyboard there
+    if (introShort) {
+      // the box says what is wrong (below), and the page scrolls to it and opens the keyboard there
+      setTried(true);
       introRef.current?.focus();
       return;
     }
@@ -57,8 +61,8 @@ export default function Apply() {
   return (
     <Screen hasHeader>
       {/* cover block: a stand-in for the trip photo, as in an activity request */}
-      <View accessibilityElementsHidden importantForAccessibility="no" style={{ height: 190, borderRadius: 24, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name="airplane" size={56} color={c.forest} />
+      <View accessibilityElementsHidden importantForAccessibility="no" style={{ height: sc(190), borderRadius: sc(24), backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name="airplane" size={sc(56)} color={c.forest} />
       </View>
       <View>
         <Txt variant="h1" style={{ fontSize: 30, lineHeight: 36 }}>{trip.title}</Txt>
@@ -66,7 +70,18 @@ export default function Apply() {
       </View>
       <ErrorBanner message={act.error} />
       <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="apply" onChanged={() => void clash.reload()} />
-      <Field inputRef={introRef} label={t('Introduce yourself to the organizer')} placeholder={t("Hello! I'd love to join.")} multiline value={intro} onChangeText={setIntro} maxLength={1000} />
+      <Field
+        inputRef={introRef}
+        label={t('Introduce yourself to the organizer')}
+        placeholder={t("Hello! I'd love to join.")}
+        multiline
+        value={intro}
+        onChangeText={setIntro}
+        maxLength={1000}
+        // while it is too short a small count says how far it is; once Send was tapped it becomes a red message, and goes as soon as it is long enough
+        hint={introShort ? t('At least 10 characters ({n}/10)', { n: Math.min(10, intro.trim().length) }) : undefined}
+        error={tried && introShort ? t('Please write at least 10 characters, so the organizer knows who is asking.') : null}
+      />
       <Txt variant="label">{t('Your travel experience')}</Txt>
       <PillRow>
         {EXPERIENCE.map(([v, l]) => (
@@ -74,8 +89,8 @@ export default function Apply() {
         ))}
       </PillRow>
 
-      <Card style={{ borderRadius: 20, paddingVertical: 6 }}>
-        <Txt variant="h3" style={{ fontSize: 18, paddingTop: 8 }}>{t('Before sending')}</Txt>
+      <Card style={{ borderRadius: sc(20), paddingVertical: sp(6) }}>
+        <Txt variant="h3" style={{ fontSize: 20, paddingTop: sp(8) }}>{t('Before sending')}</Txt>
         <CheckLine ok={adult} text={t('I am at least 18 years old')} />
         <CheckLine ok={verified} text={verified ? t('Identity verified') : t('Identity verification required')} action={!verified ? <Btn title={t('Verify now')} small variant="secondary" onPress={() => go('/verify')} style={{ alignSelf: 'flex-start' }} /> : undefined} />
         <CheckRow checked={budgetOk} onChange={setBudgetOk}>

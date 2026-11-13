@@ -11,12 +11,13 @@ import { Text } from '@/components/ScaledText';
 import { Avatar, Banner, ErrorBanner, Row, Screen, Txt } from '@/components/ui';
 import { del, patch, uploadPhoto } from '@/lib/api';
 import { useMe } from '@/lib/auth';
-import { INTERESTS, LANGUAGES } from '@/lib/constants';
+import { HERE_INTERESTS, LANGUAGES, THERE_INTERESTS } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { showToast } from '@/lib/toast';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 const BIO_MAX = 300;
 const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
@@ -24,7 +25,7 @@ const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x
 export default function EditProfile() {
   const { t } = useT();
   const { me, reload } = useMe();
-  const { c } = useTheme();
+  const { c, mode } = useTheme();
   const router = useRouter();
   const p = me?.profile;
   const [f, setF] = useState({
@@ -96,37 +97,44 @@ export default function EditProfile() {
   return (
     <Screen tabBar onBack={back}>
       <Stack.Screen options={{ gestureEnabled: !dirty }} />
-      <View style={{ alignItems: 'center', gap: 16 }}>
+      <View style={{ alignItems: 'center', gap: sp(26) }}>
         <Avatar name={f.displayName || p.displayName} uri={p.photoUrl} size={100} />
-        <Row style={{ gap: 14 }}>
+        <Row style={{ gap: sp(14) }}>
           <SmallPill filled title={p.photoUrl ? t('Change photo') : t('Add a photo')} onPress={pick} loading={photo.busy} />
           {p.photoUrl ? <SmallPill title={t('Remove')} onPress={() => photo.run(() => del('/v1/me/photo'))} disabled={photo.busy} /> : null}
         </Row>
         <ErrorBanner message={photo.error} />
         {/* who sees the photo, said plainly next to the photo buttons */}
-        <View accessible style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, backgroundColor: c.accentSoft, maxWidth: 420 }}>
-          <Ionicons name="eye-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
+        <View accessible style={{ flexDirection: 'row', alignItems: 'flex-start', gap: sp(8), paddingHorizontal: sph(14), paddingVertical: sp(10), borderRadius: sc(16), backgroundColor: c.accentSoft, maxWidth: sc(420) }}>
+          <Ionicons name="eye-outline" size={sc(16)} color={c.forest} style={{ marginTop: 1 }} />
           <Txt variant="small" style={{ flex: 1, color: c.forest }}>{t('Your photo will be seen by people in the activities and trips you join. Never use an ID document.')}</Txt>
         </View>
       </View>
 
       <ErrorBanner message={save.error} />
-      <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={(v) => setF((x) => ({ ...x, displayName: v }))} maxLength={40} autoComplete="name" textContentType="name" autoCapitalize="words" />
-      <AuthField label={t('About you')} hint={`${f.bio.length}/${BIO_MAX}`} placeholder={t('A few words about you')} multiline value={f.bio} onChangeText={(v) => setF((x) => ({ ...x, bio: v.slice(0, BIO_MAX) }))} maxLength={BIO_MAX} style={{ minHeight: 96, borderRadius: 28, textAlignVertical: 'top', paddingTop: 14 }} />
-      <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Home city (city only)')}</Text>
-      <CityField value={f.homeCity} onPick={(name) => setF((x) => ({ ...x, homeCity: name }))} />
-
-      <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Languages')}</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {LANGUAGES.map((l) => (
-          <TogglePill key={l} label={t(l)} on={f.languages.includes(l)} onPress={() => setF((x) => ({ ...x, languages: toggle(x.languages, l) }))} />
-        ))}
-      </View>
-      <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Interests')}</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {INTERESTS.map((i) => (
-          <TogglePill key={i} label={t(i)} on={f.interests.includes(i)} onPress={() => setF((x) => ({ ...x, interests: toggle(x.interests, i) }))} />
-        ))}
+      <View style={{ gap: sp(28), marginTop: sp(14) }}>
+        <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={(v) => setF((x) => ({ ...x, displayName: v }))} maxLength={40} autoComplete="name" textContentType="name" autoCapitalize="words" />
+        <AuthField label={t('About you')} hint={`${f.bio.length}/${BIO_MAX}`} placeholder={t('A few words about you')} multiline value={f.bio} onChangeText={(v) => setF((x) => ({ ...x, bio: v.slice(0, BIO_MAX) }))} maxLength={BIO_MAX} style={{ minHeight: sc(96), borderRadius: sc(28), textAlignVertical: 'top', paddingTop: sp(14) }} />
+        <View style={{ gap: sp(14) }}>
+          <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '600', paddingLeft: 2 }}>{t('Home city (city only)')}</Text>
+          <CityField value={f.homeCity} onPick={(name) => setF((x) => ({ ...x, homeCity: name }))} />
+        </View>
+        <View style={{ gap: sp(14) }}>
+          <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '600', paddingLeft: 2 }}>{t('Languages')}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(10) }}>
+            {LANGUAGES.map((l) => (
+              <TogglePill key={l} label={t(l)} on={f.languages.includes(l)} onPress={() => setF((x) => ({ ...x, languages: toggle(x.languages, l) }))} />
+            ))}
+          </View>
+        </View>
+        <View style={{ gap: sp(14) }}>
+          <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '600', paddingLeft: 2 }}>{t('Interests')}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(10) }}>
+            {(mode === 'there' ? THERE_INTERESTS : HERE_INTERESTS).map(([key, label]) => (
+              <TogglePill key={key} label={t(label)} on={f.interests.includes(key)} onPress={() => setF((x) => ({ ...x, interests: toggle(x.interests, key) }))} />
+            ))}
+          </View>
+        </View>
       </View>
       {f.bio.length >= BIO_MAX - 20 ? <Banner>{t('Keep it short: {n} characters left.', { n: BIO_MAX - f.bio.length })}</Banner> : null}
 

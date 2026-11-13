@@ -18,6 +18,7 @@
     "demo:overlap": "node dist/scripts/overlap-demo.js",
     "demo:crossmode": "node dist/scripts/cross-mode-demo.js",
     "demo:there": "node dist/scripts/there-demo.js",
+    "demo:avatars": "node dist/scripts/avatar-demo.js",
     "demo:there:alex": "node dist/scripts/there-alex-demo.js",
     "demo:chat": "node dist/scripts/long-chat-demo.js",
     "load:seed": "node dist/scripts/load-seed.js",

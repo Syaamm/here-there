@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { get } from './api';
 import { useMe } from './auth';
 import { setLiveCity } from './live';
 
@@ -103,8 +104,10 @@ export function useCity() {
   useOwner();
   useEffect(load, []);
   const chosen = useSyncExternalStore(subscribe, () => city);
+  useSyncExternalStore(subscribe, () => areaKm); // a screen that shows a city redraws when the admin's coverage distance for it arrives
   const shown = chosen || me?.profile?.homeCity || 'Milan';
   useEffect(() => setLiveCity(shown), [shown]);
+  useEffect(() => watchArea(shown), [shown]);
   return [shown, pickCity] as const;
 }
 
@@ -129,15 +132,47 @@ export function useCityPos() {
   return chosen ? at : null;
 }
 
-/** How far around the chosen city activities are shown (km). */
+/** How far around a city's centre its activities are shown and may be placed (km) when the server has not said otherwise. */
 export const CITY_AREA_KM = 25;
+
+// The distance is set per city by an admin (Settings > Places & limits > Coverage). It is read from the server for the city on
+// screen, kept for a minute per city, and the built-in 25 km stands in until the answer comes (or when the server cannot be reached).
+let areaKm = CITY_AREA_KM;
+const areaSeen = new Map<string, { km: number; at: number }>();
+function watchArea(name: string) {
+  const key = name.trim().toLowerCase();
+  const hit = areaSeen.get(key);
+  const use = (km: number) => {
+    if (km === areaKm) return;
+    areaKm = km;
+    emit();
+  };
+  if (hit && Date.now() - hit.at < 60_000) return use(hit.km);
+  let alive = true;
+  get<{ area?: { km: number } }>(`/v1/regions/limits?city=${encodeURIComponent(name.trim())}`)
+    .then((r) => {
+      const km = r.area?.km ?? CITY_AREA_KM;
+      areaSeen.set(key, { km, at: Date.now() });
+      if (alive) use(km);
+    })
+    .catch(() => {});
+  return () => {
+    alive = false;
+  };
+}
+/** The coverage distance of the city on screen, in km. */
+export const getAreaKm = () => areaKm;
+export function useAreaKm() {
+  useCity();
+  return useSyncExternalStore(subscribe, () => areaKm);
+}
 
 /**
  * The query that picks a city's activities: around its centre when it is known (by distance; activities with no position still
  * match by name), or by name only.
  */
 export function cityQuery(name: string, at: Near | null): Record<string, string> {
-  return at ? { city: name, lat: String(at.lat), lng: String(at.lng), radiusKm: String(CITY_AREA_KM), area: 'true' } : { city: name };
+  return at ? { city: name, lat: String(at.lat), lng: String(at.lng), radiusKm: String(areaKm), area: 'true' } : { city: name };
 }
 
 /** The saved "Near me" position (null = the whole city), the same on every screen. */

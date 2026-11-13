@@ -1,11 +1,12 @@
 import { View } from 'react-native';
 import { TripCompactCard } from '@/components/Cards';
-import { Btn, Chip, Empty, ErrorBanner, Grid, Row, Screen, Spinner, Txt, useGo } from '@/components/ui';
+import { Between, Btn, Chip, Empty, ErrorBanner, Grid, Row, RowLink, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { type MyTripRow } from '@/lib/api';
 import { useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
-
+
+import { sc, sp } from '@/lib/scale';
 /** Every trip you organise, are in, or have applied to, a few at a time as you scroll (Profile shows only the latest 2). */
 export default function MyTripsPage() {
   const { t } = useT();
@@ -21,15 +22,15 @@ export default function MyTripsPage() {
       <Grid>
         {trips.items.map((x) =>
           x.row === 'joined' ? (
-            <View key={x.id} style={{ gap: 6 }}>
+            <View key={x.id} style={{ gap: sp(6) }}>
               <TripCompactCard t={x} />
-              <Row>
+              <Between>
                 <Chip label={x.role === 'organizer' ? t('You organize this') : t('In the group')} tone="ok" />
-                {x.role === 'organizer' && <Btn title={t('Review applications ›')} variant="ghost" small onPress={() => go(`/review/${x.id}`)} />}
-              </Row>
+                {x.role === 'organizer' && <RowLink title={t('Review applications ›')} onPress={() => go(`/review/${x.id}`)} />}
+              </Between>
             </View>
           ) : (
-            <View key={x.applicationId} style={{ gap: 6 }}>
+            <View key={x.applicationId} style={{ gap: sp(6) }}>
               <TripCompactCard t={x.trip} />
               <Chip label={x.state === 'pending' ? t('Pending organizer review') : x.state === 'waitlisted' ? t('Waitlisted') : t('Not approved')} tone={x.state === 'declined' ? 'bad' : 'warn'} />
             </View>

@@ -24,7 +24,8 @@ import { AppealsController, AppealsService } from './appeals/appeals.controller'
 import { ProofsController, ProofsService } from './appeals/proofs.controller';
 import { MatchingController, MatchingService } from './matching/matching.controller';
 import { ShareController } from './share/share.controller';
-import { RegionsAdminController, RegionsPublicController, RegionsService } from './regions/regions.service';
+import { CategoriesAdminController, CategoriesPublicController, CategoriesService } from './categories/categories.service';
+import { RegionsAdminController,RegionsPublicController, RegionsService } from './regions/regions.service';
 import { TripPlanController, TripPlanService } from './trips/trip-plan.controller';
 import { ModerationController, ModerationService } from './moderation/moderation.controller';
 import { DraftsController } from './drafts/drafts.controller';
@@ -65,6 +66,8 @@ import { VerificationService } from './verification/verification.service';
     ModerationController,
     RegionsPublicController,
     RegionsAdminController,
+    CategoriesPublicController,
+    CategoriesAdminController,
     MatchingController,
     TripPlanController,
     ShareController,
@@ -102,6 +105,7 @@ import { VerificationService } from './verification/verification.service';
     NotificationsService,
     NotificationPrefsService,
     RegionsService,
+    CategoriesService,
     SafetyService,
     VerificationService,
     ClashService,

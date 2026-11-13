@@ -4,7 +4,8 @@ import Svg, { ClipPath, Circle, Defs, Path, Rect } from 'react-native-svg';
 import { Text } from '@/components/ScaledText';
 import { useTheme } from '@/lib/theme';
 import { PIN_PATH, pinWidth } from './mapShared';
-
+
+import { sc, sph } from '@/lib/scale';
 /** The phone map's pin (the browser map draws its own with Leaflet, see MapHere.web). */
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
@@ -32,8 +33,8 @@ export function PinIcon({ full, active, count }: { category?: string; full: bool
         <Path d={PIN_PATH} fill={c.green} clipPath={`url(#${id})`} />
         <Circle cx="12" cy="9.8" r="3.2" fill="#fff" />
       </Svg>
-      <View style={{ position: 'absolute', top: 0, right: 0, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: c.forest, borderWidth: 1.5, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{count}</Text>
+      <View style={{ position: 'absolute', top: 0, right: 0, minWidth: sc(18), height: sc(18), borderRadius: sc(9), paddingHorizontal: sph(4), backgroundColor: c.forest, borderWidth: 1.5, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>{count}</Text>
       </View>
     </View>
   );

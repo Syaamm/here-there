@@ -8,7 +8,8 @@ import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
-
+
+import { sc, sp } from '@/lib/scale';
 export default function Login() {
   const router = useRouter();
   const { t } = useT();
@@ -48,23 +49,23 @@ export default function Login() {
   return (
     <Screen maxWidth={520}>
       <AuthBack onPress={() => router.back()} />
-      <View style={{ marginTop: mode === 'there' ? 64 : 24 }}>
+      <View style={{ marginTop: mode === 'there' ? sp(64) : sp(24) }}>
         <AuthHeading title={t('Welcome back')} subtitle={pass ? t('Enter your 6-digit code or a recovery code.') : t('Join a space where real sparks happen.')} />
       </View>
       {reset ? <Banner tone="ok">{t('Password changed. Log in.')}</Banner> : null}
       <ErrorBanner message={act.error} />
       {!act.error && notice ? <Banner tone={fades ? 'info' : 'bad'}>{notice}</Banner> : null}
       {pass ? (
-        <View style={{ gap: 18 }}>
+        <View style={{ gap: sp(18) }}>
           <AuthField label={t('Code')} placeholder={t('6-digit code')} value={code} onChangeText={setCode} autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" returnKeyType="go" onSubmitEditing={submit} />
           <AuthButton title={t('Continue')} onPress={submit} loading={act.busy} disabled={code.trim().length < 6} />
           <Btn title={t('Back')} variant="ghost" onPress={() => { setPass(null); setCode(''); act.setError(null); }} />
         </View>
       ) : (
-        <View style={{ gap: 18 }}>
+        <View style={{ gap: sp(18) }}>
           <AuthField label={t('Email')} placeholder={t('Enter your email')} value={email} onChangeText={(v) => { setEmail(v); if (fades) clearNotice(); }} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => pwRef.current?.focus()} />
           <AuthField label={t('Password')} placeholder={t('Enter your password')} value={password} onChangeText={(v) => { setPassword(v); if (fades) clearNotice(); }} secureTextEntry autoComplete="current-password" textContentType="password" returnKeyType="go" inputRef={pwRef} onSubmitEditing={submit} />
-          <Btn title={t('Forgot password?')} variant="ghost" small onPress={() => router.push('/forgot-password')} style={{ alignSelf: 'flex-end', marginTop: -10 }} />
+          <Btn title={t('Forgot password?')} variant="ghost" small onPress={() => router.push('/forgot-password')} style={{ alignSelf: 'flex-end', marginTop: -sc(10) }} />
           <AuthButton title={t('Log in')} onPress={submit} loading={act.busy} disabled={!email || !password} />
         </View>
       )}

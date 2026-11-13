@@ -11,6 +11,7 @@ import { useT } from '@/lib/i18n';
 import { statusTop } from '@/lib/layout';
 import { useTheme } from '@/lib/theme';
 
+import { sc } from '@/lib/scale';
 /** White rounded-square button that floats on top of a hero image. */
 export function FloatingButton({ icon, label, onPress, round, color = '#102F29', fx, size = 44 }: { /** width and height in px */ size?: number; icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress?: () => void; /** a circle instead of a rounded square */ round?: boolean; color?: string; /** pop: the icon swells and settles whenever it changes (a heart being filled); nudge: the icon slides back, then the action runs (a back arrow) */ fx?: 'pop' | 'nudge' }) {
   const press = useRef(new Animated.Value(0)).current; // the whole button, while a finger is on it
@@ -60,13 +61,13 @@ export function FloatingButton({ icon, label, onPress, round, color = '#102F29',
  * The picture area at the top of a detail screen: a coloured block (a stand-in until real photos exist) with a floating
  * back button, an optional action on the right (the ⋯ menu), and an optional emoji. Full-bleed on phones.
  */
-export function Hero({ color, emoji, category, right, height = 220, rounded, plain, round, image }: { /** a picture of its own (a bundled asset), used when there is no category photo */ image?: number; /** round (circle) floating buttons */ round?: boolean; color: string; /** the page has its own header bar above, so no floating back / menu buttons and no extra top space */ plain?: boolean; emoji?: string; /** show this category's photo instead of the plain block */ category?: string; right?: ReactNode; height?: number; rounded?: boolean }) {
+export function Hero({ color, emoji, category, right, height = 220, rounded, plain, round, image }: { /** a picture of its own (a bundled asset), used when there is no category photo */ image?: number | { uri: string } | { uri: string }; /** round (circle) floating buttons */ round?: boolean; color: string; /** the page has its own header bar above, so no floating back / menu buttons and no extra top space */ plain?: boolean; emoji?: string; /** show this category's photo instead of the plain block */ category?: string; right?: ReactNode; height?: number; rounded?: boolean }) {
   const { t } = useT();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
   return (
-    <View style={{ height: height + (rounded || plain ? 0 : statusTop(insets.top)), backgroundColor: color, borderRadius: rounded ? 24 : 0, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
+    <View style={{ height: height + (rounded || plain ? 0 : statusTop(insets.top)), backgroundColor: color, borderRadius: rounded ? sc(24) : 0, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
       {image ? <Image source={image} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : null}
       {category && CAT_IMAGES[category] ? <Image source={CAT_IMAGES[category]} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : null}
       {emoji && !image && !(category && CAT_IMAGES[category]) ? (
@@ -79,7 +80,7 @@ export function Hero({ color, emoji, category, right, height = 220, rounded, pla
         <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.28)']} locations={[0, 0.55, 1]} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
       ) : null}
       {plain ? null : (
-        <View style={{ position: 'absolute', left: 16, right: 16, top: rounded ? 16 : statusTop(insets.top) + 12, flexDirection: 'row', justifyContent: 'space-between' }}>
+        <View style={{ position: 'absolute', left: sc(16), right: sc(16), top: rounded ? sc(16) : statusTop(insets.top) + 12, flexDirection: 'row', justifyContent: 'space-between' }}>
           <FloatingButton round={round} fx="nudge" icon="chevron-back" label={t('Go back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
           {right}
         </View>

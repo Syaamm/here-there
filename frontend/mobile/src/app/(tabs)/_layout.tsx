@@ -17,7 +17,8 @@ import { HomeIcon, MessageIcon, ProfileGlyph, SearchIcon, svgTabIcon } from '@/c
 import { useTheme } from '@/lib/theme';
 import { fontOf } from '@/lib/fonts';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 const MAIN_TAB_PATHS = ['/', '/discover', '/create', '/inbox', '/profile'];
 /** Side-rail only: the Create item is a normal icon there (the phone dock draws its own round + button). */
@@ -134,16 +135,16 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: c.muted,
         // The active item gets a soft green highlight on the side rail (never the system blue).
         tabBarActiveBackgroundColor: isWide ? c.accentSoft : 'transparent',
-        tabBarItemStyle: isWide ? { borderRadius: 12, marginVertical: 2, paddingVertical: 4 } : undefined,
+        tabBarItemStyle: isWide ? { borderRadius: sc(12), marginVertical: 2, paddingVertical: sp(4) } : undefined,
         tabBarStyle: isWide
-          ? { backgroundColor: c.surface, borderRightColor: c.line, width: 232, minWidth: 232, maxWidth: 232, flexGrow: 0, flexShrink: 0, paddingTop: 16, paddingHorizontal: 10 }
+          ? { backgroundColor: c.surface, borderRightColor: c.line, width: sc(232), minWidth: sc(232), maxWidth: sc(232), flexGrow: 0, flexShrink: 0, paddingTop: sp(16), paddingHorizontal: sph(10) }
           : // a floating pill: the bar itself is see-through, the pill is drawn by tabBarBackground below.
             // Room for the raised Create button and for the labels, plus the phone's home-indicator inset.
-            ({ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0, height: barHeight, paddingTop: 0, paddingBottom: dockBottom, paddingHorizontal: 18, transform: [{ translateY: dockSlide }] } as never),
+            ({ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0, height: barHeight, paddingTop: 0, paddingBottom: dockBottom, paddingHorizontal: sph(18), transform: [{ translateY: dockSlide }] } as never),
         tabBarBackground: isWide ? undefined : () => <DockBackground bottom={dockBottom} />,
         // icons only on the phone dock (screen readers still hear each tab's name); the side rail keeps its words
         tabBarShowLabel: isWide,
-        tabBarLabelStyle: { ...fontOf('600'), fontSize: isWide ? 14 : 11 },
+        tabBarLabelStyle: { ...fontOf('600'), fontSize: isWide ? 16 : 12 },
         tabBarBadgeStyle: { backgroundColor: c.danger, color: '#fff' },
       }}
     >

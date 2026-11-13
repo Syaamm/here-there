@@ -39,7 +39,8 @@ export function alertRoute(n: Pick<Notif, 'type' | 'data'>): string | null {
   const d = n.data;
   // "Did you go to …?": the activity itself, where the answer is given; the host's notes about you: Your reliability
   if (n.type === 'attendance_prompt' && d?.activityId) return `/activity/${d.activityId}`;
-  if (n.type.startsWith('attendance_')) return '/reliability';
+  // the host's note about you, or what became of it: its alert carries the plan it is about, so it opens that plan (below); there the note and the way to dispute it are shown
+  const ids = d as { reportId?: string; appealId?: string } | null;
   // a moderator's warning or removed message: the page shows what the moderator wrote, with the way to ask for a review under it
   const reason = (d as { reason?: string } | null)?.reason;
   const why = reason ? `&reason=${encodeURIComponent(reason)}` : '';
@@ -48,14 +49,16 @@ export function alertRoute(n: Pick<Notif, 'type' | 'data'>): string | null {
   const about = plan?.aboutId ? `&aboutType=${plan.aboutType}&aboutId=${plan.aboutId}&aboutTitle=${encodeURIComponent(plan.aboutTitle ?? '')}` : '';
   if (n.type === 'warning' && d?.warningId) return `/appeal?kind=warning&targetId=${d.warningId}${why}${about}`;
   if (n.type === 'message_removed' && d?.messageId) return `/appeal?kind=message&targetId=${d.messageId}${why}`;
-  if (n.type === 'appeal_decided' || n.type === 'appeal_reply') return '/reports-blocked';
-  if (n.type === 'report_decision') return '/reports-blocked';
+  // a review request's answer or a moderator's message: the list, with that exact request first and marked
+  if (n.type === 'appeal_decided' || n.type === 'appeal_reply') return ids?.reportId ? `/reports-blocked?reportId=${ids.reportId}` : ids?.appealId ? `/reports-blocked?appealId=${ids.appealId}` : '/reports-blocked';
+  // a decision about you: the list, with that exact decision first and marked
+  if (n.type === 'report_decision' || n.type === 'host_absence_decided') return ids?.reportId ? `/reports-blocked?reportId=${ids.reportId}` : '/reports-blocked';
   if (d?.conversationId) return `/chat/${d.conversationId}`;
   if (n.type === 'join_request' && d?.activityId) return `/host/${d.activityId}`;
   if (n.type === 'trip_application' && d?.tripId) return `/review/${d.tripId}`;
   if (d?.activityId) return `/activity/${d.activityId}`;
   if (d?.tripId) return `/trip/${d.tripId}`;
   if (n.type === 'follow' && (d as { userId?: string } | null)?.userId) return `/user/${(d as { userId: string }).userId}`;
-  if (n.type === 'verification_result') return '/safety';
+  if (n.type === 'verification_result') return '/verify';
   return null;
 }

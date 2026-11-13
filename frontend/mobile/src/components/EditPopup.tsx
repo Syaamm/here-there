@@ -3,7 +3,8 @@ import { Animated, Easing, Keyboard, Modal, Pressable, ScrollView, StyleSheet, u
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardOverlap, keyboardTaps } from '@/lib/keyboard';
 import { useTheme } from '@/lib/theme';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 /** Where the pop-up grows from and shrinks back into: the card that was tapped, in window coordinates. */
 export type Origin = { x: number; y: number; width: number; height: number };
 
@@ -87,7 +88,7 @@ export function EditPopup({ from, header, onDone, onClosed, closing, children, o
               StyleSheet.absoluteFill,
               {
                 backgroundColor: c.bg,
-                borderRadius: 26,
+                borderRadius: sc(26),
                 opacity: v.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 1, 1] }),
                 transform: [{ translateX: Animated.multiply(dx, card) }, { translateY: Animated.multiply(dy, card) }, { scaleX: toward(sx) }, { scaleY: toward(sy) }],
               },
@@ -95,8 +96,8 @@ export function EditPopup({ from, header, onDone, onClosed, closing, children, o
           />
           {/* the contents: in once the window is mostly open, out first when it folds */}
           <Animated.View style={{ flexShrink: 1, opacity: v.interpolate({ inputRange: [0, 0.45, 1], outputRange: [0, 0, 1] }) }}>
-            <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 8 }}>{header}</View>
-            <ScrollView keyboardShouldPersistTaps={keyboardTaps} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 20, gap: 14 }}>
+            <View style={{ paddingHorizontal: sph(18), paddingTop: sp(16), paddingBottom: sp(8) }}>{header}</View>
+            <ScrollView keyboardShouldPersistTaps={keyboardTaps} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: sph(18), paddingBottom: sp(20), gap: sp(14) }}>
               {children}
             </ScrollView>
           </Animated.View>

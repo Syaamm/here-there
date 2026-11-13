@@ -3,11 +3,11 @@ import { AskAgain } from '@/components/AskAgain';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FloatingButton, Hero } from '@/components/Hero';
-import { GoingGrid, HostCard, InfoRow } from '@/components/ActivityParts';
+import { GoingGrid, HostCard, InfoRow, ManageCard, type ManageRow } from '@/components/ActivityParts';
 import { Text } from '@/components/ScaledText';
 import { Menu } from '@/components/Menu';
 import { HostNoShowSheet, hostNoShowOpen } from '@/components/HostNoShowSheet';
@@ -25,7 +25,8 @@ import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { t, tn, useT } from '@/lib/i18n';
 import { ReadMore } from '@/components/ReadMore';
-
+
+import { sc, sp } from '@/lib/scale';
 /** "Starts in 40 min", "Starts in 3 hrs", "Tomorrow", ... and how it ended once it is over. */
 function startsIn(a: Activity): { text: string; tone: 'info' | 'ok' | 'warn' | 'bad' | 'neutral' } {
   if (a.status === 'cancelled') return { text: t('Cancelled'), tone: 'bad' };
@@ -53,6 +54,8 @@ export default function ActivityDetail() {
   const { gutter } = useLayout();
   const [barH, setBarH] = useState(0); // the fixed bottom bar's measured height
   const [handing, setHanding] = useState(false); // the host's "hand over hosting" list of members
+  const [managing, setManaging] = useState(false); // the host's "Manage activity" sheet (hand over, finish)
+  const afterManage = useRef<(() => void) | null>(null); // what to open once that sheet has closed (never two sheets at once)
   // the heart answers at once; the server confirms a moment later (a failed save puts it back)
   const [favNow, setFavNow] = useState<boolean | null>(null);
   const { data: a, error, loading, reload } = useLoad(() => get<Activity>(`/v1/activities/${id}`), [id], undefined, 'activity', { animate: true });
@@ -136,11 +139,12 @@ export default function ActivityDetail() {
   const going = a.participants ?? [];
 
   // The one main action sits in a bar fixed to the bottom; the lesser ones stay in the page.
-  type Primary = { title: string; onPress?: () => void; variant?: 'secondary'; disabled?: boolean; loading?: boolean; caption?: string };
+  type Primary = { title: string; onPress?: () => void; variant?: 'secondary'; disabled?: boolean; loading?: boolean; caption?: string; icon?: React.ComponentProps<typeof Ionicons>['name'] };
   let primary: Primary | null = null;
   if (!over && a.status !== 'cancelled') {
     // once it has started, unanswered requests are closed for good: the host has nothing left to manage
-    if (a.isHost) primary = a.status === 'in_progress' ? (a.conversationId ? { title: t('Open group chat'), onPress: () => go(`/chat/${a.conversationId}`) } : null) : { title: t('Manage join requests'), onPress: () => go(`/host/${id}`) };
+    // the host's join requests are the first row of the management card, so there is no second button for them down here
+    if (a.isHost) primary = a.status === 'in_progress' && a.conversationId ? { title: t('Open group chat'), onPress: () => go(`/chat/${a.conversationId}`) } : null;
     else if (a.isMember) primary = a.conversationId ? { title: t('Open group chat'), onPress: () => go(`/chat/${a.conversationId}`) } : null;
     else if (req === 'requested') primary = { title: t('Withdraw request'), variant: 'secondary', loading: act.busy, onPress: () => void act.run(() => del(`/v1/activities/${id}/requests/mine`)) };
     else if (req === 'waitlisted') primary = { title: t('Leave the waiting list'), variant: 'secondary', loading: act.busy, onPress: () => void act.run(() => del(`/v1/activities/${id}/requests/mine`)) };
@@ -152,6 +156,25 @@ export default function ActivityDetail() {
     else if (a.joinPolicy === 'instant') primary = { title: t('Join now'), onPress: () => go(`/join/${id}`) };
     else primary = { title: t('Request to join'), onPress: () => go(`/join/${id}`) };
   }
+
+  // The host's management card (Figma "Activity Management"): one row for each thing the host can do. The main action stays in the bar.
+  const canManage = a.isHost && a.status !== 'cancelled' && !over;
+  const hasManageSheet = canManage && (canHandOver || started);
+  const manageRows: ManageRow[] = !canManage
+    ? []
+    : [
+        ...(a.status !== 'in_progress' ? [{ key: 'requests', icon: 'person-add-outline' as const, title: t('Join requests'), sub: t('Review introductions and approve participants'), onPress: () => go(`/host/${id}`) }] : []),
+        ...(a.conversationId ? [{ key: 'chat', icon: 'chatbubble-ellipses-outline' as const, title: t('Group chat'), sub: t('Connect with your approved participants'), onPress: () => go(`/chat/${a.conversationId}`) }] : []),
+        ...(hasManageSheet ? [{ key: 'manage', icon: 'settings-outline' as const, title: t('Manage activity'), sub: t('Hand over hosting or finish the activity'), onPress: () => setManaging(true) }] : []),
+        {
+          key: 'cancel',
+          icon: 'close-circle-outline' as const,
+          title: t('Cancel activity'),
+          sub: t('Cancel this event for all participants'),
+          danger: true,
+          onPress: async () => (await confirmAsync(t('Cancel this activity?'), t('Everyone who joined will be notified.'), t('Cancel activity'), true)) && void act.run(() => post(`/v1/activities/${id}/cancel`)),
+        },
+      ];
 
   return (
     <View style={{ flex: 1 }}>
@@ -166,15 +189,15 @@ export default function ActivityDetail() {
       >
         <Stack.Screen options={{ headerShown: false }} />
 
-        <Row style={{ gap: 8, flexWrap: 'wrap' }}>
+        <Row style={{ gap: sp(8), flexWrap: 'wrap' }}>
           <Chip label={cat ? t(cat.label) : a.category} tone="ok" />
           <Chip label={soon.text} tone={soon.tone} />
         </Row>
-        <View style={{ gap: 10 }}>
-          <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{a.title}</Text>
+        <View style={{ gap: sp(10) }}>
+          <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700' }}>{a.title}</Text>
           {a.description ? (
             // "read more" when it really runs past three lines (bullet points too), not by its number of characters
-            <ReadMore text={a.description} style={{ color: c.muted, fontSize: 15, lineHeight: 27 }} />
+            <ReadMore text={a.description} style={{ color: c.muted, fontSize: 16, lineHeight: 24 }} />
           ) : null}
         </View>
 
@@ -190,40 +213,40 @@ export default function ActivityDetail() {
           onPress={() => go(`/user/${a.host.id}`)}
         >
           <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Hosted by {name}', { name: a.host.displayName })}</Text>
-          <Row style={{ gap: 6, flexWrap: 'wrap' }}>
+          <Row style={{ gap: sp(6), flexWrap: 'wrap' }}>
             <ReliabilityChip r={a.hostReliability} />
-            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 18 }}>
+            <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>
               {[a.host.verifiedAdult ? t('Verified adult') : t('Host'), a.activitiesHosted ? tn(a.activitiesHosted, '{n} activity hosted', '{n} activities hosted') : ''].filter(Boolean).join(' · ')}
             </Text>
           </Row>
         </HostCard>
 
         {/* where and when; the place row opens the map on this activity */}
-        <View style={{ gap: 22, paddingTop: 4 }}>
+        <View style={{ gap: sp(22), paddingTop: sp(4) }}>
           <InfoRow
             icon="location-outline"
             title={`${a.venueName}, ${a.city}`}
             sub={t('Public meeting venue')}
             label={t('{venue}, {city}. Show on the map', { venue: a.venueName, city: a.city })}
             onPress={showOnMap}
-            trailing={<Ionicons name="map-outline" size={18} color={c.green} />}
+            trailing={<Ionicons name="map-outline" size={sc(18)} color={c.green} />}
           />
           <InfoRow icon="time-outline" title={timeText} sub={length} />
         </View>
 
         {over ? (
           // finished: only who took part, for everyone (the host included). No requests, chat, join or leave.
-          <View style={{ gap: 10 }}>
+          <View style={{ gap: sp(10) }}>
             {a.isMember && a.status !== 'cancelled' ? (
-              <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
-                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{a.myAttendance === 'attended' ? `✓ ${t('You said you were there')}` : a.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
+              <View style={{ backgroundColor: c.accentSoft, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{a.myAttendance === 'attended' ? `✓ ${t('You said you were there')}` : a.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
                 {/* one answer, final: once given, the buttons go and only the answer stays */}
                 {a.myAttendance === 'attended' || a.myAttendance === 'no_show' ? (
                   <Txt variant="small">{t('Thanks. Your answer is saved and cannot be changed. The group sees whether you went.')}</Txt>
                 ) : (
                   <>
                     <Txt variant="small">{t('One tap, and it cannot be changed after. The group sees whether you went. We never track your location.')}</Txt>
-                    <Row style={{ gap: 8 }}>
+                    <Row style={{ gap: sp(8) }}>
                       <Btn title={t('Yes, I went')} small style={{ flex: 1 }} disabled={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/attendance`, { attended: true }))} />
                       <Btn title={t("No, I didn't")} small variant="secondary" style={{ flex: 1 }} disabled={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/attendance`, { attended: false }))} />
                     </Row>
@@ -231,30 +254,42 @@ export default function ActivityDetail() {
                 )}
               </View>
             ) : null}
+            {/* the host marked you as not having come: what it is now, and the way to dispute it (an alert about it opens this page) */}
+            {a.myNote && a.myNote.state !== 'overturned' ? (
+              <View style={{ backgroundColor: c.warnBg, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{a.myNote.state === 'marked' ? t("The host says you didn't come") : a.myNote.state === 'disputed' ? t('You asked for a review of the host\'s note') : t('A moderator confirmed the host\'s note')}</Txt>
+                {a.myNote.state === 'marked' ? (
+                  <>
+                    <Txt variant="small">{t('If you were there, you can dispute it.')}</Txt>
+                    <Btn title={t('Dispute')} small variant="secondary" onPress={() => go(`/reliability?markId=${a.myNote!.id}`)} />
+                  </>
+                ) : null}
+              </View>
+            ) : null}
             {a.isHost && a.status !== 'cancelled' ? <Btn title={t('Who came?')} variant="secondary" onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
             {a.isMember && !a.isHost && a.status !== 'cancelled' && hostNoShowOpen(a.startsAt, a.endsAt) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
             {/* who went, in three groups: the host and everyone who said yes, those who said no, and those who have not answered yet */}
             {(
               [
-                ['attended', t('Attended ({n})', { n: going.filter((p) => p.role === 'host' || p.attendance === 'attended').length }), going.filter((p) => p.role === 'host' || p.attendance === 'attended'), 'checkmark-circle', c.green],
-                ['no_show', t('Did not attend ({n})', { n: going.filter((p) => p.role !== 'host' && p.attendance === 'no_show').length }), going.filter((p) => p.role !== 'host' && p.attendance === 'no_show'), 'close-circle', c.danger],
+                ['attended', t('Attended ({n})', { n: going.filter((p) => p.attendance === 'attended' || (p.role === 'host' && p.attendance !== 'no_show')).length }), going.filter((p) => p.attendance === 'attended' || (p.role === 'host' && p.attendance !== 'no_show')), 'checkmark-circle', c.green],
+                ['no_show', t('Did not attend ({n})', { n: going.filter((p) => p.attendance === 'no_show').length }), going.filter((p) => p.attendance === 'no_show'), 'close-circle', c.danger],
                 ['unknown', t('Not answered yet ({n})', { n: going.filter((p) => p.role !== 'host' && (!p.attendance || p.attendance === 'unknown')).length }), going.filter((p) => p.role !== 'host' && (!p.attendance || p.attendance === 'unknown')), 'help-circle-outline', c.muted],
               ] as const
             ).map(([k, title, people, icon, tint]) =>
               people.length === 0 ? null : (
-                <View key={k} style={{ gap: 4, marginTop: 6 }}>
-                  <Row style={{ gap: 8, alignItems: 'center' }}>
-                    <Ionicons name={icon} size={18} color={tint} />
+                <View key={k} style={{ gap: sp(4), marginTop: sp(6) }}>
+                  <Row style={{ gap: sp(8), alignItems: 'center' }}>
+                    <Ionicons name={icon} size={sc(18)} color={tint} />
                     <Txt variant="h3" accessibilityRole="header" style={{ fontSize: 16 }}>{title}</Txt>
                   </Row>
                   {people.map((p) => (
                     <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={p.role === 'host' ? t('{name}, host. Open profile', { name: p.displayName }) : t('{name}. Open profile', { name: p.displayName })} onPress={() => go(`/user/${p.id}`)}>
-                      <Row style={{ gap: 12, paddingVertical: 4, opacity: k === 'unknown' ? 0.65 : 1 }}>
+                      <Row style={{ gap: sp(12), paddingVertical: sp(4), opacity: k === 'unknown' ? 0.65 : 1 }}>
                         <Avatar name={p.displayName} uri={p.photoUrl} size={40} />
-                        <Txt variant="h3" style={{ flex: 1, fontSize: 15 }}>{p.displayName}</Txt>
+                        <Txt variant="h3" style={{ flex: 1, fontSize: 16 }}>{p.displayName}</Txt>
                         {p.role === 'host' ? <Chip label={t('Host')} tone="info" /> : null}
                         {/* confirmed: a green tick beside the name */}
-                        {k === 'attended' && p.role !== 'host' ? <Ionicons accessibilityLabel={t('Confirmed they went')} name="checkmark-circle" size={20} color={c.green} /> : k === 'no_show' ? <Ionicons accessibilityLabel={t('Said they did not go')} name="close-circle" size={20} color={c.danger} /> : null}
+                        {k === 'attended' && p.role !== 'host' ? <Ionicons accessibilityLabel={t('Confirmed they went')} name="checkmark-circle" size={sc(20)} color={c.green} /> : k === 'no_show' ? <Ionicons accessibilityLabel={t('Said they did not go')} name="close-circle" size={sc(20)} color={c.danger} /> : null}
                       </Row>
                     </Pressable>
                   ))}
@@ -264,10 +299,10 @@ export default function ActivityDetail() {
           </View>
         ) : (
           <>
-            <View style={{ gap: 16 }}>
+            <View style={{ gap: sp(18), marginTop: sp(14) }}>
               <Row style={{ justifyContent: 'space-between' }}>
-                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600' }}>{t("Who's going")}</Text>
-                <Text style={{ color: a.spotsLeft === 0 ? c.danger : c.green, fontSize: 14, fontWeight: '500' }}>
+                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500' }}>{t("Who's going")}</Text>
+                <Text style={{ color: a.spotsLeft === 0 ? c.danger : c.green, fontSize: 16, fontWeight: '500' }}>
                   {a.spotsLeft === 0 ? t('Full') : tn(a.spotsLeft, '{n} spot left', '{n} spots left')}
                 </Text>
               </Row>
@@ -280,15 +315,15 @@ export default function ActivityDetail() {
             </View>
 
             {a.needsReconfirm ? (
-              <View style={{ backgroundColor: c.warnBg, borderRadius: 14, padding: 12, gap: 8 }}>
-                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('The host changed the plan')}</Txt>
+              <View style={{ backgroundColor: c.warnBg, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{t('The host changed the plan')}</Txt>
                 <Btn title={t('Yes, I can still come')} small loading={act.busy} onPress={() => void act.run(() => post(`/v1/activities/${id}/reconfirm`))} />
               </View>
             ) : null}
             {a.handover?.toMe ? (
-              <View style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 12, gap: 8 }}>
-                <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('The host asked you to take over hosting')}</Txt>
-                <Row style={{ gap: 8 }}>
+              <View style={{ backgroundColor: c.accentSoft, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{t('The host asked you to take over hosting')}</Txt>
+                <Row style={{ gap: sp(8) }}>
                   <Btn title={t('Accept')} small loading={act.busy} style={{ flex: 1 }} onPress={() => void act.run(() => post(`/v1/activities/${id}/handover/answer`, { accept: true }))} />
                   <Btn title={t('Decline')} small variant="secondary" style={{ flex: 1 }} onPress={() => void act.run(() => post(`/v1/activities/${id}/handover/answer`, { accept: false }))} />
                 </Row>
@@ -299,36 +334,12 @@ export default function ActivityDetail() {
             ) : null}
             {a.isHost && a.handover && !a.handover.toMe ? <Btn title={t('Take the offer back')} variant="secondary" loading={act.busy} onPress={() => void act.run(() => del(`/v1/activities/${id}/handover`))} /> : null}
 
-            <Row style={{ backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, gap: 10, alignItems: 'flex-start' }}>
-              <Ionicons name="lock-closed-outline" size={16} color={c.forest} />
-              <Txt variant="small" style={{ flex: 1, color: c.text, lineHeight: 17 }}>{t('Your exact location stays private. The group chat opens once the host approves your request.')}</Txt>
-            </Row>
 
-            {/* the lesser actions; the main one is in the bar below */}
+            {/* what the host can do, as one card of rows; the main action is in the bar below */}
             {a.isHost ? (
-              <View style={{ gap: 10 }}>
-                {a.conversationId && a.status !== 'in_progress' && <Btn title={t('Open group chat')} variant="secondary" onPress={() => go(`/chat/${a.conversationId}`)} />}
-                {a.status === 'in_progress' ? <Btn title={t('Who came?')} variant="secondary" onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
-                {canHandOver ? <Btn title={t('Hand over hosting')} variant="secondary" onPress={() => setHanding(true)} /> : null}
-                {/* from the start on the host can end it: everyone going is told (alert and push) */}
-                {started && !over && a.status !== 'cancelled' ? (
-                  <Btn
-                    title={t('Mark as completed')}
-                    loading={act.busy}
-                    onPress={async () => (await confirmAsync(t('Mark this activity as completed?'), t('It ends now and everyone going is told.'), t('Mark as completed'))) && void act.run(() => post(`/v1/activities/${id}/complete`))}
-                  />
-                ) : null}
-                {a.status !== 'cancelled' && (
-                  <Btn
-                    title={t('Cancel activity')}
-                    variant="danger"
-                    loading={act.busy}
-                    onPress={async () => (await confirmAsync(t('Cancel this activity?'), t('Everyone who joined will be notified.'), t('Cancel activity'), true)) && void act.run(() => post(`/v1/activities/${id}/cancel`))}
-                  />
-                )}
-              </View>
+              <ManageCard title={t('Activity Management')} rows={manageRows} />
             ) : a.isMember ? (
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: sp(10) }}>
                 <Banner tone="ok">{t("You're going. See you there!")}</Banner>
                 {a.isMember && !a.isHost && a.status !== 'cancelled' && hostNoShowOpen(a.startsAt, a.endsAt) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
                 {canLeave ? <Btn title={t('Leave activity')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this activity?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/activities/${id}/leave`))} /> : null}
@@ -338,7 +349,7 @@ export default function ActivityDetail() {
             ) : req === 'waitlisted' ? (
               <Banner tone="warn">{t('You are number {n} on the waiting list.', { n: a.myRequest?.position ?? 1 })}</Banner>
             ) : req === 'declined' ? (
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: sp(10) }}>
                 <Banner tone="bad">{t("The host didn't approve this request.")}</Banner>
                 {a.myRequest?.canAppeal ? <AskAgain path={`/v1/activities/${id}`} who="host" onDone={reload} /> : null}
               </View>
@@ -347,6 +358,49 @@ export default function ActivityDetail() {
         )}
         <ReportSheet target={report} onClose={() => setReport(null)} />
         <HostNoShowSheet kind="activity" id={id} visible={noShow === 'open' || noShow === 'confirm'} onClose={() => setNoShow((v) => (v === 'confirm' || v === 'sent' ? 'sent' : 'closed'))} onSent={() => setNoShow('confirm')} />
+        <Sheet
+          visible={managing}
+          title={t('Manage activity')}
+          onClose={() => setManaging(false)}
+          onClosed={() => {
+            const next = afterManage.current;
+            afterManage.current = null;
+            next?.();
+          }}
+        >
+          <View style={{ gap: sp(10) }}>
+            {canHandOver ? (
+              <Btn
+                title={t('Hand over hosting')}
+                variant="secondary"
+                onPress={() => {
+                  afterManage.current = () => setHanding(true);
+                  setManaging(false);
+                }}
+              />
+            ) : null}
+            {a.status === 'in_progress' ? (
+              <Btn
+                title={t('Who came?')}
+                variant="secondary"
+                onPress={() => {
+                  afterManage.current = () => go(`/no-shows/activity/${id}`);
+                  setManaging(false);
+                }}
+              />
+            ) : null}
+            {started && !over && a.status !== 'cancelled' ? (
+              <Btn
+                title={t('Mark as completed')}
+                loading={act.busy}
+                onPress={() => {
+                  afterManage.current = () => void act.run(() => post(`/v1/activities/${id}/complete`)); // done at once: no "are you sure" box
+                  setManaging(false);
+                }}
+              />
+            ) : null}
+          </View>
+        </Sheet>
         <Sheet visible={handing} title={t('Hand over hosting')} onClose={() => setHanding(false)}>
           {(a.participants ?? [])
             .filter((p) => p.role !== 'host' && p.verifiedAdult)
@@ -360,10 +414,10 @@ export default function ActivityDetail() {
                   await act.run(() => post(`/v1/activities/${id}/handover`, { userId: p.id }));
                 }}
               >
-                <Row style={{ gap: 12, paddingVertical: 6 }}>
+                <Row style={{ gap: sp(12), paddingVertical: sp(6) }}>
                   <Avatar name={p.displayName} uri={p.photoUrl} size={38} />
-                  <Txt variant="h3" style={{ flex: 1, fontSize: 15 }}>{p.displayName}</Txt>
-                  <Ionicons name="chevron-forward" size={16} color={c.muted} />
+                  <Txt variant="h3" style={{ flex: 1, fontSize: 16 }}>{p.displayName}</Txt>
+                  <Ionicons name="chevron-forward" size={sc(16)} color={c.muted} />
                 </Row>
               </Pressable>
             ))}
@@ -373,7 +427,7 @@ export default function ActivityDetail() {
 
       {primary ? (
         <BottomBar onHeight={setBarH}>
-          <Btn title={primary.title} variant={primary.variant} disabled={primary.disabled} loading={primary.loading} onPress={primary.onPress} />
+          <Btn title={primary.title} variant={primary.variant} disabled={primary.disabled} loading={primary.loading} icon={primary.icon} onPress={primary.onPress} />
           {primary.caption ? <Txt variant="small" style={{ textAlign: 'center' }}>{primary.caption}</Txt> : null}
         </BottomBar>
       ) : null}
@@ -381,7 +435,7 @@ export default function ActivityDetail() {
       {/* fixed over the page: back on the left; favourite, share and more on the right */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top, left: gutter, right: gutter, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <FloatingButton round size={44} fx="nudge" icon="chevron-back" label={t('Go back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flexDirection: 'row', gap: sp(10) }}>
           {isGuest || !(ahead || fav) ? null : (
             <FloatingButton
               round

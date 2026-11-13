@@ -816,9 +816,38 @@ model Region {
   cityKey     String?  @unique // cities only: the lowercase city name activities and trips are filed under
   hereMonths  Int?     // how far ahead a HERE activity may be planned, in months
   thereMonths Int?     // how far ahead a THERE trip may be planned, in months
+  areaKm      Int?     // how far around the city's centre its activities are shown and may be placed, in km (empty: follow the place above, 25 at the top)
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([parentKey])
+}
+
+// The categories an admin manages (Settings > Categories). kind "here": the category of a HERE activity (Activity.category holds the
+// key). kind "there": a travel category, which a trip carries as one of its tags. A category that has been used is turned off, not
+// deleted, so older activities and trips keep their name.
+model Category {
+  id          String   @id @default(cuid())
+  kind        String // here | there
+  key         String // short, lowercase, never changes once made
+  label       String
+  emoji       String   @default("")
+  color       String   @default("")
+  imageUrl    String? // the picture (the bytes are in CategoryImage); empty: the emoji on the colour
+  position    Int      @default(0)
+  active      Boolean  @default(true)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([kind, key])
+  @@index([kind, active, position])
+}
+
+model CategoryImage {
+  categoryId String   @id
+  data       Bytes
+  mime       String   @default("image/webp")
+  updatedAt  DateTime @updatedAt
 }

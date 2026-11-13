@@ -209,10 +209,20 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[], pollMs?: numbe
   return { data, error, loading, reload };
 }
 
+// What an action leaves on the page ("Could not save", "Verify first") is about that moment, so it must not stay once things may have changed. It goes when
+// the person pulls to refresh, when they go to another page or come back (lib/nav), and when the app is opened again. If the problem is still there,
+// the next try shows it again. (Errors of loading a page are separate: they go as soon as a reload works.)
+const actionErrorWatchers = new Set<() => void>();
+export const clearActionErrors = () => actionErrorWatchers.forEach((f) => f());
+AppState.addEventListener('change', (s) => {
+  if (s === 'active') clearActionErrors();
+});
+
 /** Drives pull-to-refresh: `<Screen onRefresh={onRefresh} refreshing={refreshing}>`. */
 export function useRefresh(reload: () => Promise<unknown> | void) {
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
+    clearActionErrors(); // a refresh starts clean: only what is still wrong shows again
     setRefreshing(true);
     try {
       await reload();
@@ -227,6 +237,11 @@ export function useRefresh(reload: () => Promise<unknown> | void) {
 export function useAction(after?: () => void) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const clear = () => setError(null);
+    actionErrorWatchers.add(clear);
+    return () => void actionErrorWatchers.delete(clear);
+  }, []);
   const run = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
     setBusy(true);
     setError(null);

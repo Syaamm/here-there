@@ -13,7 +13,7 @@ import { AuthProvider, useMe } from '@/lib/auth';
 import { useAppFonts } from '@/lib/fonts';
 import { PhoneFrame } from '@/components/PhoneFrame';
 import { LangProvider, useT } from '@/lib/i18n';
-import { ScaleProvider } from '@/lib/scale';
+import { ScaleProvider, sc } from '@/lib/scale';
 import { installWebScrolling } from '@/lib/webScroll';
 import { restoreLoadCache } from '@/lib/hooks';
 import { forgetLink, takeLink } from '@/lib/shareLink';
@@ -102,7 +102,8 @@ function Gate() {
           // pages pushed on top (verify) slide in smoothly
           // iPhone: the system's slide, with the swipe back. Android: pages swap at once, and the page you come BACK to eases its
           // content in like a dock tab does (PageTransition), so there is no white fade between the two.
-          animation: Platform.OS === 'android' ? 'none' : 'slide_from_right',
+          // the same slide on both phones (Android used to swap pages at once, which felt abrupt next to iPhone). Both pages stay drawn during the slide, so there is no white flash between them.
+          animation: 'slide_from_right',
           animationDuration: 240,
           // a page that has another one open on top of it stops re-rendering (polls, live events) until you come back, so the slide stays smooth
           freezeOnBlur: true,
@@ -174,7 +175,7 @@ function WebFrame({ children }: { children: ReactNode }) {
   if (Platform.OS !== 'web') return <>{children}</>;
   return (
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: c.bg }}>
-      <View style={{ flex: 1, width: '100%', maxWidth: 1440, overflow: 'hidden', backgroundColor: c.bg }}>{children}</View>
+      <View style={{ flex: 1, width: '100%', maxWidth: sc(1440), overflow: 'hidden', backgroundColor: c.bg }}>{children}</View>
     </View>
   );
 }

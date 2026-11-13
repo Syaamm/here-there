@@ -4,7 +4,8 @@ import { tap } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
-
+
+import { sc, sp } from '@/lib/scale';
 /**
  * Motion shared by the two four-step wizards (HERE "Host activity", THERE "Create a trip"): the step bars fill and drain,
  * the "Step n/4" label slides in, and a step's content slides in from the side it came from. Everything is opacity and
@@ -39,14 +40,14 @@ export function StepBars({ step, count = 4, track, fill, onPick, canPick }: { st
   }, [step, fills]);
 
   const bar = (v: Animated.Value) => (
-    <View style={{ height: 5, borderRadius: 65, backgroundColor: track, overflow: 'hidden' }}>
+    <View style={{ height: sc(5), borderRadius: sc(65), backgroundColor: track, overflow: 'hidden' }}>
       <Animated.View style={{ flex: 1, backgroundColor: fill ?? c.forest, transform: [{ scaleX: v }], transformOrigin: 'left center' }} />
     </View>
   );
   if (onPick)
     // each bar is a button to its step; a 5 px bar is too thin to hit, so the button is taller than it looks
     return (
-      <View style={{ flexDirection: 'row', gap: 7, marginVertical: -8 }}>
+      <View style={{ flexDirection: 'row', gap: sp(7), marginVertical: -sc(8) }}>
         {fills.map((v, i) => {
           const ok = i !== step && (canPick?.(i) ?? true);
           return (
@@ -61,7 +62,7 @@ export function StepBars({ step, count = 4, track, fill, onPick, canPick }: { st
                 tap('Medium');
                 onPick(i);
               }}
-              style={{ flex: 1, paddingVertical: 8 }}
+              style={{ flex: 1, paddingVertical: sp(8) }}
             >
               {bar(v)}
             </Pressable>
@@ -70,7 +71,7 @@ export function StepBars({ step, count = 4, track, fill, onPick, canPick }: { st
       </View>
     );
   return (
-    <View accessibilityRole="progressbar" accessibilityLabel={t('Step {n} of {total}', { n: step + 1, total: count })} accessibilityValue={{ min: 1, max: count, now: step + 1 }} style={{ flexDirection: 'row', gap: 7 }}>
+    <View accessibilityRole="progressbar" accessibilityLabel={t('Step {n} of {total}', { n: step + 1, total: count })} accessibilityValue={{ min: 1, max: count, now: step + 1 }} style={{ flexDirection: 'row', gap: sp(7) }}>
       {fills.map((v, i) => (
         <View key={i} style={{ flex: 1 }}>{bar(v)}</View>
       ))}

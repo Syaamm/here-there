@@ -9,7 +9,8 @@ import { post, type MyAppeal } from '@/lib/api';
 import { useAction, useRefresh } from '@/lib/hooks';
 import { useCursorList } from '@/lib/paged';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 const ASK: Record<string, { title: string; hint: string }> = {
   verification: { title: 'Ask for a review of your identity check', hint: 'Tell us what went wrong.' },
   removal: { title: 'Ask for a review of the removal', hint: 'Tell us why it was fine.' },
@@ -48,16 +49,16 @@ export default function Appeal() {
       <ErrorBanner message={mine.error?.message} />
       {/* opened from a warning or a removed message: first what the moderator wrote, then the way to ask for a review */}
       {reason && (kind === 'warning' || kind === 'message') ? (
-        <AcctCard style={{ gap: 8 }}>
+        <AcctCard style={{ gap: sp(8) }}>
           <Txt variant="label" color={c.muted}>{kind === 'warning' ? t('A moderator warned you') : t('A moderator removed your message')}</Txt>
           <Txt variant="h3">{t('What the moderator said')}</Txt>
-          <View style={{ borderLeftWidth: 3, borderLeftColor: c.danger, paddingLeft: 12, paddingVertical: 4 }}>
-            <Txt style={{ fontSize: 15, lineHeight: 22 }}>{reason}</Txt>
+          <View style={{ borderLeftWidth: 3, borderLeftColor: c.danger, paddingLeft: sph(12), paddingVertical: sp(4) }}>
+            <Txt style={{ fontSize: 16, lineHeight: 23 }}>{reason}</Txt>
           </View>
           {aboutId && aboutTitle ? (
             <>
               <Txt variant="label" color={c.muted}>{t('About this activity')}</Txt>
-              <Txt style={{ fontSize: 15, lineHeight: 22, fontWeight: '600' }}>{aboutTitle}</Txt>
+              <Txt style={{ fontSize: 16, lineHeight: 23, fontWeight: '600' }}>{aboutTitle}</Txt>
               <Btn title={aboutType === 'trip' ? t('View trip') : t('View activity')} variant="secondary" small onPress={() => go(aboutType === 'trip' ? `/trip/${aboutId}` : `/activity/${aboutId}`)} />
             </>
           ) : null}
@@ -65,13 +66,13 @@ export default function Appeal() {
         </AcctCard>
       ) : null}
       {ask && already ? (
-        <AcctCard style={{ gap: 6 }}>
+        <AcctCard style={{ gap: sp(6) }}>
           <Txt variant="h3">{t('Already reviewed')}</Txt>
           <Txt variant="muted">{t('You already asked for a review of this. Each decision can be reviewed once, whatever the answer was.')}</Txt>
         </AcctCard>
       ) : null}
       {ask && !hasOpen && !already ? (
-        <AcctCard style={{ gap: 10 }}>
+        <AcctCard style={{ gap: sp(10) }}>
           <Txt variant="h3">{t(ask.title)}</Txt>
           <Txt variant="muted">{t(ask.hint)}</Txt>
           <ErrorBanner message={send.error} />

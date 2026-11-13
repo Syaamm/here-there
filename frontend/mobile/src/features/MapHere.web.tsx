@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { MapOverlay, PIN_PATH, pinWidth, useMapData, type Group } from './mapShared';
 
+import { sc, sp } from '@/lib/scale';
 const CSS_ID = 'leaflet-css';
 /** Leaflet's own stylesheet, added once (the app is bundled by Metro, which has no CSS import for packages here). */
 function ensureCss() {
@@ -124,7 +125,7 @@ export function MapHere() {
 
   if (broken)
     return (
-      <View style={{ flex: 1, backgroundColor: c.bg, padding: 24, justifyContent: 'center', gap: 12 }}>
+      <View style={{ flex: 1, backgroundColor: c.bg, padding: sp(24), justifyContent: 'center', gap: sp(12) }}>
         <Empty title={t('Map unavailable')}>{t('Check your connection.')}</Empty>
         <Btn title={t('Try again')} onPress={() => setBroken(false)} />
       </View>
@@ -134,7 +135,7 @@ export function MapHere() {
   if (!center)
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <View style={{ flex: 1, padding: 24, justifyContent: 'center' }}>
+        <View style={{ flex: 1, padding: sp(24), justifyContent: 'center' }}>
           {data.findingCity ? <Empty title={t('Finding the city…')}>{t('One moment.')}</Empty> : <Empty title={t('No map for this city yet')}>{t("We couldn't find this city. Check the spelling.")}</Empty>}
           <MapOverlay data={data} />
         </View>

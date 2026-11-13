@@ -10,14 +10,15 @@ import { PrismaService } from '../common/prisma.service';
 import { TtlCache } from '../common/ttl-cache';
 import { parse } from '../common/validate';
 import {
-  DEFAULT_HERE_MONTHS, DEFAULT_THERE_MONTHS, GLOBAL_KEY, HERE_MONTHS_RANGE, THERE_MONTHS_RANGE,
-  chainOf, cityKeyOf, effectiveMonths, inScope, latestStart, monthsWord, scopeFor, subtree,
+  AREA_KM_RANGE, DEFAULT_AREA_KM, DEFAULT_HERE_MONTHS, DEFAULT_THERE_MONTHS, GLOBAL_KEY, HERE_MONTHS_RANGE, THERE_MONTHS_RANGE,
+  chainOf, cityKeyOf, effectiveAreaKm, effectiveMonths, inScope, latestStart, monthsWord, scopeFor, subtree,
   type RegionRow, type Scope,
 } from './regions';
 
 const ALL = [...STAFF_ROLES];
 const slug = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
+const km = z.number().int().min(AREA_KM_RANGE.min).max(AREA_KM_RANGE.max);
 const months = (range: { min: number; max: number }) => z.number().int().min(range.min).max(range.max);
 export const createRegionSchema = z.object({
   name: z.string().trim().min(2).max(60),
@@ -27,11 +28,13 @@ export const createRegionSchema = z.object({
   cityKey: z.string().trim().min(2).max(60).optional(), // cities: the name activities and trips are filed under (default: the name)
   hereMonths: months(HERE_MONTHS_RANGE).nullable().optional(),
   thereMonths: months(THERE_MONTHS_RANGE).nullable().optional(),
+  areaKm: km.nullable().optional(),
 });
 export const updateRegionSchema = z.object({
   name: z.string().trim().min(2).max(60).optional(),
   hereMonths: months(HERE_MONTHS_RANGE).nullable().optional(), // null: follow the place above
   thereMonths: months(THERE_MONTHS_RANGE).nullable().optional(),
+  areaKm: km.nullable().optional(), // null: follow the place above
 });
 export const limitsQuery = z.object({ city: z.string().trim().max(80).optional() });
 
@@ -89,6 +92,15 @@ export class RegionsService implements OnModuleInit {
     const chain = chainOf(rows, city ?? rows.find((r) => r.key === GLOBAL_KEY) ?? null);
     const e = effectiveMonths(chain, which);
     return { months: e.months, latest: latestStart(e.months, now), from: e.from, region: city ? { key: city.key, name: city.name } : null };
+  }
+
+  /** How far around this city's centre its activities are shown and may be placed (km), and which place says so. */
+  async areaFor(cityName?: string | null) {
+    const rows = await this.all();
+    const key = cityKeyOf(cityName);
+    const city = key ? (rows.find((r) => r.cityKey === key) ?? null) : null;
+    const e = effectiveAreaKm(chainOf(rows, city ?? rows.find((r) => r.key === GLOBAL_KEY) ?? null));
+    return { km: e.km, from: e.from };
   }
 
   /** Refuses a start date that is further ahead than the place allows. */
@@ -181,16 +193,17 @@ export class RegionsService implements OnModuleInit {
     const staffBy = new Map(staff.map((s) => [s.adminRegionKey, s._count._all]));
     return {
       scope: scope && { key: scope.regionKey, name: scope.name, kind: scope.kind },
-      defaults: { here: DEFAULT_HERE_MONTHS, there: DEFAULT_THERE_MONTHS },
-      ranges: { here: HERE_MONTHS_RANGE, there: THERE_MONTHS_RANGE },
+      defaults: { here: DEFAULT_HERE_MONTHS, there: DEFAULT_THERE_MONTHS, area: DEFAULT_AREA_KM },
+      ranges: { here: HERE_MONTHS_RANGE, there: THERE_MONTHS_RANGE, area: AREA_KM_RANGE },
       items: shown.map((r) => {
         const chain = chainOf(rows, r);
         const here = effectiveMonths(chain, 'here');
         const there = effectiveMonths(chain, 'there');
+        const area = effectiveAreaKm(chain);
         return {
           key: r.key, name: r.name, kind: r.kind, parentKey: scope && r.key === scope.regionKey ? null : r.parentKey, cityKey: r.cityKey,
-          hereMonths: r.hereMonths, thereMonths: r.thereMonths,
-          effective: { here: here.months, hereFrom: here.from?.name ?? null, there: there.months, thereFrom: there.from?.name ?? null },
+          hereMonths: r.hereMonths, thereMonths: r.thereMonths, areaKm: r.areaKm,
+          effective: { here: here.months, hereFrom: here.from?.name ?? null, there: there.months, thereFrom: there.from?.name ?? null, area: area.km, areaFrom: area.from?.name ?? null },
           children: kids.get(r.key) ?? 0, staff: staffBy.get(r.key) ?? 0,
           canEdit: r.key === GLOBAL_KEY ? !scope : true,
           canDelete: r.key !== GLOBAL_KEY && !(scope && r.key === scope.regionKey) && (kids.get(r.key) ?? 0) === 0,
@@ -240,7 +253,7 @@ export class RegionsService implements OnModuleInit {
     if (key === GLOBAL_KEY) key = `${key}-1`;
     for (let n = 2; rows.some((r) => r.key === key); n++) key = `${dto.key ?? slug(dto.name)}-${n}`;
     const created = await this.prisma.region.create({
-      data: { key, name: dto.name, kind: dto.kind, parentKey, cityKey, hereMonths: dto.hereMonths ?? null, thereMonths: dto.thereMonths ?? null, updatedById: actor.id },
+      data: { key, name: dto.name, kind: dto.kind, parentKey, cityKey, hereMonths: dto.hereMonths ?? null, thereMonths: dto.thereMonths ?? null, areaKm: dto.areaKm ?? null, updatedById: actor.id },
     });
     this.changed();
     await this.audit.log(actor.id, 'region.created', 'region', created.key, { name: dto.name, kind: dto.kind, parentKey });
@@ -254,11 +267,12 @@ export class RegionsService implements OnModuleInit {
       ...(dto.name !== undefined && { name: dto.name }),
       ...(dto.hereMonths !== undefined && { hereMonths: dto.hereMonths }),
       ...(dto.thereMonths !== undefined && { thereMonths: dto.thereMonths }),
+      ...(dto.areaKm !== undefined && { areaKm: dto.areaKm }),
     };
     if (Object.keys(data).length === 0) return { key: row.key };
     await this.prisma.region.update({ where: { key }, data: { ...data, updatedById: actor.id } });
     this.changed();
-    await this.audit.log(actor.id, 'region.updated', 'region', key, { before: { hereMonths: row.hereMonths, thereMonths: row.thereMonths, name: row.name }, after: data });
+    await this.audit.log(actor.id, 'region.updated', 'region', key, { before: { hereMonths: row.hereMonths, thereMonths: row.thereMonths, areaKm: row.areaKm, name: row.name }, after: data });
     return { key };
   }
 
@@ -266,9 +280,9 @@ export class RegionsService implements OnModuleInit {
   async resetCityLimits(actor: User) {
     const rows = await this.all();
     const scope = scopeFor(rows, actor.adminRegionKey);
-    const keys = rows.filter((r) => r.kind === 'city' && (!scope || scope.regionKeys.has(r.key)) && (r.hereMonths !== null || r.thereMonths !== null)).map((r) => r.key);
+    const keys = rows.filter((r) => r.kind === 'city' && (!scope || scope.regionKeys.has(r.key)) && (r.hereMonths !== null || r.thereMonths !== null || r.areaKm !== null)).map((r) => r.key);
     if (keys.length === 0) return { reset: 0 };
-    await this.prisma.region.updateMany({ where: { key: { in: keys } }, data: { hereMonths: null, thereMonths: null, updatedById: actor.id } });
+    await this.prisma.region.updateMany({ where: { key: { in: keys } }, data: { hereMonths: null, thereMonths: null, areaKm: null, updatedById: actor.id } });
     this.changed();
     await this.audit.log(actor.id, 'region.limits_reset', 'region', scope?.regionKey ?? GLOBAL_KEY, { cities: keys.length });
     return { reset: keys.length };
@@ -307,9 +321,9 @@ export class RegionsPublicController {
   @Get('limits')
   async limits(@Query() query: unknown) {
     const { city } = parse(limitsQuery, query);
-    const [here, there] = await Promise.all([this.regions.limitFor('here', city), this.regions.limitFor('there', city)]);
+    const [here, there, area] = await Promise.all([this.regions.limitFor('here', city), this.regions.limitFor('there', city), this.regions.areaFor(city)]);
     const out = (l: typeof here) => ({ months: l.months, latest: l.latest, text: monthsWord(l.months), setBy: l.from?.name ?? null });
-    return { city: city ?? null, region: here.region, here: out(here), there: out(there) };
+    return { city: city ?? null, region: here.region, here: out(here), there: out(there), area: { km: area.km, setBy: area.from?.name ?? null } };
   }
 }
 

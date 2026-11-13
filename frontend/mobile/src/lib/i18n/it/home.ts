@@ -390,4 +390,8 @@ export const home: Record<string, string> = {
   'Clear search': 'Cancella la ricerca',
   'DD-MM-YYYY': 'GG-MM-AAAA',
   'How big should the group be?': 'Quanto grande dev’essere il gruppo?',
+  'Coming up': 'In arrivo',
+  'Distance': 'Distanza',
+  'Within {n} km': 'Entro {n} km',
+  'Next: {when}': 'Prossima: {when}',
 };

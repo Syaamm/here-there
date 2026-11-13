@@ -2,6 +2,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, View } from 'react-native';
 import { ActivityBig, ActivityRow, NextUpCard } from '@/components/Cards';
+
+/**
+ * The client trial: the HERE lists show only the single row cards (a picture at the left, title, time and place, who is going), one under the
+ * other. Set this to true to bring back the big picture cards at the top of the first list ("roll back to the main cards"). Nothing else changes.
+ */
+const BIG_FEED_CARDS = false; // the client's choice: single row cards only
 import { MonthCalendar } from '@/components/CreateParts';
 import { shortDay } from '@/components/DateRangeSheet';
 import { CategoryChips } from '@/components/CategoryChips';
@@ -17,13 +23,15 @@ import { useClock } from '@/lib/clock';
 import { comingUp, happeningNow, type MyActivitiesData } from '@/lib/myActivities';
 import { useLayout } from '@/lib/layout';
 import { hhmm } from '@/lib/format';
-import { cityQuery, useCity, useCityPos } from '@/lib/city';
+import { cityQuery, useAreaKm, useCity, useCityPos } from '@/lib/city';
+import { matchesSearch } from '@/lib/searchTerms';
 import { feedRange, splitFeed } from '@/lib/feed';
 import { useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
 
+import { sc, sp, sph } from '@/lib/scale';
 /** HERE · Explore: a time-sensitive feed of what is happening nearby. */
 export function ExploreHere() {
   const { t } = useT();
@@ -42,16 +50,22 @@ export function ExploreHere() {
   const dayStart = day ? new Date(day.getFullYear(), day.getMonth(), day.getDate()) : null;
   const [filterOpen, setFilterOpen] = useState(false);
   const [openOnly, setOpenOnly] = useState(false); // only the activities that still have a place
+  // how far from the city's centre: the admin sets the most (the city's coverage, 25 km unless changed in Settings > Places & limits), and
+  // the person may ask for less. null = all of the area. Only when the city's centre is known (a distance needs a place to measure from).
+  const areaKm = useAreaKm();
+  const [distance, setDistance] = useState<number | null>(null);
+  const distanceOptions = [...[10, 15, 25].filter((k) => k < areaKm), areaKm];
+  const reach: Record<string, string> = cityPos && distance !== null && distance < areaKm ? { radiusKm: String(distance) } : {};
 
   const feed = useLoad(
     () => {
       const [from, to] = feedRange();
-      const p = new URLSearchParams({ ...cityQuery(city, cityPos), from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
+      const p = new URLSearchParams({ ...cityQuery(city, cityPos), ...reach, from: from.toISOString(), to: to.toISOString(), limit: '50', sort: 'relevance' });
       // a chosen category is asked of the server, so the ranking (top picks first) and the paging work inside that category
       if (cat) p.set('category', cat);
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
-    [city, cityPos, cat],
+    [city, cityPos, cat, distance, areaKm],
     60_000, // changes arrive by the live connection (below); this is only the slow fallback
     'feed:here',
     { keep: true, live: true },
@@ -59,15 +73,15 @@ export function ExploreHere() {
   const onDay = useLoad(
     () => {
       if (when !== 'date' || !dayStart) return Promise.resolve(null);
-      const p = new URLSearchParams({ ...cityQuery(city, cityPos), from: dayStart.toISOString(), to: new Date(+dayStart + 864e5).toISOString(), limit: '50' });
+      const p = new URLSearchParams({ ...cityQuery(city, cityPos), ...reach, from: dayStart.toISOString(), to: new Date(+dayStart + 864e5).toISOString(), limit: '50' });
       return get<{ items: Activity[] }>(`/v1/activities?${p}`);
     },
-    [when, dayStart ? +dayStart : 0, city, cityPos],
+    [when, dayStart ? +dayStart : 0, city, cityPos, distance, areaKm],
   );
   const dayItems = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const all = (onDay.data?.items ?? []).filter((a) => (!cat || a.category === cat) && (!openOnly || a.spotsLeft > 0));
-    return needle ? all.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
+    return needle ? all.filter((a) => matchesSearch(`${a.title} ${a.venueName} ${a.tags.join(' ')} ${a.category} ${CATS[a.category]?.label ?? ''} ${a.city ?? ''}`, needle)) : all;
   }, [onDay.data, q, cat, openOnly]);
   // Next up is about YOU: the soonest upcoming activity you host, are going to, or have asked to join
   // an activity was created, filled or cancelled somewhere: ask again at once (the app holds one nudge per few seconds)
@@ -82,7 +96,7 @@ export function ExploreHere() {
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const all = (feed.data?.items ?? []).filter((a) => (!cat || a.category === cat) && (!openOnly || a.spotsLeft > 0));
-    return needle ? all.filter((a) => `${a.title} ${a.venueName} ${a.tags.join(' ')}`.toLowerCase().includes(needle)) : all;
+    return needle ? all.filter((a) => matchesSearch(`${a.title} ${a.venueName} ${a.tags.join(' ')} ${a.category} ${CATS[a.category]?.label ?? ''} ${a.city ?? ''}`, needle)) : all;
   }, [feed.data, q, cat, openOnly]);
 
   // The clock moves on once a minute: an activity leaves "Happening soon" the minute it starts.
@@ -95,7 +109,8 @@ export function ExploreHere() {
   // the cards show the two soonest; "+N more" appears only when there are more than two, and lists just the others
   // with a category chosen the page is about that kind of activity: Next up (your own plans of every kind) steps aside
   // searching or a category chosen: the page is only the matching activities, so Next up and the live pill step aside
-  const searchingNow = q.trim().length > 0 || (when === 'date' && !!day); // a search, or one day picked in the calendar
+  const typedWords = q.trim().length > 0; // something is typed in the search: results, not Next up and the time sections
+  const searchingNow = typedWords || (when === 'date' && !!day); // a search, or one day picked in the calendar
   const next = cat || searchingNow ? [] : soonAll.slice(0, 2);
   const more = cat || searchingNow ? [] : soonAll.slice(2);
   // what is already in your Next up (you host it or are going) is not listed again under Happening soon
@@ -116,7 +131,7 @@ export function ExploreHere() {
   const bigAt = next.length > 0 ? -1 : lists.findIndex((l) => l.length > 0);
 
   return (
-    <Screen tabBar wide collapse onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} bandTall style={{ paddingTop: 14 }}>
+    <Screen tabBar wide collapse onRefresh={onRefresh} refreshing={refreshing} header={<HereHeader city={city} onPickCity={setCity} />} headerBg={HERE_BAND} bandTall style={{ paddingTop: sp(14) }}>
 
       <VerifyBanner />
 
@@ -130,19 +145,19 @@ export function ExploreHere() {
         />
       ) : null}
 
-      <SearchBar value={q} onChangeText={setQ} placeholder={t('Search activities or neighborhoods')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || cat !== null || openOnly} />
+      <SearchBar value={q} onChangeText={setQ} placeholder={t('Search activities or neighborhoods')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || cat !== null || openOnly || (!!cityPos && distance !== null && distance < areaKm)} />
       <CategoryChips value={cat} onChange={setCat} />
 
       <ErrorBanner message={feed.error?.message} />
       {feed.loading && !feed.data && <Spinner />}
 
       {next.length > 0 && (
-        <Reveal index={0} style={{ gap: 12 }}>
+        <Reveal index={0} style={{ gap: sp(12) }}>
           <SectionHeader title={t('Next up')} />
           {/* each plan of yours is a card of its own, one under the other, soonest first */}
-          <View style={{ gap: 12 }}>
+          <View style={{ gap: sp(12) }}>
             {next.map((x) => (
-              <View key={x.key} style={{ width: '100%', maxWidth: 480 }}>
+              <View key={x.key} style={{ width: '100%', maxWidth: sc(480) }}>
                 <NextUpCard a={x.activity} status={{ label: t(x.label), tone: x.tone }} />
               </View>
             ))}
@@ -153,10 +168,10 @@ export function ExploreHere() {
               accessibilityLabel={t('Plus {n} more in the next 3 hours. Show them', { n: more.length })}
               hitSlop={6}
               onPress={() => setSoonOpen(true)}
-              style={({ pressed }) => [{ alignSelf: 'flex-start', minHeight: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', gap: 4 }, pressed && { opacity: 0.8 }]}
+              style={({ pressed }) => [{ alignSelf: 'flex-start', minHeight: sc(34), paddingHorizontal: sph(14), borderRadius: sc(999), backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', gap: sp(4) }, pressed && { opacity: 0.8 }]}
             >
               <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>{t('+{n} more in the next 3 hours', { n: more.length })}</Txt>
-              <Ionicons name="chevron-forward" size={13} color={c.forest} />
+              <Ionicons name="chevron-forward" size={sc(13)} color={c.forest} />
             </Pressable>
           ) : null}
         </Reveal>
@@ -171,10 +186,10 @@ export function ExploreHere() {
 
       {/* a day picked in the filter's calendar: only that day, with a chip to clear it */}
       {byDay && dayStart ? (
-        <View style={{ gap: 12 }}>
+        <View style={{ gap: sp(12) }}>
           {/* the day picked: tapping it opens the filter again (calendar on that day) to pick another day or go back to Everything;
               the small cross clears it straight away */}
-          <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', borderRadius: 999, backgroundColor: c.accentSoft }}>
+          <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', borderRadius: sc(999), backgroundColor: c.accentSoft }}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t('Showing {date}. Change the date', { date: shortDay(dayStart) })}
@@ -182,11 +197,11 @@ export function ExploreHere() {
                 setMonth(new Date(dayStart));
                 setFilterOpen(true);
               }}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 34, paddingLeft: 14, paddingRight: 6 }, pressed && { opacity: 0.7 }]}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(6), minHeight: sc(34), paddingLeft: sph(14), paddingRight: sph(6) }, pressed && { opacity: 0.7 }]}
             >
-              <Ionicons name="calendar-outline" size={14} color={c.forest} />
-              <Txt variant="label" color={c.forest} style={{ fontSize: 13, lineHeight: 17 }}>{shortDay(dayStart)}</Txt>
-              <Ionicons name="chevron-down" size={13} color={c.forest} />
+              <Ionicons name="calendar-outline" size={sc(14)} color={c.forest} />
+              <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>{shortDay(dayStart)}</Txt>
+              <Ionicons name="chevron-down" size={sc(13)} color={c.forest} />
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -196,9 +211,9 @@ export function ExploreHere() {
                 setWhen('any');
                 setDay(null);
               }}
-              style={({ pressed }) => [{ minHeight: 34, paddingLeft: 4, paddingRight: 12, justifyContent: 'center' }, pressed && { opacity: 0.7 }]}
+              style={({ pressed }) => [{ minHeight: sc(34), paddingLeft: sph(4), paddingRight: sph(12), justifyContent: 'center' }, pressed && { opacity: 0.7 }]}
             >
-              <Ionicons name="close" size={15} color={c.forest} />
+              <Ionicons name="close" size={sc(15)} color={c.forest} />
             </Pressable>
           </View>
           {onDay.loading && !onDay.data ? <Spinner /> : null}
@@ -207,15 +222,26 @@ export function ExploreHere() {
         </View>
       ) : null}
 
+      {/* typed words: one section of results, in place of Next up and the time sections (a day picked in the calendar has its own section above) */}
+      {typedWords && !(when === 'date' && day) ? (
+        <Reveal key={q.trim().toLowerCase()} index={0} style={{ gap: sp(12) }}>
+          <SectionHeader title={items.length ? t('Search results ({n})', { n: items.length }) : t('Search results')} />
+          {items.length ? items.map((a) => <ActivityRow key={a.id} a={a} />) : <Empty icon="search-outline" title={t('Nothing found')}>{t('Try other words or another spelling. You can search in English or Italian.')}</Empty>}
+        </Reveal>
+      ) : null}
+      {!typedWords ? (
+        <>
       <ListSection index={1} big={bigAt === 0} title={t('Happening soon')} list={lists[0]} max={MAX} onMore={() => go(`/activities?section=soon${cat ? `&category=${cat}` : ''}`)} />
       <ListSection index={2} big={bigAt === 1} title={t('Tonight')} list={lists[1]} max={MAX} onMore={() => go(`/activities?section=tonight${cat ? `&category=${cat}` : ''}`)} />
       <ListSection index={3} big={bigAt === 2} title={t('Tomorrow')} list={lists[2]} max={MAX} onMore={() => go(`/activities?section=tomorrow${cat ? `&category=${cat}` : ''}`)} />
       <ListSection index={3} big={bigAt === 3} title={t('Later')} list={lists[3]} max={MAX} onMore={() => go(`/activities?section=later${cat ? `&category=${cat}` : ''}`)} />
+        </>
+      ) : null}
 
       <Reveal index={4}>
-        <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.sand, borderWidth: 0, borderRadius: 20, padding: 16 }}>
-          <View style={{ flex: 1, paddingRight: 12 }}>
-            <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20 }}>{t('Nothing you fancy?')}</Txt>
+        <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.sand, borderWidth: 0, borderRadius: sc(20), padding: sp(16) }}>
+          <View style={{ flex: 1, paddingRight: sph(12) }}>
+            <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{t('Nothing you fancy?')}</Txt>
           </View>
           <Btn title={t('Host')} small onPress={() => go('/create')} />
         </Card>
@@ -231,17 +257,17 @@ export function ExploreHere() {
               setSoonOpen(false);
               go(`/activity/${x.activity.id}`);
             }}
-            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.line }, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingVertical: sp(8), borderBottomWidth: 1, borderBottomColor: c.line }, pressed && { opacity: 0.8 }]}
           >
-            <View style={{ width: 84 }}>
-              <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{hhmm(x.activity.startsAt)}</Txt>
-              <Txt variant="small" numberOfLines={1} style={{ fontSize: 11 }}>{+new Date(x.activity.startsAt) <= now ? t('now') : t('to {time}', { time: hhmm(x.activity.endsAt) })}</Txt>
+            <View style={{ width: sc(84) }}>
+              <Txt variant="h3" numberOfLines={1} style={{ fontSize: 16, lineHeight: 21 }}>{hhmm(x.activity.startsAt)}</Txt>
+              <Txt variant="small" numberOfLines={1} style={{ fontSize: 12 }}>{+new Date(x.activity.startsAt) <= now ? t('now') : t('to {time}', { time: hhmm(x.activity.endsAt) })}</Txt>
             </View>
-            <View style={{ flex: 1, gap: 3 }}>
-              <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{x.activity.title}</Txt>
+            <View style={{ flex: 1, gap: sc(3) }}>
+              <Txt variant="h3" numberOfLines={1} style={{ fontSize: 16, lineHeight: 21 }}>{x.activity.title}</Txt>
               <View style={{ flexDirection: 'row' }}><Chip label={t(x.label)} tone={x.tone} /></View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={c.muted} />
+            <Ionicons name="chevron-forward" size={sc(16)} color={c.muted} />
           </Pressable>
         ))}
       </Sheet>
@@ -263,14 +289,15 @@ export function ExploreHere() {
                 setDay(null);
                 setCat(null);
                 setOpenOnly(false);
+                setDistance(null);
               }}
             />
           </>
         }
       >
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: sp(8) }}>
           <ThereLabel>{t('When')}</ThereLabel>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
             {(
               [
                 ['any', 'Everything'],
@@ -286,7 +313,7 @@ export function ExploreHere() {
         </View>
         {/* Later: everything after tomorrow, or pick one day in the calendar to see only that day */}
         {when === 'later' || when === 'date' ? (
-          <View style={{ gap: 8 }}>
+          <View style={{ gap: sp(8) }}>
             <Txt variant="small">{t('Pick a day to see only what is on that day.')}</Txt>
             <MonthCalendar
               month={month}
@@ -302,22 +329,32 @@ export function ExploreHere() {
             />
           </View>
         ) : null}
-        <View style={{ gap: 8 }}>
+        {cityPos ? (
+          <View style={{ gap: sp(8) }}>
+            <ThereLabel>{t('Distance')}</ThereLabel>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
+              {distanceOptions.map((k) => (
+                <ThereChip key={k} label={t('Within {n} km', { n: k })} active={(distance ?? areaKm) === k} onPress={() => setDistance(k >= areaKm ? null : k)} />
+              ))}
+            </View>
+          </View>
+        ) : null}
+        <View style={{ gap: sp(8) }}>
           <ThereLabel>{t('What kind of activity')}</ThereLabel>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
             <ThereChip label={t('All')} active={cat === null} onPress={() => setCat(null)} />
             {Object.entries(CATS).map(([k, v]) => (
               <ThereChip key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(cat === k ? null : k)} />
             ))}
           </View>
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
           <ThereChip label={t('Only activities with open places')} active={openOnly} onPress={() => setOpenOnly(!openOnly)} />
         </View>
       </ThereFilterSheet>
 
       <Sheet visible={liveOpen} title={t('Happening now')} onClose={() => setLiveOpen(false)}>
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: sp(10) }}>
           {liveNow.map((x) => (
             <ActivityRow key={x.key} a={x.activity} />
           ))}
@@ -342,11 +379,11 @@ export function LivePill({ label, onPress }: { label: string; onPress: () => voi
       accessibilityLabel={label}
       onPress={onPress}
       hitSlop={6}
-      style={({ pressed }) => [{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 36, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentSoft }, pressed && { transform: [{ scale: 0.97 }] }]}
+      style={({ pressed }) => [{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: sp(8), minHeight: sc(36), paddingHorizontal: sph(14), borderRadius: sc(999), backgroundColor: c.accentSoft }, pressed && { transform: [{ scale: 0.97 }] }]}
     >
-      <Animated.View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.green, opacity: pulse }} />
-      <Txt variant="label" color={c.forest} numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, lineHeight: 17 }}>{label}</Txt>
-      <Ionicons name="chevron-forward" size={14} color={c.forest} />
+      <Animated.View style={{ width: sc(8), height: sc(8), borderRadius: sc(4), backgroundColor: c.green, opacity: pulse }} />
+      <Txt variant="label" color={c.forest} numberOfLines={1} style={{ flexShrink: 1, fontSize: 12, lineHeight: 16 }}>{label}</Txt>
+      <Ionicons name="chevron-forward" size={sc(14)} color={c.forest} />
     </Pressable>
   );
 }
@@ -361,10 +398,10 @@ function ListSection({ index, big, title, list, max, onMore }: { index: number; 
   const count = over ? 3 : max;
   const hidden = list.length - count; // how many are not on this page: "See all" opens them
   return (
-    <Reveal index={index} style={{ gap: 12 }}>
+    <Reveal index={index} style={{ gap: sp(12) }}>
       <SectionHeader title={title} />
       {list.slice(0, count).map((a) =>
-        big ? <ActivityBig key={a.id} a={a} tag={a.status === 'in_progress' ? t('Happening now') : t(CATS[a.category]?.label ?? a.category)} /> : <ActivityRow key={a.id} a={a} />,
+        big && BIG_FEED_CARDS ? <ActivityBig key={a.id} a={a} tag={a.status === 'in_progress' ? t('Happening now') : t(CATS[a.category]?.label ?? a.category)} /> : <ActivityRow key={a.id} a={a} />,
       )}
       {hidden > 0 ? (
         <Pressable
@@ -372,10 +409,10 @@ function ListSection({ index, big, title, list, max, onMore }: { index: number; 
           accessibilityLabel={t('See all: {title}', { title })}
           hitSlop={6}
           onPress={onMore}
-          style={({ pressed }) => [{ alignSelf: 'flex-start', minHeight: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', gap: 4 }, pressed && { opacity: 0.8 }]}
+          style={({ pressed }) => [{ alignSelf: 'flex-start', minHeight: sc(34), paddingHorizontal: sph(14), borderRadius: sc(999), backgroundColor: c.accentSoft, flexDirection: 'row', alignItems: 'center', gap: sp(4) }, pressed && { opacity: 0.8 }]}
         >
           <Txt variant="label" color={c.forest} style={{ fontSize: 12, lineHeight: 16 }}>{t('See all')}</Txt>
-          <Ionicons name="chevron-forward" size={13} color={c.forest} />
+          <Ionicons name="chevron-forward" size={sc(13)} color={c.forest} />
         </Pressable>
       ) : null}
     </Reveal>

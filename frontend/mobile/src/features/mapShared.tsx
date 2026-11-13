@@ -6,12 +6,13 @@ import { Animated, Easing, Keyboard, LayoutAnimation, PanResponder, Pressable, S
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CatPhoto } from '@/components/CatPhoto';
+import { shortDay } from '@/components/DateRangeSheet';
 import { Reveal } from '@/components/Reveal';
 import { Avatar, Banner, Btn, ErrorBanner, Field, Pill, PillRow, Row, Sheet, Txt, useGo } from '@/components/ui';
 import { useMe } from '@/lib/auth';
 import { statusTop } from '@/lib/layout';
 import { get, type Activity } from '@/lib/api';
-import { CITY_AREA_KM, cityQuery, type Near, useCity, useCityPos, useNear } from '@/lib/city';
+import { getAreaKm, cityQuery, type Near, useCity, useCityPos, useNear } from '@/lib/city';
 import { CitySearch } from '@/components/CitySearch';
 import { MapHint } from '@/components/MapHint';
 import { MonthCalendar } from '@/components/CreateParts';
@@ -23,7 +24,7 @@ import { when } from '@/lib/format';
 import { useLoad } from '@/lib/hooks';
 import { t as tr, useT } from '@/lib/i18n';
 import { keyboardTaps } from '@/lib/keyboard';
-import { useScale } from '@/lib/scale';
+import { useScale, sc, sp, sph } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { FS } from '@/lib/type';
 
@@ -106,7 +107,17 @@ export function useMapData() {
   const [days, setDays] = useState(FIRST_DAYS); // how many days from today are loaded: today to begin with
   const showNextDay = () => setDays((d) => Math.min(d + 1, MAX_DAYS));
   // day by day (from the filter): one chosen day only, counted from today (0 = today, 1 = tomorrow...); null = today and on, as above
-  const [dayPick, setDayPick] = useState<number | null>(null);
+  const [dayPick, setDayPickState] = useState<number | null>(null);
+  // the last day of a chosen range of days (null: just the one day). Tapping a second, later day in the filter's calendar makes it a range.
+  const [dayTo, setDayTo] = useState<number | null>(null);
+  const setDayPick = (v: number | null) => {
+    setDayPickState(v);
+    setDayTo(null);
+  };
+  const setDayRange = (from: number, to: number | null) => {
+    setDayPickState(from);
+    setDayTo(to);
+  };
   const autoNext = useRef(false); // today had no venues, so tomorrow was added by itself: only once per visit and city
   useEffect(() => {
     setDays(FIRST_DAYS); // another city starts again from today
@@ -157,7 +168,7 @@ export function useMapData() {
       // picked in the filter: just that one day (today counts from now)
       const dayStart = new Date().setHours(0, 0, 0, 0) + (dayPick ?? 0) * 864e5;
       const from = dayPick !== null && dayPick > 0 ? new Date(dayStart) : new Date();
-      const to = new Date(dayPick !== null ? dayStart + 864e5 : new Date().setHours(0, 0, 0, 0) + days * 864e5);
+      const to = new Date(dayPick !== null ? dayStart + ((dayTo ?? dayPick) - dayPick + 1) * 864e5 : new Date().setHours(0, 0, 0, 0) + days * 864e5);
       // the city's area (or, with "Near me", 3 km around the person inside the city)
       const p = new URLSearchParams({ ...(near ? { city } : cityQuery(city, cityPos)), from: from.toISOString(), to: to.toISOString(), limit: '50', ...(cat && { category: cat }) });
       if (near) {
@@ -178,7 +189,7 @@ export function useMapData() {
         return { items, nextCursor: null as string | null, key: '' };
       })();
     },
-    [city, cityPos, near, cat, days, dayPick, query, area],
+    [city, cityPos, near, cat, days, dayPick, dayTo, query, area],
     searching ? undefined : 60_000, // a search is not polled: it is asked again only when the person changes it
     undefined,
     { keep: true }, // adding a day keeps the pins already shown until the new ones arrive
@@ -371,7 +382,7 @@ export function useMapData() {
     delete o.cursor;
     return { ...o, ...(area ? { place: area.name } : {}) } as Record<string, string>;
   };
-  return { searchQuery, query, area, searching, hasMore: !!cursor, loadingMore, loadMore, pickPlace, searchWords, clearSearch, days, dayPick, setDayPick, showNextDay, nextDay, city, setCity, cityCenter, flyTo, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
+  return { searchQuery, query, area, searching, hasMore: !!cursor, loadingMore, loadMore, pickPlace, searchWords, clearSearch, days, dayPick, dayTo, setDayPick, setDayRange, showNextDay, nextDay, city, setCity, cityCenter, flyTo, cat, setCat, zoom, zoomCmd, near, setNear, geoMsg, locating, locate, dist, measure, selected, setSelected, activeId, feed, pins, groups, center, target, findingCity };
 }
 
 /** The teardrop pin's width: a little bigger for a place with more activities. */
@@ -386,6 +397,15 @@ function untilStart(iso: string) {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
+/**
+ * What the pill on the map says about the next start. Within a day it is a countdown ("Next in 25 min", "Next in 2 h 5 min"); further away a
+ * countdown in hours is hard to read ("110 h"), so it says the day and the time instead ("Next: Tomorrow, 7:30 PM", "Next: Mon 16 Nov, 7:30 PM").
+ */
+function nextStartText(iso: string, t: (s: string, v?: Record<string, string | number>) => string) {
+  const min = (+new Date(iso) - Date.now()) / 60000;
+  return min < 24 * 60 ? t('Next in {time}', { time: untilStart(iso) }) : t('Next: {when}', { when: when(iso) });
+}
+
 /** The small white round button used for zoom and the like, floating on the map. */
 function RoundTool({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void }) {
   const { c } = useTheme();
@@ -395,9 +415,9 @@ function RoundTool({ icon, label, onPress }: { icon: React.ComponentProps<typeof
       accessibilityLabel={label}
       onPress={onPress}
       hitSlop={4}
-      style={({ pressed }) => [{ width: 46, height: 46, borderRadius: 23, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { transform: [{ scale: 0.94 }] }]}
+      style={({ pressed }) => [{ width: sc(46), height: sc(46), borderRadius: sc(23), backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { transform: [{ scale: 0.94 }] }]}
     >
-      <Ionicons name={icon} size={22} color={c.text} />
+      <Ionicons name={icon} size={sc(22)} color={c.text} />
     </Pressable>
   );
 }
@@ -406,8 +426,8 @@ function RoundTool({ icon, label, onPress }: { icon: React.ComponentProps<typeof
 function TopTool({ icon, label, onPress, on }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void; on?: boolean }) {
   const { c } = useTheme();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={on === undefined ? undefined : { selected: on }} onPress={onPress} hitSlop={4} style={({ pressed }) => [{ width: 58, height: 58, borderRadius: 29, backgroundColor: on ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { transform: [{ scale: 0.94 }] }]}>
-      <Ionicons name={icon} size={26} color={on ? '#fff' : c.text} />
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={on === undefined ? undefined : { selected: on }} onPress={onPress} hitSlop={4} style={({ pressed }) => [{ width: sc(58), height: sc(58), borderRadius: sc(29), backgroundColor: on ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, pressed && { transform: [{ scale: 0.94 }] }]}>
+      <Ionicons name={icon} size={sc(26)} color={on ? '#fff' : c.text} />
     </Pressable>
   );
 }
@@ -432,12 +452,12 @@ function GreetingPill({ city, onPick, compact }: { city: string; onPick: (c: str
   const faceLeft = compact ? Math.max(0, (58 - face) / 2) : 6;
   return (
     <>
-      <View style={[{ flexShrink: 1, minHeight: 58, borderRadius: 32, backgroundColor: c.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, compact && { width: 58, flexShrink: 0 }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 58, paddingLeft: faceLeft, overflow: 'hidden', borderRadius: 32 }}>
+      <View style={[{ flexShrink: 1, minHeight: sc(58), borderRadius: sc(32), backgroundColor: c.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, compact && { width: sc(58), flexShrink: 0 }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: sc(58), paddingLeft: faceLeft, overflow: 'hidden', borderRadius: sc(32) }}>
         <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={46} />
-        <Animated.View style={{ flexShrink: 1, marginLeft: 12, paddingRight: 22, opacity: v.interpolate({ inputRange: [0, 0.6], outputRange: [1, 0], extrapolate: 'clamp' }) }}>
+        <Animated.View style={{ flexShrink: 1, marginLeft: sph(12), paddingRight: sph(22), opacity: v.interpolate({ inputRange: [0, 0.6], outputRange: [1, 0], extrapolate: 'clamp' }) }}>
           {name ? <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Hi, {name}', { name })}</Text> : null}
-          <Text numberOfLines={1} style={{ color: c.muted, fontSize: 14, lineHeight: 18 }}>{city}</Text>
+          <Text numberOfLines={1} style={{ color: c.muted, fontSize: 16, lineHeight: 21 }}>{city}</Text>
         </Animated.View>
       </Pressable>
       </View>
@@ -456,7 +476,7 @@ function GreetingPill({ city, onPick, compact }: { city: string; onPick: (c: str
 
 /**
  * The map's search: type a neighbourhood or area of the city shown, pick it, and the map flies there. Only places within the
- * city's area (CITY_AREA_KM of its centre) are offered, the same area the map and Home show.
+ * city's area (the admin's coverage distance from its centre) are offered, the same area the map and Home show.
  */
 function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClosed, listMode, onListText }: { /** the card is pulled up: typing only narrows its list (no place search, the map stays put) */ listMode?: boolean; onListText?: (text: string) => void; city: string; centre: [number, number] | null; onPick: (at: Fix, name: string) => void; /** the words to find activities by (Enter, or the first row) */ onWords: (text: string) => void; /** set while it plays its closing animation */ closing: boolean; /** asks to close (the face grows back at once) */ onClose: () => void; /** the closing animation has finished */ onClosed: () => void }) {
   const { t } = useT();
@@ -494,7 +514,7 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
         const params = new URLSearchParams({ q: text, kind: 'area', ...(centre ? { lat: String(centre[0]), lng: String(centre[1]) } : { city }) });
         const r = await get<{ items: { id: string; name: string; address: string; lat: number; lng: number }[] }>(`/v1/places/search?${params}`);
         if (mine !== latest.current) return;
-        const inside = centre ? r.items.filter((x) => kmBetween({ lat: centre[0], lng: centre[1] }, x) <= CITY_AREA_KM) : r.items;
+        const inside = centre ? r.items.filter((x) => kmBetween({ lat: centre[0], lng: centre[1] }, x) <= getAreaKm()) : r.items;
         setFar(r.items.length - inside.length);
         setFound(inside);
         setState('done');
@@ -506,8 +526,8 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
   }, [q, listMode]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Animated.View style={{ flex: 1, opacity: grow.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0.9, 1] }), transform: [{ translateX: grow.interpolate({ inputRange: [0, 1], outputRange: [36, 0] }) }] }}>
-      <View style={{ height: 58, borderRadius: 29, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 16, paddingRight: 6, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
-        <Ionicons name="search-outline" size={20} color={c.muted} />
+      <View style={{ height: sc(58), borderRadius: sc(29), backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(8), paddingLeft: sph(16), paddingRight: sph(6), elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
+        <Ionicons name="search-outline" size={sc(20)} color={c.muted} />
         <TextInput
           accessibilityLabel={t('Search a place or an activity')}
           autoFocus
@@ -528,7 +548,7 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
             }
           }}
           autoCorrect={false}
-          style={{ flex: 1, color: c.text, fontSize: 15, paddingVertical: 0 }}
+          style={{ flex: 1, color: c.text, fontSize: 16, paddingVertical: 0 }}
         />
         {/* ✕ first clears what was typed; with the field empty it closes the search */}
         <Pressable accessibilityRole="button" accessibilityLabel={q ? t('Clear the search') : t('Close the search')} hitSlop={8} onPress={() => {
@@ -537,12 +557,12 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
             onListText?.('');
             Keyboard.dismiss(); // clear search: the keyboard goes down
           } else onClose();
-        }} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="close" size={20} color={c.text} />
+        }} style={{ width: sc(40), height: sc(40), alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="close" size={sc(20)} color={c.text} />
         </Pressable>
       </View>
       {state !== 'idle' && !closing ? (
-        <View style={{ position: 'absolute', top: 64, left: 0, right: -68, backgroundColor: c.surface, borderRadius: 20, paddingVertical: 6, elevation: 4, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } }}>
+        <View style={{ position: 'absolute', top: sc(64), left: 0, right: -sc(68), backgroundColor: c.surface, borderRadius: sc(20), paddingVertical: sp(6), elevation: 4, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: sc(3) } }}>
           {/* the words as an activity search: "coffee", "yoga", a venue's name; a category word finds that category */}
           <Pressable
             accessibilityRole="button"
@@ -551,13 +571,13 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
               onWords(q);
               onClose();
             }}
-            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 }, pressed && { backgroundColor: c.bg }]}
+            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingHorizontal: sph(16), paddingVertical: sp(10) }, pressed && { backgroundColor: c.bg }]}
           >
-            <Ionicons name="search-outline" size={18} color={c.forest} />
+            <Ionicons name="search-outline" size={sc(18)} color={c.forest} />
             <Text numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: FS.body, fontWeight: '600' }}>{t('Activities for “{words}”', { words: q.trim() })}</Text>
           </Pressable>
-          {state === 'searching' && !found ? <Text style={{ color: c.muted, fontSize: 13, paddingHorizontal: 16, paddingVertical: 10 }}>{t('Searching…')}</Text> : null}
-          {state === 'error' ? <Text style={{ color: c.muted, fontSize: 13, paddingHorizontal: 16, paddingVertical: 10 }}>{t('Search is not available right now. Try again in a moment.')}</Text> : null}
+          {state === 'searching' && !found ? <Text style={{ color: c.muted, fontSize: 12, paddingHorizontal: sph(16), paddingVertical: sp(10) }}>{t('Searching…')}</Text> : null}
+          {state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingHorizontal: sph(16), paddingVertical: sp(10) }}>{t('Search is not available right now. Try again in a moment.')}</Text> : null}
           {found?.map((x) => (
             <Pressable
               key={x.id}
@@ -567,18 +587,18 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
                 onPick({ lat: x.lat, lng: x.lng }, x.name);
                 onClose();
               }}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 }, pressed && { backgroundColor: c.bg }]}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingHorizontal: sph(16), paddingVertical: sp(10) }, pressed && { backgroundColor: c.bg }]}
             >
-              <Ionicons name="location-outline" size={18} color={c.forest} />
+              <Ionicons name="location-outline" size={sc(18)} color={c.forest} />
               <View style={{ flex: 1 }}>
-                <Text numberOfLines={1} style={{ color: c.text, fontSize: 15, fontWeight: '600' }}>{x.name}</Text>
+                <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, fontWeight: '600' }}>{x.name}</Text>
                 {x.address ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{x.address}</Text> : null}
               </View>
             </Pressable>
           ))}
           {state === 'done' && found?.length === 0 ? (
-            <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18, paddingHorizontal: 16, paddingVertical: 10 }}>
-              {far > 0 ? t('No place with that name within {km} km of {city}. Change the city to look further away.', { km: CITY_AREA_KM, city }) : t('No place found with that name.')}
+            <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17, paddingHorizontal: sph(16), paddingVertical: sp(10) }}>
+              {far > 0 ? t('No place with that name within {km} km of {city}. Change the city to look further away.', { km: getAreaKm(), city }) : t('No place found with that name.')}
             </Text>
           ) : null}
         </View>
@@ -597,9 +617,9 @@ function PillButton({ icon, title, onPress, disabled }: { icon: React.ComponentP
       disabled={disabled}
       onPress={onPress}
       hitSlop={6}
-      style={({ pressed }) => [{ height: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: disabled ? 0.6 : 1 }, pressed && { opacity: 0.85 }]}
+      style={({ pressed }) => [{ height: sc(34), paddingHorizontal: sph(12), borderRadius: sc(17), borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(6), opacity: disabled ? 0.6 : 1 }, pressed && { opacity: 0.85 }]}
     >
-      <Ionicons name={icon} size={15} color={c.forest} />
+      <Ionicons name={icon} size={sc(15)} color={c.forest} />
       <Txt variant="h3" color={c.forest} numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, includeFontPadding: false }}>{title}</Txt>
     </Pressable>
   );
@@ -618,7 +638,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const dock = useDockSpace();
   const { height: screenH } = useWindowDimensions();
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const { city, setCity, cityCenter, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected: selectedLive, activeId, feed, pins, dist, measure, days, dayPick, setDayPick, nextDay, showNextDay, query, area, searching, hasMore, loadingMore, loadMore, pickPlace, searchWords, clearSearch, searchQuery } = data;
+  const { city, setCity, cityCenter, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected: selectedLive, activeId, feed, pins, dist, measure, days, dayPick, dayTo, setDayPick, setDayRange, nextDay, showNextDay, query, area, searching, hasMore, loadingMore, loadMore, pickPlace, searchWords, clearSearch, searchQuery } = data;
   // tapping the map empty lowers the card: its pin's activities stay on it while it slides down (swapping to the full list at once made it flash)
   const [held, setHeld] = useState<typeof selectedLive>(null);
   useEffect(() => {
@@ -753,11 +773,11 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       {/* top: your greeting and the city on the left, search and filters on the right; the category chips open under the filter button */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', top: statusTop(insets.top) + 8, left: 16, right: 16, gap: 10, alignItems: 'center' }}>
-        <View style={{ width: '100%', maxWidth: 560, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <View pointerEvents="box-none" style={{ position: 'absolute', top: statusTop(insets.top) + 8, left: sc(16), right: sc(16), gap: sp(10), alignItems: 'center' }}>
+        <View style={{ width: '100%', maxWidth: sc(560), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: sp(10) }}>
           <GreetingPill city={city} onPick={setCity} compact={search === 'open'} />
           {search !== 'closed' ? <MapSearchField listMode={listMode} onListText={setListQ} city={city} centre={cityCenter} closing={search === 'closing'} onClose={() => setSearch('closing')} onClosed={() => setSearch('closed')} onPick={pickPlace} onWords={searchWords} /> : null}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10) }}>
             {/* search: a field opens here, from your face to the filter button, to find a neighbourhood of this city on the map */}
             {search !== 'closed' ? null : <TopTool icon="search-outline" label={t('Search a place or an activity')} on={searching} onPress={() => setSearch('open')} />}
             <TopTool icon="options-outline" label={cat || dayPick !== null ? t('Filters, on') : t('Filters')} on={cat !== '' || dayPick !== null} onPress={() => setFiltersOpen(true)} />
@@ -765,51 +785,51 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
         </View>
         {/* what is being searched for: the words and/or the place, with ✕ to go back to today and tomorrow */}
         {searching ? (
-          <View style={{ width: '100%', maxWidth: 560, flexDirection: 'row' }}>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Clear the search: {what}', { what: [query, area?.name].filter(Boolean).join(', ') })} onPress={clearSearch} style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 8, height: 38, paddingLeft: 14, paddingRight: 10, borderRadius: 19, backgroundColor: c.forest }}>
+          <View style={{ width: '100%', maxWidth: sc(560), flexDirection: 'row' }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Clear the search: {what}', { what: [query, area?.name].filter(Boolean).join(', ') })} onPress={clearSearch} style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: sp(8), height: sc(38), paddingLeft: sph(14), paddingRight: sph(10), borderRadius: sc(19), backgroundColor: c.forest }}>
               <Text numberOfLines={1} style={{ flexShrink: 1, color: '#fff', fontSize: FS.button, fontWeight: '500' }}>{[query && `“${query}”`, area?.name].filter(Boolean).join(' · ')}</Text>
-              <Ionicons name="close" size={16} color="#fff" />
+              <Ionicons name="close" size={sc(16)} color="#fff" />
             </Pressable>
           </View>
         ) : null}
-        {geoMsg ? <View style={{ width: '100%', maxWidth: 560 }}><Banner>{geoMsg}</Banner></View> : null}
-        {feed.error ? <View style={{ width: '100%', maxWidth: 560 }}><ErrorBanner message={feed.error.message} /></View> : null}
+        {geoMsg ? <View style={{ width: '100%', maxWidth: sc(560) }}><Banner>{geoMsg}</Banner></View> : null}
+        {feed.error ? <View style={{ width: '100%', maxWidth: sc(560) }}><ErrorBanner message={feed.error.message} /></View> : null}
         <MapHint id="here" title={t('Finding activities')}>{t('Tap a pin to see what is on there. Use + and − or pinch to move around, search for a place or an activity, and open the filter to pick a day or a kind.')}</MapHint>
       </View>
 
       {/* tools: "Near me" bottom left, zoom bottom right; they ride up with the sheet */}
-      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: (sheetH > 0 ? sheetH : baseH + dock + listMax) + 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', opacity: open.interpolate({ inputRange: [0, 0.35], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateY: sheetY }] }}>
+      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: sc(12), right: sc(12), bottom: (sheetH > 0 ? sheetH : baseH + dock + listMax) + 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', opacity: open.interpolate({ inputRange: [0, 0.35], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateY: sheetY }] }}>
         <PillButton icon="locate-outline" title={locating ? t('Finding you…') : t('Near me')} onPress={locate} disabled={locating} />
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: sp(8) }}>
           <RoundTool icon="add" label={t('Zoom in')} onPress={() => zoom(1)} />
           <RoundTool icon="remove" label={t('Zoom out')} onPress={() => zoom(-1)} />
         </View>
       </Animated.View>
 
       {/* bottom sheet */}
-      <Animated.View onLayout={(e) => setSheetH(Math.round(e.nativeEvent.layout.height))} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingBottom: 12 + dock, // runs down behind the dock, so no strip of map shows between them
-         paddingHorizontal: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, transform: [{ translateY: sheetY }] }}>
+      <Animated.View onLayout={(e) => setSheetH(Math.round(e.nativeEvent.layout.height))} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: sc(40), borderTopRightRadius: sc(40), paddingBottom: 12 + dock, // runs down behind the dock, so no strip of map shows between them
+         paddingHorizontal: sph(20), elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -sc(3) }, transform: [{ translateY: sheetY }] }}>
         <View {...pan.panHandlers} onLayout={(e) => setBaseH(e.nativeEvent.layout.height + 12)} style={{ width: '100%', alignItems: 'center' }}>
           {/* the grip and the summary are the part you drag; tapping the grip opens or closes the list */}
-          <Pressable accessibilityRole="adjustable" accessibilityLabel={t('Activities list. Swipe up to open, down to close')} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={(e) => settle(e.nativeEvent.actionName === 'increment' ? 1 : 0)} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)} hitSlop={{ top: 6, bottom: 6 }} style={{ width: '100%', alignItems: 'center', paddingTop: 8, paddingBottom: 14 }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.line }} />
+          <Pressable accessibilityRole="adjustable" accessibilityLabel={t('Activities list. Swipe up to open, down to close')} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={(e) => settle(e.nativeEvent.actionName === 'increment' ? 1 : 0)} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)} hitSlop={{ top: 6, bottom: 6 }} style={{ width: '100%', alignItems: 'center', paddingTop: sp(8), paddingBottom: sp(14) }}>
+            <View style={{ width: sc(36), height: sc(4), borderRadius: 2, backgroundColor: c.line }} />
           </Pressable>
-          <View style={{ width: '100%', maxWidth: 560, gap: 8 }}>
+          <View style={{ width: '100%', maxWidth: sc(560), gap: sp(8) }}>
             {selected ? (
               <>
-                <Row style={{ justifyContent: 'space-between', gap: 8 }}>
-                  <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600', flex: 1 }}>
+                <Row style={{ justifyContent: 'space-between', gap: sp(8) }}>
+                  <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700', flex: 1 }}>
                     {tn(selected.items.length, '{n} activity here', '{n} activities here')}
                   </Text>
                 </Row>
-                <Row style={{ gap: 6, alignItems: 'flex-start' }}>
-                  <Ionicons name="lock-closed-outline" size={13} color={c.muted} style={{ marginTop: 2 }} />
+                <Row style={{ gap: sp(6), alignItems: 'flex-start' }}>
+                  <Ionicons name="lock-closed-outline" size={sc(13)} color={c.muted} style={{ marginTop: 2 }} />
                   <Txt variant="small" style={{ flex: 1 }}>{noteText}</Txt>
                 </Row>
               </>
             ) : feed.data && pins.length === 0 ? (
               <>
-                <Row style={{ justifyContent: 'space-between', gap: 10 }}>
+                <Row style={{ justifyContent: 'space-between', gap: sp(10) }}>
                   <Txt style={{ flex: 1 }}>{searching ? t('Nothing found in the next month. Try other words or another place.') : dayPick !== null ? t('No venues on the map for this day.') : days <= 1 ? t('No venues on the map for today.') : t('No venues on the map for these days yet.')}</Txt>
                   {searching ? <Btn title={t('Clear')} small variant="secondary" onPress={clearSearch} /> : <Btn title={t('Create')} small onPress={() => go('/create')} />}
                 </Row>
@@ -817,16 +837,16 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
               </>
             ) : (
               <Pressable accessibilityRole="button" accessibilityLabel={openAt.current > 0.5 ? t('Hide the list') : t('Show all activities')} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)}>
-                <Row style={{ justifyContent: 'space-between', gap: 10 }}>
+                <Row style={{ justifyContent: 'space-between', gap: sp(10) }}>
                   <View style={{ flex: 1 }}>
-                    <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600' }}>
+                    <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700' }}>
                       {feed.data ? (searching ? tn(pins.length, hasMore ? '{n}+ activity found' : '{n} activity found', hasMore ? '{n}+ activities found' : '{n} activities found') : todayCount === count && count > 0 ? tn(count, '{n} activity today', '{n} activities today') : tn(count, '{n} activity coming up', '{n} activities coming up')) : t('Loading…')}
                     </Text>
-                    <Text style={{ color: c.muted, fontSize: 15, lineHeight: 22, marginTop: 4 }}>{t('Tap a pin to preview, or pull up for the list')}</Text>
+                    <Text style={{ color: c.muted, fontSize: 16, lineHeight: 23, marginTop: sp(4) }}>{t('Tap a pin to preview, or pull up for the list')}</Text>
                   </View>
                   {nextStart ? (
-                    <View style={{ backgroundColor: c.sand, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start', flexShrink: 0 }}>
-                      <Text style={{ color: c.forest, fontSize: 13, lineHeight: 17, fontWeight: '500', includeFontPadding: false }}>{t('Next in {time}', { time: untilStart(nextStart) })}</Text>
+                    <View style={{ backgroundColor: c.sand, borderRadius: sc(999), paddingHorizontal: sph(14), paddingVertical: sp(8), alignSelf: 'flex-start', flexShrink: 0 }}>
+                      <Text style={{ color: c.forest, fontSize: 12, lineHeight: 16, fontWeight: '500', includeFontPadding: false }}>{nextStartText(nextStart, t)}</Text>
                     </View>
                   ) : null}
                 </Row>
@@ -836,10 +856,10 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
         </View>
 
         {/* the list: its height follows the pull, rows ease in one after another each time the list changes */}
-        <Animated.View pointerEvents={isOpen ? 'auto' : 'none'} style={{ width: '100%', maxWidth: 560, height: listMax, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
+        <Animated.View pointerEvents={isOpen ? 'auto' : 'none'} style={{ width: '100%', maxWidth: sc(560), height: listMax, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
           <ScrollView
-            style={{ marginTop: 10 }}
-            contentContainerStyle={{ gap: 10, paddingBottom: 4 }}
+            style={{ marginTop: sp(10) }}
+            contentContainerStyle={{ gap: sp(10), paddingBottom: sp(4) }}
             nestedScrollEnabled
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps={keyboardTaps}
@@ -856,21 +876,21 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
                   accessibilityRole="button"
                   accessibilityLabel={t('{title}, {when}, {n} spaces. Open activity', { title: a.title, when: when(a.startsAt), n: a.spotsLeft })}
                   onPress={() => go(`/activity/${a.id}`)}
-                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 10, borderRadius: 26, borderWidth: 1, borderColor: activeId === a.id ? c.forest : c.line, backgroundColor: c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(14), padding: sp(10), borderRadius: sc(26), borderWidth: 1, borderColor: activeId === a.id ? c.forest : c.line, backgroundColor: c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
                 >
-                  <CatPhoto category={a.category} style={{ width: 64, height: 64, borderRadius: 18 }} />
+                  <CatPhoto category={a.category} style={{ width: sc(64), height: sc(64), borderRadius: sc(18) }} />
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{a.title}</Text>
-                    <Row style={{ gap: 6 }}>
-                      <Ionicons name="location-outline" size={14} color={c.muted} />
-                      <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 18, flexShrink: 1 }}>{a.venueName}</Text>
-                      <Text style={{ color: '#2E7D32', fontSize: 13, lineHeight: 18, fontWeight: '500' }}>{t(CATS[a.category]?.label ?? a.category)}</Text>
+                    <Row style={{ gap: sp(6) }}>
+                      <Ionicons name="location-outline" size={sc(14)} color={c.muted} />
+                      <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 17, flexShrink: 1 }}>{a.venueName}</Text>
+                      <Text style={{ color: '#2E7D32', fontSize: 12, lineHeight: 17, fontWeight: '500' }}>{t(CATS[a.category]?.label ?? a.category)}</Text>
                     </Row>
-                    <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 18 }}>
+                    <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>
                       {when(a.startsAt)} · {t('{going}/{capacity} going · {left} left', { going: a.going, capacity: a.capacity, left: a.spotsLeft })}{dist.me ? t(' · {km} away', { km: fmtKm(kmBetween(dist.me, { lat: a.lat, lng: a.lng })) }) : ''}
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={c.muted} />
+                  <Ionicons name="chevron-forward" size={sc(18)} color={c.muted} />
                 </Pressable>
               </Reveal>
             ))}
@@ -900,29 +920,46 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
           </>
         }
       >
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: sp(8) }}>
           <ThereLabel compact>{t('What kind of activity')}</ThereLabel>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
             <ThereChip compact label={t('All')} active={cat === ''} onPress={() => setCat('')} />
             {Object.entries(CATS).map(([k, v]) => (
               <ThereChip compact key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(k)} />
             ))}
           </View>
         </View>
-        {/* day by day: one chosen day at a time (a search covers the month and has no day) */}
+        {/* by date: one day, or a range of days (tap the first day, then a later one); a search covers the month and has no day */}
         {searching ? null : (
-          <View style={{ gap: 8 }}>
-            <ThereLabel compact>{t('Which day')}</ThereLabel>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ gap: sp(8) }}>
+            <ThereLabel compact>{t('Which days')}</ThereLabel>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8), alignItems: 'center' }}>
               <ThereChip compact label={t('All days')} active={dayPick === null} onPress={() => setDayPick(null)} />
+              {dayPick !== null ? (
+                <Reveal key={`${dayPick}-${dayTo}`} from={6}>
+                  <ThereChip
+                    compact
+                    active
+                    label={dayTo !== null && dayTo > dayPick ? `${shortDay(new Date(today0.getTime() + dayPick * 864e5))} – ${shortDay(new Date(today0.getTime() + dayTo * 864e5))}` : shortDay(new Date(today0.getTime() + dayPick * 864e5))}
+                    onPress={() => setDayPick(null)}
+                  />
+                </Reveal>
+              ) : null}
             </View>
+            <Txt variant="small">{dayPick === null ? t('Tap a day, or tap two days to choose all the days between them.') : dayTo === null ? t('Tap a later day to choose a range, or leave it for just this day.') : t('Tap a day to start again.')}</Txt>
             <MonthCalendar
               month={calMonth}
               onMonth={setCalMonth}
               selected={dayPick === null ? new Date(0) : new Date(today0.getTime() + dayPick * 864e5)}
+              range={{ from: dayPick === null ? null : new Date(today0.getTime() + dayPick * 864e5), to: dayTo === null ? null : new Date(today0.getTime() + dayTo * 864e5) }}
               min={today0}
               max={new Date(today0.getTime() + 365 * 864e5)}
-              onPick={(d) => setDayPick(Math.round((new Date(d).setHours(0, 0, 0, 0) - today0.getTime()) / 864e5))}
+              onPick={(d) => {
+                const at = Math.round((new Date(d).setHours(0, 0, 0, 0) - today0.getTime()) / 864e5);
+                // first tap: that day. A later day while only one is chosen: the range runs to it. Anything else: start again from that day.
+                if (dayPick !== null && dayTo === null && at > dayPick) setDayRange(dayPick, at);
+                else setDayRange(at, null);
+              }}
             />
           </View>
         )}
@@ -932,8 +969,8 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
 }
 
 export const s = StyleSheet.create({
-  floatBar: { width: '100%', maxWidth: 560, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderRadius: 16, paddingVertical: 8, paddingHorizontal: 12, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
-  bottomCard: { width: '100%', maxWidth: 560, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 18, padding: 10, elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
-  badge: { position: 'absolute', top: 1, right: 1, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: '#0F2F28', borderWidth: 1.5, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  pin: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#fff', borderWidth: 3, alignItems: 'center', justifyContent: 'center' },
+  floatBar: { width: '100%', maxWidth: sc(560), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderRadius: sc(16), paddingVertical: sp(8), paddingHorizontal: sph(12), elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+  bottomCard: { width: '100%', maxWidth: sc(560), flexDirection: 'row', alignItems: 'center', gap: sp(12), borderWidth: 1, borderRadius: sc(18), padding: sp(10), elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: sc(3) } },
+  badge: { position: 'absolute', top: 1, right: 1, minWidth: sc(18), height: sc(18), borderRadius: sc(9), paddingHorizontal: sph(4), backgroundColor: '#0F2F28', borderWidth: 1.5, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  pin: { width: sc(36), height: sc(36), borderRadius: sc(18), backgroundColor: '#fff', borderWidth: 3, alignItems: 'center', justifyContent: 'center' },
 });

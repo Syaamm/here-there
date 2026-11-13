@@ -5,7 +5,8 @@ import { get } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Field, Row, Txt } from './ui';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 /** A real place found on the map: where it is, and what to call it. */
 export type Place = { id: string; name: string; address: string; lat: number; lng: number };
 
@@ -51,12 +52,12 @@ export function PlaceSearch({ label, text, onText, place, onPlace, city }: { lab
 
   if (place) {
     return (
-      <View style={{ gap: 4 }}>
+      <View style={{ gap: sp(4) }}>
         <Txt variant="label">{t(label)}</Txt>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 12, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface }}>
-          <Ionicons name="location" size={22} color={c.forest} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), padding: sp(10), borderRadius: sc(12), borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface }}>
+          <Ionicons name="location" size={sc(22)} color={c.forest} />
           <View style={{ flex: 1 }}>
-            <Txt variant="h3" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{place.name}</Txt>
+            <Txt variant="h3" numberOfLines={1} style={{ fontSize: 16, lineHeight: 21 }}>{place.name}</Txt>
             {place.address ? <Txt variant="small" numberOfLines={2}>{place.address}</Txt> : null}
           </View>
           <Pressable accessibilityRole="button" accessibilityLabel={t('Change location, now {name}', { name: place.name })} hitSlop={8} onPress={() => onPlace(null)}>
@@ -68,24 +69,24 @@ export function PlaceSearch({ label, text, onText, place, onPlace, city }: { lab
   }
 
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: sp(6) }}>
       <Field label={t(label)} icon="search-outline" placeholder={t('Search a place')} value={text} onChangeText={onText} maxLength={100} autoCorrect={false} />
       {state === 'searching' ? <Txt variant="small">{t('Searching…')}</Txt> : null}
       {state === 'error' ? <Txt variant="small">{t('Search unavailable. Type the place name.')}</Txt> : null}
       {state === 'done' && found && found.length === 0 ? <Txt variant="small">{t('No place found.')}</Txt> : null}
       {found && found.length > 0 ? (
-        <View style={{ borderRadius: 12, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
+        <View style={{ borderRadius: sc(12), borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
           {found.map((p, i) => (
             <Pressable
               key={p.id}
               accessibilityRole="button"
               accessibilityLabel={t('Use {name}, {address}', { name: p.name, address: p.address })}
               onPress={() => onPlace(p)}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 12, borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, pressed && { backgroundColor: c.sand }]}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingVertical: sp(9), paddingHorizontal: sph(12), borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, pressed && { backgroundColor: c.sand }]}
             >
-              <Ionicons name="location-outline" size={18} color={c.muted} />
+              <Ionicons name="location-outline" size={sc(18)} color={c.muted} />
               <View style={{ flex: 1 }}>
-                <Txt variant="h3" numberOfLines={1} style={{ fontSize: 13, lineHeight: 17 }}>{p.name}</Txt>
+                <Txt variant="h3" numberOfLines={1} style={{ fontSize: 12, lineHeight: 16 }}>{p.name}</Txt>
                 {p.address ? <Txt variant="small" numberOfLines={1}>{p.address}</Txt> : null}
               </View>
             </Pressable>
@@ -93,8 +94,8 @@ export function PlaceSearch({ label, text, onText, place, onPlace, city }: { lab
         </View>
       ) : null}
       {state === 'done' || state === 'error' ? (
-        <Row style={{ gap: 6, alignItems: 'flex-start' }}>
-          <Ionicons name="information-circle-outline" size={13} color={c.muted} style={{ marginTop: 2 }} />
+        <Row style={{ gap: sp(6), alignItems: 'flex-start' }}>
+          <Ionicons name="information-circle-outline" size={sc(13)} color={c.muted} style={{ marginTop: 2 }} />
           <Txt variant="small" style={{ flex: 1 }}>{t('Pick a place to show it on the map.')}</Txt>
         </Row>
       ) : null}

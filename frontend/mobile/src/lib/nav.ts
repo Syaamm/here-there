@@ -1,3 +1,4 @@
+import { clearActionErrors } from './hooks';
 /**
  * A tiny memory of the last two places the person was, so a page can tell HOW it came back into view. Coming back is not
  * the same as arriving: after a back swipe from a chat or an activity the page you return to must simply be there, with no
@@ -17,6 +18,8 @@ const isOverlay = (p: string) => OVERLAYS.some((o) => p === o || p.startsWith(o 
 /** Called while rendering with the address; harmless to call again with the same one. */
 export function trackPath(p: string) {
   if (p !== current) {
+    // a different page is in front: messages an action left on a page are not carried from one visit to the next (after the render, not during it)
+    if (current !== null) setTimeout(clearActionErrors, 0);
     prev = current;
     current = p;
     const at = trail.lastIndexOf(p);

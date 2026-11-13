@@ -12,7 +12,7 @@ import { tap } from '@/lib/haptics';
 import { useAction } from '@/lib/hooks';
 import { useTheme, type Mode } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
-import { tracking } from '@/lib/scale';
+import { tracking, sc, sp, sph } from '@/lib/scale';
 
 const FOREST = '#102F29';
 const IVORY = '#E9E5DD';
@@ -84,7 +84,7 @@ function Page({ mode, active, onSwitch, sheetH }: { mode: Mode; active: boolean;
   const fadeH = Math.round(height * look.fadeH);
   return (
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: look.bg }} pointerEvents={active ? 'auto' : 'none'} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!active}>
-      <View style={{ flex: 1, width: '100%', maxWidth: 520, backgroundColor: look.bg }}>
+      <View style={{ flex: 1, width: '100%', maxWidth: sc(520), backgroundColor: look.bg }}>
         <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, height: fadeTop + fadeH, overflow: 'hidden' }}>
           <Image source={look.photo} resizeMode="cover" accessibilityLabel="" style={{ position: 'absolute', left: width * look.photoLeft, top: width * look.photoTop, width: width * look.photoW, height: width * look.photoW * look.photoRatio }} />
           {look.scrim ? <LinearGradient colors={['rgba(0,0,0,0.38)', 'rgba(0,0,0,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: insets.top + 90 }} /> : null}
@@ -92,16 +92,16 @@ function Page({ mode, active, onSwitch, sheetH }: { mode: Mode; active: boolean;
         </View>
         <View style={{ flex: 1 }} />
         {/* the name, then the line under it */}
-        <View style={{ paddingHorizontal: 20, marginBottom: 50 }}>
+        <View style={{ paddingHorizontal: sph(20), marginBottom: sp(50) }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
             <Text accessibilityRole="header" style={{ color: look.nameColor, fontSize: 62, lineHeight: 68, fontWeight: '700', letterSpacing: tracking(-2.5) }}>{look.name}</Text>
-            <View style={{ width: 13, height: 13, borderRadius: 7, backgroundColor: look.dot, marginLeft: 8, marginRight: 16, marginBottom: 14 }} />
+            <View style={{ width: sc(13), height: sc(13), borderRadius: sc(7), backgroundColor: look.dot, marginLeft: sph(8), marginRight: sph(16), marginBottom: sp(14) }} />
             {/* the faint name of the other product: tapping it switches */}
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Switch to {name}', { name: look.other })} hitSlop={14} onPress={onSwitch} style={{ marginBottom: 10 }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Switch to {name}', { name: look.other })} hitSlop={14} onPress={onSwitch} style={{ marginBottom: sp(10) }}>
               <Text style={{ color: look.otherColor, fontSize: 30, lineHeight: 36, fontWeight: '700', letterSpacing: tracking(-1.2) }}>{look.other}</Text>
             </Pressable>
           </View>
-          <Text style={{ color: look.taglineColor, fontSize: 16, fontWeight: '500', marginTop: 10 }}>{t(look.tagline)}</Text>
+          <Text style={{ color: look.taglineColor, fontSize: 16, fontWeight: '500', marginTop: sp(10) }}>{t(look.tagline)}</Text>
         </View>
         {/* the white sheet is drawn once by Welcome and never animates: this only keeps its room */}
         <View style={{ height: sheetH }} />
@@ -115,28 +115,28 @@ function Sheet({ onLogin, onSignUp, onExplore, busy, error, onHeight }: { onLogi
   const { t } = useT();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const pill = { minHeight: 58, borderRadius: 32, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', alignItems: 'center' as const, justifyContent: 'center' as const };
+  const pill = { minHeight: sc(58), borderRadius: sc(32), borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', alignItems: 'center' as const, justifyContent: 'center' as const };
   return (
     <View onLayout={(e) => onHeight(e.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' }}>
-      <View style={{ width: '100%', maxWidth: 520 }}>
-        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 54, borderTopRightRadius: 54, paddingTop: 56, paddingHorizontal: 22, paddingBottom: insets.bottom + 14, minHeight: height * 0.44 }}>
+      <View style={{ width: '100%', maxWidth: sc(520) }}>
+        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: sc(54), borderTopRightRadius: sc(54), paddingTop: sp(56), paddingHorizontal: sph(22), paddingBottom: insets.bottom + 14, minHeight: height * 0.44 }}>
           <ErrorBanner message={error} />
           <Pressable accessibilityRole="button" onPress={() => { tap('Medium'); onLogin(); }} style={({ pressed: p }) => [pill, { backgroundColor: FOREST }, p && { opacity: 0.88 }]}>
-            <Text style={{ color: '#fff', fontSize: 15.6, fontWeight: '500' }}>{t('Log in')}</Text>
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '500' }}>{t('Log in')}</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={() => { tap('Light'); onExplore(); }} style={({ pressed: p }) => [pill, { marginTop: 10, opacity: busy ? 0.5 : 1 }, p && { opacity: 0.88 }]}>
-            <Text style={{ color: '#000', fontSize: 16.4, fontWeight: '500' }}>{busy ? t('One moment…') : t('Explore the demo')}</Text>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => { tap('Light'); onExplore(); }} style={({ pressed: p }) => [pill, { marginTop: sp(10), opacity: busy ? 0.5 : 1 }, p && { opacity: 0.88 }]}>
+            <Text style={{ color: '#000', fontSize: 16, fontWeight: '500' }}>{busy ? t('One moment…') : t('Explore the demo')}</Text>
           </Pressable>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 37 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), marginTop: sp(37) }}>
             <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
             <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12 }}>{t("Don't have an account?")}</Text>
-            <Pressable accessibilityRole="link" hitSlop={12} onPress={() => { tap('Light'); onSignUp(); }} style={{ minHeight: 32, justifyContent: 'center' }}>
+            <Pressable accessibilityRole="link" hitSlop={12} onPress={() => { tap('Light'); onSignUp(); }} style={{ minHeight: sc(32), justifyContent: 'center' }}>
               <Text style={{ color: FOREST, fontSize: 12, fontWeight: '500' }}>{t('Sign up')}</Text>
             </Pressable>
             <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
           </View>
           <View style={{ flex: 1 }} />
-          <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12, textAlign: 'center', marginTop: 24 }}>{t(FOOTER)}</Text>
+          <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12, textAlign: 'center', marginTop: sp(24) }}>{t(FOOTER)}</Text>
         </View>
       </View>
     </View>

@@ -6,7 +6,8 @@ import { FloatingButton } from './Hero';
 import { Btn, Sheet } from './ui';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 export type MenuItem = { label: string; onSelect: () => void; danger?: boolean };
 
 /** The ⋯ button. Opens a sheet of actions. `floating` renders it as the white square used on hero images. */
@@ -45,9 +46,9 @@ export function Menu({ items, floating, round, size, popover, onDark }: { items:
               });
             }}
             hitSlop={10}
-            style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center', paddingHorizontal: 8 }}
+            style={{ minWidth: sc(44), minHeight: sc(44), alignItems: 'flex-end', justifyContent: 'center', paddingHorizontal: sph(8) }}
           >
-            <Ionicons name="ellipsis-horizontal" size={22} color={onDark ? c.onBand : c.text} />
+            <Ionicons name="ellipsis-horizontal" size={sc(22)} color={onDark ? c.onBand : c.text} />
           </Pressable>
         </View>
         <Modal
@@ -62,14 +63,14 @@ export function Menu({ items, floating, round, size, popover, onDark }: { items:
           navigationBarTranslucent
         >
           <Pressable accessibilityRole="button" accessibilityLabel={t('Close')} onPress={() => setOpen(false)} style={{ flex: 1 }}>
-            <View accessibilityViewIsModal style={{ position: 'absolute', top, right: Math.max(12, (width - 760) / 2 + 12), minWidth: 200, backgroundColor: '#fff', borderRadius: 20, paddingVertical: 8, shadowColor: '#000', shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: 8 }}>
+            <View accessibilityViewIsModal style={{ position: 'absolute', top, right: Math.max(12, (width - 760) / 2 + 12), minWidth: sc(200), backgroundColor: '#fff', borderRadius: sc(20), paddingVertical: sp(8), shadowColor: '#000', shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: sc(8) }, elevation: 8 }}>
               {items.map((i) => (
                 <Pressable
                   key={i.label}
                   accessibilityRole="menuitem"
                   accessibilityLabel={i.label}
                   onPress={() => pick(i.onSelect)}
-                  style={({ pressed }) => [{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 22 }, pressed && { backgroundColor: c.bg }]}
+                  style={({ pressed }) => [{ minHeight: sc(48), justifyContent: 'center', paddingHorizontal: sph(22) }, pressed && { backgroundColor: c.bg }]}
                 >
                   <Text style={{ color: i.danger ? c.danger : '#000', fontSize: 16, lineHeight: 22 }}>{i.label}</Text>
                 </Pressable>
@@ -84,8 +85,8 @@ export function Menu({ items, floating, round, size, popover, onDark }: { items:
       {floating ? (
         <FloatingButton round={round} size={size} icon="ellipsis-horizontal" label={t('More options')} onPress={() => setOpen(true)} />
       ) : (
-        <Pressable accessibilityRole="button" accessibilityLabel={t('More options')} onPress={() => setOpen(true)} hitSlop={10} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="ellipsis-horizontal" size={22} color={onDark ? c.onBand : c.text} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('More options')} onPress={() => setOpen(true)} hitSlop={10} style={{ minWidth: sc(44), minHeight: sc(44), alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="ellipsis-horizontal" size={sc(22)} color={onDark ? c.onBand : c.text} />
         </Pressable>
       )}
       <Sheet visible={open} title={t('Options')} onClose={() => setOpen(false)} onClosed={runPending}>

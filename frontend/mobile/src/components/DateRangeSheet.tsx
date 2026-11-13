@@ -9,7 +9,8 @@ import { t as tr, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { Btn, Txt } from './ui';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 const DAY = 864e5;
 const WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -144,8 +145,8 @@ export function DateRangeSheet({
   if (!mounted) return null;
 
   const arrow = (dir: -1 | 1, label: string, ok: boolean) => (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !ok }} disabled={!ok} hitSlop={8} onPress={() => step(dir)} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: c.accentSoft, opacity: ok ? 1 : 0.35 }}>
-      <Ionicons name={dir < 0 ? 'chevron-back' : 'chevron-forward'} size={16} color={c.forest} />
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !ok }} disabled={!ok} hitSlop={8} onPress={() => step(dir)} style={{ width: sc(32), height: sc(32), borderRadius: sc(16), alignItems: 'center', justifyContent: 'center', backgroundColor: c.accentSoft, opacity: ok ? 1 : 0.35 }}>
+      <Ionicons name={dir < 0 ? 'chevron-back' : 'chevron-forward'} size={sc(16)} color={c.forest} />
     </Pressable>
   );
 
@@ -160,28 +161,28 @@ export function DateRangeSheet({
         style={{
           alignSelf: 'center',
           width: '100%',
-          maxWidth: 520,
+          maxWidth: sc(520),
           marginBottom: dock + lift + floatUp,
           backgroundColor: c.surface,
-          borderTopLeftRadius: 22,
-          borderTopRightRadius: 22,
-          borderBottomLeftRadius: 22,
-          borderBottomRightRadius: 22,
-          paddingHorizontal: 14,
-          paddingTop: 12,
-          paddingBottom: 12,
-          gap: 8,
+          borderTopLeftRadius: sc(22),
+          borderTopRightRadius: sc(22),
+          borderBottomLeftRadius: sc(22),
+          borderBottomRightRadius: sc(22),
+          paddingHorizontal: sph(14),
+          paddingTop: sp(12),
+          paddingBottom: sp(12),
+          gap: sp(8),
           elevation: 8,
           shadowColor: '#0B2620',
           shadowOpacity: 0.18,
           shadowRadius: 14,
-          shadowOffset: { width: 0, height: -3 },
+          shadowOffset: { width: 0, height: -sc(3) },
           transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [420, 0] }) }],
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           {arrow(-1, t('Previous month'), canPrev)}
-          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 14 }}>{t(MONTHS[month.getMonth()])} {month.getFullYear()}</Text>
+          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '800', fontSize: 16 }}>{t(MONTHS[month.getMonth()])} {month.getFullYear()}</Text>
           {arrow(1, t('Next month'), canNext)}
         </View>
 
@@ -189,14 +190,14 @@ export function DateRangeSheet({
           <View style={{ flexDirection: 'row' }}>
             {WEEK.map((w) => (
               <View key={w} style={{ flex: 1, alignItems: 'center', paddingVertical: 2 }}>
-                <Text style={{ color: c.muted, fontSize: 10, fontWeight: '700' }}>{t(w)}</Text>
+                <Text style={{ color: c.muted, fontSize: 12, fontWeight: '700' }}>{t(w)}</Text>
               </View>
             ))}
           </View>
           {Array.from({ length: cells.length / 7 }, (_, row) => (
             <View key={row} style={{ flexDirection: 'row' }}>
               {cells.slice(row * 7, row * 7 + 7).map((d, i) => {
-                if (!d) return <View key={i} style={{ flex: 1, height: 36 }} />;
+                if (!d) return <View key={i} style={{ flex: 1, height: sc(36) }} />;
                 const isStart = same(d, from);
                 const isEnd = same(d, to);
                 const inside = !!from && !!to && d > from && d < to;
@@ -204,10 +205,10 @@ export function DateRangeSheet({
                 const edge = isStart || isEnd;
                 const mark = marks?.[`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`];
                 return (
-                  <View key={i} style={{ flex: 1, height: 36, alignItems: 'center', justifyContent: 'center' }}>
+                  <View key={i} style={{ flex: 1, height: sc(36), alignItems: 'center', justifyContent: 'center' }}>
                     {/* the band behind a chosen range, joined across the days */}
                     {(inside || (isStart && !!to && !same(from, to)) || (isEnd && !!from && !same(from, to))) && (
-                      <View style={{ position: 'absolute', top: 3, bottom: 3, left: isStart ? '50%' : 0, right: isEnd ? '50%' : 0, backgroundColor: c.accentSoft }} />
+                      <View style={{ position: 'absolute', top: sc(3), bottom: sc(3), left: isStart ? '50%' : 0, right: isEnd ? '50%' : 0, backgroundColor: c.accentSoft }} />
                     )}
                     <Pressable
                       accessibilityRole="button"
@@ -215,10 +216,10 @@ export function DateRangeSheet({
                       accessibilityState={{ selected: edge, disabled: off }}
                       disabled={off}
                       onPress={() => pick(d)}
-                      style={({ pressed }) => [{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: edge ? c.forest : 'transparent', borderWidth: same(d, today) && !edge ? 1.5 : 0, borderColor: c.green }, pressed && !edge && { backgroundColor: c.accentSoft }]}
+                      style={({ pressed }) => [{ width: sc(32), height: sc(32), borderRadius: sc(16), alignItems: 'center', justifyContent: 'center', backgroundColor: edge ? c.forest : 'transparent', borderWidth: same(d, today) && !edge ? 1.5 : 0, borderColor: c.green }, pressed && !edge && { backgroundColor: c.accentSoft }]}
                     >
-                      <Text style={{ color: edge ? '#fff' : off ? c.line : c.text, fontWeight: edge ? '800' : '600', fontSize: 13 }}>{d.getDate()}</Text>
-                      {mark ? <View style={{ position: 'absolute', bottom: 2, width: 4, height: 4, borderRadius: 2, backgroundColor: edge ? '#fff' : mark === 'trip' ? c.warnFg : c.badFg }} /> : null}
+                      <Text style={{ color: edge ? '#fff' : off ? c.line : c.text, fontWeight: edge ? '800' : '600', fontSize: 12 }}>{d.getDate()}</Text>
+                      {mark ? <View style={{ position: 'absolute', bottom: 2, width: sc(4), height: sc(4), borderRadius: 2, backgroundColor: edge ? '#fff' : mark === 'trip' ? c.warnFg : c.badFg }} /> : null}
                     </Pressable>
                   </View>
                 );
@@ -228,7 +229,7 @@ export function DateRangeSheet({
         </View>
 
         {!single && (
-        <View accessibilityRole="tablist" style={{ flexDirection: 'row', gap: 8 }}>
+        <View accessibilityRole="tablist" style={{ flexDirection: 'row', gap: sp(8) }}>
           {([['start', t('Depart'), from], ['end', t('Return'), to]] as const).map(([k, label, d]) => {
             const on = target === k;
             const locked = k === 'end' && !from; // pick the leaving day first
@@ -240,10 +241,10 @@ export function DateRangeSheet({
                 accessibilityState={{ selected: on, disabled: locked }}
                 disabled={locked}
                 onPress={() => setTarget(k)}
-                style={{ flex: 1, borderRadius: 12, borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.accentSoft : 'transparent', paddingVertical: 6, paddingHorizontal: 10, opacity: locked ? 0.55 : 1 }}
+                style={{ flex: 1, borderRadius: sc(12), borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.accentSoft : 'transparent', paddingVertical: sp(6), paddingHorizontal: sph(10), opacity: locked ? 0.55 : 1 }}
               >
-                <Text style={{ color: c.muted, fontSize: 10 }}>{label}</Text>
-                <Text style={{ color: c.text, fontSize: 13, fontWeight: '800' }}>{d ? shortDay(d) : t('Select date')}</Text>
+                <Text style={{ color: c.muted, fontSize: 12 }}>{label}</Text>
+                <Text style={{ color: c.text, fontSize: 12, fontWeight: '800' }}>{d ? shortDay(d) : t('Select date')}</Text>
               </Pressable>
             );
           })}

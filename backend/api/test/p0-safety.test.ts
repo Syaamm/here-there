@@ -177,6 +177,16 @@ describe('safety: blocks, reports, suspension, moderation', () => {
     assert.deepEqual(audit.body.items.map((e: any) => e.action).sort(), ['report.assign', 'report.resolved']);
   });
 
+  it('lets only a verified adult report', async () => {
+    const host = await verified('Reported');
+    const newcomer = await signup('NotVerifiedYet'); // signed up and signed in, identity not checked
+    const refused = await post('/v1/reports', newcomer.token, { targetType: 'user', targetId: host.id, category: 'harassment' });
+    assert.equal(refused.status, 403, JSON.stringify(refused.body));
+    assert.equal(refused.body.code, 'VERIFICATION_REQUIRED');
+    const ok = await verified('CanReport');
+    assert.equal((await post('/v1/reports', ok.token, { targetType: 'user', targetId: host.id, category: 'harassment' })).status, 201);
+  });
+
   it('suspension takes effect immediately on existing tokens', async () => {
     const u = await verified('Troll');
     assert.equal((await get('/v1/me', u.token)).status, 200);

@@ -4,9 +4,12 @@ import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRang
 import { ThereBudgetSlider, ThereChip, ThereDateBox, ThereFilterSheet, ThereInput, ThereLabel } from '@/components/ThereParts';
 import { Btn } from '@/components/ui';
 import { FLEX, GROUP_SIZES, TRIP_TAGS } from '@/lib/constants';
+import { tagLabel, useCategories } from '@/lib/categories';
 import { parseDay } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 
+
+import { sc, sp } from '@/lib/scale';
 export const BUDGET_MAX = 5000; // the far right of the budget slider: no ceiling
 
 /**
@@ -70,11 +73,12 @@ export type ThereFilters = ReturnType<typeof useThereFilters>;
 /** The full filter sheet. `extra` is drawn first (Home puts its "how far ahead" choice there); `onSearch` runs when Search is tapped. */
 export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, extra }: { f: ThereFilters; visible: boolean; onClose: () => void; onSearch: () => void; searching?: boolean; extra?: ReactNode }) {
   const { t } = useT();
+  useCategories();
   const [calendar, setCalendar] = useState<null | 'start' | 'end'>(null);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const toggleTag = (g: string) => f.setTags((p) => (p.includes(g) ? p.filter((x) => x !== g) : [...p, g]));
-  const chips = { flexDirection: 'row', flexWrap: 'wrap', gap: 10 } as const;
+  const chips = { flexDirection: 'row', flexWrap: 'wrap', gap: sp(10) } as const;
   return (
     <ThereFilterSheet
       visible={visible}
@@ -111,7 +115,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
       }
     >
       {extra}
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: sp(12) }}>
         <ThereLabel>{t('How the group gets there')}</ThereLabel>
         <View style={chips}>
           {([['', t('Both')], ['together', t('Travel together')], ['meet_at_destination', t('Meet at destination')]] as const).map(([v, l]) => (
@@ -119,22 +123,22 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
           ))}
         </View>
       </View>
-      <View style={{ flexDirection: 'row', gap: 16 }}>
+      <View style={{ flexDirection: 'row', gap: sp(16) }}>
         {/* a departure city only means something for trips that travel together */}
         {f.style !== 'meet_at_destination' ? <ThereInput label={t('Departing from')} value={f.origin} onChangeText={f.setOrigin} placeholder={t('Any city')} /> : null}
         <ThereInput label={t('Destination')} value={f.destination} onChangeText={f.setDestination} placeholder={t('Japan')} />
       </View>
 
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: sp(12) }}>
         {/* the same calendar as when creating a trip: tap a box, pick the days */}
-        <View style={{ flexDirection: 'row', gap: 16 }}>
+        <View style={{ flexDirection: 'row', gap: sp(16) }}>
           <ThereDateBox label={t('Earliest departure')} date={f.fromD} onPress={() => setCalendar('start')} spoken={t('{label}: {date}. Opens a calendar', { label: t('Earliest departure'), date: f.fromD ? shortDay(f.fromD) : t('any date') })} />
           <ThereDateBox label={t('Latest return')} date={f.toD} onPress={() => setCalendar('end')} spoken={t('{label}: {date}. Opens a calendar', { label: t('Latest return'), date: f.toD ? shortDay(f.toD) : t('any date') })} />
         </View>
         {f.from || f.to ? <Btn title={t('Clear dates')} variant="ghost" small onPress={() => (f.setFrom(''), f.setTo(''))} style={{ alignSelf: 'flex-start' }} /> : null}
       </View>
 
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: sp(12) }}>
         <ThereLabel>{t('Date flexibility')}</ThereLabel>
         <View style={chips}>
           {FLEX.map(([v, l]) => (
@@ -143,12 +147,12 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
         </View>
       </View>
 
-      <View style={{ gap: 4 }}>
+      <View style={{ gap: sp(4) }}>
         <ThereLabel>{t('Budget per person')}</ThereLabel>
         <ThereBudgetSlider value={f.budget} onChange={f.setBudget} max={BUDGET_MAX} />
       </View>
 
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: sp(12) }}>
         <ThereLabel>{t('Budget covers')}</ThereLabel>
         <View style={chips}>
           <ThereChip label={t('Any')} active={f.transport === 'any'} onPress={() => f.setTransport('any')} />
@@ -157,16 +161,16 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
         </View>
       </View>
 
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: sp(12) }}>
         <ThereLabel>{t('Travel interests')}</ThereLabel>
         <View style={chips}>
           {TRIP_TAGS.map((g) => (
-            <ThereChip key={g} label={t(g[0].toUpperCase() + g.slice(1))} active={f.tags.includes(g)} onPress={() => toggleTag(g)} />
+            <ThereChip key={g} label={t(tagLabel(g))} active={f.tags.includes(g)} onPress={() => toggleTag(g)} />
           ))}
         </View>
       </View>
 
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: sp(12) }}>
         <ThereLabel>{t('How big should the group be?')}</ThereLabel>
         <View style={chips}>
           <ThereChip label={t('Any')} active={f.size === ''} onPress={() => f.setSize('')} />

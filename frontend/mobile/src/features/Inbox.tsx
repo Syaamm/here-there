@@ -20,6 +20,7 @@ import { alertRoute, alertText } from '@/lib/alerts';
 import { enablePush, pushState, type PushState } from '@/lib/push';
 import { bumpUnread, refreshUnread, setUnread } from '@/lib/unread';
 
+import { sc, sp, sph } from '@/lib/scale';
 type Tab = 'alerts' | 'chats';
 /** Alerts that wait for you to do something (the same list as the server's): "Mark all read" leaves them until you act. */
 const ACTION_TYPES = ['join_request', 'trip_application', 'host_handover_offer', 'trip_dates_proposed'];
@@ -72,7 +73,7 @@ function ThereHeader() {
   const { t } = useT();
   return (
     <Between>
-      <View style={{ gap: 6 }}>
+      <View style={{ gap: sp(6) }}>
         <Wordmark size={24} />
         <Text style={{ color: c.muted, fontSize: 12, lineHeight: 15 }}>{t('Be here. Go there.')}</Text>
       </View>
@@ -95,22 +96,22 @@ function ChatsEmpty({ there, onFind }: { there: boolean; onFind: () => void }) {
   // the product you are in goes first
   const ordered = there ? [steps[1], steps[0], steps[2]] : steps;
   return (
-    <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: 16, paddingVertical: 22, paddingHorizontal: 18, gap: 14 }}>
-      <View style={{ alignItems: 'center', gap: 6 }}>
-        <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="chatbubbles-outline" size={24} color={c.forest} />
+    <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: sc(16), paddingVertical: sp(22), paddingHorizontal: sph(18), gap: sp(14) }}>
+      <View style={{ alignItems: 'center', gap: sp(6) }}>
+        <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: sc(52), height: sc(52), borderRadius: sc(26), backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="chatbubbles-outline" size={sc(24)} color={c.forest} />
         </View>
         <Txt variant="h3" style={{ textAlign: 'center' }}>{t('No messages yet')}</Txt>
         <Txt variant="muted" style={{ textAlign: 'center' }}>{t('Chats open when you are in a plan with other people. This is how:')}</Txt>
       </View>
       {ordered.map(([icon, title, line]) => (
-        <View key={title} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
-          <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name={icon} size={16} color={c.forest} />
+        <View key={title} style={{ flexDirection: 'row', gap: sp(12), alignItems: 'flex-start' }}>
+          <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: sc(32), height: sc(32), borderRadius: sc(16), backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name={icon} size={sc(16)} color={c.forest} />
           </View>
           <View style={{ flex: 1, gap: 1 }}>
-            <Txt variant="h3" style={{ fontSize: 14, lineHeight: 19 }}>{title}</Txt>
-            <Txt variant="muted" style={{ fontSize: 13, lineHeight: 18 }}>{line}</Txt>
+            <Txt variant="h3" style={{ fontSize: 16, lineHeight: 22 }}>{title}</Txt>
+            <Txt variant="muted" style={{ fontSize: 12, lineHeight: 17 }}>{line}</Txt>
           </View>
         </View>
       ))}
@@ -123,8 +124,8 @@ function ChatsEmpty({ there, onFind }: { there: boolean; onFind: () => void }) {
 function SectionLabel({ title, count }: { title: string; count?: number }) {
   const { c, mode } = useTheme();
   return (
-    <Row style={{ justifyContent: 'space-between', marginTop: 6 }}>
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 22, fontWeight: '700' }}>{title}</Text>
+    <Row style={{ justifyContent: 'space-between', marginTop: sp(6) }}>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: mode === 'there' ? 16 : 16, lineHeight: 23, fontWeight: '700' }}>{title}</Text>
       {count ? <Txt variant="label" color={c.muted} style={{ fontSize: 12 }}>{count}</Txt> : null}
     </Row>
   );
@@ -275,18 +276,18 @@ export function Inbox() {
           accessibilityRole="button"
           accessibilityLabel={`${alertText(n, t).title}. ${alertText(n, t).body}. ${ago(n.createdAt)}${n.readAt ? '' : `, ${t('unread')}`}`}
           onPress={() => open(n)}
-          style={({ pressed }) => [{ flexDirection: 'row', gap: 12, paddingVertical: 14, borderTopWidth: i ? 1 : 0, borderTopColor: c.line, alignItems: 'flex-start' }, pressed && { opacity: 0.7 }]}
+          style={({ pressed }) => [{ flexDirection: 'row', gap: sp(12), paddingVertical: sp(14), borderTopWidth: i ? 1 : 0, borderTopColor: c.line, alignItems: 'flex-start' }, pressed && { opacity: 0.7 }]}
         >
-          <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: mode === 'there' ? 34 : 40, height: mode === 'there' ? 34 : 40, borderRadius: 20, backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
+          <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: mode === 'there' ? sc(34) : sc(40), height: mode === 'there' ? sc(34) : sc(40), borderRadius: sc(20), backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
             <Ionicons name={ICON[n.type] ?? 'notifications-outline'} size={mode === 'there' ? 17 : 19} color={c.forest} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
-            <Text numberOfLines={2} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '700' }}>{alertText(n, t).title}</Text>
-            <Text numberOfLines={2} style={{ color: c.muted, fontSize: mode === 'there' ? 13 : 14, lineHeight: 19, fontWeight: '500' }}>{alertText(n, t).body}</Text>
+            <Text numberOfLines={2} style={{ color: c.text, fontSize: mode === 'there' ? 16 : 16, lineHeight: 22, fontWeight: '700' }}>{alertText(n, t).title}</Text>
+            <Text numberOfLines={2} style={{ color: c.muted, fontSize: mode === 'there' ? 12 : 16, lineHeight: 18, fontWeight: '500' }}>{alertText(n, t).body}</Text>
           </View>
-          <View style={{ alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+          <View style={{ alignItems: 'flex-end', gap: sp(6), flexShrink: 0 }}>
             <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(n.createdAt)}</Text>
-            {!n.readAt ? <View accessibilityLabel={t('Unread')} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
+            {!n.readAt ? <View accessibilityLabel={t('Unread')} style={{ width: sc(9), height: sc(9), borderRadius: sc(5), backgroundColor: c.danger }} /> : null}
           </View>
         </Pressable>
       ))}
@@ -301,8 +302,8 @@ export function Inbox() {
   return (
     <Screen tabBar plain onRefresh={onRefresh} refreshing={refreshing} header={mode === 'there' ? <ThereHeader /> : <TabHeader plain />}>
       {/* the same on both tabs, at a fixed height: switching Chats / Alerts never moves the title or the switch below it */}
-      <Row style={{ justifyContent: 'space-between', alignItems: 'center', height: 44 }}>
-        <Text accessibilityRole="header" numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: mode === 'there' ? 24 : 26, lineHeight: 32, fontWeight: '700' }}>{t('Inbox')}</Text>
+      <Row style={{ justifyContent: 'space-between', alignItems: 'center', height: sc(44) }}>
+        <Text accessibilityRole="header" numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontSize: mode === 'there' ? 22 : 26, lineHeight: 29, fontWeight: '700' }}>{t('Inbox')}</Text>
         {(() => {
           // Chats: every chat read. Alerts: the news read; requests, offers and dates to confirm stay until you act on them.
           const n = tab === 'chats' ? unreadChats.size : clearable;
@@ -313,7 +314,7 @@ export function Inbox() {
               accessibilityState={{ disabled: n === 0 }}
               disabled={n === 0}
               hitSlop={12}
-              style={{ minHeight: 44, justifyContent: 'center', opacity: n === 0 ? 0.35 : 1 }}
+              style={{ minHeight: sc(44), justifyContent: 'center', opacity: n === 0 ? 0.35 : 1 }}
               onPress={() =>
                 void act
                   .run(() => post(`/v1/notifications/read-all?scope=${tab}&product=${mode}`))
@@ -328,7 +329,7 @@ export function Inbox() {
       </Row>
 
       {/* two parts: alerts, and chats on their own */}
-      <View accessibilityRole="tablist" style={[{ flexDirection: 'row', borderRadius: 30, backgroundColor: c.surface, padding: 5 }, SOFT]}>
+      <View accessibilityRole="tablist" style={[{ flexDirection: 'row', borderRadius: sc(30), backgroundColor: c.surface, padding: sp(5) }, SOFT]}>
         {(
           [
             ['chats', t('Chats'), unreadChats.size],
@@ -337,11 +338,11 @@ export function Inbox() {
         ).map(([k, label, n]) => {
           const on = tab === k;
           return (
-            <Pressable key={k} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}${n ? `, ${t('{n} new', { n })}` : ''}`} onPress={() => setTab(k)} style={{ flex: 1, minHeight: 44, borderRadius: 25, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.sand : 'transparent' }}>
-              <Text style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, fontWeight: '700' }}>{label}</Text>
+            <Pressable key={k} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}${n ? `, ${t('{n} new', { n })}` : ''}`} onPress={() => setTab(k)} style={{ flex: 1, minHeight: sc(44), borderRadius: sc(25), flexDirection: 'row', gap: sp(6), alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.sand : 'transparent' }}>
+              <Text style={{ color: c.text, fontSize: mode === 'there' ? 16 : 16, fontWeight: '700' }}>{label}</Text>
               {n > 0 ? (
-                <View style={{ minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: '#fff', fontSize: 10, lineHeight: 13, fontWeight: '800', textAlign: 'center', includeFontPadding: false }}>{n}</Text>
+                <View style={{ minWidth: sc(18), height: sc(18), borderRadius: sc(9), paddingHorizontal: sph(5), backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: '#fff', fontSize: 12, lineHeight: 16, fontWeight: '800', textAlign: 'center', includeFontPadding: false }}>{n}</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -356,38 +357,38 @@ export function Inbox() {
           accessibilityRole="button"
           accessibilityLabel={t('{n} new in {name}', { n: otherNew, name: other.toUpperCase() })}
           onPress={() => switchMode(other)}
-          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.accentSoft, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }, pressed && { opacity: 0.8 }]}
+          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(8), backgroundColor: c.accentSoft, borderRadius: sc(14), paddingVertical: sp(10), paddingHorizontal: sph(12) }, pressed && { opacity: 0.8 }]}
         >
-          <Ionicons name="swap-horizontal-outline" size={16} color={c.forest} />
+          <Ionicons name="swap-horizontal-outline" size={sc(16)} color={c.forest} />
           <Txt variant="small" style={{ flex: 1, color: c.text }}>{t('{n} new in {name}', { n: otherNew, name: other.toUpperCase() })}</Txt>
-          <Ionicons name="chevron-forward" size={16} color={c.muted} />
+          <Ionicons name="chevron-forward" size={sc(16)} color={c.muted} />
         </Pressable>
       ) : null}
 
       {push === 'default' ? (
-        <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
-          <Row style={{ gap: 12, alignItems: 'flex-start' }}>
-            <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="notifications-outline" size={18} color={c.forest} />
+        <Card style={{ padding: sp(14), borderRadius: sc(18), gap: sp(10) }}>
+          <Row style={{ gap: sp(12), alignItems: 'flex-start' }}>
+            <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: sc(38), height: sc(38), borderRadius: sc(12), backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="notifications-outline" size={sc(18)} color={c.forest} />
             </View>
             <View style={{ flex: 1, gap: 1 }}>
-              <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{t('Turn on notifications')}</Txt>
+              <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{t('Turn on notifications')}</Txt>
             </View>
           </Row>
           <Btn title={t('Turn on')} onPress={() => void enablePush().then(setPush)} />
         </Card>
       ) : push === 'denied' ? (
-        <Row style={{ gap: 8, backgroundColor: c.accentSoft, borderRadius: 14, padding: 11, alignItems: 'flex-start' }}>
-          <Ionicons name="notifications-off-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
+        <Row style={{ gap: sp(8), backgroundColor: c.accentSoft, borderRadius: sc(14), padding: sp(11), alignItems: 'flex-start' }}>
+          <Ionicons name="notifications-off-outline" size={sc(16)} color={c.forest} style={{ marginTop: 1 }} />
           <Txt variant="small" style={{ flex: 1, lineHeight: 17, color: c.text }}>{t('Notifications are blocked. Allow them in settings.')}</Txt>
         </Row>
       ) : null}
 
       {tab === 'chats' ? (
-        <Reveal key={`chats-${visit}`} from={10} style={{ gap: 16 }}>
-          <View style={{ minHeight: 48, borderRadius: 27, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 }}>
-            <Ionicons name="search-outline" size={18} color={c.muted} />
-            <TextInput accessibilityLabel={t('Search chats')} value={q} onChangeText={setQ} placeholder={t('Search chats')} placeholderTextColor={c.placeholder} returnKeyType="search" clearButtonMode="while-editing" style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center' }} />
+        <Reveal key={`chats-${visit}`} from={10} style={{ gap: sp(16) }}>
+          <View style={{ minHeight: sc(48), borderRadius: sc(27), borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingHorizontal: sph(16) }}>
+            <Ionicons name="search-outline" size={sc(18)} color={c.muted} />
+            <TextInput accessibilityLabel={t('Search chats')} value={q} onChangeText={setQ} placeholder={t('Search chats')} placeholderTextColor={c.placeholder} returnKeyType="search" clearButtonMode="while-editing" style={{ flex: 1, fontSize: 16, color: c.text, paddingVertical: 0, minHeight: sc(24), includeFontPadding: false, textAlignVertical: 'center' }} />
           </View>
           {convs.loading && !convs.data && <Spinner />}
           {convs.data && convs.items.length === 0 && <ChatsEmpty there={mode === 'there'} onFind={() => go('/')} />}
@@ -403,19 +404,19 @@ export function Inbox() {
                       if (unreadChats.has(cv.conversationId)) bumpUnread(-1); // opening a chat reads its alert
                       go(`/chat/${cv.conversationId}`);
                     }}
-                    style={({ pressed }) => [{ flexDirection: 'row', gap: 12, paddingVertical: 16, alignItems: 'center', borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, pressed && { opacity: 0.7 }]}
+                    style={({ pressed }) => [{ flexDirection: 'row', gap: sp(12), paddingVertical: sp(16), alignItems: 'center', borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, pressed && { opacity: 0.7 }]}
                   >
-                    {cv.category ? <CatPhoto category={cv.category} style={{ width: 40, height: 40, borderRadius: 20 }} /> : <Avatar name={cv.title} size={40} />}
+                    {cv.category ? <CatPhoto category={cv.category} style={{ width: sc(40), height: sc(40), borderRadius: sc(20) }} /> : <Avatar name={cv.title} size={40} />}
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Text numberOfLines={1} style={{ color: c.text, fontSize: mode === 'there' ? 15 : 16, lineHeight: 21, fontWeight: '700' }}>{cv.title}</Text>
-                      <Text numberOfLines={1} style={[{ color: c.muted, fontSize: mode === 'there' ? 14 : 15, lineHeight: 20, fontWeight: '500' }, unreadChats.has(cv.conversationId) ? { color: c.text, fontWeight: '700' } : null]}>
+                      <Text numberOfLines={1} style={{ color: c.text, fontSize: mode === 'there' ? 16 : 16, lineHeight: 22, fontWeight: '700' }}>{cv.title}</Text>
+                      <Text numberOfLines={1} style={[{ color: c.muted, fontSize: mode === 'there' ? 16 : 16, lineHeight: 23, fontWeight: '500' }, unreadChats.has(cv.conversationId) ? { color: c.text, fontWeight: '700' } : null]}>
                         {cv.lastMessage ? `${cv.lastMessage.from ? `${cv.lastMessage.from === 'You' ? t('You') : cv.lastMessage.from}: ` : ''}${cv.lastMessage.body}` : `${t('No messages yet')}${cv.startsAt ? ` · ${when(cv.startsAt)}` : ''}`}
                       </Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                      {cv.lastMessage ? <Text style={{ color: c.muted, fontSize: mode === 'there' ? 11 : 12, lineHeight: 16 }}>{mode === 'there' ? `${ago(cv.lastMessage.at)} ${t('ago')}` : ago(cv.lastMessage.at)}</Text> : null}
-                      {cv.endsAt && +new Date(cv.endsAt) < Date.now() ? <Txt variant="small" bold style={{ fontSize: 10 }}>{t('Ended')}</Txt> : null}
-                      {unreadChats.has(cv.conversationId) ? <View accessibilityLabel={t('New messages')} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} /> : null}
+                    <View style={{ alignItems: 'flex-end', gap: sp(6) }}>
+                      {cv.lastMessage ? <Text style={{ color: c.muted, fontSize: mode === 'there' ? 12 : 12, lineHeight: 17 }}>{mode === 'there' ? `${ago(cv.lastMessage.at)} ${t('ago')}` : ago(cv.lastMessage.at)}</Text> : null}
+                      {cv.endsAt && +new Date(cv.endsAt) < Date.now() ? <Txt variant="small" bold style={{ fontSize: 12 }}>{t('Ended')}</Txt> : null}
+                      {unreadChats.has(cv.conversationId) ? <View accessibilityLabel={t('New messages')} style={{ width: sc(9), height: sc(9), borderRadius: sc(5), backgroundColor: c.danger }} /> : null}
                     </View>
                   </Pressable>
                 </View>
@@ -425,7 +426,7 @@ export function Inbox() {
           <PagedTail paged={chatPage} />
         </Reveal>
       ) : (
-        <Reveal key={`alerts-${visit}`} from={10} style={{ gap: 16 }}>
+        <Reveal key={`alerts-${visit}`} from={10} style={{ gap: sp(16) }}>
           {notifs.loading && !notifs.data && <Spinner />}
 
           {needs > 0 && (
@@ -436,26 +437,26 @@ export function Inbox() {
                 const name = r.applicant.displayName ?? t('Someone');
                 return (
                   <Reveal key={w.id} index={wi}>
-                    <View style={{ paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: c.line }}>
-                      <Row style={{ gap: mode === 'there' ? 14 : 12, alignItems: 'flex-start' }}>
+                    <View style={{ paddingVertical: sp(12), gap: sp(12), borderBottomWidth: 1, borderBottomColor: c.line }}>
+                      <Row style={{ gap: mode === 'there' ? sp(14) : sp(12), alignItems: 'flex-start' }}>
                         <Avatar name={name} uri={r.applicant.photoUrl} size={40} />
                         <View style={{ flex: 1, gap: 2 }}>
                           <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <Text style={{ color: c.text, fontSize: mode === 'there' ? 16.5 : 17, lineHeight: 22, fontWeight: '700' }}>{name}</Text>
-                            {mode === 'there' && joinedAt(w.id) ? <Text style={{ color: c.muted, fontSize: 11, lineHeight: 22 }}>{`${ago(joinedAt(w.id)!)} ${t('ago')}`}</Text> : null}
+                            <Text style={{ color: c.text, fontSize: mode === 'there' ? 16 : 20, lineHeight: 21, fontWeight: '700' }}>{name}</Text>
+                            {mode === 'there' && joinedAt(w.id) ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 24 }}>{`${ago(joinedAt(w.id)!)} ${t('ago')}`}</Text> : null}
                           </Row>
-                          <Text style={{ color: c.muted, fontSize: mode === 'there' ? 14.5 : 15, lineHeight: 21, fontWeight: '500' }}>
+                          <Text style={{ color: c.muted, fontSize: mode === 'there' ? 16 : 16, lineHeight: 23, fontWeight: '500' }}>
                             {t('wants to join')} <Text style={{ color: c.text, fontWeight: '700' }}>{w.title || t('your activity')}</Text>
                             {w.pending.length > 1 ? ` ${t('(+{n} more waiting)', { n: w.pending.length - 1 })}` : ''}
                           </Text>
                         </View>
                       </Row>
-                      <Row style={{ gap: mode === 'there' ? 14 : 12, paddingLeft: mode === 'there' ? 47 : 52 }}>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Accept')}: ${name}`} hitSlop={4} onPress={() => decide(w.id, r, 'approve')} style={({ pressed }) => [{ minHeight: 44, minWidth: mode === 'there' ? 78 : 80, paddingHorizontal: 22, borderRadius: 22, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', }, pressed && { opacity: 0.8 }]}>
-                          <Text style={{ color: '#fff', fontSize: mode === 'there' ? 13 : 15, fontWeight: '500' }}>{t('Accept')}</Text>
+                      <Row style={{ gap: mode === 'there' ? sp(14) : sp(12), paddingLeft: mode === 'there' ? sph(47) : sph(52) }}>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Accept')}: ${name}`} hitSlop={4} onPress={() => decide(w.id, r, 'approve')} style={({ pressed }) => [{ minHeight: sc(44), minWidth: mode === 'there' ? sc(78) : sc(80), paddingHorizontal: sph(22), borderRadius: sc(22), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', }, pressed && { opacity: 0.8 }]}>
+                          <Text style={{ color: '#fff', fontSize: mode === 'there' ? 12 : 16, fontWeight: '500' }}>{t('Accept')}</Text>
                         </Pressable>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Decline')}: ${name}`} hitSlop={4} onPress={() => decide(w.id, r, 'decline')} style={({ pressed }) => [{ minHeight: 44, minWidth: mode === 'there' ? 76 : 80, paddingHorizontal: 22, borderRadius: 22, borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', }, pressed && { opacity: 0.8 }]}>
-                          <Text style={{ color: c.text, fontSize: mode === 'there' ? 13 : 15, fontWeight: '500' }}>{t('Decline')}</Text>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Decline')}: ${name}`} hitSlop={4} onPress={() => decide(w.id, r, 'decline')} style={({ pressed }) => [{ minHeight: sc(44), minWidth: mode === 'there' ? sc(76) : sc(80), paddingHorizontal: sph(22), borderRadius: sc(22), borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', }, pressed && { opacity: 0.8 }]}>
+                          <Text style={{ color: c.text, fontSize: mode === 'there' ? 12 : 16, fontWeight: '500' }}>{t('Decline')}</Text>
                         </Pressable>
                       </Row>
                       {w.pending.length > 1 ? <Btn title={t('Review all {n} requests ›', { n: w.pending.length })} variant="ghost" small onPress={() => go(`/host/${w.id}`)} /> : null}
@@ -465,13 +466,13 @@ export function Inbox() {
               })}
               {stale ? (
                 <Reveal index={(waiting.data?.length ?? 0) + 0}>
-                  <View style={{ backgroundColor: c.sand, borderRadius: 24, padding: 16, gap: 10 }}>
-                    <Row style={{ gap: 12, alignItems: 'flex-start' }}>
-                      <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 42, height: 42, borderRadius: 13, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }}>
-                        <Ionicons name="shield-outline" size={20} color={c.forest} />
+                  <View style={{ backgroundColor: c.sand, borderRadius: sc(24), padding: sp(16), gap: sp(10) }}>
+                    <Row style={{ gap: sp(12), alignItems: 'flex-start' }}>
+                      <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: sc(42), height: sc(42), borderRadius: sc(13), backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons name="shield-outline" size={sc(20)} color={c.forest} />
                       </View>
                       <View style={{ flex: 1, gap: 1 }}>
-                        <Txt variant="h3" style={{ fontSize: 14, lineHeight: 18 }}>{me?.eligibility === 'rejected' ? t('Verification not approved') : t('Please verify again')}</Txt>
+                        <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{me?.eligibility === 'rejected' ? t('Verification not approved') : t('Please verify again')}</Txt>
                         <Txt variant="small" style={{ lineHeight: 17, color: c.text }}>
                           {me?.eligibility === 'rejected' ? t('Your last identity check was not approved. You can try again.') : t('Please verify again before your current check expires.')}
                         </Txt>

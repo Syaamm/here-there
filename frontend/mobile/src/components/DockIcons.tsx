@@ -6,7 +6,8 @@ import { useMe } from '@/lib/auth';
 import { useLayout } from '@/lib/layout';
 import { useTheme } from '@/lib/theme';
 import { Avatar } from '@/components/ui';
-
+
+import { sc, useScale } from '@/lib/scale';
 type Props = { size: number; color: string; focused: boolean };
 
 /**
@@ -91,11 +92,13 @@ export function ProfileGlyph({ focused }: { focused: boolean }) {
   const { c } = useTheme();
   const { me } = useMe();
   const fill = useContext(DockFillContext); // set from the touch, like the other icons
-  // 28 square in all: 2 ring + 1 gap + 22 photo
+  // 34 square in all: 2 ring + 2 gap + 26 photo (the same size as the other icons). Avatar scales its size by the screen's factor,
+  // so it is told 26 divided by that factor, and the photo is exactly 26 on every phone.
+  const k = useScale();
   return (
-    <View style={{ width: DOCK.avatar, height: DOCK.avatar, borderRadius: DOCK.avatar / 2, padding: 3, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: DOCK.avatar, height: DOCK.avatar, borderRadius: DOCK.avatar / 2, alignItems: 'center', justifyContent: 'center' }}>
       <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, borderRadius: DOCK.avatar / 2, borderWidth: 2, borderColor: c.text, opacity: fill ?? (focused ? 1 : 0) }} />
-      <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={DOCK.avatar - 6} />
+      <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={(DOCK.avatar - 8) / k} />
     </View>
   );
 }

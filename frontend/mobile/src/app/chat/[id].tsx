@@ -26,7 +26,7 @@ import { clearOpenChat, setOpenChat, useLiveEvents } from '@/lib/live';
 import { refreshUnread } from '@/lib/unread';
 import { t, useT } from '@/lib/i18n';
 import { useEnterMode, useTheme } from '@/lib/theme';
-import { ScaleScope, useSmallPhoneShrink } from '@/lib/scale';
+import { ScaleScope, useSmallPhoneShrink, sc, sp, sph } from '@/lib/scale';
 
 type PollInfo = { id: string; title: string; dateStart: string | null; dateEnd: string | null; state: 'open' | 'adopted' | 'closed'; accept: number; reject: number; myVote: 'accept' | 'reject' | null };
 type Msg = { id: string; body: string; kind?: 'text' | 'poll' | 'system'; poll?: PollInfo | null; createdAt: string; sender: { id: string; displayName: string; photoUrl?: string | null } };
@@ -59,31 +59,31 @@ function PollCard({ m, amHost, busy, voting, error, datesLocked, onVote, onClose
         disabled={!open || busy || voting}
         onPress={() => onVote(v)}
         hitSlop={{ top: 3, bottom: 3 }}
-        style={({ pressed }) => [{ flex: 1, height: 38, borderRadius: 999, borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: open ? 1 : 0.6 }, pressed && { opacity: 0.85 }]}
+        style={({ pressed }) => [{ flex: 1, height: sc(38), borderRadius: sc(999), borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(6), opacity: open ? 1 : 0.6 }, pressed && { opacity: 0.85 }]}
       >
-        <Ionicons name={icon} size={16} color={on ? '#fff' : c.text} />
-        <Text numberOfLines={1} style={{ flexShrink: 1, color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 13, includeFontPadding: false }}>{label} · {v === 'accept' ? p.accept : p.reject}</Text>
+        <Ionicons name={icon} size={sc(16)} color={on ? '#fff' : c.text} />
+        <Text numberOfLines={1} style={{ flexShrink: 1, color: on ? '#fff' : c.text, fontWeight: '700', fontSize: 12, includeFontPadding: false }}>{label} · {v === 'accept' ? p.accept : p.reject}</Text>
       </Pressable>
     );
   };
   return (
-    <View style={{ alignSelf: 'center', width: '92%', backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 16, padding: 12, gap: 10, marginVertical: 6 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Ionicons name="calendar-outline" size={16} color={c.green} />
-        <Text style={{ color: c.green, fontWeight: '800', fontSize: 11, letterSpacing: 0.6 }}>{open ? t('DATE POLL · OPEN') : p.state === 'adopted' ? t('DATE POLL · DATES CHOSEN') : t('DATE POLL · CLOSED')}</Text>
+    <View style={{ alignSelf: 'center', width: '92%', backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: sc(16), padding: sp(12), gap: sp(10), marginVertical: sp(6) }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(8) }}>
+        <Ionicons name="calendar-outline" size={sc(16)} color={c.green} />
+        <Text style={{ color: c.green, fontWeight: '800', fontSize: 12, letterSpacing: 0.6 }}>{open ? t('DATE POLL · OPEN') : p.state === 'adopted' ? t('DATE POLL · DATES CHOSEN') : t('DATE POLL · CLOSED')}</Text>
       </View>
-      <Text style={{ color: c.text, fontWeight: '800', fontSize: 15, lineHeight: 20 }}>{p.title}</Text>
+      <Text style={{ color: c.text, fontWeight: '800', fontSize: 16, lineHeight: 21 }}>{p.title}</Text>
       {p.dateStart && p.dateEnd ? (
-        <View style={{ alignSelf: 'flex-start', backgroundColor: c.accentSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
+        <View style={{ alignSelf: 'flex-start', backgroundColor: c.accentSoft, borderRadius: sc(999), paddingHorizontal: sph(10), paddingVertical: sp(4) }}>
           <Text style={{ color: c.forest, fontWeight: '700', fontSize: 12 }}>{dateSpan(p.dateStart, p.dateEnd)}</Text>
         </View>
       ) : null}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={{ flexDirection: 'row', gap: sp(8) }}>
         {choice('accept', t('Accept'), 'checkmark')}
         {choice('reject', t('Reject'), 'close')}
       </View>
       {amHost && open ? (
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: 'row', gap: sp(8) }}>
           {p.dateStart && p.dateEnd && !why ? <Btn title={t('Use these dates')} small onPress={() => onClose(true)} loading={busy} style={{ flex: 1 }} /> : null}
           <Btn title={t('Close poll')} small variant="secondary" onPress={() => onClose(false)} loading={busy} style={{ flex: 1 }} />
         </View>
@@ -147,10 +147,10 @@ const Bubble = memo(
     const go = useGo();
     const z = useSmallPhoneShrink();
     return (
-      <View style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: z < 1 ? '90%' : '86%', marginTop: showName || newDay ? 8 : 0, gap: 6 }}>
+      <View style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: z < 1 ? '90%' : '86%', marginTop: showName || newDay ? sp(8) : 0, gap: sp(6) }}>
         {/* who wrote it: face and name above the bubble, once per run of messages (tap for their profile) */}
         {showName && (
-          <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36 }}>
+          <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), minHeight: sc(36) }}>
             <Avatar name={m.sender.displayName} uri={m.sender.photoUrl} size={34} />
             <Text numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontWeight: '500', fontSize: 16, lineHeight: 21 }}>{m.sender.displayName}</Text>
           </Pressable>
@@ -162,14 +162,14 @@ const Bubble = memo(
           onAccessibilityAction={() => onPick(m)}
           onLongPress={mine ? undefined : () => onPick(m)}
           delayLongPress={350}
-          style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: Math.round(24 * z), paddingHorizontal: Math.round(18 * z), paddingTop: Math.round(12 * z), paddingBottom: Math.round(8 * z), ...(Platform.OS === 'android' ? null : { shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: mine ? 0 : 1 }) }}
+          style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginLeft: mine || !showName ? 0 : 0, backgroundColor: mine ? c.forest : c.surface, borderWidth: mine || mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: Math.round(24 * z), paddingHorizontal: Math.round(18 * z), paddingTop: Math.round(12 * z), paddingBottom: Math.round(8 * z), ...(Platform.OS === 'android' ? null : { shadowColor: '#000', shadowOpacity: mine ? 0 : 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: sc(3) }, elevation: mine ? 0 : 1 }) }}
         >
-          <Text style={{ color: mine ? '#fff' : c.text, fontSize: 15, lineHeight: 23 }}>
+          <Text style={{ color: mine ? '#fff' : c.text, fontSize: 16, lineHeight: 25 }}>
             <Linkified text={m.body} linkColor={mine ? '#BFE6D4' : c.green} />
           </Text>
           {/* a message with a web address carries its own caution, before anyone taps it */}
           {/(?:https?:\/\/|www\.)/i.test(m.body) ? (
-            <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 11, lineHeight: 15, marginTop: 4 }}>{t('Opens outside the app. We do not check it. Never send money or ID documents.')}</Text>
+            <Text style={{ color: mine ? '#B9CFC8' : c.warnFg, fontSize: 12, lineHeight: 16, marginTop: sp(4) }}>{t('Opens outside the app. We do not check it. Never send money or ID documents.')}</Text>
           ) : null}
           <Text style={{ alignSelf: 'flex-end', color: mine ? '#B9CFC8' : c.muted, fontSize: 12, lineHeight: 16, marginTop: 2 }}>{hhmm(m.createdAt)}</Text>
         </Pressable>
@@ -180,7 +180,7 @@ const Bubble = memo(
 );
 
 /** The small gap between two messages. */
-const RowGap = () => <View style={{ height: 6 }} />;
+const RowGap = () => <View style={{ height: sc(6) }} />;
 
 function Chat({ id }: { id: string }) {
   const { t, tn } = useT();
@@ -303,7 +303,7 @@ function Chat({ id }: { id: string }) {
   });
   useEnterMode(info.data ? (info.data.scope === 'activity' ? 'here' : 'there') : undefined); // an activity group is HERE; trip groups and travel matches are THERE
   const [reportMsg, setReportMsg] = useState<{ id: string; category?: string } | null>(null);
-  // press and hold a message: report it (or flag spam), see who wrote it, or block them
+  // press and hold a message: report it (spam is one of the reasons in the report), see who wrote it, or block them
   const [picked, setPicked] = useState<Msg | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const send = useAction(() => void msgs.reload());
@@ -434,6 +434,29 @@ function Chat({ id }: { id: string }) {
   const viewability = useRef({ itemVisiblePercentThreshold: 10 }).current;
   const stick = useRef(true);
   const loaded = useRef(false);
+  // While the keyboard is moving the list is scrolled by one native animation that starts together with the keyboard, not nudged frame by frame
+  // after the writing box has moved (that always arrived a few frames late, so the newest messages briefly slid under the box).
+  const kbBusy = useRef(false);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return; // iPhone only: it announces the keyboard before it moves, with how long it takes
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const sub = Keyboard.addListener('keyboardWillChangeFrame', (e) => {
+      const wasAtBottom = stick.current;
+      kbBusy.current = true;
+      if (wasAtBottom) list.current?.scrollToEnd({ animated: true });
+      timers.push(
+        setTimeout(() => {
+          kbBusy.current = false;
+          stick.current = wasAtBottom;
+          if (wasAtBottom) list.current?.scrollToEnd({ animated: false }); // the last few points, exactly
+        }, (e.duration || 250) + 60),
+      );
+    });
+    return () => {
+      sub.remove();
+      timers.forEach(clearTimeout);
+    };
+  }, []);
 
   const conv = info.data ?? undefined; // the chat's own details (title, whether it is a trip or an activity, and which)
   const count = msgs.data?.items.length ?? 0;
@@ -442,7 +465,8 @@ function Chat({ id }: { id: string }) {
   // follow new messages only while the reader is already at the bottom
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    stick.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 80;
+    // (while the keyboard moves the list gets shorter: that is not the reader leaving the bottom)
+    if (!kbBusy.current) stick.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 80;
     // a few screens before the top (and not while the screen is still settling on its first load): load the earlier messages,
     // so they are already there by the time the reader scrolls up to them
     if (loaded.current && contentOffset.y < 900) void loadOlder();
@@ -588,25 +612,25 @@ function Chat({ id }: { id: string }) {
     // on tablets and desktops the conversation is a centred, readable column rather than edge to edge
     <>
     <View style={{ flex: 1, alignItems: 'center', backgroundColor: c.bg }}>
-    <Animated.View ref={chatBox} onLayout={chatLayout} style={{ flex: 1, width: '100%', maxWidth: 760, backgroundColor: c.bg, paddingBottom: keyboard }}>
+    <Animated.View ref={chatBox} onLayout={chatLayout} style={{ flex: 1, width: '100%', maxWidth: sc(760), backgroundColor: c.bg, paddingBottom: keyboard }}>
       <Stack.Screen options={{ title: conv?.title ?? t('Group chat') }} />
       {/* the chat's own top row: back, who it is (tap for group info), and the menu; a line under it */}
-      <View style={{ paddingTop: statusTop(insets.top) + 8, paddingHorizontal: 16 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', minHeight: 44 }}>
-          <View style={{ width: 44, minHeight: 44, justifyContent: 'center' }}>
+      <View style={{ paddingTop: statusTop(insets.top) + 8, paddingHorizontal: sph(16) }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', minHeight: sc(44) }}>
+          <View style={{ width: sc(44), minHeight: sc(44), justifyContent: 'center' }}>
             <BackArrow />
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('{title}. Open group info', { title: conv?.title ?? t('Group') })} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, alignItems: 'center', gap: 6, minHeight: 44, paddingTop: 4 }}>
-            <Text numberOfLines={1} style={{ color: c.text, fontWeight: '600', fontSize: 18, lineHeight: 24 }}>{conv?.title ?? t('Group chat')}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('{title}. Open group info', { title: conv?.title ?? t('Group') })} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, alignItems: 'center', gap: sp(6), minHeight: sc(44), paddingTop: sp(4) }}>
+            <Text numberOfLines={1} style={{ color: c.text, fontWeight: '500', fontSize: 20, lineHeight: 27 }}>{conv?.title ?? t('Group chat')}</Text>
             {info.data && conv?.scope !== 'match' && info.data.members.length > 0 ? (
               <View accessibilityLabel={tn(info.data.members.length, '{n} person', '{n} people')} style={{ flexDirection: 'row', alignItems: 'center' }}>
                 {info.data.members.slice(0, 4).map((mb, k) => (
-                  <View key={mb.id} style={{ marginLeft: k ? -10 : 0, borderRadius: 16, borderWidth: 2, borderColor: c.bg }}>
+                  <View key={mb.id} style={{ marginLeft: k ? -sc(10) : 0, borderRadius: sc(16), borderWidth: 2, borderColor: c.bg }}>
                     <Avatar name={mb.displayName} uri={mb.photoUrl} size={28} />
                   </View>
                 ))}
                 {info.data.members.length > 4 ? (
-                  <View style={{ marginLeft: -10, minWidth: 32, height: 32, borderRadius: 16, paddingHorizontal: 6, backgroundColor: c.forest, borderWidth: 2, borderColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={{ marginLeft: -sc(10), minWidth: sc(32), height: sc(32), borderRadius: sc(16), paddingHorizontal: sph(6), backgroundColor: c.forest, borderWidth: 2, borderColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={{ color: '#fff', fontSize: 12, lineHeight: 16, fontWeight: '600', includeFontPadding: false }}>{info.data.members.length - 4}+</Text>
                   </View>
                 ) : null}
@@ -615,24 +639,24 @@ function Chat({ id }: { id: string }) {
               <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{conv?.scope === 'match' ? `${t('Travel match')}${conv.place ? ` · ${conv.place}` : ''}` : conv?.scope === 'trip' ? t('Trip group') : t('Activity group')}</Text>
             )}
           </Pressable>
-          <View style={{ width: 44, alignItems: 'flex-end' }}>
+          <View style={{ width: sc(44), alignItems: 'flex-end' }}>
             <Menu popover items={menu} />
           </View>
         </View>
-        <View style={{ height: 1, backgroundColor: c.line, marginTop: 10 }} />
+        <View style={{ height: 1, backgroundColor: c.line, marginTop: sp(10) }} />
       </View>
       {/* pinned and slim: a note about the last action, and (only while someone still has to confirm) the final dates */}
       {note || (trip.data?.datesState === 'proposed' && trip.data.status !== 'completed' && trip.data.status !== 'cancelled' && (trip.data.datesConfirmedCount ?? 0) < trip.data.members) ? (
-        <View style={{ paddingHorizontal: 16, paddingTop: 6, gap: 6 }}>
+        <View style={{ paddingHorizontal: sph(16), paddingTop: sp(6), gap: sp(6) }}>
           {note ? <Banner tone="ok">{note}</Banner> : null}
           {trip.data?.datesState === 'proposed' && trip.data.status !== 'completed' && trip.data.status !== 'cancelled' && (trip.data.datesConfirmedCount ?? 0) < trip.data.members ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, backgroundColor: c.accentSoft, paddingLeft: 12, paddingRight: 4, paddingVertical: 4 }}>
-              <Ionicons name="calendar-outline" size={14} color={c.forest} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(8), borderRadius: sc(999), backgroundColor: c.accentSoft, paddingLeft: sph(12), paddingRight: sph(4), paddingVertical: sp(4) }}>
+              <Ionicons name="calendar-outline" size={sc(14)} color={c.forest} />
               <Text numberOfLines={2} style={{ flex: 1, color: c.text, fontSize: 12, lineHeight: 16 }}>
                 <Text style={{ fontWeight: '800' }}>{t('Final dates {dates}', { dates: dateSpan(trip.data.dateStart, trip.data.dateEnd) })}</Text> · {t('{done} of {total} confirmed', { done: trip.data.datesConfirmedCount ?? 0, total: trip.data.members })}{trip.data.myDatesConfirmed ? ' ✓' : ''}
               </Text>
               {trip.data.isMember && !trip.data.myDatesConfirmed ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={t('Confirm you can travel on these dates')} disabled={plan.busy} onPress={confirmDates} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }} style={({ pressed }) => [{ height: 28, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85 }]}>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('Confirm you can travel on these dates')} disabled={plan.busy} onPress={confirmDates} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }} style={({ pressed }) => [{ height: sc(28), paddingHorizontal: sph(12), borderRadius: sc(999), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85 }]}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12, includeFontPadding: false }}>{t('Confirm')}</Text>
                 </Pressable>
               ) : null}
@@ -650,16 +674,22 @@ function Chat({ id }: { id: string }) {
         keyExtractor={(m) => m.id}
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
+        contentContainerStyle={{ paddingHorizontal: sph(16), paddingVertical: sp(12) }}
         onScroll={onScroll}
         scrollEventThrottle={16}
         keyboardShouldPersistTaps={keyboardTaps}
         // Android draws fewer bubbles at a time (it is slower at it); the list fills in as you scroll
+        overScrollMode="always"
         initialNumToRender={Platform.OS === 'android' ? 14 : 30}
         windowSize={Platform.OS === 'android' ? 7 : 11}
         maxToRenderPerBatch={Platform.OS === 'android' ? 8 : 12}
         removeClippedSubviews={Platform.OS === 'android'}
         maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+        // the list gets shorter when the writing box grows to several lines (and taller when it shrinks, or the keyboard goes): a reader who was at
+        // the bottom stays at the bottom, so the newest message is never left half hidden behind the box
+        onLayout={() => {
+          if (stick.current && !kbBusy.current) list.current?.scrollToEnd({ animated: false });
+        }}
         onViewableItemsChanged={onViewable}
         viewabilityConfig={viewability}
         ItemSeparatorComponent={RowGap}
@@ -673,17 +703,17 @@ function Chat({ id }: { id: string }) {
         }}
         ListHeaderComponent={
           <View>
-            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: c.sand, borderRadius: 14, padding: 10, marginBottom: 6 }}>
-              <Ionicons name="lock-closed-outline" size={16} color={c.forest} style={{ marginTop: 1 }} />
-              <Text style={{ flex: 1, color: c.text, fontSize: 12.5, lineHeight: 17 }}>{t('Only approved members can see this chat. Meet at public venues, and report anything that feels wrong. Hold a message to report or block.')}</Text>
+            <View style={{ flexDirection: 'row', gap: sp(8), alignItems: 'flex-start', backgroundColor: c.sand, borderRadius: sc(14), padding: sp(10), marginBottom: sp(6) }}>
+              <Ionicons name="lock-closed-outline" size={sc(16)} color={c.forest} style={{ marginTop: 1 }} />
+              <Text style={{ flex: 1, color: c.text, fontSize: 12, lineHeight: 16 }}>{t('Only approved members can see this chat. Meet at public venues, and report anything that feels wrong. Hold a message to report or block.')}</Text>
             </View>
             {/* The top of the history. While there are earlier messages it is a fixed-height area: grey message shapes while they load,
                 empty otherwise, so it never changes size and nothing moves when loading starts. At the very first message it becomes a line. */}
             {olderCursor ? (
-              <View style={{ height: 164, overflow: 'hidden' }}>{loadingOlder ? <SkeletonChat compact /> : null}</View>
+              <View style={{ height: sc(164), overflow: 'hidden' }}>{loadingOlder ? <SkeletonChat compact /> : null}</View>
             ) : older.length > 0 && olderCursor === null ? (
-              <View style={{ height: 34, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: c.muted, fontSize: 11 }}>{t('Start of the conversation')}</Text>
+              <View style={{ height: sc(34), alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: c.muted, fontSize: 12 }}>{t('Start of the conversation')}</Text>
               </View>
             ) : null}
             {((msgs.loading && !msgs.data) || !settled) && <SkeletonChat />}
@@ -697,28 +727,28 @@ function Chat({ id }: { id: string }) {
           // in a run of messages from one person the name shows once, on the first
           const showName = !mine && (newDay || shown[i - 1].sender.id !== m.sender.id);
           const day = newDay ? (
-            <View style={{ alignSelf: 'center', backgroundColor: c.infoBg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, marginVertical: 8 }}>
-              <Text style={{ color: c.muted, fontSize: 11, fontWeight: '700' }}>{dayLabel(m.createdAt)}</Text>
+            <View style={{ alignSelf: 'center', backgroundColor: c.infoBg, borderRadius: sc(999), paddingHorizontal: sph(10), paddingVertical: 2, marginVertical: sp(8) }}>
+              <Text style={{ color: c.muted, fontSize: 12, fontWeight: '700' }}>{dayLabel(m.createdAt)}</Text>
             </View>
           ) : null;
           if (m.kind === 'system')
             return (
-              <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
+              <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: sc(3) }}>
                 {day}
-                <View style={{ alignSelf: 'center', maxWidth: '88%', backgroundColor: c.accentSoft, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, marginVertical: 4 }}>
-                  <Text style={{ color: c.text, fontSize: 12.5, lineHeight: 17, textAlign: 'center' }}>{m.body}</Text>
+                <View style={{ alignSelf: 'center', maxWidth: '88%', backgroundColor: c.accentSoft, borderRadius: sc(12), paddingHorizontal: sph(12), paddingVertical: sp(6), marginVertical: sp(4) }}>
+                  <Text style={{ color: c.text, fontSize: 12, lineHeight: 16, textAlign: 'center' }}>{m.body}</Text>
                 </View>
               </Appear>
             );
           if (m.kind === 'poll')
             return (
-              <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
+              <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: sc(3) }}>
                 {day}
                 <PollCard m={m} amHost={amHost} busy={!!m.poll && pollBusy === m.poll.id} voting={!!m.poll && voting === m.poll.id} error={m.poll && pollError?.id === m.poll.id ? pollError.message : null} datesLocked={datesLocked} onVote={(v) => void vote(m.poll!.id, v)} onClose={(adopt) => void closePoll(m.poll!.id, adopt)} />
               </Appear>
             );
           return (
-            <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: 3 }}>
+            <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: sc(3) }}>
               {day}
               <Bubble m={m} mine={mine} showName={showName} newDay={newDay} onPick={setPicked} />
             </Appear>
@@ -726,18 +756,18 @@ function Chat({ id }: { id: string }) {
         }}
       />
 
-      <View style={{ paddingHorizontal: 16 }}>
+      <View style={{ paddingHorizontal: sph(16) }}>
         <ErrorBanner message={send.error ?? safety.error ?? confirmAct.error ?? (msgs.error && !locked ? msgs.error.message : null)} />
       </View>
       {msgs.data && !msgs.data.writable ? (
-        <View style={{ padding: 16, paddingBottom: bottomGap + 16 }}>
+        <View style={{ padding: sp(16), paddingBottom: bottomGap + 16 }}>
           <Banner>{closedText}</Banner>
         </View>
       ) : (
-        <View style={{ flexDirection: 'row', gap: Math.round(12 * z), alignItems: 'flex-end', paddingHorizontal: Math.round(16 * z), paddingTop: 6, paddingBottom: bottomGap + 8 }}>
+        <View style={{ flexDirection: 'row', gap: Math.round(12 * z), alignItems: 'flex-end', paddingHorizontal: Math.round(16 * z), paddingTop: sp(6), paddingBottom: bottomGap + 8 }}>
           {amHost && conv?.scope === 'trip' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: Math.max(40, Math.round(44 * z)), height: Math.max(40, Math.round(44 * z)), marginBottom: 4, borderRadius: 22, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
-              <Ionicons name="add" size={22} color={c.forest} />
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: Math.max(40, Math.round(44 * z)), height: Math.max(40, Math.round(44 * z)), marginBottom: sp(4), borderRadius: sc(22), borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
+              <Ionicons name="add" size={sc(22)} color={c.forest} />
             </Pressable>
           ) : null}
           <View style={{ flex: 1 }}>
@@ -759,7 +789,7 @@ function Chat({ id }: { id: string }) {
               multiline
               scrollEnabled
               {...({ showsVerticalScrollIndicator: false } as Record<string, unknown>)} // no scroll bar on the writing box (the iPhone's field takes this like a scroll view; it is not in the typed list)
-              style={{ width: '100%', minHeight: Math.max(44, Math.round(52 * z)), maxHeight: 150,  borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: 28, backgroundColor: c.surface, color: c.text, paddingHorizontal: Math.round(22 * z), paddingVertical: Math.round(12 * z), textAlignVertical: 'center', fontSize: mode === 'there' ? 15 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 }}
+              style={{ width: '100%', minHeight: Math.max(44, Math.round(52 * z)), maxHeight: sc(150),  borderWidth: mode === 'there' ? 0 : 1, borderColor: c.line, borderRadius: sc(28), backgroundColor: c.surface, color: c.text, paddingHorizontal: Math.round(22 * z), paddingVertical: Math.round(12 * z), textAlignVertical: 'center', fontSize: mode === 'there' ? 16 : 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: sc(3) }, elevation: 1 }}
             />
           </View>
           <Pressable
@@ -768,10 +798,10 @@ function Chat({ id }: { id: string }) {
             accessibilityState={{ disabled: !text.trim() || send.busy }}
             disabled={!text.trim() || send.busy}
             onPress={submit}
-            style={{ width: Math.max(44, Math.round(52 * z)), height: Math.max(44, Math.round(52 * z)), borderRadius: 26, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: !text.trim() || send.busy ? 0.45 : 1 }}
+            style={{ width: Math.max(44, Math.round(52 * z)), height: Math.max(44, Math.round(52 * z)), borderRadius: sc(26), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', opacity: !text.trim() || send.busy ? 0.45 : 1 }}
           >
             {/* the paper plane's weight sits to the left, so it is nudged to look centred in the circle */}
-            <Ionicons name="send" size={20} color="#fff" style={{ marginLeft: 3, marginBottom: 1 }} />
+            <Ionicons name="send" size={sc(20)} color="#fff" style={{ marginLeft: sc(3), marginBottom: 1 }} />
           </Pressable>
         </View>
       )}
@@ -783,7 +813,7 @@ function Chat({ id }: { id: string }) {
           {datesLocked ?? t("You can only change this trip's dates {max} times in all, and only until it starts. You have {left} left.", { max: trip.data?.dateChangesMax ?? 5, left: trip.data?.dateChangesLeft ?? trip.data?.dateChangesMax ?? 5 })}
         </Banner>
         {/* the dates are picked on a calendar (both optional): tap From or To */}
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flexDirection: 'row', gap: sp(10) }}>
           {([['from', t('From (optional)'), pFrom, datesLocked !== null], ['to', t('To (optional)'), pTo, !pFrom || datesLocked !== null]] as const).map(([k, label, d, locked]) => (
             <Pressable
               key={k}
@@ -792,15 +822,15 @@ function Chat({ id }: { id: string }) {
               accessibilityState={{ disabled: locked, selected: pollPick === k }}
               disabled={locked}
               onPress={() => openPick(k)}
-              style={{ flex: 1, minHeight: 56, borderRadius: 16, borderWidth: 1.5, borderColor: pollPick === k ? c.forest : c.line, backgroundColor: c.surface, paddingHorizontal: 14, paddingVertical: 8, justifyContent: 'center', opacity: locked ? 0.5 : 1 }}
+              style={{ flex: 1, minHeight: sc(56), borderRadius: sc(16), borderWidth: 1.5, borderColor: pollPick === k ? c.forest : c.line, backgroundColor: c.surface, paddingHorizontal: sph(14), paddingVertical: sp(8), justifyContent: 'center', opacity: locked ? 0.5 : 1 }}
             >
-              <Text style={{ color: c.muted, fontSize: 11 }}>{label}</Text>
-              <Text style={{ color: c.text, fontSize: 15, fontWeight: '700' }}>{d ? shortDay(d) : t('Select date')}</Text>
+              <Text style={{ color: c.muted, fontSize: 12 }}>{label}</Text>
+              <Text style={{ color: c.text, fontSize: 16, fontWeight: '700' }}>{d ? shortDay(d) : t('Select date')}</Text>
             </Pressable>
           ))}
         </View>
         {pollPick ? (
-          <MonthCalendar month={pollMonth} onMonth={setPollMonth} selected={(pollPick === 'to' ? pTo : pFrom) ?? new Date(0)} min={pollPick === 'to' && pFrom ? pFrom : tomorrow} max={lastPlanningDay(12)} onPick={pickDay} marks={planMarks} />
+          <MonthCalendar month={pollMonth} onMonth={setPollMonth} range={{ from: pFrom, to: pTo }} selected={(pollPick === 'to' ? pTo : pFrom) ?? new Date(0)} min={pollPick === 'to' && pFrom ? pFrom : tomorrow} max={lastPlanningDay(12)} onPick={pickDay} marks={planMarks} />
         ) : null}
         {pFrom ? <Btn title={t('Clear the dates')} variant="ghost" small onPress={() => { setPollFrom(''); setPollTo(''); setPollPick(null); }} /> : null}
         <ErrorBanner message={plan.error} />
@@ -810,7 +840,6 @@ function Chat({ id }: { id: string }) {
         <Txt variant="muted" numberOfLines={3}>{picked?.body}</Txt>
         <Btn title={t('View profile')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); go(`/user/${m.sender.id}`); }} />
         <Btn title={t('Report message')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); setReportMsg({ id: m.id }); }} />
-        <Btn title={t('Report as spam')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); setReportMsg({ id: m.id, category: 'spam' }); }} />
         <Btn title={t('Block {name}', { name: picked?.sender.displayName ?? '' })} variant="danger" onPress={() => { const m = picked!; setPicked(null); void block(m); }} />
       </Sheet>
     </Animated.View>

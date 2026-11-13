@@ -4,7 +4,7 @@ import { notifyInputFocus, setListBelowField } from '@/lib/keyboard';
 import { Pressable, View, type HostInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import { get } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { sc } from '@/lib/scale';
+import { sc, sp, sph } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { Text, TextInput, type InputHandle } from './ScaledText';
 import { tap } from '@/lib/haptics';
@@ -20,18 +20,18 @@ export function TripTop({ step, title, onBack, right, onStep, canStep }: { step:
   const { t } = useT();
   const { c, mode } = useTheme();
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: sp(10) }}>
       <PlainTitle
         onBack={onBack}
         custom={
           <View style={{ alignItems: 'center', gap: 2 }}>
-            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{t('Create a trip')}</Text>
-            <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 15, lineHeight: 19, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 15 }}>{t('Create a trip')}</Text>
+            <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 20, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
           </View>
         }
       />
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 30 }}>
-        <StepLabel step={step} style={{ color: c.muted, fontSize: 12.7, lineHeight: 16 }} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: sc(30) }}>
+        <StepLabel step={step} style={{ color: c.muted, fontSize: 12, lineHeight: 15 }} />
         {right}
       </View>
       <StepBars step={step} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} onPick={onStep} canPick={canStep} />
@@ -43,9 +43,9 @@ export function TripTop({ step, title, onBack, right, onStep, canStep }: { step:
 export function TripHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   const { c } = useTheme();
   return (
-    <View style={{ gap: 10, marginTop: 6 }}>
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 34, fontWeight: '600' }}>{title}</Text>
-      {subtitle ? <Text style={{ color: c.muted, fontSize: 14, lineHeight: 24 }}>{subtitle}</Text> : null}
+    <View style={{ gap: sp(10), marginTop: sp(6) }}>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 31, fontWeight: '700' }}>{title}</Text>
+      {subtitle ? <Text style={{ color: c.muted, fontSize: 16, lineHeight: 27 }}>{subtitle}</Text> : null}
     </View>
   );
 }
@@ -55,7 +55,7 @@ export function TripLabel({ children, right, style }: { children: ReactNode; rig
   const { c } = useTheme();
   return (
     <View style={[{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, style]}>
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 14, lineHeight: 20, fontWeight: '500', paddingLeft: 3 }}>{children}</Text>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 16, lineHeight: 23, fontWeight: '500', paddingLeft: sc(3) }}>{children}</Text>
       {right ? <Text style={{ color: c.muted, fontSize: 12 }}>{right}</Text> : null}
     </View>
   );
@@ -64,14 +64,14 @@ export function TripLabel({ children, right, style }: { children: ReactNode; rig
 /** A big white pill: small grey label above, the value (typed or shown) below. */
 export function TripField({ label, children, onPress, a11y, invalid, hint, icon, style }: { label: string; children: ReactNode; onPress?: () => void; a11y?: string; invalid?: boolean; /** a short red line under the pill, shown while it is invalid ("Pick a place from the list") */ hint?: string; /** a small icon inside the pill, at its right edge (the calendar of a date field): part of the field, not a separate button */ icon?: React.ComponentProps<typeof Ionicons>['name']; style?: StyleProp<ViewStyle> }) {
   const { c } = useTheme();
-  const box: StyleProp<ViewStyle> = [{ minHeight: sc(62), borderRadius: 34, backgroundColor: WHITE, borderWidth: invalid ? 1.2 : 0, borderColor: c.danger, paddingLeft: 26, paddingRight: 48, paddingVertical: 8, justifyContent: 'center', gap: 4 }, style];
+  const box: StyleProp<ViewStyle> = [{ minHeight: sc(62), borderRadius: sc(34), backgroundColor: WHITE, borderWidth: invalid ? 1.2 : 0, borderColor: c.danger, paddingLeft: sph(26), paddingRight: sph(48), paddingVertical: sp(8), justifyContent: 'center', gap: sp(4) }, style];
   const body = (
     <>
       <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{label}</Text>
       {children}
       {icon ? (
-        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', right: 24, top: 0, bottom: 0, justifyContent: 'center' }}>
-          <Ionicons name={icon} size={20} color={c.forest} />
+        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', right: sc(24), top: 0, bottom: 0, justifyContent: 'center' }}>
+          <Ionicons name={icon} size={sc(20)} color={c.forest} />
         </View>
       ) : null}
     </>
@@ -83,9 +83,9 @@ export function TripField({ label, children, onPress, a11y, invalid, hint, icon,
   );
   if (!(invalid && hint)) return pill;
   return (
-    <View style={{ gap: 4 }}>
+    <View style={{ gap: sp(4) }}>
       {pill}
-      <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, paddingLeft: 32 }}>{hint}</Text>
+      <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, paddingLeft: sph(32) }}>{hint}</Text>
     </View>
   );
 }
@@ -100,7 +100,7 @@ export function TravelStyleChoice({ value, onChange }: { value: TravelStyle; onC
     ['meet_at_destination', 'location-outline', t('Meet at destination'), t('Everyone travels on their own and meets there')],
   ];
   return (
-    <View accessibilityRole="radiogroup" accessibilityLabel={t('How will the group get there?')} style={{ flexDirection: 'row', gap: 10 }}>
+    <View accessibilityRole="radiogroup" accessibilityLabel={t('How will the group get there?')} style={{ flexDirection: 'row', gap: sp(10) }}>
       {opts.map(([v, icon, title, sub]) => {
         const on = value === v;
         return (
@@ -113,10 +113,10 @@ export function TravelStyleChoice({ value, onChange }: { value: TravelStyle; onC
               if (!on) tap('Light'); // a small tap when the choice changes (not when the chosen one is tapped again)
               onChange(v);
             }}
-            style={({ pressed: p }) => [{ flex: 1, minHeight: sc(96), borderRadius: 24, padding: 14, gap: 4, backgroundColor: on ? c.forest : WHITE }, pressed(p)]}
+            style={({ pressed: p }) => [{ flex: 1, minHeight: sc(96), borderRadius: sc(24), padding: sp(14), gap: sp(4), backgroundColor: on ? c.forest : WHITE }, pressed(p)]}
           >
-            <Ionicons name={icon} size={22} color={on ? '#fff' : c.forest} />
-            <Text style={{ color: on ? '#fff' : c.text, fontSize: 15, lineHeight: 20, fontWeight: '600' }}>{title}</Text>
+            <Ionicons name={icon} size={sc(22)} color={on ? '#fff' : c.forest} />
+            <Text style={{ color: on ? '#fff' : c.text, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{title}</Text>
             <Text style={{ color: on ? 'rgba(255,255,255,0.8)' : c.muted, fontSize: 12, lineHeight: 16 }}>{sub}</Text>
           </Pressable>
         );
@@ -134,7 +134,7 @@ export function TripValue({ children, placeholder }: { children?: string; placeh
 /** The text input inside a TripField. */
 export function TripInput({ label, style, ...rest }: TextInputProps & { label: string; ref?: Ref<InputHandle> }) {
   const { c } = useTheme();
-  return <TextInput accessibilityLabel={label} placeholderTextColor={c.placeholder} selectionColor={c.forest} cursorColor={c.forest} underlineColorAndroid="transparent" returnKeyType="done" {...rest} style={[{ includeFontPadding: false, color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', paddingVertical: 0, minHeight: 22, minWidth: 0 }, style]} />;
+  return <TextInput accessibilityLabel={label} placeholderTextColor={c.placeholder} selectionColor={c.forest} cursorColor={c.forest} underlineColorAndroid="transparent" returnKeyType="done" {...rest} style={[{ includeFontPadding: false, color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', paddingVertical: 0, minHeight: sc(22), minWidth: 0 }, style]} />;
 }
 
 type Found = { id: string; name: string; address: string; label: string; lat?: number; lng?: number };
@@ -184,9 +184,9 @@ export function DestinationResults({ text, active, onPick }: { text: string; act
     return () => setListBelowField(null);
   }, [showing, found]);
   if (state === 'idle') return null;
-  const say = (s: string) => <Text style={{ color: c.muted, fontSize: 12, paddingHorizontal: 16, paddingVertical: 10 }}>{s}</Text>;
+  const say = (s: string) => <Text style={{ color: c.muted, fontSize: 12, paddingHorizontal: sph(16), paddingVertical: sp(10) }}>{s}</Text>;
   return (
-    <View ref={box} collapsable={false} style={{ borderRadius: 18, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
+    <View ref={box} collapsable={false} style={{ borderRadius: sc(18), borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
       {state === 'searching' && !found ? say(t('Searching…')) : null}
       {state === 'error' ? say(t('Search is not available right now. Try again in a moment.')) : null}
       {state === 'done' && found?.length === 0 ? say(t('No place found.')) : null}
@@ -199,11 +199,11 @@ export function DestinationResults({ text, active, onPick }: { text: string; act
             picked.current = p.label;
             onPick(p.label, p.lat != null && p.lng != null ? { lat: p.lat, lng: p.lng } : undefined);
           }}
-          style={({ pressed: isPressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 16, minHeight: 48, borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, isPressed && { backgroundColor: c.sand }]}
+          style={({ pressed: isPressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingVertical: sp(11), paddingHorizontal: sph(16), minHeight: sc(48), borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, isPressed && { backgroundColor: c.sand }]}
         >
-          <Ionicons name="location-outline" size={18} color={c.muted} />
+          <Ionicons name="location-outline" size={sc(18)} color={c.muted} />
           <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={{ color: c.text, fontSize: 15, fontWeight: '600' }}>{p.label}</Text>
+            <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, fontWeight: '600' }}>{p.label}</Text>
             {p.address && p.address !== p.label.split(', ').slice(1).join(', ') ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{p.address}</Text> : null}
           </View>
         </Pressable>
@@ -216,13 +216,13 @@ export function DestinationResults({ text, active, onPick }: { text: string; act
 export function TripRoundDark({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress?: () => void }) {
   const { c } = useTheme();
   const body = (
-    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
-      <Ionicons name={icon} size={20} color="#fff" />
+    <View style={{ width: sc(40), height: sc(40), borderRadius: sc(20), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name={icon} size={sc(20)} color="#fff" />
     </View>
   );
   if (!onPress) return <View accessibilityElementsHidden importantForAccessibility="no">{body}</View>;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={6} onPress={onPress} style={({ pressed: p }) => [{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>{body}</Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={6} onPress={onPress} style={({ pressed: p }) => [{ width: sc(44), height: sc(44), alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>{body}</Pressable>
   );
 }
 
@@ -230,7 +230,7 @@ export function TripRoundDark({ icon, label, onPress }: { icon: React.ComponentP
 export function TripAmount({ label, ...rest }: TextInputProps & { label: string; ref?: Ref<InputHandle> }) {
   const { c } = useTheme();
   return (
-    <View style={{ flex: 1, minHeight: sc(46), borderRadius: 28, backgroundColor: WHITE, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16 }}>
+    <View style={{ flex: 1, minHeight: sc(46), borderRadius: sc(28), backgroundColor: WHITE, flexDirection: 'row', alignItems: 'center', gap: sp(6), paddingHorizontal: sph(16) }}>
       <Text style={{ color: c.text, fontSize: 16, fontWeight: '500' }}>€</Text>
       <TripInput label={label} keyboardType="number-pad" {...rest} style={{ flex: 1 }} />
     </View>
@@ -247,18 +247,18 @@ export function TripPill({ label, spoken, active, onPress, wide, icon }: { label
       accessibilityState={{ selected: active }}
       hitSlop={{ top: 4, bottom: 4 }}
       onPress={onPress}
-      style={({ pressed: p }) => [{ minHeight: 36, minWidth: wide ? 84 : undefined, paddingHorizontal: 16, borderRadius: 26, backgroundColor: active ? c.forest : WHITE, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }, pressed(p)]}
+      style={({ pressed: p }) => [{ minHeight: sc(36), minWidth: wide ? sc(84) : undefined, paddingHorizontal: sph(16), borderRadius: sc(26), backgroundColor: active ? c.forest : WHITE, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(6) }, pressed(p)]}
     >
-      {icon && active ? <Ionicons name={icon} size={15} color="#fff" /> : null}
+      {icon && active ? <Ionicons name={icon} size={sc(15)} color="#fff" /> : null}
       {/* the same weight selected or not, so choosing a pill only turns it green and never changes its width */}
-      <Text style={{ color: active ? '#fff' : c.text, fontSize: 13, fontWeight: '500' }}>{label}</Text>
+      <Text style={{ color: active ? '#fff' : c.text, fontSize: 12, fontWeight: '500' }}>{label}</Text>
     </Pressable>
   );
 }
 
 /** One white card with rounded corners (the guidelines notice, the review). */
 export function TripCard({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[{ backgroundColor: WHITE, borderRadius: 32, padding: 20, gap: 8 }, style]}>{children}</View>;
+  return <View style={[{ backgroundColor: WHITE, borderRadius: sc(32), padding: sp(20), gap: sp(8) }, style]}>{children}</View>;
 }
 
 /** The white page-wide "Continue" hint: a big dark pill like the design. */

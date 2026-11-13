@@ -14,6 +14,7 @@ import { get, type Trip } from '@/lib/api';
 import { useCity, useCityPos } from '@/lib/city';
 import { useDockSpace } from '@/lib/dock';
 import { TRIP_TAGS } from '@/lib/constants';
+import { tagLabel, useCategories } from '@/lib/categories';
 import { useLoad } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { keyboardTaps } from '@/lib/keyboard';
@@ -22,7 +23,9 @@ import { useTheme } from '@/lib/theme';
 import { PinIcon } from './PinIcon';
 import { useCityCenter } from './mapShared';
 import { useThereFilters } from './ThereFilters';
+import { dateLang, isoDay } from '@/lib/format';
 
+import { sc, sp, sph } from '@/lib/scale';
 /** Trips with a position, and every trip at (about) the same place: one pin on the map, however many go there. */
 type TripPin = Trip & { lat: number; lng: number };
 type Group = { key: string; lat: number; lng: number; items: TripPin[] };
@@ -92,6 +95,7 @@ const STYLES = [
  */
 export function MapThere() {
   const { t, tn } = useT();
+  useCategories();
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const dock = useDockSpace();
@@ -128,7 +132,7 @@ export function MapThere() {
       }
       return { items };
     },
-    [f.style, tag, viewKey],
+    [f.style, tag, viewKey, f.from, f.to],
     60_000,
     undefined,
     { keep: true },
@@ -179,7 +183,7 @@ export function MapThere() {
   const pick = useRef(setSelectedKey);
   const onSelect = useCallback((g: Group) => pick.current(g.key), []);
   const region = useRef<Region | null>(null);
-  useEffect(() => setShown(PAGE), [f.style, tag, viewKey]); // a new search starts the list again at the first 20
+  useEffect(() => setShown(PAGE), [f.style, tag, viewKey, f.from, f.to]); // a new search starts the list again at the first 20
 
   // a searched place: the map moves to it, to city level (a whole country or region is shown wider). Nothing else changes: the app's own city is not touched.
   const flyTo = (at: { lat: number; lng: number }, wide: boolean) => {
@@ -199,10 +203,21 @@ export function MapThere() {
   const top = statusTop(insets.top) + 8;
   const shadow = { elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } } as const;
 
-  const filtersOn = f.style !== '' || tag !== null;
+  // the months to choose from: this one (from today), the next, and each one after for a year ahead. A month is a first and a last day in the same filters
+  // as every other date (f.from, f.to), so the trips on the map and in the list narrow to it, and "Clear" and the filter button's dot know about it.
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+    const name = first.toLocaleDateString(dateLang(), { month: 'long', ...(first.getFullYear() !== now.getFullYear() ? { year: 'numeric' as const } : {}) });
+    return { key: i, label: i === 0 ? t('This month') : i === 1 ? t('Next month') : name.charAt(0).toUpperCase() + name.slice(1), from: isoDay(i === 0 ? now : first), to: isoDay(last) };
+  });
+  const filtersOn = f.style !== '' || tag !== null || f.from !== '';
   const clearFilters = () => {
     f.setStyle('');
     setTag(null);
+    f.setFrom('');
+    f.setTo('');
   };
 
   // what the sheet lists: the trips at the tapped pin, or every trip in view (soonest first, 20 at a time)
@@ -297,11 +312,11 @@ export function MapThere() {
       </MapView>
 
       {/* top: the search for a country or place and the filter button; the filters open under it */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', top, left: 16, right: 16, gap: 10, alignItems: 'center' }}>
-        <View style={{ width: '100%', maxWidth: 560, gap: 6 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={[{ flex: 1, height: 58, borderRadius: 29, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 18, paddingRight: 6 }, shadow]}>
-              <Ionicons name="search-outline" size={20} color={c.muted} />
+      <View pointerEvents="box-none" style={{ position: 'absolute', top, left: sc(16), right: sc(16), gap: sp(10), alignItems: 'center' }}>
+        <View style={{ width: '100%', maxWidth: sc(560), gap: sp(6) }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10) }}>
+            <View style={[{ flex: 1, height: sc(58), borderRadius: sc(29), backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(8), paddingLeft: sph(18), paddingRight: sph(6) }, shadow]}>
+              <Ionicons name="search-outline" size={sc(20)} color={c.muted} />
               <TextInput
                 accessibilityLabel={listMode ? t('Search these trips') : t('Search a country or place')}
                 value={q}
@@ -319,11 +334,11 @@ export function MapThere() {
                 returnKeyType="search"
                 autoCorrect={false}
                 maxLength={100}
-                style={{ flex: 1, color: c.text, fontSize: 15, paddingVertical: 0 }}
+                style={{ flex: 1, color: c.text, fontSize: 16, paddingVertical: 0 }}
               />
               {q ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={t('Clear the search')} hitSlop={8} onPress={() => { setQ(''); setTyped(false); Keyboard.dismiss(); }} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-                  <Ionicons name="close" size={20} color={c.text} />
+                <Pressable accessibilityRole="button" accessibilityLabel={t('Clear the search')} hitSlop={8} onPress={() => { setQ(''); setTyped(false); Keyboard.dismiss(); }} style={{ width: sc(40), height: sc(40), alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="close" size={sc(20)} color={c.text} />
                 </Pressable>
               ) : null}
             </View>
@@ -336,9 +351,9 @@ export function MapThere() {
                 setFiltersOpen((v) => !v);
               }}
               hitSlop={4}
-              style={({ pressed }) => [{ width: 58, height: 58, borderRadius: 29, backgroundColor: filtersOpen || filtersOn ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, shadow, pressed && { transform: [{ scale: 0.94 }] }]}
+              style={({ pressed }) => [{ width: sc(58), height: sc(58), borderRadius: sc(29), backgroundColor: filtersOpen || filtersOn ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, shadow, pressed && { transform: [{ scale: 0.94 }] }]}
             >
-              <Ionicons name="options-outline" size={26} color={filtersOpen || filtersOn ? '#fff' : c.text} />
+              <Ionicons name="options-outline" size={sc(26)} color={filtersOpen || filtersOn ? '#fff' : c.text} />
             </Pressable>
           </View>
           <DestinationResults
@@ -355,8 +370,8 @@ export function MapThere() {
 
         {/* the filters, on a card of their own so they read clearly over the map: how the group gets there, and the interest */}
         {filtersOpen || filtersOn ? (
-          <View style={[{ width: '100%', maxWidth: 560, backgroundColor: c.surface, borderRadius: 26, padding: 14, gap: 12 }, shadow]}>
-            <View accessibilityRole="radiogroup" accessibilityLabel={t('How the group gets there')} style={{ gap: 6 }}>
+          <View style={[{ width: '100%', maxWidth: sc(560), backgroundColor: c.surface, borderRadius: sc(26), padding: sp(14), gap: sp(12) }, shadow]}>
+            <View accessibilityRole="radiogroup" accessibilityLabel={t('How the group gets there')} style={{ gap: sp(6) }}>
               <Txt variant="small">{t('How the group gets there')}</Txt>
               <PillRow>
                 {STYLES.map(([v, label]) => (
@@ -364,50 +379,65 @@ export function MapThere() {
                 ))}
               </PillRow>
             </View>
-            <View style={{ gap: 6 }}>
+            <View style={{ gap: sp(6) }}>
+              <Txt variant="small">{t('Month')}</Txt>
+              <PillRow>
+                <Pill label={t('Any month')} active={!f.from} onPress={() => (f.setFrom(''), f.setTo(''))} />
+                {monthOptions.map((m) => (
+                  <Pill key={m.key} label={m.label} active={f.from === m.from && f.to === m.to} onPress={() => (f.setFrom(m.from), f.setTo(m.to))} />
+                ))}
+              </PillRow>
+              {/* what is being shown, easing in when a month is chosen */}
+              {f.from ? (
+                <Reveal key={f.from} from={6}>
+                  <Txt variant="small" color={c.green}>{t('Showing trips in {month}', { month: (monthOptions.find((m) => m.from === f.from && m.to === f.to)?.label ?? `${f.from} – ${f.to}`).toLowerCase() })}</Txt>
+                </Reveal>
+              ) : null}
+            </View>
+            <View style={{ gap: sp(6) }}>
               <Txt variant="small">{t('Interest')}</Txt>
               <PillRow>
                 <Pill label={t('All')} active={tag === null} onPress={() => setTag(null)} />
                 {TRIP_TAGS.map((k) => (
-                  <Pill key={k} label={t(k[0].toUpperCase() + k.slice(1))} active={tag === k} onPress={() => setTag(tag === k ? null : k)} />
+                  <Pill key={k} label={t(tagLabel(k))} active={tag === k} onPress={() => setTag(tag === k ? null : k)} />
                 ))}
               </PillRow>
             </View>
             {filtersOn ? (
               <Pressable accessibilityRole="button" accessibilityLabel={t('Clear filters')} hitSlop={8} onPress={clearFilters} style={{ alignSelf: 'flex-start' }}>
-                <Txt variant="h3" color={c.forest} style={{ fontSize: 13 }}>{t('Clear filters')}</Txt>
+                <Txt variant="h3" color={c.forest} style={{ fontSize: 12 }}>{t('Clear filters')}</Txt>
               </Pressable>
             ) : null}
           </View>
         ) : null}
-        {feed.error ? <View style={{ width: '100%', maxWidth: 560 }}><ErrorBanner message={feed.error.message} /></View> : null}
+        {feed.error ? <View style={{ width: '100%', maxWidth: sc(560) }}><ErrorBanner message={feed.error.message} /></View> : null}
         <MapHint id="there" title={t('Finding your trip')}>{t('Zoom out to find your destination, then zoom in on the place. Tap a pin to see the trips that go there, or search a country or a place.')}</MapHint>
       </View>
 
       {/* bottom sheet, the same movement as HERE: it rises with the trips of a tapped pin, or is pulled up (or tapped) for every trip in view */}
-      <Animated.View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingBottom: 12 + dock, paddingHorizontal: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, transform: [{ translateY: sheetY }] }}>
+      <Animated.View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', backgroundColor: c.bg, borderTopLeftRadius: sc(40), borderTopRightRadius: sc(40), paddingBottom: 12 + dock, paddingHorizontal: sph(20), elevation: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -sc(3) }, transform: [{ translateY: sheetY }] }}>
         <View {...pan.panHandlers} onLayout={(e) => setBaseH(e.nativeEvent.layout.height + 12)} style={{ width: '100%', alignItems: 'center' }}>
-          <Pressable accessibilityRole="adjustable" accessibilityLabel={t('Trips list. Swipe up to open, down to close')} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={(e) => settle(e.nativeEvent.actionName === 'increment' ? 1 : 0)} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)} hitSlop={{ top: 6, bottom: 6 }} style={{ width: '100%', alignItems: 'center', paddingTop: 8, paddingBottom: 14 }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.line }} />
+          <Pressable accessibilityRole="adjustable" accessibilityLabel={t('Trips list. Swipe up to open, down to close')} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={(e) => settle(e.nativeEvent.actionName === 'increment' ? 1 : 0)} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)} hitSlop={{ top: 6, bottom: 6 }} style={{ width: '100%', alignItems: 'center', paddingTop: sp(8), paddingBottom: sp(14) }}>
+            <View style={{ width: sc(36), height: sc(4), borderRadius: 2, backgroundColor: c.line }} />
           </Pressable>
-          <View style={{ width: '100%', maxWidth: 560, gap: 4 }}>
+          <View style={{ width: '100%', maxWidth: sc(560), gap: sp(4) }}>
             {selected ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: sp(8) }}>
+                <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700' }}>
                   {selected.items.length === 1 ? selected.items[0].destination : tn(selected.items.length, '{n} trip here', '{n} trips here')}
                 </Text>
                 <Pressable accessibilityRole="button" accessibilityLabel={t('Close')} hitSlop={10} onPress={() => setSelectedKey(null)}>
-                  <Ionicons name="close" size={22} color={c.muted} />
+                  <Ionicons name="close" size={sc(22)} color={c.muted} />
                 </Pressable>
               </View>
             ) : feed.data && pins.length === 0 ? (
               <>
-                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600' }}>
+                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700' }}>
                   {filtersOn ? t('No trips match these filters here') : t('No trips in this part of the map')}
                 </Text>
                 {filtersOn ? (
                   <Pressable accessibilityRole="button" accessibilityLabel={t('Clear filters')} hitSlop={8} onPress={clearFilters} style={{ alignSelf: 'flex-start' }}>
-                    <Txt variant="h3" color={c.forest} style={{ fontSize: 14 }}>{t('Clear filters')}</Txt>
+                    <Txt variant="h3" color={c.forest} style={{ fontSize: 16 }}>{t('Clear filters')}</Txt>
                   </Pressable>
                 ) : (
                   <Txt variant="small">{t('Move the map, or press and hold it to plan a trip there.')}</Txt>
@@ -415,7 +445,7 @@ export function MapThere() {
               </>
             ) : (
               <>
-                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '600' }}>
+                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700' }}>
                   {feed.data ? tn(pins.length, '{n} trip in view', '{n} trips in view') : t('Loading…')}
                 </Text>
                 <Txt variant="small">{feed.loading && feed.data ? t('Updating…') : t('Tap a pin to preview, or pull up for the list')}</Txt>
@@ -425,8 +455,8 @@ export function MapThere() {
         </View>
 
         {/* the list: always its full height, the whole sheet slides (drawn on the native side); rows ease in one after another */}
-        <Animated.View pointerEvents={isOpen ? 'auto' : 'none'} style={{ width: '100%', maxWidth: 560, height: listMax, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
-          <ScrollView style={{ marginTop: 10 }} contentContainerStyle={{ gap: 10, paddingBottom: 4 }} onContentSizeChange={(_w, h) => setContentH(Math.ceil(h))} nestedScrollEnabled showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
+        <Animated.View pointerEvents={isOpen ? 'auto' : 'none'} style={{ width: '100%', maxWidth: sc(560), height: listMax, overflow: 'hidden', opacity: open.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }) }}>
+          <ScrollView style={{ marginTop: sp(10) }} contentContainerStyle={{ gap: sp(10), paddingBottom: sp(4) }} onContentSizeChange={(_w, h) => setContentH(Math.ceil(h))} nestedScrollEnabled showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
             {rows.map((x, i) => (
               <Reveal key={`${key}:${x.id}`} index={i}>
                 <TripRow t={x} />

@@ -10,7 +10,8 @@ import { localeTag, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { showToast } from '@/lib/toast';
 import { timeText } from '@/lib/format';
-
+
+import { sc, sp } from '@/lib/scale';
 type Group = { key: string; label: string; text: string; push: boolean };
 type Quiet = { enabled: boolean; start: string; end: string; timezone: string };
 type Settings = { groups: Group[]; important: { label: string; text: string }; quietHours: Quiet; note: string };
@@ -82,14 +83,14 @@ function TimeStep({ label, value, disabled, onChange }: { label: string; value: 
       hitSlop={6}
       onPressIn={() => hold(delta)}
       onPressOut={stop}
-      style={({ pressed }) => [{ width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, opacity: disabled ? 0.45 : 1 }, pressed && { transform: [{ scale: 0.94 }] }]}
+      style={({ pressed }) => [{ width: sc(52), height: sc(52), borderRadius: sc(26), alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, opacity: disabled ? 0.45 : 1 }, pressed && { transform: [{ scale: 0.94 }] }]}
     >
-      <Ionicons name={name} size={22} color={c.forest} />
+      <Ionicons name={name} size={sc(22)} color={c.forest} />
     </Pressable>
   );
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64 }}>
-      <Txt variant="label" color={c.muted} style={{ width: 52, fontSize: 13 }}>{label}</Txt>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(12), minHeight: sc(64) }}>
+      <Txt variant="label" color={c.muted} style={{ width: sc(52), fontSize: 12 }}>{label}</Txt>
       {btn('remove', -STEP, t('Earlier, {label}', { label }))}
       <Text accessibilityRole="text" accessibilityLabel={`${label} ${shown(value)}`} style={{ flex: 1, color: c.text, fontWeight: '700', fontSize: 22, lineHeight: 28, textAlign: 'center', opacity: disabled ? 0.5 : 1 }}>{shown(value)}</Text>
       {btn('add', STEP, t('Later, {label}', { label }))}
@@ -185,15 +186,15 @@ export default function NotificationSettings() {
             </View>
           </RoundCard>
 
-          <RoundCard style={{ gap: 10, paddingVertical: 18 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 }}>
+          <RoundCard style={{ gap: sp(10), paddingVertical: sp(18) }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), minHeight: sc(44) }}>
               <View style={{ flex: 1 }}>
-                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{t('Quiet hours')}</Text>
+                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Quiet hours')}</Text>
                 <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t('No notifications between these times, except important alerts')}</Text>
               </View>
               <Switch accessibilityLabel={t('Quiet hours')} value={quietNow!.enabled} onValueChange={(v) => quiet({ enabled: v })} trackColor={{ true: c.green, false: c.line }} thumbColor={Platform.OS === 'android' && !quietNow!.enabled ? c.muted : '#fff'} ios_backgroundColor={c.line} />
             </View>
-            <View style={{ gap: 4 }}>
+            <View style={{ gap: sp(4) }}>
               <TimeStep label={t('From')} value={quietNow!.start} disabled={!quietNow!.enabled} onChange={(v) => quiet({ start: v })} />
               <TimeStep label={t('Until')} value={quietNow!.end} disabled={!quietNow!.enabled} onChange={(v) => quiet({ end: v })} />
             </View>

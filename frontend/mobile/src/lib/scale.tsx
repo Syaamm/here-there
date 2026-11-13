@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Platform, StyleSheet, useWindowDimensions, type StyleProp, type TextStyle } from 'react-native';
+import { Dimensions, Platform, StyleSheet, useWindowDimensions, type StyleProp, type TextStyle } from 'react-native';
 
 /**
  * One size for the whole UI across phones. The design is drawn for a 390 pt wide phone; on a narrower or wider phone
@@ -10,7 +10,10 @@ import { Platform, StyleSheet, useWindowDimensions, type StyleProp, type TextSty
 const BASE = 390;
 /** Negative letter spacing for big bold titles: the same on both platforms (the same Inter files are used on both). */
 export const tracking = (n: number) => n;
-export const scaleFor = (w: number) => (w >= 640 ? 1 : Math.min(1.1, Math.max(0.9, w / BASE)));
+// Phones: everything (writing, spacing, radii, icons, element sizes) is drawn at the SAME fraction of the 390 pt design as the screen is wide, so a
+// line that fits on one phone breaks in the same place on every other one (a bigger phone is a bigger picture of the same screen; only lists show more).
+// The limits keep the tiniest and the largest phones sensible. Tablets and desktop are not scaled: they get more room instead.
+export const scaleFor = (w: number) => (w >= 640 ? 1 : Math.min(1.25, Math.max(0.82, w / BASE)));
 
 const Ctx = createContext(1);
 export const useScale = () => useContext(Ctx);
@@ -26,16 +29,18 @@ export const useTextScale = () => useContext(TextCtx);
  */
 export type TextSize = 'compact' | 'medium' | 'large';
 export const TEXT_SIZES: [TextSize, string, number][] = [
-  ['compact', 'Compact', 1.12], // what used to be "More compact"
-  ['medium', 'Medium', 1], // what used to be "Compact"
-  ['large', 'Large', 1.12], // what used to be "Standard"
+  ['compact', 'Compact', 0.92], // the default (the smallest writing)
+  ['medium', 'Medium', 1], // the design's sizes as drawn
+  ['large', 'Large', 1.12],
 ];
 /**
  * Writing is drawn at this fraction of its size on top of the choice (only "More compact" shrinks it). 0.73: close to the app as it
  * looks on the owner's iPhone with its text size at the smallest (0.82 x 0.82 = 0.67), a little bigger, so a phone left at its
  * normal text size shows compact writing. Controls are not shrunk: the phone's text size never moved them.
  */
-const TEXT_SHRINK: Partial<Record<TextSize, number>> = { compact: 0.73 };
+// 1 / 1.12 (was 0.73): Compact's controls are 12% larger (TEXT_SIZES), and the writing is brought back by exactly that, so the sizes of the
+// design's type guide (lib/type: body 16, caption 12...) are drawn at their real size on a 390 pt phone. Controls are not shrunk.
+const TEXT_SHRINK: Partial<Record<TextSize, number>> = {}; // none any more: Medium is the design as drawn
 const SizeCtx = createContext<{ size: TextSize; setSize: (s: TextSize) => void }>({ size: 'compact', setSize: () => {} });
 export const useTextSize = () => useContext(SizeCtx);
 /** The multiplier of the chosen text size (1 on Compact). */
@@ -45,16 +50,27 @@ const OLD_KEY = 'ht_text_size';
 const OLD_TO_NEW: Record<string, TextSize> = { 'more-compact': 'compact', compact: 'medium', standard: 'large', large: 'large', larger: 'large' };
 
 // The same factor for code that sizes things outside a component (style objects built at render time).
-let current = 1;
-let currentBase = 1;
+let current = scaleFor(Dimensions.get('window').width); // from the first line of the app, so styles made when a file loads are already right
+let currentBase = current;
 /** n points at the 390 pt design width, adjusted for this screen and the chosen text size. */
 export const sc = (n: number) => Math.round(n * current * 10) / 10;
 /** n points adjusted for the screen only, never the text size: the dock keeps its size whatever the writing size is. */
 export const scBase = (n: number) => Math.round(n * currentBase * 10) / 10;
 
+/**
+ * Breathing room. Gaps, and the padding and margins above, below and inside things, are drawn SPACE times what the 390 pt grid says, and
+ * the padding at the sides SPACE_SIDE times, so screens are airy and the text is not squeezed. This is the one place to make every screen
+ * more or less spacious: raise or lower these two numbers. (Sides grow less so that lines do not start to wrap.)
+ */
+export const SPACE = 1.25;
+export const SPACE_SIDE = 1.1;
+export const sp = (n: number) => sc(Math.round(n * SPACE * 10) / 10);
+export const sph = (n: number) => sc(Math.round(n * SPACE_SIDE * 10) / 10);
+
+
 export function ScaleProvider({ children }: { children: ReactNode }) {
   const { width } = useWindowDimensions();
-  const [size, setSizeState] = useState<TextSize>('compact');
+  const [size, setSizeState] = useState<TextSize>('compact'); // what a phone shows until the person picks a size in Settings
   useEffect(() => {
     AsyncStorage.getItem(SIZE_KEY)
       .then(async (v) => {
@@ -69,13 +85,13 @@ export function ScaleProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(SIZE_KEY, s).catch(() => {});
   }, []);
   const boost = TEXT_SIZES.find(([v]) => v === size)?.[2] ?? 1;
-  const k = scaleFor(width) * boost;
+  const k = scaleFor(width); // spacing, icons and controls follow the screen only; the writing also follows the Text size choice (below)
   current = k; // set while rendering, before any child reads it
   currentBase = scaleFor(width);
   return (
     <SizeCtx.Provider value={{ size, setSize }}>
       <Ctx.Provider value={k}>
-        <TextCtx.Provider value={k * (TEXT_SHRINK[size] ?? 1)}>{children}</TextCtx.Provider>
+        <TextCtx.Provider value={k * boost * (TEXT_SHRINK[size] ?? 1)}>{children}</TextCtx.Provider>
       </Ctx.Provider>
     </SizeCtx.Provider>
   );
@@ -87,7 +103,8 @@ export function ScaleProvider({ children }: { children: ReactNode }) {
  */
 export function useSmallPhoneShrink() {
   const { width } = useWindowDimensions();
-  return width >= 390 || width >= 640 ? 1 : Math.max(0.82, Math.round((width / 390) * 100) / 100);
+  void width; // the whole app is already drawn in proportion to the screen's width (see scaleFor), so nothing is shrunk twice
+  return 1;
 }
 
 /** Inside it all writing (and what follows the app's scale) is `factor` times its size. Changes nothing outside it. */
