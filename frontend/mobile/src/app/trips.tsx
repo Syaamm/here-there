@@ -9,11 +9,12 @@ import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { SOON_DAYS } from '@/features/ExploreThere';
 
+import { sc, sp } from '@/lib/scale';
 const DAY = 864e5;
 // the same edges as THERE Home (features/ExploreThere): Leaving soon is the next two weeks
 const GROUPS: Record<string, { title: string; from: number; to: number; empty: string }> = {
-  soon: { title: 'Leaving soon', from: -Infinity, to: SOON_DAYS, empty: 'No trips leave in the next two weeks.' },
-  season: { title: 'In the next few months', from: SOON_DAYS, to: 90, empty: 'No trips in the next few months yet.' },
+  soon: { title: 'Happening soon', from: -Infinity, to: SOON_DAYS, empty: 'No trips leave in the next two weeks.' },
+  season: { title: 'Coming up', from: SOON_DAYS, to: 90, empty: 'No trips in the next few months yet.' },
   later: { title: 'Later', from: 90, to: Infinity, empty: 'No trips planned that far ahead yet.' },
 };
 
@@ -38,7 +39,7 @@ export default function AllTrips() {
       <ErrorBanner message={list.error?.message} />
       {list.loading && !list.data && <Spinner />}
       {list.data && list.items.length === 0 && <Empty icon="airplane-outline" title={t('Nothing here yet')}>{t(group.empty)}</Empty>}
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: sp(12) }}>
         {list.items.map((x) => (
           <TripRow key={x.id} t={x} />
         ))}

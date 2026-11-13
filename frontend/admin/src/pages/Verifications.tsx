@@ -96,10 +96,10 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
                       </div>
                     )}
                     <span className="small muted nowrap" title={fmt(v.createdAt)}>
-                      {status === 'unverified' ? 'Joined ' : ''}
+                      Joined{' '}
                       {fmt(v.createdAt)}
                     </span>
-                    <Chip value={WORD[v.eligibility] ?? v.eligibility} tone={v.eligibility === 'verified' ? 'ok' : v.eligibility === 'pending' ? 'line' : 'plain'} />
+                    <Chip value={WORD[v.eligibility] ?? v.eligibility} tone={v.eligibility === 'verified' ? 'ok' : v.eligibility === 'pending' ? 'line' : v.eligibility === 'rejected' ? 'bad' : 'plain'} />
                   </li>
                 ))}
               </ul>

@@ -13,7 +13,8 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { keyboardTaps } from '@/lib/keyboard';
 import { StepTransition } from '@/components/StepMotion';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 type Step = 'email' | 'wishlist' | 'window' | 'companions' | 'interests' | 'city' | 'languages';
 
 /** The activity choices: what is saved on the profile, what the person reads, and the photo (Figma "onboarding 1"). */
@@ -128,16 +129,16 @@ export default function Onboarding() {
 
   return (
     <Screen scroll={false} maxWidth={600}>
-      <OnboardingTop progress={progress} onBack={at > 0 ? () => setStep(order[at - 1]) : undefined} onSkip={step === 'city' ? undefined : next} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24, paddingBottom: 12 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
+      <OnboardingTop progress={progress} onBack={at > 0 ? () => setStep(order[at - 1]) : !me?.emailVerified ? () => setStep('email') : router.canGoBack() ? () => router.back() : undefined} onSkip={step === 'city' ? undefined : next} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: sp(24), paddingBottom: sp(12) }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
         {/* swipe left for the next question (once this one is answered), right for the one before: the same as the steps of creating an activity */}
-        <StepTransition step={at} style={{ gap: 24 }} swipe={{ canNext: !last && ready, canBack: at > 0, onNext: () => setStep(order[at + 1]), onBack: () => setStep(order[at - 1]) }}>
+        <StepTransition step={at} style={{ gap: sp(24) }} swipe={{ canNext: !last && ready, canBack: at > 0, onNext: () => setStep(order[at + 1]), onBack: () => setStep(order[at - 1]) }}>
         {step === 'wishlist' && (
           <>
             <OnboardingHeading title={t('Where would you love to go?')} subtitle={t('Choose a few destinations on your travel wishlist.')} />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 14, rowGap: 12 }}>
-              {WISHLIST.map((x) => (
-                <InterestTile key={x.key} label={t(x.label)} photo={x.photo} selected={wishlist.includes(x.key)} onPress={() => toggle(wishlist, setWishlist, x.key)} />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: sph(14), rowGap: sp(12) }}>
+              {WISHLIST.map((x, i) => (
+                <InterestTile index={i} key={x.key} label={t(x.label)} photo={x.photo} selected={wishlist.includes(x.key)} onPress={() => toggle(wishlist, setWishlist, x.key)} />
               ))}
             </View>
           </>
@@ -146,8 +147,8 @@ export default function Onboarding() {
           <>
             <OnboardingHeading title={t('When are you planning to travel?')} subtitle={t("We'll help you discover trips that fit your schedule.")} />
             <View accessibilityRole="radiogroup">
-              {WINDOWS.map((x) => (
-                <RadioRow key={x.key} label={t(x.label)} selected={window === x.key} onPress={() => setWindow(x.key)} />
+              {WINDOWS.map((x, i) => (
+                <RadioRow index={i} key={x.key} label={t(x.label)} selected={window === x.key} onPress={() => setWindow(x.key)} />
               ))}
             </View>
           </>
@@ -156,8 +157,8 @@ export default function Onboarding() {
           <>
             <OnboardingHeading title={t('Who would you like to travel with?')} subtitle={t('Tell us what kind of travel group feels right for you.')} />
             <View accessibilityRole="radiogroup">
-              {COMPANIONS.map((x) => (
-                <RadioRow key={x.key} label={t(x.label)} selected={companions === x.key} onPress={() => setCompanions(x.key)} />
+              {COMPANIONS.map((x, i) => (
+                <RadioRow index={i} key={x.key} label={t(x.label)} selected={companions === x.key} onPress={() => setCompanions(x.key)} />
               ))}
             </View>
           </>
@@ -165,9 +166,9 @@ export default function Onboarding() {
         {step === 'interests' && (
           <>
             <OnboardingHeading title={there ? t("What's your travel vibe?") : t('What kinds of activities interest you?')} subtitle={t('Select your interests to discover activities and connect with like-minded people.')} />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 14, rowGap: 12 }}>
-              {tiles.map((x) => (
-                <InterestTile key={x.key} label={t(x.label)} photo={x.photo} selected={interests.includes(x.key)} onPress={() => toggle(interests, setInterests, x.key)} />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: sph(14), rowGap: sp(12) }}>
+              {tiles.map((x, i) => (
+                <InterestTile index={i} key={x.key} label={t(x.label)} photo={x.photo} selected={interests.includes(x.key)} onPress={() => toggle(interests, setInterests, x.key)} />
               ))}
             </View>
           </>
@@ -183,8 +184,8 @@ export default function Onboarding() {
           <>
             <OnboardingHeading title={t('Which languages are you comfortable communicating in?')} />
             <View>
-              {LANGS.map((l) => (
-                <ChoiceRow key={l} label={t(l)} selected={languages.includes(l)} onPress={() => toggle(languages, setLanguages, l)} />
+              {LANGS.map((l, i) => (
+                <ChoiceRow index={i} key={l} label={t(l)} selected={languages.includes(l)} onPress={() => toggle(languages, setLanguages, l)} />
               ))}
             </View>
           </>

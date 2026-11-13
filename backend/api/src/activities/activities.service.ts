@@ -1,11 +1,11 @@
 import { RegionsService } from '../regions/regions.service';
+import { CategoriesService } from '../categories/categories.service';
 import { metrics } from '../common/observability';
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Activity, Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { requireVerified } from '../common/auth';
-import { CATEGORIES } from '../common/constants';
 import { E } from '../common/errors';
 import { lockActivity } from '../common/locks';
 import { defaultZone, zoneFor } from '../common/timezone';
@@ -22,6 +22,7 @@ import { ReliabilityService } from '../reliability/reliability.controller';
 import { ClashService, withdrawnNote } from '../schedule/clash.service';
 import { decodeCursor, encodeCursor, scoreActivity, topK } from './feed-ranking';
 import { isSampleEmail } from '../common/demo';
+import { expandSearchWord, phraseTerms, searchWords } from '../common/search-terms';
 
 const HOUR = 3600 * 1000;
 /** One person going, as a card shows them: a face and a name (the first three people going come with each card). */
@@ -31,7 +32,7 @@ const MIN_LEAD = 9 * 60 * 1000; // "at least 10 minutes" in the app, minus a min
 
 export const createSchema = z.object({
   title: z.string().trim().min(2).max(80),
-  category: z.enum(CATEGORIES),
+  category: z.string().trim().min(1).max(40), // one of the categories an admin has made and turned on (checked in create)
   tags: z.array(z.string().trim().min(1).max(24)).max(5).default([]),
   description: z.string().trim().max(150).optional(), // a light line or two (lowered from 1000, then 300, by the owner, 2026-11-08)
   city: z.string().trim().min(2).max(60),
@@ -54,7 +55,7 @@ export const updateSchema = createSchema
 
 export const listSchema = z.object({
   city: z.string().trim().optional(),
-  category: z.enum(CATEGORIES).optional(),
+  category: z.string().trim().min(1).max(40).optional(),
   // words to look for (the map's search): in the title, venue, tags and category. 2 to 40 characters, at most 3 words, so one
   // search stays a cheap query; it only ever runs inside the date window and the area, which are indexed.
   q: z.string().trim().min(2).max(40).optional(),
@@ -100,6 +101,8 @@ export function effectiveStatus(a: Pick<Activity, 'status' | 'startsAt' | 'endsA
 export const MIN_TO_CONFIRM = 2;
 /** The "starting soon" reminder goes out this many minutes before the start. */
 export const REMINDER_LEAD_MIN = 60;
+/** Someone who joined less than this many minutes ago is not reminded yet: they have just seen the time. */
+export const REMINDER_SETTLE_MIN = 5;
 
 @Injectable()
 export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
@@ -114,9 +117,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {}
 
   /**
-   * One "starting soon" reminder per activity, about an hour before it begins, to everyone going. Someone who joined in the
-   * last few minutes has just seen the time, so they are not reminded. Each activity is claimed first, so two runs can
-   * never send it twice. Returns how many reminders went out.
+   * One "starting soon" reminder per person, within the hour before an activity begins, to everyone going. Someone who joined in the
+   * last few minutes has just seen the time, so they are reminded a little later instead. Who was reminded is read from their alerts, so
+   * two runs never send it twice. Returns how many reminders went out.
    */
   /**
    * After an activity ends, each member who has not said whether they were there is asked once (an alert and a push): "Did you
@@ -142,20 +145,34 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   }
 
   async sendStartingSoon(now = new Date()) {
+    const lead = REMINDER_LEAD_MIN * 60_000;
     const due = await this.prisma.activity.findMany({
-      where: { status: { in: ['published', 'full', 'confirmed'] }, remindedAt: null, startsAt: { gt: now, lte: new Date(+now + REMINDER_LEAD_MIN * 60_000) } },
-      select: { id: true },
+      where: { status: { in: ['published', 'full', 'confirmed'] }, startsAt: { gt: now, lte: new Date(+now + lead) } },
+      select: { id: true, title: true, venueName: true, startsAt: true },
     });
     let sent = 0;
-    for (const { id } of due) {
-      const claimed = await this.prisma.activity.updateMany({ where: { id, remindedAt: null }, data: { remindedAt: now } });
-      if (claimed.count === 0) continue;
-      const a = await this.prisma.activity.findUnique({ where: { id } });
-      if (!a) continue;
-      const people = await this.prisma.activityMembership.findMany({ where: { activityId: id, state: 'approved', createdAt: { lt: new Date(+now - 15 * 60_000) } }, select: { userId: true } });
+    for (const a of due) {
+      // Everyone going who has been in for a few minutes (someone who has just joined has just seen the time). This is decided person by person, so a
+      // round in which nobody qualifies yet (an activity made 25 minutes ahead, everyone new) does not use up the reminder: they get it a few minutes later.
+      const people = await this.prisma.activityMembership.findMany({
+        where: { activityId: a.id, state: 'approved', createdAt: { lt: new Date(+now - REMINDER_SETTLE_MIN * 60_000) } },
+        select: { userId: true },
+      });
+      if (people.length === 0) continue;
+      // Who was already reminded for this start time: an alert of this kind about this activity sent since the reminder window opened (a later start
+      // time opens a later window, so a changed time gets a new reminder)
+      const done = new Set(
+        (
+          await this.prisma.notification.findMany({
+            where: { type: 'starting_soon', userId: { in: people.map((m) => m.userId) }, data: { contains: `"activityId":"${a.id}"` }, createdAt: { gte: new Date(+a.startsAt - lead - 10 * 60_000) } },
+            select: { userId: true },
+          })
+        ).map((n) => n.userId),
+      );
       const mins = Math.max(1, Math.round((+a.startsAt - +now) / 60_000));
       for (const p of people) {
-        await this.notifications.notify(p.userId, 'starting_soon', 'Starting soon', `${a.title} starts in about ${mins} ${mins === 1 ? 'minute' : 'minutes'} at ${a.venueName}.`, { activityId: id });
+        if (done.has(p.userId)) continue;
+        await this.notifications.notify(p.userId, 'starting_soon', 'Starting soon', `${a.title} starts in about ${mins} ${mins === 1 ? 'minute' : 'minutes'} at ${a.venueName}.`, { activityId: a.id });
         sent++;
       }
     }
@@ -190,6 +207,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     private readonly jobs: JobsService,
     private readonly events: EventBus,
     private readonly regions: RegionsService,
+    private readonly categories: CategoriesService,
     private readonly clash: ClashService,
   ) {}
 
@@ -263,21 +281,26 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const counts = new Map<string, number>();
     if (ids.length > 0)
       for (const g of await this.prisma.activityMembership.groupBy({ by: ['activityId'], where: { activityId: { in: ids }, state: 'approved' }, _count: { _all: true } })) counts.set(g.activityId, g._count._all);
-    const faces = new Map<string, Face[]>();
-    if (withFaces && ids.length > 0) {
-      const members = await this.prisma.activityMembership.findMany({
-        where: { activityId: { in: ids }, state: 'approved' },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: { activityId: true, role: true, user: { select: { id: true, profile: { select: { displayName: true, photoUrl: true } } } } },
-      });
-      for (const m of [...members.filter((x) => x.role === 'host'), ...members.filter((x) => x.role !== 'host')]) {
-        const list = faces.get(m.activityId) ?? [];
-        if (list.length >= 3) continue;
-        list.push({ id: m.user.id, displayName: m.user.profile?.displayName ?? 'Member', photoUrl: m.user.profile?.photoUrl ?? null });
-        faces.set(m.activityId, list);
-      }
-    }
+    const faces = withFaces ? await this.facesFor(ids) : new Map<string, Face[]>();
     return rows.map((row) => build(row, counts.get(activityId(row)) ?? 0, faces.get(activityId(row)) ?? []));
+  }
+
+  /** The first three people going in each of these activities (the host first, then in the order they joined), one query for all. */
+  private async facesFor(ids: string[]): Promise<Map<string, Face[]>> {
+    const faces = new Map<string, Face[]>();
+    if (ids.length === 0) return faces;
+    const members = await this.prisma.activityMembership.findMany({
+      where: { activityId: { in: ids }, state: 'approved' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { activityId: true, role: true, user: { select: { id: true, profile: { select: { displayName: true, photoUrl: true } } } } },
+    });
+    for (const m of [...members.filter((x) => x.role === 'host'), ...members.filter((x) => x.role !== 'host')]) {
+      const list = faces.get(m.activityId) ?? [];
+      if (list.length >= 3) continue;
+      list.push({ id: m.user.id, displayName: m.user.profile?.displayName ?? 'Member', photoUrl: m.user.profile?.photoUrl ?? null });
+      faces.set(m.activityId, list);
+    }
+    return faces;
   }
 
   // ---------------------------------------------------------------- discovery
@@ -313,15 +336,24 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const area = geo && q.area === 'true'; // the city's area: by distance, or by name for activities with no position
     if (q.city && !area) and.push({ cityKey: q.city.toLowerCase() });
     if (q.category) and.push({ category: q.category });
-    // every word has to match somewhere (title, venue, tags), or be a category ("coffee" finds the Coffee ones)
-    for (const word of q.q?.toLowerCase().split(/\s+/).filter((w) => w.length >= 2).slice(0, 3) ?? []) {
-      const cats = CATEGORIES.filter((c) => c.startsWith(word) || word.startsWith(c));
+    // every word has to match somewhere (title, venue, tags, description), or be a category ("coffee" finds the Coffee ones). Each word
+    // also stands for the words that mean the same in English and Italian ("aperitivo" finds "happy hour"), and a small typo is
+    // forgiven; two words that together are one known phrase ("happy hour") are looked for as that one thing (common/search-terms.ts)
+    const typed = searchWords(q.q ?? '').slice(0, 3);
+    const phrase = phraseTerms(typed);
+    for (const terms of phrase ? [phrase] : typed.map((w) => expandSearchWord(w))) {
+      const some = terms.slice(0, 14);
+      const cats = new Set<string>();
+      for (const term of some) for (const k of await this.categories.matching('here', term)) cats.add(k);
       and.push({
         OR: [
-          { title: { contains: word, mode: 'insensitive' } },
-          { venueName: { contains: word, mode: 'insensitive' } },
-          { tags: { contains: word, mode: 'insensitive' } },
-          ...(cats.length ? [{ category: { in: [...cats] } }] : []),
+          ...some.flatMap((term) => [
+            { title: { contains: term, mode: 'insensitive' as const } },
+            { venueName: { contains: term, mode: 'insensitive' as const } },
+            { tags: { contains: term, mode: 'insensitive' as const } },
+            { description: { contains: term, mode: 'insensitive' as const } },
+          ]),
+          ...(cats.size ? [{ category: { in: [...cats] } }] : []),
         ],
       });
     }
@@ -377,8 +409,9 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         (f) => f.activityId,
       ),
     );
+    const faces = await this.facesFor(page.map((x) => x.row.id));
     const items = page.map(({ row, dist }) =>
-      this.dto(row, row._count.memberships, { distanceKm: dist !== undefined ? Math.round(dist * 10) / 10 : undefined, favorited: favs.has(row.id), mine: mine.get(row.id) ?? null }),
+      this.dto(row, row._count.memberships, { distanceKm: dist !== undefined ? Math.round(dist * 10) / 10 : undefined, favorited: favs.has(row.id), mine: mine.get(row.id) ?? null, faces: faces.get(row.id) ?? [] }),
     );
     // more to read after the last row handed back: the next page starts right there (no row is skipped or repeated)
     const edge = kept.length > q.limit ? page[page.length - 1]?.row : more ? tail : undefined;
@@ -449,10 +482,11 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const best = topK(scored, q.limit + 1);
     const page = best.slice(0, q.limit);
     const pageIds = page.map((x) => x.id);
-    const [full, favRows, mine] = await Promise.all([
+    const [full, favRows, mine, faces] = await Promise.all([
       this.prisma.activity.findMany({ where: { id: { in: pageIds } }, include: this.hostInclude }),
       this.prisma.favorite.findMany({ where: { userId: me.id, activityId: { in: pageIds } } }),
       this.myStatusFor(me.id, pageIds),
+      this.facesFor(pageIds),
     ]);
     const fullById = new Map(full.map((a) => [a.id, a]));
     const favs = new Set(favRows.map((f) => f.activityId));
@@ -460,7 +494,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     return {
       items: page.flatMap((x) => {
         const row = fullById.get(x.id); // gone between the two reads (deleted): leave it out
-        return row ? [this.dto(row, goingBy.get(x.id) ?? 0, { distanceKm: x.dist !== undefined ? Math.round(x.dist * 10) / 10 : undefined, favorited: favs.has(x.id), buddiesGoing: x.buddies, followingGoing: x.following, mine: mine.get(x.id) ?? null })] : [];
+        return row ? [this.dto(row, goingBy.get(x.id) ?? 0, { distanceKm: x.dist !== undefined ? Math.round(x.dist * 10) / 10 : undefined, favorited: favs.has(x.id), buddiesGoing: x.buddies, followingGoing: x.following, mine: mine.get(x.id) ?? null, faces: faces.get(x.id) ?? [] })] : [];
       }),
       nextCursor: best.length > q.limit && last ? encodeCursor(asOf, last.score, last.id) : null,
     };
@@ -508,6 +542,15 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       include: { user: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } } },
     });
 
+    // After it ended, a member the host has marked as not having come (and whose note a moderator has not overturned) is listed as "did not attend",
+    // whatever the member answered themselves: the host's note is what the group sees (the page groups people into Attended, Did not attend, Not answered yet)
+    const ended = Date.now() >= +a.endsAt;
+    // the viewer's own note (if the host marked them as not having come): the page shows it, with the way to dispute it
+    const myMark = isMember && ended ? await this.prisma.attendanceMark.findUnique({ where: { kind_targetId_userId: { kind: 'activity', targetId: id, userId: me.id } }, select: { id: true, state: true } }) : null;
+    const notedAbsent = new Set(
+      ended ? (await this.prisma.attendanceMark.findMany({ where: { kind: 'activity', targetId: id, state: { in: ['marked', 'disputed', 'upheld'] } }, select: { userId: true } })).map((m) => m.userId) : [],
+    );
+
     // a plain count of this host's real activities (not cancelled), shown as "N activities hosted"
     const activitiesHosted = await this.prisma.activity.count({ where: { hostId: a.hostId, status: { in: ['published', 'in_progress', 'completed'] } } });
 
@@ -527,6 +570,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       handover: a.pendingHostId ? { toMe: a.pendingHostId === me.id, toName: a.hostId === me.id ? (nominee?.displayName ?? 'a member') : undefined } : null,
       // only ever set by the member, after it ended (voluntary)
       myAttendance: isMember ? (membership?.attendance ?? 'unknown') : undefined,
+      myNote: myMark ? { id: myMark.id, state: myMark.state } : undefined,
       activitiesHosted,
       myRequest: request ? { id: request.id, state: request.state, canAppeal: request.state === 'declined' && !!request.reviewedBy && !request.appealedAt && effectiveStatus(a) !== 'cancelled' && new Date() < a.startsAt, position: request.state === 'waitlisted' ? await this.waitlistPosition(id, request.createdAt, request.id) : undefined } : null,
       favorited: !!fav,
@@ -542,8 +586,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
         friend: circle.buddies.has(m.user.id),
         // after it ended: whether this person has said if they were there, and what (the page groups people into Attended,
         // Did not attend and Not answered yet; the owner chose to show it, 2026-11-08)
-        answered: Date.now() >= +a.endsAt ? m.attendance === 'attended' || m.attendance === 'no_show' : undefined,
-        attendance: Date.now() >= +a.endsAt ? m.attendance : undefined,
+        answered: ended ? m.attendance === 'attended' || m.attendance === 'no_show' || notedAbsent.has(m.user.id) : undefined,
+        attendance: ended ? (notedAbsent.has(m.user.id) ? 'no_show' : m.attendance) : undefined,
       })),
     });
   }
@@ -552,6 +596,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   async create(me: User, body: unknown) {
     requireVerified(me);
     const dto = parse(createSchema, body);
+    await this.categories.assertChoosable('here', dto.category);
     const now = new Date();
 
     // Starting at least 10 minutes from now (1 minute of grace for a slow submit), and no further ahead than the admin of this
@@ -1269,7 +1314,8 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * One tab of "My activities", newest start first, a page at a time. `mine` = hosting or going, `pending` = waiting for a
+   * One tab of "My activities", a page at a time. `mine` is soonest first: what is on right now, then what is coming up (soonest
+   * first), then what is over or called off (the latest first). The other tabs are newest start first. `mine` = hosting or going, `pending` = waiting for a
    * host (or on the waiting list), `rejected` = declined, `all` = the three together (Profile's latest few), each row
    * tagged `row: joined | request`. `counts` is how many each tab holds, for the tab labels.
    */
@@ -1277,7 +1323,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     await this.expirePendingRequests();
     const tab = tabRaw === 'pending' || tabRaw === 'rejected' || tabRaw === 'all' ? tabRaw : 'mine';
     const limit = pageLimit(limitRaw, 20);
-    const cur = decodeKeyset(cursorRaw);
+    const cur = tab === 'mine' ? null : decodeKeyset(cursorRaw); // `mine` pages by position (below), the others by start time
     const after = (cur ? { OR: [{ activity: { startsAt: { lt: cur.at } } }, { activity: { startsAt: cur.at }, id: { lt: cur.id } }] } : {}) satisfies Prisma.ActivityMembershipWhereInput;
     const memberWhere = { userId: me.id, state: 'approved' } as const;
     const requestWhere = (states: string[]) => ({ applicantId: me.id, state: { in: states } });
@@ -1296,8 +1342,28 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
     const requestDto = (r: Awaited<ReturnType<typeof requestRows>>[number], going: number, faces: Face[]) => ({ requestId: r.id, state: r.state, activity: this.dto(r.activity, going, { faces }) });
 
     if (tab === 'mine') {
-      const page = sliceKeyset(await memberRows(limit + 1), limit, (m) => m.activity.startsAt);
-      return { items: await this.withGoing(page.items, (m) => m.activityId, joinedDto, true), nextCursor: page.nextCursor, counts };
+      // The order mixes three groups, so it cannot be a plain "after this start time" page: the person's own plans are ranked here (only
+      // ids and times are read), and a page is a slice of that ranking. The cursor is the position of the next row.
+      const now = Date.now();
+      const finished = ['cancelled', 'completed', 'archived'];
+      const rows = await this.prisma.activityMembership.findMany({ where: memberWhere, select: { id: true, activity: { select: { startsAt: true, endsAt: true, status: true } } } });
+      const group = (r: (typeof rows)[number]) => (finished.includes(r.activity.status) || +r.activity.endsAt <= now ? 2 : +r.activity.startsAt <= now ? 0 : 1);
+      const byId = (x: { id: string }, y: { id: string }) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+      rows.sort((x, y) => {
+        const gx = group(x);
+        const gy = group(y);
+        if (gx !== gy) return gx - gy;
+        if (gx === 0) return +x.activity.endsAt - +y.activity.endsAt || byId(x, y); // on now: the one that ends first
+        if (gx === 1) return +x.activity.startsAt - +y.activity.startsAt || byId(x, y); // coming up: the soonest
+        return +y.activity.startsAt - +x.activity.startsAt || byId(y, x); // over: the latest
+      });
+      const m = cursorRaw ? /^o:(\d+)$/.exec(cursorRaw) : null;
+      if (cursorRaw && !m) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
+      const from = m ? Number(m[1]) : 0;
+      const ids = rows.slice(from, from + limit).map((r) => r.id);
+      const full = await this.prisma.activityMembership.findMany({ where: { id: { in: ids } }, include: { activity: { include: this.hostInclude } } });
+      const inOrder = ids.map((id) => full.find((x) => x.id === id)).filter((x): x is (typeof full)[number] => !!x);
+      return { items: await this.withGoing(inOrder, (x) => x.activityId, joinedDto, true), nextCursor: from + limit < rows.length ? `o:${from + limit}` : null, counts };
     }
     if (tab === 'all') {
       // both kinds side by side, newest start first: each is read one page deep, merged, and cut to one page

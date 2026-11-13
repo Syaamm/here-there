@@ -82,9 +82,9 @@ export function parseDay(s: string): Date | null {
   return d.getFullYear() === Number(m[1]) && d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
 }
 
-/** The small line on a card about your circle: "2 friends going", or "1 you follow is going" when no buddy is. */
+/** The small line on a card about your circle: "2 friends going", or "1 person you follow is going" when no friend is. */
 export const circleLine = (buddies?: number, following?: number) => {
   const b = buddies ?? 0;
   const f = following ?? 0;
-  return b > 0 ? tn(b, '{n} friend going', '{n} friends going') : f > 0 ? tn(f, '{n} you follow is going', '{n} you follow are going') : null;
+  return b > 0 ? tn(b, '{n} friend going', '{n} friends going') : f > 0 ? tn(f, '{n} person you follow is going', '{n} people you follow are going') : null;
 };

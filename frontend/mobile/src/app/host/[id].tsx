@@ -15,7 +15,8 @@ import { useAction, useLoad } from '@/lib/hooks';
 import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
 import { useEnterMode, useTheme } from '@/lib/theme';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 type Req = {
   id: string;
   state: string;
@@ -74,20 +75,20 @@ export default function HostReview() {
       if (ok === undefined) setInstant((m) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== x.id)));
     });
   };
-  const cardStyle = { backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: c.line, padding: 18, gap: 16, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 } as const;
+  const cardStyle = { backgroundColor: c.surface, borderRadius: sc(24), borderWidth: 1, borderColor: c.line, padding: sp(18), gap: sp(16), shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: sc(4) }, elevation: 2 } as const;
 
   return (
     <Screen onRefresh={refresh} refreshing={false}>
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Your activity')}</Text>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500', paddingLeft: sph(4), paddingTop: sp(4) }}>{t('Your activity')}</Text>
       {a && (
         <View style={cardStyle}>
-          <Row style={{ gap: 18, alignItems: 'flex-start' }}>
-            <CatPhoto category={a.category} style={{ width: 96, height: 96, borderRadius: 20 }} />
-            <View style={{ flex: 1, gap: 8, paddingTop: 4 }}>
+          <Row style={{ gap: sp(18), alignItems: 'flex-start' }}>
+            <CatPhoto category={a.category} style={{ width: sc(96), height: sc(96), borderRadius: sc(20) }} />
+            <View style={{ flex: 1, gap: sp(8), paddingTop: sp(4) }}>
               <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{a.title}</Text>
               <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{a.venueName} | {when(a.startsAt)}</Text>
-              <View accessible accessibilityLabel={t('{going} of {capacity} approved', { going: a.going, capacity: a.capacity })} style={{ height: 5, borderRadius: 3, backgroundColor: c.line, overflow: 'hidden' }}>
-                <View style={{ width: `${Math.min(100, Math.round((a.going / Math.max(a.capacity, 1)) * 100))}%`, height: 5, backgroundColor: c.forest }} />
+              <View accessible accessibilityLabel={t('{going} of {capacity} approved', { going: a.going, capacity: a.capacity })} style={{ height: sc(5), borderRadius: sc(3), backgroundColor: c.line, overflow: 'hidden' }}>
+                <View style={{ width: `${Math.min(100, Math.round((a.going / Math.max(a.capacity, 1)) * 100))}%`, height: sc(5), backgroundColor: c.forest }} />
               </View>
               <Text style={{ color: full ? c.danger : c.green, fontSize: 12, fontWeight: '500' }}>{full ? t('Full') : tn(Math.max(0, a.capacity - a.going), '{n} spot left', '{n} spots left')}</Text>
             </View>
@@ -97,20 +98,20 @@ export default function HostReview() {
         </View>
       )}
       <ErrorBanner message={mutate.error} />
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Requests ({n})', { n: pending })}</Text>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600', paddingLeft: sph(4), paddingTop: sp(4) }}>{t('Requests ({n})', { n: pending })}</Text>
       {reqs.data && items.length === 0 && <Empty title={t('No requests yet')} />}
 
       {items.map(shown).map((r) => (
         <View key={r.id} style={cardStyle}>
           <Between style={{ alignItems: 'flex-start' }}>
-            <Row style={{ gap: 14, flex: 1 }}>
+            <Row style={{ gap: sp(14), flex: 1 }}>
               <Avatar name={r.applicant.displayName} uri={r.applicant.photoUrl} size={44} />
-              <View style={{ flex: 1, gap: 3 }}>
-                <Row style={{ gap: 6 }}>
+              <View style={{ flex: 1, gap: sc(3) }}>
+                <Row style={{ gap: sp(6) }}>
                   <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600', flexShrink: 1 }}>{r.applicant.displayName ?? t('Member')}</Text>
                   {r.applicant.verifiedAdult ? <VerifiedTick size={16} /> : null}
                 </Row>
-                <Text style={{ color: c.muted, fontSize: 14, lineHeight: 18 }}>
+                <Text style={{ color: c.muted, fontSize: 16, lineHeight: 21 }}>
                   {r.applicant.verifiedAdult ? t('Verified adult') : t('Not verified')}
                   {r.applicant.languages.length ? ` · ${r.applicant.languages.join(', ')}` : ''}
                 </Text>
@@ -124,19 +125,19 @@ export default function HostReview() {
             <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(r.createdAt)}</Text>
           </Between>
           {r.applicant.interests.length > 0 && (
-            <Row style={{ flexWrap: 'wrap', gap: 8 }}>
+            <Row style={{ flexWrap: 'wrap', gap: sp(8) }}>
               {r.applicant.interests.slice(0, 5).map((i) => (
-                <View key={i} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: c.muted, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 }}>
+                <View key={i} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: c.muted, borderRadius: sc(20), paddingHorizontal: sph(12), paddingVertical: sp(7) }}>
                   <Text style={{ color: c.forest, fontSize: 12, lineHeight: 16 }}>{i}</Text>
                 </View>
               ))}
             </Row>
           )}
-          <Text style={{ color: r.intro ? c.text : c.muted, fontSize: 14, lineHeight: 20 }}>{r.intro || t('No introduction.')}</Text>
+          <Text style={{ color: r.intro ? c.text : c.muted, fontSize: 16, lineHeight: 23 }}>{r.intro || t('No introduction.')}</Text>
           <View style={{ height: 1, backgroundColor: c.line }} />
 
           {r.state === 'requested' && (
-            <Row style={{ gap: 12 }}>
+            <Row style={{ gap: sp(12) }}>
               <PillButton title={t('Accept')} small disabled={full} onPress={() => decide(r, 'approve')} style={{ flex: 1.2 }} />
               <PillButton outline title={t('Decline')} small onPress={() => decide(r, 'decline')} style={{ flex: 1 }} />
             </Row>

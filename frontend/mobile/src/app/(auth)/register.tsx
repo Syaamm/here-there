@@ -10,7 +10,8 @@ import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp } from '@/lib/scale';
 /** 18+ confirmation is required here; identity verification comes later, before hosting or joining. */
 export default function Register() {
   const router = useRouter();
@@ -67,12 +68,12 @@ export default function Register() {
     return (
       <Screen maxWidth={520}>
         <AuthBack onPress={() => { setPending(null); setCode(''); setSentAgain(false); act.setError(null); }} />
-        <View style={{ marginTop: 8 }}>
+        <View style={{ marginTop: sp(8) }}>
           <AuthHeading title={t('Check your email')} subtitle={t('We sent a 6-digit code to {email}. Enter it to finish creating your account.', { email: pending.email })} />
         </View>
         <ErrorBanner message={act.error} />
         {sentAgain ? <Banner tone="ok">{t('We sent a new code.')}</Banner> : null}
-        <View style={{ gap: 18 }}>
+        <View style={{ gap: sp(18) }}>
           <AuthField label={t('Code')} placeholder={t('6-digit code')} value={code} onChangeText={setCode} keyboardType="number-pad" autoCapitalize="none" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} returnKeyType="go" onSubmitEditing={confirm} />
           <AuthButton title={t('Continue')} onPress={confirm} loading={act.busy} disabled={code.trim().length !== 6} />
           <Btn title={t('Send the code again')} variant="ghost" onPress={again} disabled={act.busy} />
@@ -84,16 +85,16 @@ export default function Register() {
   return (
     <Screen maxWidth={520}>
       <AuthBack onPress={() => router.back()} />
-      <View style={{ marginTop: 8 }}>
+      <View style={{ marginTop: sp(8) }}>
         <AuthHeading title={t('Create your account')} subtitle={t('Join a space where real sparks happen.')} />
       </View>
       <ErrorBanner message={act.error} />
-      <View style={{ gap: 18 }}>
+      <View style={{ gap: sp(18) }}>
         <AuthField label={t('Display name')} placeholder={t('Enter your name')} value={f.displayName} onChangeText={set('displayName')} maxLength={40} autoComplete="name" textContentType="name" autoCapitalize="words" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => emailRef.current?.focus()} />
         <AuthField label={t('Email')} placeholder={t('Enter your email')} value={f.email} onChangeText={set('email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" inputRef={emailRef} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => pwRef.current?.focus()} />
         <AuthField label={t('Password')} placeholder={t('Enter your password')} hint={pwHint} error={pwBadChars ? t('A password cannot contain line breaks or control characters. Letters, numbers, spaces and symbols are fine.') : null} value={f.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" textContentType="newPassword" inputRef={pwRef} returnKeyType="done" />
-        <View style={{ gap: 8 }}>
-          <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('Home city')}</Text>
+        <View style={{ gap: sp(8) }}>
+          <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '600', paddingLeft: 2 }}>{t('Home city')}</Text>
           <CityField value={f.homeCity} onPick={(name) => setF((p) => ({ ...p, homeCity: name }))} />
           <Txt variant="muted">{t('City only, never an address')}</Txt>
         </View>

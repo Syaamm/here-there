@@ -436,6 +436,8 @@ export type Activity = {
   canAppealRemoval?: boolean;
   /** your part in it, on the feed's cards: host, going, requested or waitlisted (null: none) */
   mine?: 'host' | 'going' | 'requested' | 'waitlisted' | null;
+  /** after it ended: the host's note that you did not come (marked, disputed, upheld), with its id, so you can dispute it */
+  myNote?: { id: string; state: string };
   myRequest?: { id: string; state: string; /** a declined request can be asked about once more */ canAppeal?: boolean; /** 1 = first in line, when state is waitlisted */ position?: number } | null;
   conversationId?: string | null;
   participants?: Participant[];

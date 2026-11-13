@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { z } from 'zod';
-import { CurrentUser } from '../common/auth';
+import { CurrentUser, requireVerified } from '../common/auth';
 import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
 import { REPORT_CATEGORIES, REPORT_TARGETS } from '../common/constants';
 import { E } from '../common/errors';
@@ -33,6 +33,7 @@ export class SafetyController {
 
   @Post('reports')
   async report(@CurrentUser() me: User, @Body() body: unknown) {
+    requireVerified(me); // only a verified adult can report (the app shows "Get verified to report")
     const dto = parse(reportSchema, body);
     // "the host did not show up" can only come from a member of that plan, so it goes through its own checks
     if (dto.category === 'host_no_show') {

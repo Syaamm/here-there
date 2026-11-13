@@ -8,7 +8,8 @@ import { cityQuery, useCity, useCityPos } from '@/lib/city';
 import { feedRange } from '@/lib/feed';
 import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
-
+
+import { sc, sp } from '@/lib/scale';
 const EMPTY: Record<string, string> = {
   soon: 'Nothing starts in the next 2 hours.',
   tonight: 'Nothing else planned for tonight.',
@@ -52,8 +53,8 @@ function Section({ id, index, enabled, base, round, toMap, onDone }: { id: Secti
   }, [enabled, finished, id, onDone]);
   if (!enabled) return null;
   return (
-    <Reveal index={index} style={{ gap: 8 }}>
-      <Txt variant="h3" accessibilityRole="header" style={{ fontSize: 15 }}>{t(SECTIONS.find((s) => s.id === id)!.title)}</Txt>
+    <Reveal index={index} style={{ gap: sp(8) }}>
+      <Txt variant="h3" accessibilityRole="header" style={{ fontSize: 16 }}>{t(SECTIONS.find((s) => s.id === id)!.title)}</Txt>
       <ErrorBanner message={list.error?.message} />
       {list.loading && !list.data && win ? <Spinner rows={2} /> : null}
       {loaded && list.items.length === 0 ? (

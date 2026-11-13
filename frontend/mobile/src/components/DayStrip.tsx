@@ -8,7 +8,8 @@ import { reducedMotion, SOFT } from './Pop';
 import { Text } from './ScaledText';
 import { keyboardTaps } from '@/lib/keyboard';
 import { dateLang } from '@/lib/format';
-
+
+import { sc } from '@/lib/scale';
 const CARD = 58;
 const GAP = 8;
 const STEP = CARD + GAP;
@@ -89,7 +90,7 @@ export function DayStrip({ days, value, onChange, dayNumber }: { days: string[];
             pointerEvents="none"
             accessibilityElementsHidden
             importantForAccessibility="no"
-            style={{ position: 'absolute', left: (width - FRAME_W) / 2, top: 0, width: FRAME_W, height: FRAME_H, borderRadius: 20, borderWidth: 1.5, borderColor: `${c.green}99`, backgroundColor: `${c.green}14`, transform: [{ scale: pulse }] }}
+            style={{ position: 'absolute', left: (width - FRAME_W) / 2, top: 0, width: FRAME_W, height: FRAME_H, borderRadius: sc(20), borderWidth: 1.5, borderColor: `${c.green}99`, backgroundColor: `${c.green}14`, transform: [{ scale: pulse }] }}
           />
           <Animated.ScrollView
             // the ref only ever needs scrollTo
@@ -128,13 +129,13 @@ export function DayStrip({ days, value, onChange, dayNumber }: { days: string[];
                   >
                     {d ? (
                       <>
-                        <Text style={{ color: c.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>{part(d, { weekday: 'short' }).toUpperCase()}</Text>
-                        <Text style={{ color: c.text, fontSize: 21, fontWeight: '800', lineHeight: 26 }}>{Number(d.slice(8))}</Text>
-                        <Text style={{ color: c.muted, fontSize: 10, fontWeight: '700' }}>{part(d, { month: 'short' })}</Text>
+                        <Text style={{ color: c.muted, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>{part(d, { weekday: 'short' }).toUpperCase()}</Text>
+                        <Text style={{ color: c.text, fontSize: 22, fontWeight: '700', lineHeight: 27 }}>{Number(d.slice(8))}</Text>
+                        <Text style={{ color: c.muted, fontSize: 12, fontWeight: '700' }}>{part(d, { month: 'short' })}</Text>
                       </>
                     ) : (
                       <>
-                        <Ionicons name="help-circle-outline" size={22} color={c.muted} />
+                        <Ionicons name="help-circle-outline" size={sc(22)} color={c.muted} />
                         <Text style={{ color: c.text, fontSize: 12, fontWeight: '800' }}>{t('Later')}</Text>
                       </>
                     )}
@@ -185,13 +186,13 @@ export function Segmented<T extends string>({ options, value, onChange }: { opti
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [at, segW]);
   return (
-    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', backgroundColor: c.accentSoft, borderRadius: 16, padding: PAD, gap: GAPS }}>
+    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', backgroundColor: c.accentSoft, borderRadius: sc(16), padding: PAD, gap: GAPS }}>
       {segW ? (
         <Animated.View
           pointerEvents="none"
           accessibilityElementsHidden
           importantForAccessibility="no"
-          style={{ position: 'absolute', left: PAD, top: PAD, width: segW, height: H, borderRadius: 13, borderWidth: 1.5, borderColor: `${c.green}AA`, backgroundColor: `${c.green}26`, opacity: seen, transform: [{ translateX: x }] }}
+          style={{ position: 'absolute', left: PAD, top: PAD, width: segW, height: H, borderRadius: sc(13), borderWidth: 1.5, borderColor: `${c.green}AA`, backgroundColor: `${c.green}26`, opacity: seen, transform: [{ translateX: x }] }}
         />
       ) : null}
       {options.map(([label, v, icon, hint]) => (
@@ -223,13 +224,13 @@ function Segment({ on, label, hint, icon, onPress, height }: { on: boolean; labe
       accessibilityState={{ selected: on }}
       onPress={onPress}
       // an exact height (not a minimum), so the green frame behind always sits exactly on it, on Android as on iPhone
-      style={({ pressed }) => [{ flex: 1, height, borderRadius: 13, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 2 }, pressed && !on && { opacity: 0.7 }]}
+      style={({ pressed }) => [{ flex: 1, height, borderRadius: sc(13), alignItems: 'center', justifyContent: 'center', gap: sc(3), paddingHorizontal: 2 }, pressed && !on && { opacity: 0.7 }]}
     >
       <Animated.View style={{ transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -2] }) }, { scale: lift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }] }}>
-        <Ionicons name={icon} size={18} color={on ? c.green : c.forest} />
+        <Ionicons name={icon} size={sc(18)} color={on ? c.green : c.forest} />
       </Animated.View>
       {/* one line, shrinking a little if a language or the phone's font size is wide: never wrapping into a taller bar */}
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: c.text, fontSize: 11, fontWeight: '700' }}>{t(label)}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: c.text, fontSize: 12, fontWeight: '700' }}>{t(label)}</Text>
     </Pressable>
   );
 }

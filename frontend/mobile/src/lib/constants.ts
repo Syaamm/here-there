@@ -44,6 +44,27 @@ export const REPORT_CATEGORIES: [string, string][] = [
 
 export const LANGUAGES = ['English', 'Italian', 'French', 'Spanish', 'German', 'Portuguese', 'Dutch', 'Arabic'];
 export const INTERESTS = ['coffee', 'culture', 'travel', 'running', 'food', 'music', 'art', 'hiking', 'photography', 'nightlife', 'sports', 'books', 'fitness', 'adventure'];
+/**
+ * The interests a person can pick on Edit profile: the same few categories as the sign-up questions (app/onboarding.tsx), as pills,
+ * a short set for HERE (what to do) and one for THERE (the travel vibe). Both are saved in the one `interests` list of the profile,
+ * so a key that is in both (food, culture, fitness, adventure, nightlife) is the same choice in both. Keep these in step with onboarding.
+ */
+export const HERE_INTERESTS: [string, string][] = [
+  ['coffee', 'Coffee'],
+  ['food', 'Food & Drinks'],
+  ['culture', 'Culture'],
+  ['fitness', 'Fitness'],
+  ['adventure', 'Adventures'],
+  ['nightlife', 'Music & Nightlife'],
+];
+export const THERE_INTERESTS: [string, string][] = [
+  ['adventure', 'Adventure'],
+  ['food', 'Food & Local life'],
+  ['culture', 'Culture & History'],
+  ['fitness', 'Running & Fitness'],
+  ['outdoor', 'Outdoor'],
+  ['nightlife', 'Nightlife'],
+];
 
 /** The travel interests of a trip, in the order of the chips on THERE Home: the same four in the create form, the filters and Home. */
 export const TRIP_TAGS = ['adventure', 'nature', 'beach', 'photography'];
@@ -67,7 +88,7 @@ export const EXPERIENCE: [string, string][] = [
 ];
 
 /** One photo per category (webp, ~30 KB each). Decorative: the category is always also named in text. */
-export const CAT_IMAGES: Record<string, number> = {
+export const CAT_IMAGES: Record<string, number | { uri: string }> = {
   coffee: require('../../assets/categories/coffee.webp'),
   drinks: require('../../assets/categories/drinks.webp'),
   food: require('../../assets/categories/food.webp'),

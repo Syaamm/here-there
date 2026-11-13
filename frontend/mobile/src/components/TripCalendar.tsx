@@ -5,7 +5,8 @@ import { useTheme } from '@/lib/theme';
 import { reducedMotion, SOFT } from './Pop';
 import { Text } from './ScaledText';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp } from '@/lib/scale';
 const WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -24,7 +25,7 @@ function DayButton({ on, base, number, dots, onPress, label, disabled, look, rin
   on: boolean; base: object | null; number: string; dots: number; onPress: () => void; label: string; disabled: boolean;
   look: { dot: string; numberColor: string; weight: '500' | '600' | '800' }; ring: object | null;
 }) {
-  const shape = { width: 36, height: 36, borderRadius: 18, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 2 };
+  const shape = { width: sc(36), height: sc(36), borderRadius: sc(18), alignItems: 'center' as const, justifyContent: 'center' as const, gap: 2 };
   return (
     <Pressable
       accessibilityRole="button"
@@ -34,9 +35,9 @@ function DayButton({ on, base, number, dots, onPress, label, disabled, look, rin
       onPress={onPress}
       style={({ pressed }) => [shape, base, ring, pressed && !on && { opacity: 0.8 }]}
     >
-      <Text style={{ color: look.numberColor, fontWeight: look.weight, fontSize: 13 }}>{number}</Text>
-      <View style={{ flexDirection: 'row', gap: 2, height: 5 }}>
-        {Array.from({ length: dots }, (_, n) => <View key={n} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: look.dot }} />)}
+      <Text style={{ color: look.numberColor, fontWeight: look.weight, fontSize: 12 }}>{number}</Text>
+      <View style={{ flexDirection: 'row', gap: 2, height: sc(5) }}>
+        {Array.from({ length: dots }, (_, n) => <View key={n} style={{ width: sc(5), height: sc(5), borderRadius: sc(3), backgroundColor: look.dot }} />)}
       </View>
     </Pressable>
   );
@@ -89,8 +90,8 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
   while (cells.length % 7) cells.push(null);
 
   const arrow = (dir: -1 | 1, label: string, ok: boolean) => (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !ok }} disabled={!ok} hitSlop={8} onPress={() => setMonth(shown + dir)} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: c.accentSoft, opacity: ok ? 1 : 0.3 }}>
-      <Ionicons name={dir < 0 ? 'chevron-back' : 'chevron-forward'} size={16} color={c.forest} />
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !ok }} disabled={!ok} hitSlop={8} onPress={() => setMonth(shown + dir)} style={{ width: sc(32), height: sc(32), borderRadius: sc(16), alignItems: 'center', justifyContent: 'center', backgroundColor: c.accentSoft, opacity: ok ? 1 : 0.3 }}>
+      <Ionicons name={dir < 0 ? 'chevron-back' : 'chevron-forward'} size={sc(16)} color={c.forest} />
     </Pressable>
   );
 
@@ -99,8 +100,10 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
   const [gridW, setGridW] = useState(0);
   const selDay = monthIndex(selected) === shown ? parts(selected).d : null;
   const cw = gridW / 7;
-  const ring = Math.min(cw - 2, RING); // a circle, so as wide as it is tall
-  const target = selDay && gridW ? { x: ((lead + selDay - 1) % 7) * cw + (cw - ring) / 2, y: Math.floor((lead + selDay - 1) / 7) * CELL + (CELL - ring) / 2 } : null;
+  // one row height for everything: the numbers, the soft band behind them and the chosen-day circle (they were sized differently, so they drifted apart on bigger screens)
+  const cell = sc(CELL);
+  const ring = Math.min(cw - 2, sc(RING)); // a circle, so as wide as it is tall
+  const target = selDay && gridW ? { x: ((lead + selDay - 1) % 7) * cw + (cw - ring) / 2, y: Math.floor((lead + selDay - 1) / 7) * cell + (cell - ring) / 2 } : null;
   const fx = useRef(new Animated.Value(0)).current;
   const fy = useRef(new Animated.Value(0)).current;
   const seeFrame = useRef(new Animated.Value(0)).current;
@@ -136,14 +139,14 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
 
   const plannedDays = tripDays.filter((k) => planned.has(k)).length;
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: sp(6) }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        {first === last ? <View style={{ width: 32 }} /> : arrow(-1, t('Previous month'), shown > first)}
+        {first === last ? <View style={{ width: sc(32) }} /> : arrow(-1, t('Previous month'), shown > first)}
         <View style={{ alignItems: 'center' }}>
-          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '600', fontSize: 15 }}>{t(MONTHS[m])} {y}</Text>
-          <Text style={{ color: c.muted, fontSize: 11 }}>{tn(tripDays.length, '{planned} of {n} day planned', '{planned} of {n} days planned').split('{planned}').join(String(plannedDays))}</Text>
+          <Text accessibilityRole="header" style={{ color: c.text, fontWeight: '600', fontSize: 16 }}>{t(MONTHS[m])} {y}</Text>
+          <Text style={{ color: c.muted, fontSize: 12 }}>{tn(tripDays.length, '{planned} of {n} day planned', '{planned} of {n} days planned').split('{planned}').join(String(plannedDays))}</Text>
         </View>
-        {first === last ? <View style={{ width: 32 }} /> : arrow(1, t('Next month'), shown < last)}
+        {first === last ? <View style={{ width: sc(32) }} /> : arrow(1, t('Next month'), shown < last)}
       </View>
 
       <Animated.View style={{ opacity: slide.interpolate({ inputRange: [0, 0.6], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [dir.current * 36, 0] }) }, { scale: slide.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) }] }}>
@@ -163,7 +166,7 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
                 const on = d !== null && inTrip.has(keyOf(d));
                 const startsHere = on && (i === 0 || !inTrip.has(keyOf(d! - 1)));
                 const endsHere = on && (i === 6 || !inTrip.has(keyOf(d! + 1)));
-                return <View key={i} style={{ flex: 1, height: CELL, justifyContent: 'center' }}>{on ? <View style={{ height: 38, backgroundColor: `${c.accentSoft}66`, borderTopLeftRadius: startsHere ? 19 : 0, borderBottomLeftRadius: startsHere ? 19 : 0, borderTopRightRadius: endsHere ? 19 : 0, borderBottomRightRadius: endsHere ? 19 : 0 }} /> : null}</View>;
+                return <View key={i} style={{ flex: 1, height: cell, justifyContent: 'center' }}>{on ? <View style={{ height: sc(38), backgroundColor: `${c.accentSoft}66`, borderTopLeftRadius: startsHere ? sc(19) : 0, borderBottomLeftRadius: startsHere ? sc(19) : 0, borderTopRightRadius: endsHere ? sc(19) : 0, borderBottomRightRadius: endsHere ? sc(19) : 0 }} /> : null}</View>;
               })}
             </View>
           ))}
@@ -179,7 +182,7 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
         {Array.from({ length: cells.length / 7 }, (_, row) => (
           <View key={row} style={{ flexDirection: 'row' }}>
             {cells.slice(row * 7, row * 7 + 7).map((d, i) => {
-              if (d === null) return <View key={i} style={{ flex: 1, height: 44 }} />;
+              if (d === null) return <View key={i} style={{ flex: 1, height: cell }} />;
               const k = keyOf(d);
               const stops = planned.get(k) ?? 0;
               const trip = inTrip.has(k);
@@ -187,7 +190,7 @@ export function TripCalendar({ tripDays, planned, selected, today, onSelect, day
               const on = k === selected;
               const label = `${t(WEEKDAYS[new Date(y, m, d).getDay()])} ${d} ${t(MONTHS[m])}${trip ? `, ${dayNumber(k)}` : `, ${t('outside the trip dates')}`}, ${stops ? tn(stops, '{n} stop planned', '{n} stops planned') : t('nothing planned')}${k === today ? `, ${t('today')}` : ''}`;
               return (
-                <View key={i} style={{ flex: 1, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <View key={i} style={{ flex: 1, height: cell, alignItems: 'center', justifyContent: 'center' }}>
                   <DayButton
                     on={on}
                     label={label}

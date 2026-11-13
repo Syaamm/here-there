@@ -7,7 +7,8 @@ import { post } from '@/lib/api';
 import { useAction } from '@/lib/hooks';
 import { currentLang, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
-
+
+import { sc, sp } from '@/lib/scale';
 /** Your data: a copy of it, correcting it, and deleting the account. */
 export default function MyData() {
   const go = useGo();
@@ -30,7 +31,7 @@ export default function MyData() {
     }
     setDone(true);
   };
-  const arrow = <Ionicons name="chevron-forward" size={16} color={c.muted} />;
+  const arrow = <Ionicons name="chevron-forward" size={sc(16)} color={c.muted} />;
 
   return (
     <Screen hasHeader>
@@ -38,18 +39,18 @@ export default function MyData() {
       {done ? <Banner tone="ok">{t('Ready. Keep the file safe.')}</Banner> : null}
 
       <Txt variant="label">{t('A copy of your data')}</Txt>
-      <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
+      <Card style={{ padding: sp(14), borderRadius: sc(18), gap: sp(10) }}>
         <Txt variant="small">{t("A ZIP with all the data we keep about you, as a file. Not included: your password and other people's private details. One copy a day.")}</Txt>
         <Btn title={t('Download my data (ZIP)')} onPress={download} loading={act.busy} />
       </Card>
 
       <Txt variant="label">{t('What we keep')}</Txt>
-      <Card style={{ padding: 12, borderRadius: 18, gap: 0 }}>
+      <Card style={{ padding: sp(12), borderRadius: sc(18), gap: 0 }}>
         <ListRow icon="time-outline" title={t('How long we keep things')} subtitle={t('Chats, alerts, reports and more, and when they are deleted')} onPress={() => go('/retention')} right={arrow} last />
       </Card>
 
       <Txt variant="label">{t('Delete your account')}</Txt>
-      <Card style={{ padding: 14, borderRadius: 18, gap: 10 }}>
+      <Card style={{ padding: sp(14), borderRadius: sc(18), gap: sp(10) }}>
         <Txt variant="small">{t('This erases your name, photo, bio, email, messages and identity details, and cannot be undone.')}</Txt>
         <Btn title={t('Delete my account…')} variant="danger" onPress={() => go('/delete-account')} />
       </Card>

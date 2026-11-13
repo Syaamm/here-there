@@ -2,7 +2,8 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { Animated, Easing, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
-
+
+import { sc, sp } from '@/lib/scale';
 // One shared pulse for every grey block on screen: a single native animation, started with the first block and stopped
 // with the last, so a screenful of placeholders costs next to nothing.
 const pulse = new Animated.Value(0);
@@ -40,9 +41,9 @@ function Block({ children, gap = 12 }: { children: ReactNode; gap?: number }) {
 export function SkeletonReportRow({ last }: { last?: boolean }) {
   const { c } = useTheme();
   return (
-    <View style={{ paddingVertical: 16, gap: 10, borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
+    <View style={{ paddingVertical: sp(16), gap: sp(10), borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
       <Skeleton w="72%" h={16} />
-      <View style={{ flexDirection: 'row', gap: 6 }}>
+      <View style={{ flexDirection: 'row', gap: sp(6) }}>
         <Skeleton w={78} h={24} r={12} />
         <Skeleton w={132} h={24} r={12} />
       </View>
@@ -57,9 +58,9 @@ export function SkeletonRows({ count = 4 }: { count?: number }) {
   return (
     <Block>
       {Array.from({ length: count }, (_, i) => (
-        <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 11, padding: 9, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line }}>
+        <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(11), padding: sp(9), borderRadius: sc(16), backgroundColor: c.surface, borderWidth: 1, borderColor: c.line }}>
           <Skeleton w={52} h={52} r={12} />
-          <View style={{ flex: 1, gap: 7 }}>
+          <View style={{ flex: 1, gap: sp(7) }}>
             <Skeleton w="62%" h={13} />
             <Skeleton w="85%" h={11} />
             <Skeleton w="48%" h={10} />

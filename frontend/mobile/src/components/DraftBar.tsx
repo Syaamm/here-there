@@ -7,7 +7,8 @@ import { currentDraftId, draftToUpdate, draftUnchanged, markDraftSaved, ownDraft
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useMe } from '@/lib/auth';
-
+
+import { sc, sp } from '@/lib/scale';
 /**
  * "Save draft" under a create form. A saved draft belongs to the account, so it is there on another phone too. Drafts are
  * opened from My drafts: `onLoad` receives the saved form when one is opened.
@@ -95,7 +96,7 @@ function DraftBarInner({ kind, data, onLoad, beforeLoad, showMyDrafts = false, n
   return (
     <>
       <ErrorBanner message={act.error} />
-      <Row style={{ gap: 8, alignItems: 'center' }}>
+      <Row style={{ gap: sp(8), alignItems: 'center' }}>
         {/* a draft needs its name, and something new to save: until then Save draft is off */}
         <Btn title={saved ? t('Saved to your drafts') : t('Save draft')} variant="secondary" small onPress={save} loading={act.busy} disabled={!named || (unchanged && !saved)} style={{ flex: 1 }} />
         {showMyDrafts ? <Btn title={t('My drafts ›')} variant="ghost" small onPress={() => go('/drafts')} /> : null}

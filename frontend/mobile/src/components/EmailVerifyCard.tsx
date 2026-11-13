@@ -6,7 +6,8 @@ import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp } from '@/lib/scale';
 /** Confirms the user controls their email address with a 6-digit code (spec 3.1 step 2). */
 export function EmailVerifyCard({ onVerified }: { onVerified?: () => void }) {
   const { me, reload, devCode, setDevCode } = useMe();
@@ -41,7 +42,7 @@ export function EmailVerifyCard({ onVerified }: { onVerified?: () => void }) {
   };
 
   return (
-    <AcctCard style={{ gap: 14 }}>
+    <AcctCard style={{ gap: sp(14) }}>
       <Txt variant="h3">{t('✉ Confirm your email')}</Txt>
       <Txt variant="small">{t("Code sent to {email}.", { email: me?.email ?? '' })}</Txt>
       {devCode ? (

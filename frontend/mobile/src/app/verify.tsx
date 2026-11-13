@@ -17,8 +17,8 @@ import { del, get, post, type Me } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad } from '@/lib/hooks';
 import { localeTag, useT } from '@/lib/i18n';
-import { dateText } from '@/lib/format';
-
+
+import { sc, sp } from '@/lib/scale';
 type Eligibility = Me['eligibility'];
 type Status = {
   eligibility: Eligibility;
@@ -60,7 +60,6 @@ const IDENTITY_CHIP: Record<string, [string, 'ok' | 'warn' | 'bad' | 'neutral']>
   reverification_required: ['Re-check needed', 'warn'],
   unverified: ['Not started', 'neutral'],
 };
-const date = (iso: string) => dateText(iso, { weekday: false, year: true });
 
 /**
  * Identity verification (KYC). Browsing never needs it; creating, joining, applying and chatting do.
@@ -168,13 +167,13 @@ export default function Verify() {
     <AcctScreen title={t('Get verified')}>
       {/* the picture that opens the page: a verified profile on a phone. Drawn from the designer's vector file at 4x (876 x 852), so it
           stays sharp on every screen; the old 392 px picture was stretched to about twice its size */}
-      <Image source={require('../../assets/illustrations/verified.webp')} contentFit="contain" accessibilityElementsHidden importantForAccessibility="no" style={{ width: '100%', height: 250, marginTop: 4, marginBottom: 8 }} />
+      <Image source={require('../../assets/illustrations/verified.webp')} contentFit="contain" accessibilityElementsHidden importantForAccessibility="no" style={{ width: '100%', height: sc(250), marginTop: sp(4), marginBottom: sp(8) }} />
 
-      <AcctCard style={{ gap: 6, paddingVertical: 18 }}>
+      <AcctCard style={{ gap: sp(6), paddingVertical: sp(18) }}>
         {statusRows.map(([icon, label, tag, tone]) => (
-          <View key={icon} accessible accessibilityLabel={`${label}: ${tag}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 52 }}>
-            <Ionicons name={icon} size={28} color={c.text} />
-            <Text style={{ flex: 1, color: c.text, fontSize: 19, opacity: 0.85 }}>{label}</Text>
+          <View key={icon} accessible accessibilityLabel={`${label}: ${tag}`} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(16), minHeight: sc(52) }}>
+            <Ionicons name={icon} size={sc(28)} color={c.text} />
+            <Text style={{ flex: 1, color: c.text, fontSize: 20, opacity: 0.85 }}>{label}</Text>
             <StatusTag label={tag} tone={tone} />
           </View>
         ))}
@@ -185,7 +184,7 @@ export default function Verify() {
       {e === 'verified' && (
         <>
           <Banner tone="ok">
-            {t("You're a verified adult.")}{st.data?.verifiedUntil ? ' ' + t('Valid until {date}.', { date: date(st.data.verifiedUntil) }) : ''}
+            {t("You're a verified adult.")}
           </Banner>
           <AuthButton title={t('Back to exploring')} onPress={() => router.back()} />
         </>
@@ -197,8 +196,8 @@ export default function Verify() {
           {st.data?.resumeUrl ? <AuthButton title={t('Continue identity check')} onPress={() => (Platform.OS === 'web' ? openTab(st.data!.resumeUrl!) : void openCheck(st.data!.resumeUrl!))} /> : null}
           <AcctOutlineButton title={t('Check for an update')} icon="refresh" loading={st.loading} onPress={() => void st.reload()} />
           {/* closed the provider page, or it got stuck: abandon this attempt and begin again */}
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Cancel and start over')} disabled={act.busy} hitSlop={8} onPress={() => act.run(() => del('/v1/me/verification'))} style={{ alignSelf: 'center', minHeight: 44, justifyContent: 'center', opacity: act.busy ? 0.5 : 1 }}>
-            <Text style={{ color: c.danger, fontSize: 15, textDecorationLine: 'underline' }}>{t('Cancel and start over')}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Cancel and start over')} disabled={act.busy} hitSlop={8} onPress={() => act.run(() => del('/v1/me/verification'))} style={{ alignSelf: 'center', minHeight: sc(44), justifyContent: 'center', opacity: act.busy ? 0.5 : 1 }}>
+            <Text style={{ color: c.danger, fontSize: 16, textDecorationLine: 'underline' }}>{t('Cancel and start over')}</Text>
           </Pressable>
         </>
       )}
@@ -226,7 +225,7 @@ export default function Verify() {
           <Txt variant="h2">{t('How it works')}</Txt>
           {STEPS.map(([n, title]) => (
             <Row key={n}>
-              <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#102F29', alignItems: 'center', justifyContent: 'center' }}>
+              <View style={{ width: sc(28), height: sc(28), borderRadius: sc(14), backgroundColor: '#102F29', alignItems: 'center', justifyContent: 'center' }}>
                 <Txt color="#fff" bold>{n}</Txt>
               </View>
               <View style={{ flex: 1 }}>
@@ -235,7 +234,7 @@ export default function Verify() {
             </Row>
           ))}
 
-          <AcctCard style={{ gap: 8 }}>
+          <AcctCard style={{ gap: sp(8) }}>
             <Txt variant="h3">{t('🔒 Your data')}</Txt>
             <Txt variant="small">{t('• We keep only the result (verified or not), a reference number and the time you agreed. We never store or show your ID photo, selfie, name or birth date.')}</Txt>
             <Txt variant="small">{method === 'face' ? t('• Matching your face to your ID is biometric data. It is used only for this check, and only with your consent.') : t('• This check uses your ID document only: no selfie and no face matching, so nothing biometric.')}</Txt>

@@ -5,7 +5,8 @@ import { del, post } from '@/lib/api';
 import { useAction, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
-
+
+import { sc, sp } from '@/lib/scale';
 type Kind = 'buddies' | 'following' | 'followers';
 type Person = { userId: string; displayName: string; homeCity: string | null; photoUrl: string | null; verifiedAdult: boolean; following: boolean; followsYou: boolean; buddy: boolean };
 type Counts = { counts: Record<Kind, number> };
@@ -50,11 +51,11 @@ export default function Connections() {
       {list.data && items.length === 0 && <Empty icon="people-outline" title={t(EMPTY[kind])}>{t(EMPTY_HINT[kind])}</Empty>}
       <Grid>
         {items.map((p) => (
-          <Card key={p.userId} onPress={() => go(`/user/${p.userId}`)} accessibilityLabel={t('{name}, open profile', { name: p.displayName })} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 18 }}>
+          <Card key={p.userId} onPress={() => go(`/user/${p.userId}`)} accessibilityLabel={t('{name}, open profile', { name: p.displayName })} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(12), padding: sp(12), borderRadius: sc(18) }}>
             <Avatar name={p.displayName} uri={p.photoUrl} size={44} />
             <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="h3" style={{ fontSize: 15, lineHeight: 20 }}>{p.displayName}</Txt>
-              <Row style={{ gap: 6 }}>
+              <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{p.displayName}</Txt>
+              <Row style={{ gap: sp(6) }}>
                 <Txt variant="small">{p.homeCity ?? t('City not set')}</Txt>
                 {p.buddy && <Chip label={t('Friend')} tone="ok" />}
               </Row>

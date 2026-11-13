@@ -9,7 +9,7 @@ import { useMe } from '@/lib/auth';
 import { useKeyboardOverlap, keyboardTaps } from '@/lib/keyboard';
 import { useLayout } from '@/lib/layout';
 import { useT } from '@/lib/i18n';
-import { sc } from '@/lib/scale';
+import { sc, sp, sph } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { TRIP_PHOTOS } from './Cards';
 import { RoundPhoto } from './CreateParts';
@@ -19,6 +19,7 @@ import { Text, TextInput } from './ScaledText';
 import { Avatar, pressed } from './ui';
 import { CityPicker } from './CityPicker';
 import { TRIP_TAGS } from '@/lib/constants';
+import { tagColor, tagEmoji, tagLabel, useCategories } from '@/lib/categories';
 import { FS, LH } from '@/lib/type';
 
 /** THERE's pieces from the Figma pages (home, search and the filter sheet), shared by ExploreThere and SearchThere. */
@@ -28,7 +29,7 @@ export function ThereBrand() {
   const { c } = useTheme();
   const { t } = useT();
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: sp(6) }}>
       <CollapseLogo>
         <LamisWordmark onDark={c.bandIsDark} height={28} />
       </CollapseLogo>
@@ -47,7 +48,7 @@ export function ThereHomeHeader({ city, onPickCity }: { city: string; onPickCity
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <ThereBrand />
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10) }}>
       <CollapseCity>
         <CityPicker city={city} onPick={onPickCity} onDark />
       </CollapseCity>
@@ -68,11 +69,11 @@ export function ThereHomeHeader({ city, onPickCity }: { city: string; onPickCity
 export function ThereSearchField({ value, onChangeText, placeholder, onSubmit, onClear, onFilter, filterActive, inline }: { value: string; onChangeText: (v: string) => void; placeholder: string; onSubmit?: () => void; onClear?: () => void; onFilter?: () => void; filterActive?: boolean; inline?: boolean }) {
   const { c } = useTheme();
   const { t } = useT();
-  const dot = filterActive ? <View style={{ position: 'absolute', top: inline ? 6 : 1, right: inline ? 6 : 1, width: 11, height: 11, borderRadius: 6, backgroundColor: c.accent, borderWidth: 2, borderColor: inline ? c.surface : c.bg }} /> : null;
+  const dot = filterActive ? <View style={{ position: 'absolute', top: inline ? sc(6) : 1, right: inline ? sc(6) : 1, width: sc(11), height: sc(11), borderRadius: sc(6), backgroundColor: c.accent, borderWidth: 2, borderColor: inline ? c.surface : c.bg }} /> : null;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-      <View style={{ flex: 1, minHeight: sc(55), borderRadius: 28, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: 20, paddingRight: inline ? 10 : 16 }}>
-        <Ionicons name="search-outline" size={20} color={c.muted} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10) }}>
+      <View style={{ flex: 1, minHeight: sc(49), borderRadius: sc(25), borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(8), paddingLeft: sph(16), paddingRight: inline ? sph(10) : sph(16) }}>
+        <Ionicons name="search-outline" size={sc(18)} color={c.muted} />
         <TextInput
           accessibilityLabel={placeholder}
           value={value}
@@ -81,24 +82,24 @@ export function ThereSearchField({ value, onChangeText, placeholder, onSubmit, o
           placeholder={placeholder}
           placeholderTextColor={c.placeholder}
           returnKeyType="search"
-          style={{ flex: 1, fontSize: inline ? 15 : 15.5, color: c.forest, paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center' }}
+          style={{ flex: 1, fontSize: inline ? 16 : 16, color: c.forest, paddingVertical: 0, minHeight: sc(24), includeFontPadding: false, textAlignVertical: 'center' }}
         />
         {!inline && value ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} hitSlop={8} onPress={onClear ?? (() => onChangeText(''))} style={{ width: 28, height: 36, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="close-circle" size={20} color={c.muted} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} hitSlop={8} onPress={onClear ?? (() => onChangeText(''))} style={{ width: sc(28), height: sc(36), alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="close-circle" size={sc(20)} color={c.muted} />
           </Pressable>
         ) : null}
         {inline ? (
           <>
             {value ? (
-              <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} hitSlop={4} onPress={onClear} style={{ width: 36, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="close" size={20} color={c.text} />
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Clear search')} hitSlop={4} onPress={onClear} style={{ width: sc(36), height: sc(44), alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="close" size={sc(20)} color={c.text} />
               </Pressable>
             ) : null}
-            {value && onFilter ? <View style={{ width: 1, height: 19, backgroundColor: 'rgba(0,0,0,0.19)' }} /> : null}
+            {value && onFilter ? <View style={{ width: 1, height: sc(19), backgroundColor: 'rgba(0,0,0,0.19)' }} /> : null}
             {onFilter ? (
-              <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} hitSlop={4} onPress={onFilter} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="options-outline" size={22} color={c.text} />
+              <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} hitSlop={4} onPress={onFilter} style={{ width: sc(44), height: sc(44), alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="options-outline" size={sc(22)} color={c.text} />
                 {dot}
               </Pressable>
             ) : null}
@@ -106,8 +107,8 @@ export function ThereSearchField({ value, onChangeText, placeholder, onSubmit, o
         ) : null}
       </View>
       {!inline && onFilter ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} onPress={onFilter} hitSlop={4} style={({ pressed: p }) => [{ width: sc(49), height: sc(49), borderRadius: 25, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>
-          <Ionicons name="options-outline" size={22} color="#fff" />
+        <Pressable accessibilityRole="button" accessibilityLabel={filterActive ? t('Filters, on') : t('Filters')} onPress={onFilter} hitSlop={4} style={({ pressed: p }) => [{ width: sc(45), height: sc(45), borderRadius: sc(23), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>
+          <Ionicons name="options-outline" size={sc(21)} color="#fff" />
           {dot}
         </Pressable>
       ) : null}
@@ -117,7 +118,7 @@ export function ThereSearchField({ value, onChangeText, placeholder, onSubmit, o
 
 /** The travel styles that have a picture, in the order of the design. */
 export const TRIP_STYLES = TRIP_TAGS;
-const styleLabel = (k: string) => k[0].toUpperCase() + k.slice(1);
+const styleLabel = tagLabel;
 
 /** One travel interest as a card: a round photo and its name in a pill (selected = deep green). The same card everywhere. */
 function TripStyleCard({ k, on, onPress, white }: { k: string; on: boolean; onPress: () => void; /** pure white when off (the create form's pills) */ white?: boolean }) {
@@ -129,10 +130,10 @@ function TripStyleCard({ k, on, onPress, white }: { k: string; on: boolean; onPr
       accessibilityState={{ selected: on }}
       accessibilityLabel={t(styleLabel(k))}
       onPress={onPress}
-      style={({ pressed: p }) => [{ borderRadius: 999, borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : white ? '#FFFFFF' : c.surface, flexDirection: 'row', alignItems: 'center', gap: sc(8), paddingVertical: sc(3), paddingLeft: sc(3), paddingRight: sc(14) }, pressed(p)]}
+      style={({ pressed: p }) => [{ borderRadius: sc(999), borderWidth: 1, borderColor: on ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: on ? c.forest : white ? '#FFFFFF' : c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(8), paddingVertical: sc(3), paddingLeft: sc(3), paddingRight: sph(14) }, pressed(p)]}
     >
-      <RoundPhoto source={TRIP_PHOTOS[k]} size={sc(36)} ring={on} />
-      <Text numberOfLines={1} style={{ color: on ? '#fff' : c.forest, fontSize: 14, includeFontPadding: false }}>{t(styleLabel(k))}</Text>
+      <RoundPhoto source={TRIP_PHOTOS[k]} emoji={tagEmoji(k)} tint={tagColor(k)} size={sc(36)} ring={on} />
+      <Text numberOfLines={1} style={{ color: on ? '#fff' : c.forest, fontSize: 16, includeFontPadding: false }}>{t(styleLabel(k))}</Text>
     </Pressable>
   );
 }
@@ -140,8 +141,9 @@ function TripStyleCard({ k, on, onPress, white }: { k: string; on: boolean; onPr
 /** The round travel-interest chips under the search (THERE Home and Search): tap one to show only those trips, tap it again to clear. */
 export function TripStyleChips({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
   const { gutter } = useLayout();
+  useCategories();
   return (
-    <ScrollView horizontal overScrollMode="never" showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: 10, paddingVertical: 3 }}>
+    <ScrollView horizontal overScrollMode="never" showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} style={{ marginHorizontal: -gutter }} contentContainerStyle={{ paddingHorizontal: gutter, gap: sp(10), paddingVertical: sc(3) }}>
       {TRIP_STYLES.map((k) => (
         <TripStyleCard key={k} k={k} on={value === k} onPress={() => onChange(value === k ? null : k)} />
       ))}
@@ -151,8 +153,9 @@ export function TripStyleChips({ value, onChange }: { value: string | null; onCh
 
 /** The same cards, several can be chosen (the create form's "Travel interests"): they wrap onto lines. */
 export function TripStylePicker({ value, onToggle }: { value: string[]; onToggle: (k: string) => void }) {
+  useCategories();
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(10) }}>
       {TRIP_STYLES.map((k) => (
         <TripStyleCard key={k} k={k} on={value.includes(k)} onPress={() => onToggle(k)} white />
       ))}
@@ -175,9 +178,9 @@ export function ThereChip({ label, active, onPress, spoken, compact: own }: { la
       accessibilityLabel={spoken ?? label}
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={({ pressed: p }) => [{ minHeight: compact ? 36 : 44, paddingHorizontal: compact ? 14 : 20, borderRadius: compact ? 18 : 22, borderWidth: 1, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
+      style={({ pressed: p }) => [{ minHeight: compact ? sc(36) : sc(44), paddingHorizontal: compact ? sph(14) : sph(20), borderRadius: compact ? sc(18) : sc(22), borderWidth: 1, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
     >
-      <Text style={{ color: active ? '#fff' : c.forest, fontSize: compact ? FS.button : 15, lineHeight: compact ? LH.button : 20, includeFontPadding: false, textAlign: 'center' }}>{label}</Text>
+      <Text style={{ color: active ? '#fff' : c.forest, fontSize: compact ? FS.button : 16, lineHeight: compact ? LH.button : 20, includeFontPadding: false, textAlign: 'center' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -186,7 +189,7 @@ export function ThereChip({ label, active, onPress, spoken, compact: own }: { la
 export function ThereLabel({ children, compact: own }: { children: ReactNode; compact?: boolean }) {
   const { c } = useTheme();
   const compact = useContext(CompactSheet) || !!own;
-  return <Text accessibilityRole="header" style={{ color: c.text, fontSize: compact ? FS.button : 15, lineHeight: compact ? LH.button : 20, fontWeight: '500' }}>{children}</Text>;
+  return <Text accessibilityRole="header" style={{ color: c.text, fontSize: compact ? FS.button : 16, lineHeight: compact ? LH.button : 20, fontWeight: '500' }}>{children}</Text>;
 }
 
 /** A labelled white pill to type in. */
@@ -194,9 +197,9 @@ export function ThereInput({ label, value, onChangeText, placeholder, ...rest }:
   const { c } = useTheme();
   const compact = useContext(CompactSheet);
   return (
-    <View style={{ flex: 1, gap: compact ? 8 : 12 }}>
+    <View style={{ flex: 1, gap: compact ? sp(8) : sp(12) }}>
       <ThereLabel>{label}</ThereLabel>
-      <TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={c.placeholder} {...rest} style={{ minHeight: sc(compact ? 46 : 55), borderRadius: sc(compact ? 23 : 28), backgroundColor: c.surface, paddingHorizontal: 17, paddingVertical: 0, fontSize: FS.body, color: c.text, includeFontPadding: false, textAlignVertical: 'center' }} />
+      <TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={c.placeholder} {...rest} style={{ minHeight: sc(compact ? 46 : 55), borderRadius: sc(compact ? 23 : 28), backgroundColor: c.surface, paddingHorizontal: sph(17), paddingVertical: 0, fontSize: FS.body, color: c.text, includeFontPadding: false, textAlignVertical: 'center' }} />
     </View>
   );
 }
@@ -208,9 +211,9 @@ export function ThereDateBox({ label, date, onPress, spoken }: { label: string; 
   const { t } = useT();
   const compact = useContext(CompactSheet);
   return (
-    <View style={{ flex: 1, gap: compact ? 8 : 12 }}>
+    <View style={{ flex: 1, gap: compact ? sp(8) : sp(12) }}>
       <ThereLabel>{label}</ThereLabel>
-      <Pressable accessibilityRole="button" accessibilityLabel={spoken} onPress={onPress} style={({ pressed: p }) => [{ minHeight: sc(compact ? 46 : 55), borderRadius: sc(compact ? 23 : 28), backgroundColor: c.surface, paddingHorizontal: 17, justifyContent: 'center' }, pressed(p)]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={spoken} onPress={onPress} style={({ pressed: p }) => [{ minHeight: sc(compact ? 46 : 55), borderRadius: sc(compact ? 23 : 28), backgroundColor: c.surface, paddingHorizontal: sph(17), justifyContent: 'center' }, pressed(p)]}>
         <Text style={{ fontSize: 16, color: date ? c.text : c.placeholder }}>{date ? `${p2(date.getDate())}-${p2(date.getMonth() + 1)}-${date.getFullYear()}` : t('DD-MM-YYYY')}</Text>
       </Pressable>
     </View>
@@ -253,10 +256,10 @@ export function ThereBudgetSlider({ value, onChange, min = 300, max = 5000, step
   const H = 22;
   const label = value >= max ? t('Any budget') : t('Up to {amount}', { amount: `€ ${value}` });
   return (
-    <View style={{ gap: 6 }}>
-      <View style={{ height: 22, justifyContent: 'center' }}>
-        <View style={{ position: 'absolute', left: Math.min(Math.max(frac * w - 50, 0), Math.max(0, w - 100)), width: 100, alignItems: 'center' }}>
-          <Text style={{ color: c.text, fontSize: 15, fontWeight: '500' }}>{label}</Text>
+    <View style={{ gap: sp(6) }}>
+      <View style={{ height: sc(22), justifyContent: 'center' }}>
+        <View style={{ position: 'absolute', left: Math.min(Math.max(frac * w - 50, 0), Math.max(0, w - 100)), width: sc(100), alignItems: 'center' }}>
+          <Text style={{ color: c.text, fontSize: 16, fontWeight: '500' }}>{label}</Text>
         </View>
       </View>
       <View
@@ -267,10 +270,10 @@ export function ThereBudgetSlider({ value, onChange, min = 300, max = 5000, step
         accessibilityValue={{ min, max, now: value, text: label }}
         accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
         onAccessibilityAction={(e) => onChange(snap(value + (e.nativeEvent.actionName === 'increment' ? step : -step)))}
-        style={{ height: 44, justifyContent: 'center', marginHorizontal: H / 2 }}
+        style={{ height: sc(44), justifyContent: 'center', marginHorizontal: H / 2 }}
       >
-        <View style={{ height: 10, borderRadius: 5, backgroundColor: '#fff' }} />
-        <View style={{ position: 'absolute', left: 0, width: frac * w, height: 10, borderRadius: 5, backgroundColor: c.forest }} />
+        <View style={{ height: sc(10), borderRadius: sc(5), backgroundColor: '#fff' }} />
+        <View style={{ position: 'absolute', left: 0, width: frac * w, height: sc(10), borderRadius: sc(5), backgroundColor: c.forest }} />
         <View pointerEvents="none" style={{ position: 'absolute', left: frac * w - H / 2, width: H, height: H, borderRadius: H / 2, backgroundColor: '#fff', borderWidth: 2, borderColor: c.forest }} />
         {/* the touch layer: one transparent strip over the whole track, so positions are measured against the track */}
         <View {...pan.panHandlers} style={StyleSheet.absoluteFill} />
@@ -326,23 +329,23 @@ export function ThereFilterSheet({ visible, onClose, children, footer, overlay, 
           <Animated.View
             accessibilityViewIsModal
             style={[
-              { backgroundColor: c.bg, borderTopLeftRadius: compact ? 32 : 44, borderTopRightRadius: compact ? 32 : 44, height: height * (heightRatio ?? (compact ? 0.5 : 0.9)), overflow: 'hidden', transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] },
-              isTablet && { alignSelf: 'center', width: 560, maxWidth: '92%', borderRadius: 30, height: Math.min(height * (heightRatio ?? (compact ? 0.5 : 0.9)), compact ? 560 : 760), opacity: slide },
+              { backgroundColor: c.bg, borderTopLeftRadius: compact ? sc(32) : sc(44), borderTopRightRadius: compact ? sc(32) : sc(44), height: height * (heightRatio ?? (compact ? 0.5 : 0.9)), overflow: 'hidden', transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] },
+              isTablet && { alignSelf: 'center', width: sc(560), maxWidth: '92%', borderRadius: sc(30), height: Math.min(height * (heightRatio ?? (compact ? 0.5 : 0.9)), compact ? 560 : 760), opacity: slide },
             ]}
           >
-            <View style={{ paddingHorizontal: 20, paddingTop: compact ? 14 : 22 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: compact ? 40 : 44 }}>
-                <Text accessibilityRole="header" style={{ color: c.forest, fontSize: compact ? FS.body : 20, lineHeight: compact ? LH.body : 26, fontWeight: '600' }}>{t('Filter')}</Text>
-                <Pressable accessibilityRole="button" accessibilityLabel={t('Close')} hitSlop={6} onPress={onClose} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -10 }}>
-                  <Ionicons name="close" size={22} color={c.text} />
+            <View style={{ paddingHorizontal: sph(20), paddingTop: compact ? sp(14) : sp(22) }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: compact ? sc(40) : sc(44) }}>
+                <Text accessibilityRole="header" style={{ color: c.forest, fontSize: compact ? FS.body : 20, lineHeight: compact ? LH.body : 26, fontWeight: '500' }}>{t('Filter')}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('Close')} hitSlop={6} onPress={onClose} style={{ width: sc(44), height: sc(44), alignItems: 'center', justifyContent: 'center', marginRight: -sc(10) }}>
+                  <Ionicons name="close" size={sc(22)} color={c.text} />
                 </Pressable>
               </View>
-              <View style={{ height: 1, backgroundColor: 'rgba(0,0,0,0.12)', marginTop: 8 }} />
+              <View style={{ height: 1, backgroundColor: 'rgba(0,0,0,0.12)', marginTop: sp(8) }} />
             </View>
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: compact ? 14 : 22, paddingBottom: compact ? 12 : 20, gap: compact ? 16 : 26 }}>
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} contentContainerStyle={{ paddingHorizontal: sph(20), paddingTop: compact ? sp(14) : sp(22), paddingBottom: compact ? sp(12) : sp(20), gap: compact ? sp(16) : sp(26) }}>
               <CompactSheet.Provider value={!!compact}>{shown.current.children}</CompactSheet.Provider>
             </ScrollView>
-            <View style={{ paddingHorizontal: 20, paddingTop: compact ? 8 : 10, paddingBottom: insets.bottom + (compact ? 12 : 16), gap: compact ? 8 : 8, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)', backgroundColor: c.bg }}>{shown.current.footer}</View>
+            <View style={{ paddingHorizontal: sph(20), paddingTop: compact ? sp(8) : sp(10), paddingBottom: insets.bottom + (compact ? 12 : 16), gap: compact ? sp(8) : sp(8), borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)', backgroundColor: c.bg }}>{shown.current.footer}</View>
           </Animated.View>
           {shown.current.overlay}
         </Animated.View>

@@ -11,18 +11,22 @@ type Place = {
   cityKey: string | null;
   hereMonths: number | null;
   thereMonths: number | null;
-  effective: { here: number; hereFrom: string | null; there: number; thereFrom: string | null };
+  areaKm: number | null;
+  effective: { here: number; hereFrom: string | null; there: number; thereFrom: string | null; area: number; areaFrom: string | null };
   children: number;
   staff: number;
   canEdit: boolean;
   canDelete: boolean;
 };
 type Range = { min: number; max: number };
-type Reply = { scope: { key: string; name: string; kind: string } | null; defaults: { here: number; there: number }; ranges: { here: Range; there: Range }; items: Place[] };
+type Reply = { scope: { key: string; name: string; kind: string } | null; defaults: { here: number; there: number; area: number }; ranges: { here: Range; there: Range; area: Range }; items: Place[] };
 type Unassigned = { items: { cityKey: string; uses: number }[] };
-type Which = 'hereMonths' | 'thereMonths';
+type Which = 'hereMonths' | 'thereMonths' | 'areaKm';
 
 const months = (n: number) => `${n} mo`;
+const kms = (n: number) => `${n} km`;
+/** Coverage choices: every 5 km up to 100, plus 1, 2, 3 and 10 for small towns. */
+const AREA_CHOICES = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100];
 const called = (p?: { kind: string; name: string }) => (!p || p.kind === 'global' ? 'whole service' : p.name);
 const title = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
 const options = (r: Range) => Array.from({ length: r.max - r.min + 1 }, (_, i) => r.min + i);
@@ -74,7 +78,7 @@ export function RegionsPage({ me }: { me: Session }) {
   const remove = (p: Place) => {
     if (confirm(`Remove ${p.name}?`)) act.run(() => api('DELETE', `/v1/admin/regions/${p.key}`));
   };
-  const customCities = items.filter((p) => p.kind === 'city' && (p.hereMonths !== null || p.thereMonths !== null)).length;
+  const customCities = items.filter((p) => p.kind === 'city' && (p.hereMonths !== null || p.thereMonths !== null || p.areaKm !== null)).length;
   const resetCities = () => {
     if (customCities === 0) return;
     if (confirm(`Make ${customCities} ${customCities === 1 ? 'city' : 'cities'} follow the default again? Their own values will be cleared.`)) act.run(() => api('POST', '/v1/admin/regions/reset-city-limits'));
@@ -85,15 +89,16 @@ export function RegionsPage({ me }: { me: Session }) {
   const limit = (p: Place, which: Which) => {
     if (!data) return null;
     const here = which === 'hereMonths';
-    const eff = here ? p.effective.here : p.effective.there;
+    const area = which === 'areaKm';
+    const eff = area ? p.effective.area : here ? p.effective.here : p.effective.there;
     const own = p[which];
     if (admin && p.canEdit)
       return (
         <div style={{ display: 'grid', gap: 4, justifyItems: 'start' }}>
-        <Select aria-label={`${here ? 'Activities' : 'Trips'} limit for ${p.name}`} value={drafts[p.key]?.[which] ?? String(own ?? eff)} onChange={(v) => draft(p, which, v)} disabled={act.busy} highlight={drafts[p.key]?.[which] !== undefined} style={{ width: 172 }}>
-          {options(here ? data.ranges.here : data.ranges.there).map((n) => (
+        <Select aria-label={`${area ? 'Coverage distance' : here ? 'Activities limit' : 'Trips limit'} for ${p.name}`} value={drafts[p.key]?.[which] ?? String(own ?? eff)} onChange={(v) => draft(p, which, v)} disabled={act.busy} highlight={drafts[p.key]?.[which] !== undefined} style={{ width: 172 }}>
+          {(area ? [...new Set([...AREA_CHOICES, eff])].sort((a, b) => a - b) : options(here ? data.ranges.here : data.ranges.there)).map((n) => (
             <option key={n} value={n}>
-              {months(n)}
+              {area ? kms(n) : months(n)}
             </option>
           ))}
         </Select>
@@ -101,7 +106,7 @@ export function RegionsPage({ me }: { me: Session }) {
       );
     return (
       <span>
-        <span className={own !== null ? 'strong' : ''}>{months(eff)}</span>
+        <span className={own !== null ? 'strong' : ''}>{area ? kms(eff) : months(eff)}</span>
       </span>
     );
   };
@@ -166,6 +171,10 @@ export function RegionsPage({ me }: { me: Session }) {
                   <span className="label">Trips</span>
                   {limit(root, 'thereMonths')}
                 </label>
+                <label>
+                  <span className="label">Coverage around a city</span>
+                  {limit(root, 'areaKm')}
+                </label>
                 {drafts[root.key] ? (
                   <div className="cell-actions">
                     <button className="btn small" onClick={() => cancel(root)} disabled={act.busy}>Cancel</button>
@@ -203,6 +212,7 @@ export function RegionsPage({ me }: { me: Session }) {
                       <th>City</th>
                       <th style={{ width: 380 }}>Activities</th>
                       <th style={{ width: 380 }}>Trips</th>
+                      <th style={{ width: 220 }}>Coverage</th>
                       <th className="end" aria-label="Actions" style={{ width: 160 }} />
                     </tr>
                   </thead>
@@ -221,6 +231,9 @@ export function RegionsPage({ me }: { me: Session }) {
                         <td>
                           <span className="ret-cell"><i className={p.thereMonths !== null || drafts[p.key]?.thereMonths !== undefined ? 'ret-dot on' : 'ret-dot'} />{limit(p, 'thereMonths')}</span>
                         </td>
+                        <td>
+                          <span className="ret-cell"><i className={p.areaKm !== null || drafts[p.key]?.areaKm !== undefined ? 'ret-dot on' : 'ret-dot'} />{limit(p, 'areaKm')}</span>
+                        </td>
                         <td className="end">
                           {drafts[p.key] ? (
                             <div className="cell-actions">
@@ -235,6 +248,7 @@ export function RegionsPage({ me }: { me: Session }) {
                               items={[
                                 ...(p.hereMonths !== null ? [{ label: 'Use the default for activities', onSelect: () => act.run(() => api('PATCH', `/v1/admin/regions/${p.key}`, { hereMonths: null })) }] : []),
                                 ...(p.thereMonths !== null ? [{ label: 'Use the default for trips', onSelect: () => act.run(() => api('PATCH', `/v1/admin/regions/${p.key}`, { thereMonths: null })) }] : []),
+                                ...(p.areaKm !== null ? [{ label: 'Use the default coverage', onSelect: () => act.run(() => api('PATCH', `/v1/admin/regions/${p.key}`, { areaKm: null })) }] : []),
                                 { label: 'Remove', danger: true, onSelect: () => remove(p) },
                               ]}
                             />
@@ -274,6 +288,7 @@ function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, err
   const [cityKey, setCityKey] = useState(preset);
   const [hereM, setHereM] = useState('');
   const [thereM, setThereM] = useState('');
+  const [areaK, setAreaK] = useState('');
   // a new city sits directly under the default (a staff member's area: under that area)
   const parentPlace = all.find((p) => p.kind === 'global') ?? all[0];
   const parentKey = parentPlace?.key ?? '';
@@ -286,6 +301,7 @@ function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, err
       ...(cityKey.trim() && { cityKey: cityKey.trim() }),
       ...(hereM && { hereMonths: Number(hereM) }),
       ...(thereM && { thereMonths: Number(thereM) }),
+      ...(areaK && { areaKm: Number(areaK) }),
     });
   };
   const monthSelect = (value: string, set: (v: string) => void, range: Range, label: string) => (
@@ -319,6 +335,17 @@ function AddPlace({ data, parents: all, wholeService, cityKey: preset, busy, err
           {monthSelect(hereM, setHereM, data.ranges.here, 'Activities')}
           {monthSelect(thereM, setThereM, data.ranges.there, 'Trips')}
         </div>
+        <label>
+          Coverage around the city
+          <Select value={areaK} onChange={setAreaK} disabled={busy}>
+            <option value="">Same as the default ({kms(data.defaults.area)})</option>
+            {AREA_CHOICES.map((n) => (
+              <option key={n} value={n}>
+                {kms(n)}
+              </option>
+            ))}
+          </Select>
+        </label>
         <div className="row end">
           <button type="button" className="btn" onClick={onClose}>
             Cancel

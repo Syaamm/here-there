@@ -10,7 +10,8 @@ import { hhmm, shortDate, when } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { t as translate, useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 /**
  * One plan at a time (HERE and THERE together). The server refuses joining, applying, creating or moving a plan onto a
  * time that a plan holding you (hosted or accepted) already covers; this shows what is in the way before the person tries,
@@ -142,7 +143,7 @@ function Timing({ x, now }: { x: Clash; now: number }) {
       : started
         ? t('On now, until {time} · ends in {left}', { time: hhmm(x.endsAt), left })
         : t('{from} to {to} · ends in {left}', { from: when(x.startsAt), to: hhmm(x.endsAt), left });
-  return <Text style={{ color: c.muted, fontSize: 13, lineHeight: 19 }}>{line}</Text>;
+  return <Text style={{ color: c.muted, fontSize: 12, lineHeight: 18 }}>{line}</Text>;
 }
 
 /**
@@ -209,14 +210,14 @@ export function ClashNotice({ firm, pending, now, mode, onChanged, creating = 'a
       const fg = warnOnly ? c.warnFg : c.badFg;
       const key = `${x.kind}:${x.id}`;
       return (
-        <View key={key} accessibilityRole="alert" style={{ backgroundColor: bg, borderRadius: 18, padding: 12, gap: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name={trip ? 'airplane' : 'alert-circle'} size={22} color={fg} />
+        <View key={key} accessibilityRole="alert" style={{ backgroundColor: bg, borderRadius: sc(18), padding: sp(12), gap: sp(8) }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(12) }}>
+            <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: sc(40), height: sc(40), borderRadius: sc(20), backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name={trip ? 'airplane' : 'alert-circle'} size={sc(22)} color={fg} />
             </View>
             <View style={{ flex: 1, gap: 2 }}>
-              <Text numberOfLines={1} style={{ color: fg, fontSize: 15, lineHeight: 20, fontWeight: '700' }}>{x.title}</Text>
-              <Text numberOfLines={2} style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{warnOnly ? when1(x) : `${t('Already busy then')} · ${when1(x)}`}</Text>
+              <Text numberOfLines={1} style={{ color: fg, fontSize: 16, lineHeight: 21, fontWeight: '700' }}>{x.title}</Text>
+              <Text numberOfLines={2} style={{ color: fg, fontSize: 12, lineHeight: 17 }}>{warnOnly ? when1(x) : `${t('Already busy then')} · ${when1(x)}`}</Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -224,24 +225,24 @@ export function ClashNotice({ firm, pending, now, mode, onChanged, creating = 'a
               disabled={busy === key}
               hitSlop={8}
               onPress={() => void free(x)}
-              style={({ pressed }) => [{ minHeight: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.85)', alignItems: 'center', justifyContent: 'center', opacity: busy === key ? 0.5 : pressed ? 0.8 : 1 }]}
+              style={({ pressed }) => [{ minHeight: sc(36), paddingHorizontal: sph(14), borderRadius: sc(18), backgroundColor: 'rgba(255,255,255,0.85)', alignItems: 'center', justifyContent: 'center', opacity: busy === key ? 0.5 : pressed ? 0.8 : 1 }]}
             >
-              <Text style={{ color: fg, fontSize: 13, fontWeight: '700' }}>{busy === key ? '…' : short(x)}</Text>
+              <Text style={{ color: fg, fontSize: 12, fontWeight: '700' }}>{busy === key ? '…' : short(x)}</Text>
             </Pressable>
           </View>
-          {warnOnly ? <Text style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{t('You are on a trip then. Go on only if you think you can still join or host.')}</Text> : <Text style={{ color: fg, fontSize: 13, lineHeight: 18 }}>{howTo(x)}</Text>}
+          {warnOnly ? <Text style={{ color: fg, fontSize: 12, lineHeight: 17 }}>{t('You are on a trip then. Go on only if you think you can still join or host.')}</Text> : <Text style={{ color: fg, fontSize: 12, lineHeight: 17 }}>{howTo(x)}</Text>}
         </View>
       );
     });
     return (
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: sp(8) }}>
         <ErrorBanner message={act.error} />
         {cards}
         {pending.length ? (
-          <View style={{ backgroundColor: c.infoBg, borderRadius: 18, padding: 12, gap: 4 }}>
-            <Text style={{ color: c.infoFg, fontSize: 13, fontWeight: '700' }}>{t('Also waiting for an answer at this time:')}</Text>
+          <View style={{ backgroundColor: c.infoBg, borderRadius: sc(18), padding: sp(12), gap: sp(4) }}>
+            <Text style={{ color: c.infoFg, fontSize: 12, fontWeight: '700' }}>{t('Also waiting for an answer at this time:')}</Text>
             {pending.map((x) => (
-              <Text key={`${x.kind}:${x.id}`} numberOfLines={1} style={{ color: c.infoFg, fontSize: 13, lineHeight: 18 }}>{`${x.title} · ${when1(x)}`}</Text>
+              <Text key={`${x.kind}:${x.id}`} numberOfLines={1} style={{ color: c.infoFg, fontSize: 12, lineHeight: 17 }}>{`${x.title} · ${when1(x)}`}</Text>
             ))}
             <Text style={{ color: c.infoFg, fontSize: 12, lineHeight: 17 }}>{t('Publishing withdraws these requests, since you will be busy then.')}</Text>
           </View>
@@ -257,10 +258,10 @@ export function ClashNotice({ firm, pending, now, mode, onChanged, creating = 'a
     : t('That is fine. Whichever accepts you first wins, and your other requests at this time are withdrawn by themselves.');
 
   const row = (x: Clash) => (
-    <View key={`${x.kind}:${x.id}`} style={{ gap: 6, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.line }}>
-      <Text style={{ color: c.text, fontSize: 15, lineHeight: 21, fontWeight: '600' }}>{x.title}</Text>
+    <View key={`${x.kind}:${x.id}`} style={{ gap: sp(6), paddingTop: sp(10), borderTopWidth: 1, borderTopColor: c.line }}>
+      <Text style={{ color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '600' }}>{x.title}</Text>
       <Timing x={x} now={now} />
-      <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+      <View style={{ flexDirection: 'row', gap: sp(6), flexWrap: 'wrap' }}>
         <Chip label={t(ROLE[x.role])} tone={x.firm ? 'ok' : 'warn'} />
         {x.kind === 'trip' ? <Chip label={t('Trip')} tone="neutral" /> : null}
       </View>
@@ -269,12 +270,12 @@ export function ClashNotice({ firm, pending, now, mode, onChanged, creating = 'a
   );
 
   return (
-    <View accessibilityRole={firm.length ? 'alert' : undefined} style={{ backgroundColor: firm.length ? c.warnBg : c.infoBg, borderRadius: 20, padding: 14, gap: 8 }}>
+    <View accessibilityRole={firm.length ? 'alert' : undefined} style={{ backgroundColor: firm.length ? c.warnBg : c.infoBg, borderRadius: sc(20), padding: sp(14), gap: sp(8) }}>
       <Text style={{ color: firm.length ? c.warnFg : c.infoFg, fontSize: 16, lineHeight: 22, fontWeight: '700' }}>{head}</Text>
-      <Text style={{ color: firm.length ? c.warnFg : c.infoFg, fontSize: 14, lineHeight: 20 }}>{body}</Text>
+      <Text style={{ color: firm.length ? c.warnFg : c.infoFg, fontSize: 16, lineHeight: 23 }}>{body}</Text>
       <ErrorBanner message={act.error} />
       {firm.map(row)}
-      {firm.length && pending.length ? <Text style={{ color: c.muted, fontSize: 13, paddingTop: 6 }}>{t('Also waiting for an answer at this time:')}</Text> : null}
+      {firm.length && pending.length ? <Text style={{ color: c.muted, fontSize: 12, paddingTop: sp(6) }}>{t('Also waiting for an answer at this time:')}</Text> : null}
       {pending.map(row)}
     </View>
   );

@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Constants from 'expo-constants';
 import { useEffect, useState } from 'react';
 import { Alert, Linking, Platform, Pressable, View } from 'react-native';
@@ -13,7 +14,8 @@ import { confirmAsync } from '@/lib/confirm';
 import { useAction } from '@/lib/hooks';
 import { LANGS, useLang, useT } from '@/lib/i18n';
 import { enablePush, pushState, type PushState } from '@/lib/push';
-import { TEXT_SIZES, sc, useTextSize } from '@/lib/scale';
+import { TEXT_SIZES, sc, useTextSize, sp, sph } from '@/lib/scale';
+import { BTN } from '@/lib/buttons';
 import { useTheme } from '@/lib/theme';
 import { useReportsBadge } from '@/lib/reportsSeen';
 
@@ -67,16 +69,16 @@ export default function Settings() {
 
       <GroupLabel>{t('Account')}</GroupLabel>
       <Pressable accessibilityRole="button" accessibilityLabel={guest ? gate.title('edit') : t('Edit profile')} onPress={() => (guest ? void gate.ask('edit') : go('/edit-profile'))} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-        <RoundCard style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 20 }}>
+        <RoundCard style={{ flexDirection: 'row', alignItems: 'center', gap: sp(14), paddingVertical: sp(20) }}>
           <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={46} />
-          <View style={{ flex: 1, gap: 4 }}>
+          <View style={{ flex: 1, gap: sp(4) }}>
             <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>
               {me?.profile?.displayName}
-              {v === 'verified' ? <Text style={{ color: '#2F80ED' }}>{'  '}<Ionicons name="checkmark-circle" size={15} color="#2F80ED" /></Text> : null}
+              {v === 'verified' ? <Text style={{ color: '#2F80ED' }}>{'  '}<MaterialCommunityIcons name="check-decagram" size={sc(17)} color="#2F80ED" /></Text> : null}
             </Text>
             <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{`${me?.profile?.homeCity ?? t('No city set')} · ${verification}`}</Text>
           </View>
-          {guest ? <Ionicons name="alert-circle" size={24} color="#D4930F" /> : <Ionicons name="create-outline" size={22} color={c.text} />}
+          {guest ? <Ionicons name="alert-circle" size={sc(24)} color="#D4930F" /> : <Ionicons name="create-outline" size={sc(22)} color={c.text} />}
         </RoundCard>
       </Pressable>
 
@@ -101,9 +103,9 @@ export default function Settings() {
             push === 'default' ? (
               <Btn title={t('Turn on')} small onPress={() => void enablePush().then(setPush)} />
             ) : push === 'unsupported' ? undefined : (
-              <Row style={{ gap: 6, alignItems: 'center' }}>
-                {push === 'granted' ? <Ionicons name="checkmark-circle" size={22} color={c.green} /> : null}
-                <Ionicons name="open-outline" size={18} color={c.muted} />
+              <Row style={{ gap: sp(6), alignItems: 'center' }}>
+                {push === 'granted' ? <Ionicons name="checkmark-circle" size={sc(22)} color={c.green} /> : null}
+                <Ionicons name="open-outline" size={sc(18)} color={c.muted} />
               </Row>
             )
           }
@@ -132,10 +134,10 @@ export default function Settings() {
         accessibilityRole="button"
         accessibilityLabel={t('Sign out')}
         onPress={() => void signOut()}
-        style={({ pressed }) => [{ minHeight: sc(54), borderRadius: 32, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(0,0,0,0.09)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 20 }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+        style={({ pressed }) => [{ minHeight: sc(BTN.large), borderRadius: BTN.radiusLarge, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(0,0,0,0.09)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(8), paddingHorizontal: sph(20) }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
       >
-        <Ionicons name="log-out-outline" size={20} color={c.danger} />
-        <Text style={{ color: c.danger, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{t('Sign out')}</Text>
+        <Ionicons name="log-out-outline" size={sc(20)} color={c.danger} />
+        <Text style={{ color: c.danger, ...BTN.text }}>{t('Sign out')}</Text>
       </Pressable>
       {!guest ? <Btn title={t('Sign out of every device')} variant="ghost" onPress={() => void signOutEverywhere()} /> : null}
     </Screen>

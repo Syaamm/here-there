@@ -16,7 +16,8 @@ import { useT } from '@/lib/i18n';
 import { StatsCard } from '@/components/StatsCard';
 import { useTheme } from '@/lib/theme';
 import { SampleTag } from '@/components/SampleTag';
-
+
+import { sc, sp } from '@/lib/scale';
 type PublicProfile = {
   id: string;
   displayName: string;
@@ -86,11 +87,11 @@ export default function UserProfile() {
 
   return (
     <Screen tabBar onRefresh={onRefresh} refreshing={refreshing} right={!mine && !blocked ? <Menu items={[{ label: t('Report this person'), onSelect: () => setReport(true) }, { label: t('Block {name}', { name: p.displayName }), danger: true, onSelect: block }]} /> : undefined}>
-      <View style={{ alignItems: 'center', gap: 6 }}>
+      <View style={{ alignItems: 'center', gap: sp(6) }}>
         <Avatar name={p.displayName} uri={p.photoUrl} size={104} />
-        <Txt variant="h2" style={{ fontSize: 22 }}>{p.displayName} {p.verifiedAdult ? <Ionicons name="checkmark" size={18} color={c.green} /> : null}</Txt>
+        <Txt variant="h2" style={{ fontSize: 22 }}>{p.displayName} {p.verifiedAdult ? <Ionicons name="checkmark" size={sc(18)} color={c.green} /> : null}</Txt>
         <Txt variant="muted">{p.homeCity ?? t('City not set')} · {p.verifiedAdult ? t('Verified adult') : t('Identity not verified')}</Txt>
-        <Row style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <Row style={{ gap: sp(8), flexWrap: 'wrap', justifyContent: 'center' }}>
           {/* you follow each other: friends */}
           {!mine && relation?.buddy ? <Chip label={`${t('Friends')} ✓`} tone="ok" /> : null}
           {p.sample ? <SampleTag /> : null}
@@ -106,7 +107,7 @@ export default function UserProfile() {
       {p.interests.length > 0 && (
         <>
           <Txt variant="h3">{t('Interests')}</Txt>
-          <Row style={{ flexWrap: 'wrap', gap: 6 }}>
+          <Row style={{ flexWrap: 'wrap', gap: sp(6) }}>
             {p.interests.map((i) => (
               <Chip key={i} label={t(i)} tone="neutral" />
             ))}

@@ -18,7 +18,8 @@ import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { meetsThere } from '@/lib/travelStyle';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 type App = {
   id: string;
   state: string;
@@ -78,32 +79,32 @@ export default function ReviewTrip() {
       if (ok === undefined) setInstant((m) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== x.id)));
     });
   };
-  const cardStyle = { backgroundColor: WHITE, borderRadius: 24, borderWidth: 1, borderColor: c.line, padding: 18, gap: 16, ...softShadow } as const;
+  const cardStyle = { backgroundColor: WHITE, borderRadius: sc(24), borderWidth: 1, borderColor: c.line, padding: sp(18), gap: sp(16), ...softShadow } as const;
   const days = tp ? Math.max(1, Math.round((+new Date(tp.dateEnd) - +new Date(tp.dateStart)) / 864e5) + 1) : 0;
 
   return (
     <Screen onRefresh={refresh} refreshing={false}>
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Your trip')}</Text>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500', paddingLeft: sph(4), paddingTop: sp(4) }}>{t('Your trip')}</Text>
       {tp && (
         <View style={cardStyle}>
-          <Row style={{ gap: 18, alignItems: 'flex-start' }}>
-            <TripThumb t={tp} size={34} style={{ width: 96, height: 96, borderRadius: 20 }} />
-            <View style={{ flex: 1, gap: 8, paddingTop: 4 }}>
+          <Row style={{ gap: sp(18), alignItems: 'flex-start' }}>
+            <TripThumb t={tp} size={34} style={{ width: sc(96), height: sc(96), borderRadius: sc(20) }} />
+            <View style={{ flex: 1, gap: sp(8), paddingTop: sp(4) }}>
               {meetsThere(tp) ? (
                 <View accessible accessibilityLabel={`${tp.destination}. ${t('Meet at destination')}`} style={{ gap: 2 }}>
-                  <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{tp.destination}</Text>
+                  <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{tp.destination}</Text>
                   <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t('Meet at destination')}</Text>
                 </View>
               ) : (
-                <View accessible accessibilityLabel={`${tp.originCity} - ${tp.destination}`} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500', flexShrink: 1 }}>{tp.originCity}</Text>
-                  <Ionicons name="airplane" size={14} color={c.forest} />
-                  <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500', flexShrink: 1 }}>{tp.destination}</Text>
+                <View accessible accessibilityLabel={`${tp.originCity} - ${tp.destination}`} style={{ flexDirection: 'row', gap: sp(6), alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500', flexShrink: 1 }}>{tp.originCity}</Text>
+                  <Ionicons name="airplane" size={sc(14)} color={c.forest} />
+                  <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500', flexShrink: 1 }}>{tp.destination}</Text>
                 </View>
               )}
               <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{dateSpan(tp.dateStart, tp.dateEnd)} | {t('{d} days / {n} nights', { d: days, n: Math.max(0, days - 1) })}</Text>
-              <View accessible accessibilityLabel={t('{going} of {capacity} approved', { going: tp.members, capacity: tp.maxCapacity })} style={{ height: 5, borderRadius: 3, backgroundColor: c.line, overflow: 'hidden' }}>
-                <View style={{ width: `${Math.min(100, Math.round((tp.members / Math.max(tp.maxCapacity, 1)) * 100))}%`, height: 5, backgroundColor: c.forest }} />
+              <View accessible accessibilityLabel={t('{going} of {capacity} approved', { going: tp.members, capacity: tp.maxCapacity })} style={{ height: sc(5), borderRadius: sc(3), backgroundColor: c.line, overflow: 'hidden' }}>
+                <View style={{ width: `${Math.min(100, Math.round((tp.members / Math.max(tp.maxCapacity, 1)) * 100))}%`, height: sc(5), backgroundColor: c.forest }} />
               </View>
               <Text style={{ color: full ? c.danger : c.green, fontSize: 12, fontWeight: '500' }}>{full ? t('Full') : tn(tp.spotsLeft, '{n} spot left', '{n} spots left')}</Text>
             </View>
@@ -113,20 +114,20 @@ export default function ReviewTrip() {
         </View>
       )}
       <ErrorBanner message={mutate.error} />
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600', paddingLeft: 4, paddingTop: 4 }}>{t('Requests ({n})', { n: pending })}</Text>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600', paddingLeft: sph(4), paddingTop: sp(4) }}>{t('Requests ({n})', { n: pending })}</Text>
       {apps.data && items.length === 0 && <Empty title={t('No applications yet')} />}
 
       {items.map(shown).map((a) => (
         <View key={a.id} style={cardStyle}>
           <Between style={{ alignItems: 'flex-start' }}>
-            <Row style={{ gap: 14, flex: 1 }}>
+            <Row style={{ gap: sp(14), flex: 1 }}>
               <Avatar name={a.applicant.displayName} uri={a.applicant.photoUrl} size={44} />
-              <View style={{ flex: 1, gap: 3 }}>
-                <Row style={{ gap: 6 }}>
+              <View style={{ flex: 1, gap: sc(3) }}>
+                <Row style={{ gap: sp(6) }}>
                   <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600', flexShrink: 1 }}>{a.applicant.displayName ?? t('Traveler')}</Text>
                   {a.applicant.verifiedAdult ? <VerifiedTick size={16} /> : null}
                 </Row>
-                <Text style={{ color: c.muted, fontSize: 14, lineHeight: 18 }}>
+                <Text style={{ color: c.muted, fontSize: 16, lineHeight: 21 }}>
                   {a.applicant.verifiedAdult ? t('Verified adult') : t('Not verified')}
                   {a.experience ? ` · ${t(a.experience)}` : ''}
                   {a.applicant.languages.length ? ` · ${a.applicant.languages.join(', ')}` : ''}
@@ -141,19 +142,19 @@ export default function ReviewTrip() {
             <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(a.createdAt)}</Text>
           </Between>
           {a.applicant.interests.length > 0 && (
-            <Row style={{ flexWrap: 'wrap', gap: 8 }}>
+            <Row style={{ flexWrap: 'wrap', gap: sp(8) }}>
               {a.applicant.interests.slice(0, 5).map((i) => (
-                <View key={i} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: c.muted, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 }}>
+                <View key={i} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: c.muted, borderRadius: sc(20), paddingHorizontal: sph(12), paddingVertical: sp(7) }}>
                   <Text style={{ color: c.forest, fontSize: 12, lineHeight: 16 }}>{i}</Text>
                 </View>
               ))}
             </Row>
           )}
-          <Text style={{ color: c.text, fontSize: 14, lineHeight: 20 }}>{a.intro}</Text>
+          <Text style={{ color: c.text, fontSize: 16, lineHeight: 23 }}>{a.intro}</Text>
           <View style={{ height: 1, backgroundColor: c.line }} />
 
           {['pending', 'waitlisted'].includes(a.state) && (
-            <Row style={{ gap: 12 }}>
+            <Row style={{ gap: sp(12) }}>
               <PillButton title={t('Accept')} small disabled={full} onPress={() => decide(a, 'approve')} style={{ flex: 1.2 }} />
               <PillButton outline title={t('Decline')} small onPress={() => decide(a, 'decline')} style={{ flex: 1 }} />
             </Row>

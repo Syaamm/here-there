@@ -6,7 +6,8 @@ import { useAction } from '@/lib/hooks';
 import { useState } from 'react';
 import { useTheme } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp } from '@/lib/scale';
 const WHAT: string[] = [
   'Plans and trips you host that have not finished are cancelled, and the people in them are told.',
   'You leave the plans and trips you have joined, and your requests are withdrawn.',
@@ -35,10 +36,10 @@ export default function DeleteAccount() {
   return (
     <Screen hasHeader maxWidth={520}>
       <Banner tone="bad">{t('Deleting your account cannot be undone.')}</Banner>
-      <Card style={{ padding: 14, borderRadius: 18, gap: 8 }}>
+      <Card style={{ padding: sp(14), borderRadius: sc(18), gap: sp(8) }}>
         <Txt variant="h3">{t('What happens')}</Txt>
         {WHAT.map((w) => (
-          <View key={w} style={{ flexDirection: 'row', gap: 8 }}>
+          <View key={w} style={{ flexDirection: 'row', gap: sp(8) }}>
             <Txt variant="small" color={c.muted}>•</Txt>
             <Txt variant="small" style={{ flex: 1 }}>{t(w)}</Txt>
           </View>

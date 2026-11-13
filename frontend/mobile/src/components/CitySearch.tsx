@@ -7,7 +7,8 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { Field, Spinner, Txt } from './ui';
-
+
+import { sc, sp } from '@/lib/scale';
 type Found = { id: string; name: string; address: string; lat: number; lng: number };
 
 const DELAY_MS = 350; // wait for a pause in the typing before searching
@@ -50,7 +51,7 @@ export function CitySearch({ near, onPick }: { near?: Near | null; onPick: (name
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: sp(10) }}>
       <Field label={t('City or region')} icon="search" value={q} onChangeText={setQ} placeholder={t('Search a city or region')} autoFocus autoCorrect={false} returnKeyType="search" />
       {state === 'searching' && !found ? <Spinner /> : null}
       {state === 'error' ? <Txt variant="muted">{t('City search is not available right now. Try again in a moment.')}</Txt> : null}
@@ -61,14 +62,14 @@ export function CitySearch({ near, onPick }: { near?: Near | null; onPick: (name
           accessibilityRole="button"
           accessibilityLabel={p.address ? `${p.name}, ${p.address}` : p.name}
           onPress={() => onPick(p.name, { lat: p.lat, lng: p.lng })}
-          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.line }, pressed && { opacity: 0.7 }]}
+          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(12), minHeight: sc(52), paddingVertical: sp(8), borderBottomWidth: 1, borderBottomColor: c.line }, pressed && { opacity: 0.7 }]}
         >
-          <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="location-outline" size={17} color={c.forest} />
+          <View style={{ width: sc(34), height: sc(34), borderRadius: sc(17), backgroundColor: c.sand, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="location-outline" size={sc(17)} color={c.forest} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '600' }}>{p.name}</Text>
-            {p.address ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 18 }}>{p.address}</Text> : null}
+            <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{p.name}</Text>
+            {p.address ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{p.address}</Text> : null}
           </View>
         </Pressable>
       ))}

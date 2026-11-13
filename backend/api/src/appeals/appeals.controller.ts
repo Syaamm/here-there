@@ -181,7 +181,7 @@ export class AppealsService {
     const m = await this.prisma.appealMessage.create({ data: { appealId: id, fromStaff: true, authorId: actor.id, body: message } });
     await this.audit.log(actor.id, 'appeal.reply', 'appeal', id, { kind: a.kind, userId: a.userId });
     const title = 'A moderator replied to your appeal';
-    await this.notifications.notify(a.userId, 'appeal_reply', title, message).catch(() => undefined);
+    await this.notifications.notify(a.userId, 'appeal_reply', title, message, { appealId: id, ...(a.kind === 'report' && a.targetId ? { reportId: a.targetId } : {}) }).catch(() => undefined);
     if (a.kind === 'suspension') {
       // a suspended person cannot open the app: the question goes by email
       const u = await this.prisma.user.findUnique({ where: { id: a.userId }, select: { email: true } });
@@ -303,7 +303,7 @@ export class AppealsService {
     const word = WORDS[a.kind] ?? 'decision';
     const title = decision === 'uphold' ? 'Your appeal was accepted' : 'Your appeal was reviewed';
     const text = decision === 'uphold' ? `We changed our decision about your ${word}. ${note}` : `We looked again at your ${word} and it stands. ${note}`;
-    await this.notifications.notify(a.userId, 'appeal_decided', title, text);
+    await this.notifications.notify(a.userId, 'appeal_decided', title, text, { appealId: id, ...(a.kind === 'report' && a.targetId ? { reportId: a.targetId } : {}) });
     if (a.kind === 'suspension') {
       // a suspended person cannot open the app, so this one also goes by email
       const u = await this.prisma.user.findUnique({ where: { id: a.userId }, select: { email: true } });

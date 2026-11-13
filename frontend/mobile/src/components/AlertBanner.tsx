@@ -10,7 +10,8 @@ import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
 import { bumpUnread, refreshUnread } from '@/lib/unread';
 import { Txt } from './ui';
-
+
+import { sc, sp } from '@/lib/scale';
 type Shown = { id: string; type: string; title: string; body: string; data: Parameters<typeof alertRoute>[0]['data']; product: 'here' | 'there' };
 
 const SHOW_MS = 7000;
@@ -64,7 +65,7 @@ export function AlertBanner() {
   return (
     <Animated.View
       pointerEvents="box-none"
-      style={{ position: 'absolute', top: insets.top + 8, left: 12, right: 12, alignItems: 'center', zIndex: 1100, elevation: 24, opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }] }}
+      style={{ position: 'absolute', top: insets.top + 8, left: sc(12), right: sc(12), alignItems: 'center', zIndex: 1100, elevation: 24, opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }] }}
     >
       <Pressable
         accessibilityRole="button"
@@ -72,20 +73,20 @@ export function AlertBanner() {
         accessibilityLabel={`${n.title}. ${n.body}. ${t('Open in {name}', { name })}`}
         onPress={open}
         style={({ pressed }) => [
-          { width: '100%', maxWidth: 440, flexDirection: 'row', gap: 12, alignItems: 'center', padding: 12, borderRadius: 18, backgroundColor: c.forest, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+          { width: '100%', maxWidth: sc(440), flexDirection: 'row', gap: sp(12), alignItems: 'center', padding: sp(12), borderRadius: sc(18), backgroundColor: c.forest, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 12, shadowOffset: { width: 0, height: sc(4) } },
           pressed && { opacity: 0.9, transform: [{ scale: 0.99 }] },
         ]}
       >
-        <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="notifications-outline" size={18} color="#fff" />
+        <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: sc(38), height: sc(38), borderRadius: sc(12), backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="notifications-outline" size={sc(18)} color="#fff" />
         </View>
         <View style={{ flex: 1, gap: 1 }}>
-          <Txt variant="h3" color="#fff" numberOfLines={1} style={{ fontSize: 14, lineHeight: 18 }}>{n.title}</Txt>
+          <Txt variant="h3" color="#fff" numberOfLines={1} style={{ fontSize: 16, lineHeight: 21 }}>{n.title}</Txt>
           <Txt variant="small" color="rgba(255,255,255,0.85)" numberOfLines={2} style={{ lineHeight: 17 }}>{n.body}</Txt>
-          <Txt variant="label" color="rgba(255,255,255,0.7)" style={{ fontSize: 11, marginTop: 2 }}>{t('Open in {name}', { name })}</Txt>
+          <Txt variant="label" color="rgba(255,255,255,0.7)" style={{ fontSize: 12, marginTop: 2 }}>{t('Open in {name}', { name })}</Txt>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel={t('Dismiss')} hitSlop={12} onPress={hide}>
-          <Ionicons name="close" size={18} color="rgba(255,255,255,0.8)" />
+          <Ionicons name="close" size={sc(18)} color="rgba(255,255,255,0.8)" />
         </Pressable>
       </Pressable>
     </Animated.View>

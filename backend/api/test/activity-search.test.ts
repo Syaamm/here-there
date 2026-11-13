@@ -25,6 +25,7 @@ describe('the map search words (q)', () => {
     await plan('Morning espresso', 'coffee', 'Bar Roma');
     await plan('Pizza night', 'food', 'Yoga Studio Cafe');
     await plan('Gallery walk', 'culture');
+    await plan('Happy hour on the Navigli', 'drinks');
     const find = async (q: string) => {
       const r = await h.get(`/v1/activities?city=Milan&to=${encodeURIComponent(h.hours(48))}&q=${encodeURIComponent(q)}`, viewer.token);
       assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -32,12 +33,18 @@ describe('the map search words (q)', () => {
     };
     assert.deepEqual(await find('yoga'), ['Pizza night', 'Yoga at evening']); // title, and the venue's name
     assert.deepEqual(await find('YOGA'), ['Pizza night', 'Yoga at evening']); // any capitals
-    assert.deepEqual(await find('coffee'), ['Morning espresso']); // the category's own name
+    // the category's own name, and what means the same: a "cafe" venue is a coffee place too
+    assert.deepEqual(await find('coffee'), ['Morning espresso', 'Pizza night']);
     assert.deepEqual(await find('roma'), ['Morning espresso']); // venue
     assert.deepEqual(await find('yoga sports'), ['Yoga at evening']); // every word has to match
     assert.deepEqual(await find('nothingmatches'), []);
+    // words that mean the same, in either language, and a typo: "aperitivo" and "aprevito" find the happy hour
+    assert.deepEqual(await find('aperitivo'), ['Happy hour on the Navigli']);
+    assert.deepEqual(await find('aprevito'), ['Happy hour on the Navigli']);
+    assert.deepEqual(await find('happy hour'), ['Happy hour on the Navigli']);
+    assert.deepEqual(await find('aperitivo yoga'), []); // every word still has to match
     // without words, everything comes back as before
     const all = await h.get(`/v1/activities?city=Milan&to=${encodeURIComponent(h.hours(48))}`, viewer.token);
-    assert.equal(all.body.items.length, 4);
+    assert.equal(all.body.items.length, 5);
   });
 });

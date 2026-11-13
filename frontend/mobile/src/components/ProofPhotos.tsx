@@ -9,7 +9,8 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { ErrorBanner, Txt } from './ui';
-
+
+import { sc, sp } from '@/lib/scale';
 type Item = { id: string; uri: string };
 
 /**
@@ -61,16 +62,16 @@ export function ProofPhotos({ onChange, max = 3 }: { onChange: (ids: string[]) =
 
   const tile = { width: 84, height: 84, borderRadius: 16 } as const;
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: sp(8) }}>
       <Txt variant="label">{t('Add proof (optional)')}</Txt>
       <Txt variant="small" color={c.muted}>{t('For example a screenshot of the chat. Only you and the moderators who look at this can see it, and it is deleted a month after the decision. Up to {n} photos.', { n: max })}</Txt>
       <ErrorBanner message={error} />
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(10) }}>
         {items.map((i) => (
           <View key={i.id} style={tile}>
             <Image source={{ uri: i.uri }} accessibilityLabel={t('A photo you added')} contentFit="cover" style={{ ...tile, backgroundColor: c.sand }} />
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Remove this photo')} hitSlop={8} onPress={() => remove(i)} style={{ position: 'absolute', top: -8, right: -8, width: 24, height: 24, borderRadius: 12, backgroundColor: c.text, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="close" size={14} color={c.bg} />
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Remove this photo')} hitSlop={8} onPress={() => remove(i)} style={{ position: 'absolute', top: -sc(8), right: -sc(8), width: sc(24), height: sc(24), borderRadius: sc(12), backgroundColor: c.text, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="close" size={sc(14)} color={c.bg} />
             </Pressable>
           </View>
         ))}
@@ -81,7 +82,7 @@ export function ProofPhotos({ onChange, max = 3 }: { onChange: (ids: string[]) =
         ))}
         {items.length + busy < max ? (
           <Pressable accessibilityRole="button" accessibilityLabel={t('Add a photo')} onPress={() => void add()} style={({ pressed }) => [{ ...tile, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.forest, alignItems: 'center', justifyContent: 'center', gap: 2 }, pressed && { opacity: 0.7 }]}>
-            <Ionicons name="image-outline" size={22} color={c.forest} />
+            <Ionicons name="image-outline" size={sc(22)} color={c.forest} />
             <Text style={{ color: c.forest, fontSize: 12, fontWeight: '600' }}>{t('Add photo')}</Text>
           </Pressable>
         ) : null}

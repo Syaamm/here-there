@@ -6,7 +6,7 @@ import { scaleText, useTextScale } from '@/lib/scale';
 
 /** Text and TextInput that follow the screen-size scale (see lib/scale). Use these instead of the react-native ones. */
 // The phone's own font-size setting is applied on top of the app's Text size; capped so the band, chips, pills and dock never break.
-const MAX_FONT_SCALE = 1.3;
+const MAX_FONT_SCALE = 1; // the phone's Large Text / font size setting no longer re-wraps lines: the app's own Text size (Settings) is the way to make writing larger
 // the forest of both modes: the cursor and selection of every field (a field can still pass its own)
 const FOREST = '#102F29';
 

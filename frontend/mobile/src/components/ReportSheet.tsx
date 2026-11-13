@@ -5,8 +5,10 @@ import { REPORT_CATEGORIES } from '@/lib/constants';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
+import { useVerifyGate } from '@/lib/verifyGate';
 import { Btn, ErrorBanner, Field, Pill, Sheet, Txt } from './ui';
-
+
+import { sc, sp } from '@/lib/scale';
 /** Report a user, activity, trip or message. Reports land in the staff moderation queue. */
 export function ReportSheet({ target, onClose }: { target: { type: 'user' | 'activity' | 'trip' | 'message'; id: string; category?: string } | null; onClose: () => void }) {
   const { t } = useT();
@@ -18,6 +20,7 @@ export function ReportSheet({ target, onClose }: { target: { type: 'user' | 'act
   const [details, setDetails] = useState('');
   const [sent, setSent] = useState<null | { expectedWithin: string; coverage: string; emergency: { number: string; text: string }; priority: string }>(null);
   const act = useAction();
+  const gate = useVerifyGate(); // only a verified adult can report
 
   const close = () => {
     setTouched(false);
@@ -42,16 +45,33 @@ export function ReportSheet({ target, onClose }: { target: { type: 'user' | 'act
           <Btn title={t('Call {number}', { number: sent.emergency.number })} variant="danger" onPress={() => void Linking.openURL(`tel:${sent.emergency.number}`)} />
           <Btn title={t('Done')} onPress={close} />
         </>
+      ) : !gate.verified ? (
+        <>
+          {/* not verified: no report form, but the emergency path is always there */}
+          <View style={{ borderWidth: 1.5, borderColor: '#B3261E', borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
+            <Txt variant="small" style={{ color: '#7A1A14', fontWeight: '700' }}>{t('In immediate danger? Call 112 first. Reports are read by moderators, not by the emergency services.')}</Txt>
+            <Btn title={t('Call 112')} variant="danger" small onPress={() => void Linking.openURL('tel:112')} />
+          </View>
+          <Txt>{t('Only verified adults can send a report, so that moderators can trust and follow up on it.')}</Txt>
+          <Btn
+            title={gate.title('report')}
+            onPress={() => {
+              close();
+              void gate.ask('report');
+            }}
+          />
+          <Btn title={t('Cancel')} variant="ghost" onPress={close} />
+        </>
       ) : (
         <>
           <ErrorBanner message={act.error} />
           {/* the emergency path: a report is not an emergency service */}
-          <View style={{ borderWidth: 1.5, borderColor: '#B3261E', borderRadius: 14, padding: 12, gap: 8 }}>
+          <View style={{ borderWidth: 1.5, borderColor: '#B3261E', borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
             <Txt variant="small" style={{ color: '#7A1A14', fontWeight: '700' }}>{t('In immediate danger? Call 112 first. Reports are read by moderators, not by the emergency services.')}</Txt>
             <Btn title={t('Call 112')} variant="danger" small onPress={() => void Linking.openURL('tel:112')} />
           </View>
           <Txt variant="label">{t('What is the problem?')}</Txt>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
             {REPORT_CATEGORIES.map(([v, l]) => (
               <Pill key={v} label={t(l)} active={category === v} onPress={() => (setTouched(true), setCategory(v))} />
             ))}

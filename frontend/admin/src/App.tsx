@@ -7,6 +7,7 @@ import { NoShowsPage } from './pages/NoShows';
 import { OverviewPage } from './pages/Overview';
 import { ChoosePassword } from './pages/ChoosePassword';
 import { PlaceSwitcher } from './pages/PlacePicker';
+import { CategoriesPage } from './pages/Categories';
 import { RegionsPage } from './pages/Regions';
 import { ReportsPage } from './pages/Reports';
 import { SecurityPage } from './pages/Security';
@@ -30,7 +31,7 @@ const SECTIONS: Section[] = [
   { id: 'users', label: 'Users', icon: 'users', group: 'Community', regional: true, perm: 'users' },
   { id: 'content', label: 'Content', icon: 'layers', group: 'Community', regional: true, perm: 'content' },
   { id: 'team', label: 'Staff', icon: 'userPlus', group: 'Team', admin: true },
-  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', regional: true, tabs: [{ id: 'places', label: 'Places & limits', regional: true }, { id: 'security', label: 'Two-step sign-in', regional: true }] },
+  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', regional: true, tabs: [{ id: 'places', label: 'Places & limits', regional: true }, { id: 'categories', label: 'Categories', admin: true }, { id: 'security', label: 'Two-step sign-in', regional: true }] },
   { id: 'audit', label: 'Audit log', icon: 'clock', group: 'Setup', admin: true },
 ];
 
@@ -374,6 +375,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
   if (key === 'content/') body = <ContentPage me={session} />;
   if (key === 'team/') body = <StaffPage me={session} />;
   if (key === 'settings/places') body = <RegionsPage me={session} />;
+  if (key === 'settings/categories') body = <CategoriesPage />;
   if (key === 'settings/security' && mfaData) body = <SecurityPage status={mfaData} onChanged={mfa.reload} />;
   if (key === 'audit/') body = <AuditPage openReport={openReport} />;
 

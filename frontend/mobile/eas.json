@@ -5,18 +5,21 @@
   },
   "build": {
     "development": {
+      "environment": "development",
       "developmentClient": true,
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": { "APP_ENV": "development", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site" }
     },
     "preview": {
+      "environment": "preview",
       "channel": "preview",
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": { "APP_ENV": "preview", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site" }
     },
     "production": {
+      "environment": "production",
       "channel": "production",
       "distribution": "store",
       "autoIncrement": true,

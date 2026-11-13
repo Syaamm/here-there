@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-
+
+import { sc, sp } from '@/lib/scale';
 const KEY = 'ht_phone_view';
 const PHONE_W = 390;
 const PHONE_H = 844;
@@ -42,7 +43,7 @@ export function PhoneFrame({ children }: { children: ReactNode }) {
       onClick={toggle}
       aria-label={phone ? 'Switch to the desktop layout' : 'Switch to the phone view'}
       // top-right beside the phone; bottom-right in the desktop layout so it never covers the app's own HERE | THERE switch
-      style={{ position: 'fixed', ...(phone ? { top: 12 } : { bottom: 14 }), right: 14, zIndex: 99999, border: '1px solid rgba(0,0,0,0.12)', background: 'rgba(255,255,255,0.92)', color: '#102F29', borderRadius: 999, padding: '7px 14px', fontSize: 12, fontWeight: 700, letterSpacing: 0.3, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', fontFamily: 'system-ui, sans-serif' }}
+      style={{ position: 'fixed', ...(phone ? { top: sc(12) } : { bottom: sc(14) }), right: sc(14), zIndex: 99999, border: '1px solid rgba(0,0,0,0.12)', background: 'rgba(255,255,255,0.92)', color: '#102F29', borderRadius: sc(999), padding: '7px 14px', fontSize: 12, fontWeight: 700, letterSpacing: 0.3, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', fontFamily: 'system-ui, sans-serif' }}
     >
       {phone ? 'Desktop view' : 'Phone view'}
     </button>
@@ -59,10 +60,10 @@ export function PhoneFrame({ children }: { children: ReactNode }) {
   const url = new URL(window.location.href);
   url.searchParams.set('embedded', '1');
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#E6EBE8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ position: 'fixed', inset: 0, background: '#E6EBE8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: sp(10), fontFamily: 'system-ui, sans-serif' }}>
       {button}
-      <div style={{ width: PHONE_W + 20, height: h + 20, padding: 10, boxSizing: 'border-box', background: '#0B1B17', borderRadius: 44, boxShadow: '0 24px 60px rgba(0,0,0,0.28)' }}>
-        <iframe title="LAMIS in a phone" src={url.toString()} style={{ width: '100%', height: '100%', border: 0, borderRadius: 34, background: '#fff', display: 'block' }} allow="geolocation" />
+      <div style={{ width: PHONE_W + 20, height: h + 20, padding: sp(10), boxSizing: 'border-box', background: '#0B1B17', borderRadius: sc(44), boxShadow: '0 24px 60px rgba(0,0,0,0.28)' }}>
+        <iframe title="LAMIS in a phone" src={url.toString()} style={{ width: '100%', height: '100%', border: 0, borderRadius: sc(34), background: '#fff', display: 'block' }} allow="geolocation" />
       </div>
       <div style={{ fontSize: 12, color: '#5B6B66' }}>Phone view · {PHONE_W} × {Math.round(h)}</div>
     </div>

@@ -20,10 +20,11 @@ import { shortDay } from '@/components/DateRangeSheet';
 import { get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useVerifyGate } from '@/lib/verifyGate';
-import { CITY_AREA_KM, useCity, useCityKnown, useCityPos } from '@/lib/city';
+import { useCategories } from '@/lib/categories';
+import { getAreaKm, useCity, useCityKnown, useCityPos } from '@/lib/city';
 import { kmBetween, useCityCenter } from '@/features/mapShared';
 import { CitySearch } from '@/components/CitySearch';
-import { catColor, CATS } from '@/lib/constants';
+import { catColor, CAT_IMAGES, CATS } from '@/lib/constants';
 import { useAction, useLoad } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
@@ -31,7 +32,7 @@ import { success, tap } from '@/lib/haptics';
 import { closeKeyboard } from '@/lib/keyboard';
 import { scrollToField } from '@/lib/pageScroll';
 import { localeTag, useT } from '@/lib/i18n';
-import { sc } from '@/lib/scale';
+import { sc, sp, sph } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { timeText } from '@/lib/format';
 import { backFromMain } from '@/lib/nav';
@@ -64,7 +65,7 @@ function dayChips(earliest: Date) {
 /** One card of the form. */
 export function Section({ children }: { children: ReactNode }) {
   const { c } = useTheme();
-  return <View style={{ backgroundColor: c.surface, borderRadius: 18, borderWidth: 1, borderColor: c.line, padding: 12, gap: 10 }}>{children}</View>;
+  return <View style={{ backgroundColor: c.surface, borderRadius: sc(18), borderWidth: 1, borderColor: c.line, padding: sp(12), gap: sp(10) }}>{children}</View>;
 }
 
 /** A choice chip; `tile` makes it a taller square with an icon above the word (categories). */
@@ -79,13 +80,13 @@ export function Choice({ label, active, onPress, icon, tile, spoken }: { /** wha
       onPress={onPress}
       style={({ pressed }) => [
         tile
-          ? { flexGrow: 1, minWidth: 60, paddingVertical: 8, paddingHorizontal: 6, borderRadius: 12, alignItems: 'center', gap: 3 }
-          : { height: 34, paddingHorizontal: 13, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
+          ? { flexGrow: 1, minWidth: sc(60), paddingVertical: sp(8), paddingHorizontal: sph(6), borderRadius: sc(12), alignItems: 'center', gap: sc(3) }
+          : { height: sc(34), paddingHorizontal: sph(13), borderRadius: sc(999), alignItems: 'center', justifyContent: 'center' },
         { borderWidth: 1.5, borderColor: active ? c.forest : c.line, backgroundColor: active ? c.forest : c.surface },
         pressed && { opacity: 0.85 },
       ]}
     >
-      {icon ? <Ionicons name={icon} size={18} color={active ? '#fff' : c.text} /> : null}
+      {icon ? <Ionicons name={icon} size={sc(18)} color={active ? '#fff' : c.text} /> : null}
       <Txt variant="h3" color={active ? '#fff' : c.text} style={{ fontSize: 12, lineHeight: 16 }}>{label}</Txt>
     </Pressable>
   );
@@ -103,9 +104,9 @@ export function Round({ icon, label, onPress, onLongPress, disabled }: { icon: '
       hitSlop={6}
       onPress={onPress}
       onLongPress={onLongPress}
-      style={({ pressed }) => [{ width: 34, height: 34, borderRadius: 17, borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 }, pressed && { transform: [{ scale: 0.92 }] }]}
+      style={({ pressed }) => [{ width: sc(34), height: sc(34), borderRadius: sc(17), borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 }, pressed && { transform: [{ scale: 0.92 }] }]}
     >
-      <Ionicons name={icon} size={18} color={c.forest} />
+      <Ionicons name={icon} size={sc(18)} color={c.forest} />
     </Pressable>
   );
 }
@@ -125,10 +126,10 @@ function EditPill({ section, onPress, done }: { section: string; onPress: () => 
         tap('Medium'); // the dock's strength, for Edit and Done alike
         onPress();
       }}
-      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 30, paddingHorizontal: 12, borderRadius: 999, backgroundColor: done ? c.forest : c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] }]}
+      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(4), minHeight: sc(30), paddingHorizontal: sph(12), borderRadius: sc(999), backgroundColor: done ? c.forest : c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] }]}
     >
-      <Ionicons name={done ? 'checkmark' : 'pencil'} size={13} color={done ? '#fff' : c.forest} />
-      <Text style={{ color: done ? '#fff' : c.forest, fontSize: 13, fontWeight: '600' }}>{done ? t('Done') : t('Edit')}</Text>
+      <Ionicons name={done ? 'checkmark' : 'pencil'} size={sc(13)} color={done ? '#fff' : c.forest} />
+      <Text style={{ color: done ? '#fff' : c.forest, fontSize: 12, fontWeight: '600' }}>{done ? t('Done') : t('Edit')}</Text>
     </Pressable>
   );
 }
@@ -138,7 +139,7 @@ function ReviewSection({ title, onEdit, children, missing }: { title: string; on
   const { c } = useTheme();
   const box = useRef<HostInstance>(null);
   return (
-    <View ref={box} style={{ backgroundColor: c.sand, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 16, gap: 10, borderWidth: missing ? 1.2 : 0, borderColor: c.danger }}>
+    <View ref={box} style={{ backgroundColor: c.sand, borderRadius: sc(24), paddingVertical: sp(14), paddingHorizontal: sph(16), gap: sp(10), borderWidth: missing ? 1.2 : 0, borderColor: c.danger }}>
       <Between>
         <CreateLabel>{title}</CreateLabel>
         <EditPill section={title} onPress={() => box.current?.measureInWindow((x, y, width, height) => onEdit({ x, y, width, height }))} />
@@ -156,13 +157,13 @@ const CARD_STEP = { what: 0, when: 1, where: 2, who: 3 } as const;
 function ReviewLine({ icon, title, sub }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; sub?: string }) {
   const { c } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-      <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name={icon} size={18} color={c.forest} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(12) }}>
+      <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: sc(36), height: sc(36), borderRadius: sc(18), backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={icon} size={sc(18)} color={c.forest} />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: c.text, fontSize: 15, lineHeight: 20, fontWeight: '500' }}>{title}</Text>
-        {sub ? <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18 }}>{sub}</Text> : null}
+        <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{title}</Text>
+        {sub ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{sub}</Text> : null}
       </View>
     </View>
   );
@@ -173,11 +174,11 @@ function AccessRow({ icon, title, text, on, onChange }: { icon: React.ComponentP
   const { c } = useTheme();
   const { t } = useT();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, minHeight: 44 }}>
-      <Ionicons name={icon} size={20} color={c.text} style={{ marginTop: 2, width: 24 }} />
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: sp(12), minHeight: sc(44) }}>
+      <Ionicons name={icon} size={sc(20)} color={c.text} style={{ marginTop: 2, width: sc(24) }} />
       <View style={{ flex: 1 }}>
         <Text style={{ color: c.text, fontSize: 16, lineHeight: 24, fontWeight: '500' }}>{title}</Text>
-        <Text style={{ color: c.muted, fontSize: 14, lineHeight: 22 }}>{text}</Text>
+        <Text style={{ color: c.muted, fontSize: 16, lineHeight: 25 }}>{text}</Text>
       </View>
       <Switch value={on} onValueChange={onChange} trackColor={{ true: c.green, false: c.line }} thumbColor={Platform.OS === 'android' && !on ? c.muted : '#fff'} ios_backgroundColor={c.line} accessibilityLabel={on ? t('{title}: on', { title }) : t('{title}: off', { title })} />
     </View>
@@ -223,7 +224,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   // the activity's place must be a neighbourhood picked from the search, in or near the city (the same area the city's feed shows)
   const centre = useCityCenter(city, cityPos).at;
   const placeKm = f.place && centre ? kmBetween({ lat: centre[0], lng: centre[1] }, f.place) : null;
-  const placeFar = placeKm !== null && placeKm > CITY_AREA_KM;
+  const placeFar = placeKm !== null && placeKm > getAreaKm();
   const cityKnown = useCityKnown(); // without a real city the form would save the placeholder "Milan" as the activity's city
   const placeOk = f.place != null && !placeFar && cityKnown;
   // how far ahead this city's admin lets people plan (a month unless they set it otherwise)
@@ -341,11 +342,22 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const [popTried, setPopTried] = useState(false);
   // Publish was tapped with something missing: the review cards that need it are marked, and a line says so
   const [reviewTried, setReviewTried] = useState(false);
+  // What the review page shows while a pop-up is open: the values as they were when it opened. The pop-up edits the form itself, but the page behind
+  // must not change until Done; closing the pop-up any other way (tapping outside, Back) puts the form back as it was.
+  const frozen = useRef<null | { f: Draft; startsAt: Date; endsAt: Date; venue: string; city: string; stepOk: boolean[]; busy: boolean; placeOk: boolean; valid: boolean }>(null);
   const openPop = (card: 'what' | 'when' | 'where' | 'who', from: Origin) => {
     Keyboard.dismiss();
+    frozen.current = { f, startsAt, endsAt, venue, city: city.trim(), stepOk, busy, placeOk, valid };
     setClosing(false);
     setPopTried(false);
     setPop({ card, from });
+  };
+  /** tapping outside the pop-up, or Back: the changes made in it are thrown away */
+  const cancelPop = () => {
+    if (frozen.current) setF(frozen.current.f);
+    Keyboard.dismiss();
+    setPopTried(false);
+    setClosing(true);
   };
   const bannerRef = useRef<HostInstance>(null);
   const edit = (i: number) => {
@@ -452,42 +464,43 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   };
   const [catRow, setCatRow] = useState(0);
   const catW = catRow ? Math.floor((catRow - 2 * 10) / 3) : undefined;
-  const catOrder = ['drinks', 'coffee', 'sports', 'food', 'culture'].filter((k) => CATS[k]);
+  // the admin's order, from Settings > Categories (the ones the app shipped with, until the list arrives)
+  const catOrder = useCategories().here.filter((k) => CATS[k]);
   const lastDay = latest ?? new Date(Date.now() + 24 * 3600e3);
 
   // the controls of the first three steps; the review page shows the same ones when a card is opened to edit it
   const whatFields = (
     <>
-      <CreateLabel style={{ marginTop: 6 }}>{t('Select category')}</CreateLabel>
+      <CreateLabel style={{ marginTop: sp(6) }}>{t('Select category')}</CreateLabel>
       {/* three equal columns, measured from the row itself, so any screen width (narrow Android phones too) fits three to a row */}
-      <View onLayout={(e) => setCatRow(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+      <View onLayout={(e) => setCatRow(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(10) }}>
         {catOrder.map((k) => (
-          <CategoryPill key={k} width={catW} label={t(CATS[k].label)} spoken={t('Category {label}', { label: t(CATS[k].label) })} photo={CAT_PHOTOS[k]} selected={f.category === k} onPress={() => set('category', k)} />
+          <CategoryPill key={k} width={catW} label={t(CATS[k].label)} spoken={t('Category {label}', { label: t(CATS[k].label) })} photo={CAT_IMAGES[k] ?? CAT_PHOTOS[k]} emoji={CATS[k].emoji} tint={catColor(k)} selected={f.category === k} onPress={() => set('category', k)} />
         ))}
       </View>
-      <CreateLabel style={{ marginTop: 14 }}>{t('Activity name')}</CreateLabel>
+      <CreateLabel style={{ marginTop: sp(14) }}>{t('Activity name')}</CreateLabel>
       <View ref={titleBox} collapsable={false}>
         <PillInput label={t('Activity name')} placeholder={t('After-work aperitivo')} value={f.title} onChangeText={(v) => set('title', v)} maxLength={80} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => descRef.current?.focus()} style={bad(0) && f.title.trim().length < 2 ? { borderWidth: 1.2, borderColor: c.danger } : undefined} />
       </View>
-      {bad(0) && f.title.trim().length < 2 ? <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, paddingLeft: 4, marginTop: -6 }}>{t('Give your activity a name (at least 2 letters).')}</Text> : null}
-      <CreateLabel style={{ marginTop: 10 }}>{t('Description (optional)')}</CreateLabel>
+      {bad(0) && f.title.trim().length < 2 ? <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, paddingLeft: sph(4), marginTop: -sc(6) }}>{t('Give your activity a name (at least 2 letters).')}</Text> : null}
+      <CreateLabel style={{ marginTop: sp(10) }}>{t('Description (optional)')}</CreateLabel>
       {/* its return key moves on to the next step (so it takes no new lines) */}
       <PillArea ref={descRef} label={t('Description')} placeholder={t('Casual drinks and conversation with new people.')} value={f.description} onChangeText={(v) => set('description', v.slice(0, DESC_MAX))} maxLength={DESC_MAX} returnKeyType="next" submitBehavior="submit" onSubmitEditing={reviewing ? () => Keyboard.dismiss() : nextFromKeyboard} style={{ minHeight: sc(76) }} />
-      <Text accessibilityElementsHidden importantForAccessibility="no" style={{ alignSelf: 'flex-end', marginTop: -8, marginRight: 14, color: f.description.length >= DESC_MAX ? c.text : c.muted, fontSize: 12 }}>{`${f.description.length}/${DESC_MAX}`}</Text>
+      <Text accessibilityElementsHidden importantForAccessibility="no" style={{ alignSelf: 'flex-end', marginTop: -sc(8), marginRight: sph(14), color: f.description.length >= DESC_MAX ? c.text : c.muted, fontSize: 12 }}>{`${f.description.length}/${DESC_MAX}`}</Text>
     </>
   );
   const whenFields = (
     <>
-      <CreateLabel style={{ marginTop: 6 }}>{t('Select a date')}</CreateLabel>
+      <CreateLabel style={{ marginTop: sp(6) }}>{t('Select a date')}</CreateLabel>
       <MonthCalendar month={month} onMonth={setMonth} selected={day.d} min={earliest} max={lastDay} onPick={pickDay} marks={marks} />
       {latest ? <Text style={{ color: c.muted, fontSize: 12 }}>{t('You can plan up to {date}.', { date: shortDay(latest) })}</Text> : null}
       {/* what you already have at the chosen day and time: right under the calendar, where the day was picked */}
       <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />
 
-      <CreateLabel style={{ marginTop: 10 }}>{t('Select starting time')}</CreateLabel>
+      <CreateLabel style={{ marginTop: sp(10) }}>{t('Select starting time')}</CreateLabel>
       {/* scroll the hour and the minute; − / + beside them nudge by a minute (hold for 5 minutes). Times too soon are greyed and spring back. */}
-      <View ref={timeBox} collapsable={false} accessibilityLabel={t('Starts at {time}', { time: clock(startsAt) })} style={{ backgroundColor: c.sand, borderRadius: 32, paddingVertical: 12, paddingHorizontal: 16, gap: 10, alignItems: 'center', borderWidth: bad(1) && (tooSoon || busy) ? 1.2 : 0, borderColor: c.danger }}>
-        <Row style={{ gap: 10, alignItems: 'center' }}>
+      <View ref={timeBox} collapsable={false} accessibilityLabel={t('Starts at {time}', { time: clock(startsAt) })} style={{ backgroundColor: c.sand, borderRadius: sc(32), paddingVertical: sp(12), paddingHorizontal: sph(16), gap: sp(10), alignItems: 'center', borderWidth: bad(1) && (tooSoon || busy) ? 1.2 : 0, borderColor: c.danger }}>
+        <Row style={{ gap: sp(10), alignItems: 'center' }}>
           <RoundBtn filled icon="remove" label={t('Earlier')} disabled={!canMove(-1)} onPress={() => move(-1)} onLongPress={() => move(canMove(-5) ? -5 : -1)} />
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             {/* An hour that is already past today is not refused when the same clock number is still ahead in the other half of the
@@ -506,7 +519,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
           </View>
           <RoundBtn filled icon="add" label={t('Later')} disabled={!canMove(1)} onPress={() => move(1)} onLongPress={() => move(canMove(5) ? 5 : 1)} />
         </Row>
-        <Row style={{ gap: 12 }}>
+        <Row style={{ gap: sp(12) }}>
           {periods.map((p) => (
             <SmallPill key={p} label={p} spoken={t('Start time {p}', { p })} active={period === p} onPress={() => pickPeriod(p)} />
           ))}
@@ -516,9 +529,9 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
 
       {/* only the picks on the date chosen above; on another date the section folds away */}
       <Collapse open={quickHere.length > 0} gap={reviewing ? 14 : 16}>
-        <View style={{ gap: 16 }}>
-          <CreateLabel style={{ marginTop: 6 }}>{t('Quick pick')}</CreateLabel>
-          <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+        <View style={{ gap: sp(16) }}>
+          <CreateLabel style={{ marginTop: sp(6) }}>{t('Quick pick')}</CreateLabel>
+          <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: sp(6) }}>
             {quickHere.map((q) => (
               <SmallPill compact key={q.label} label={q.label} active={startsAt.getTime() === q.at.getTime()} onPress={() => setStart(q.at)} />
             ))}
@@ -526,11 +539,11 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         </View>
       </Collapse>
 
-      <Between style={{ marginTop: 6 }}>
+      <Between style={{ marginTop: sp(6) }}>
         <CreateLabel>{t('Duration')}</CreateLabel>
         <Text style={{ color: c.muted, fontSize: 12 }}>{t('Ends {time}', { time: clock(endsAt) })}</Text>
       </Between>
-      <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: sp(6) }}>
         {DURATIONS.map((h) => (
           <SmallPill compact key={h} label={`${h}h`} active={f.duration === h} onPress={() => set('duration', h)} />
         ))}
@@ -557,26 +570,26 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       <PlaceMapPreview at={f.place ? { lat: f.place.lat, lng: f.place.lng } : centre ? { lat: centre[0], lng: centre[1] } : null} picked={!!f.place} />
       {/* only a neighbourhood picked from the list, in or near the city, lets the step go on: say why when it cannot */}
       {placeFar && f.place ? (
-        <Banner tone="bad">{t('{place} is about {km} km from {city}. Pick a neighbourhood in or near {city} (within {limit} km), or change the city above.', { place: f.place.name, km: Math.round(placeKm!), city, limit: CITY_AREA_KM })}</Banner>
+        <Banner tone="bad">{t('{place} is about {km} km from {city}. Pick a neighbourhood in or near {city} (within {limit} km), or change the city above.', { place: f.place.name, km: Math.round(placeKm!), city, limit: getAreaKm() })}</Banner>
       ) : !f.place && f.venueName.trim().length >= 2 ? (
-        <Text style={{ color: bad(2) ? c.danger : c.muted, fontSize: 13, lineHeight: 18 }}>{t('Pick a neighbourhood from the list to continue.')}</Text>
+        <Text style={{ color: bad(2) ? c.danger : c.muted, fontSize: 12, lineHeight: 17 }}>{t('Pick a neighbourhood from the list to continue.')}</Text>
       ) : !f.place && bad(2) ? (
-        <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 13, lineHeight: 18 }}>{t('Search for a neighbourhood and pick it from the list.')}</Text>
+        <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 17 }}>{t('Search for a neighbourhood and pick it from the list.')}</Text>
       ) : null}
       {/* the city is the app's city: shown here, not chosen (change it on Home or the map); the neighbourhood is searched inside it */}
-      <View accessible accessibilityLabel={t('City: {city}', { city })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 54, borderRadius: 32, backgroundColor: c.sand, paddingHorizontal: 20 }}>
-        <Ionicons name="location" size={18} color={c.forest} />
-        <Text numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: 14, fontWeight: '600' }}>{city}</Text>
-        <Ionicons name="lock-closed-outline" size={15} color={c.muted} />
+      <View accessible accessibilityLabel={t('City: {city}', { city })} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), minHeight: sc(54), borderRadius: sc(32), backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, paddingHorizontal: sph(20) }}>
+        <Ionicons name="location" size={sc(18)} color={c.forest} />
+        <Text numberOfLines={1} style={{ flex: 1, color: c.text, fontSize: 16, fontWeight: '600' }}>{city}</Text>
+        <Ionicons name="lock-closed-outline" size={sc(15)} color={c.muted} />
       </View>
       {cityKnown ? (
-        <Text style={{ color: c.muted, fontSize: 12, marginTop: -6, paddingLeft: 4 }}>{t('Your activity is in your current city. To post somewhere else, change the city on Home first.')}</Text>
+        <Text style={{ color: c.muted, fontSize: 12, marginTop: -sc(6), paddingLeft: sph(4) }}>{t('Your activity is in your current city. To post somewhere else, change the city on Home first.')}</Text>
       ) : (
         <Banner tone="warn" onPress={() => go('/')}>{t('Choose your city on Home first. Your activity is posted in your city.')}</Banner>
       )}
-      <View ref={publicBox} collapsable={false} style={{ backgroundColor: '#F7F7F5', borderRadius: 24, paddingVertical: 16, paddingHorizontal: 16, marginTop: 6, borderWidth: bad(2) && placeOk && !publicPlace ? 1.2 : 0, borderColor: c.danger }}>
+      <View ref={publicBox} collapsable={false} style={{ backgroundColor: '#F7F7F5', borderRadius: sc(24), paddingVertical: sp(16), paddingHorizontal: sph(16), marginTop: sp(6), borderWidth: bad(2) && placeOk && !publicPlace ? 1.2 : 0, borderColor: c.danger }}>
         <CheckRow checked={publicPlace} onChange={setPublicPlace}>
-          <Text style={{ color: c.text, fontSize: 14, lineHeight: 24 }}>{t('This is a public place. First meetings never happen at a private home.')}</Text>
+          <Text style={{ color: c.text, fontSize: 16, lineHeight: 27 }}>{t('This is a public place. First meetings never happen at a private home.')}</Text>
         </CheckRow>
       </View>
     </>
@@ -584,7 +597,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
 
   const whoFields = (
     <>
-      <CreateLabel style={{ marginTop: 14 }}>{t('Maximum people')}</CreateLabel>
+      <CreateLabel style={{ marginTop: sp(14) }}>{t('Maximum people')}</CreateLabel>
       <CountPill
         value={f.capacity}
         minusLabel={t('Fewer people')}
@@ -596,7 +609,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       />
       <Text style={{ color: c.muted, fontSize: 12, textAlign: 'center' }}>{`${t('Including you')} · ${tn(f.capacity - 1, 'You + {n} spot', 'You + {n} spots')}`}</Text>
 
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500', marginTop: 16 }}>{t('Access control')}</Text>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500', marginTop: sp(16) }}>{t('Access control')}</Text>
       {/* exactly one is always on: turning the one that is on off turns the other on */}
       <AccessRow
         icon="flash"
@@ -617,6 +630,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   );
 
   const venue = f.place ? f.place.name : f.venueName.trim();
+  const live = { f, startsAt, endsAt, venue, city: city.trim(), stepOk, busy, placeOk, valid };
+  const view = pop && frozen.current ? frozen.current : live;
   return (
     <View style={{ flex: 1 }}>
       {reviewing ? (
@@ -626,34 +641,34 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
           <ErrorBanner message={act.error} />
           {/* the activity's photo with its name over it, as it will look in the feed */}
           <View ref={bannerRef}>
-          <CatPhoto category={f.category} style={{ height: 170, borderRadius: 24, justifyContent: 'flex-end' }}>
-            <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.6)']} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 110 }} />
-            <View style={{ position: 'absolute', top: 12, right: 12 }}>
+          <CatPhoto category={view.f.category} style={{ height: sc(170), borderRadius: sc(24), justifyContent: 'flex-end' }}>
+            <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.6)']} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: sc(110) }} />
+            <View style={{ position: 'absolute', top: sc(12), right: sc(12) }}>
               <EditPill section={t('What')} onPress={() => bannerRef.current?.measureInWindow((x, y, width, height) => openPop('what', { x, y, width, height }))} />
             </View>
-            <View style={{ padding: 16, gap: 2 }}>
-              <Text numberOfLines={2} style={{ color: '#fff', fontSize: 22, lineHeight: 28, fontWeight: '700' }}>{f.title.trim()}</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.88)', fontSize: 14 }}>{t(CATS[f.category]?.label ?? f.category)}</Text>
+            <View style={{ padding: sp(16), gap: 2 }}>
+              <Text numberOfLines={2} style={{ color: '#fff', fontSize: 22, lineHeight: 28, fontWeight: '700' }}>{view.f.title.trim()}</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.88)', fontSize: 16 }}>{t(CATS[view.f.category]?.label ?? view.f.category)}</Text>
             </View>
           </CatPhoto>
           </View>
-          {!stepOk[0] ? (
-            <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, marginTop: -6, paddingLeft: 4 }}>{t('The activity name is missing. Tap Edit on the photo to add it.')}</Text>
+          {!view.stepOk[0] ? (
+            <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 16, marginTop: -sc(6), paddingLeft: sph(4) }}>{t('The activity name is missing. Tap Edit on the photo to add it.')}</Text>
           ) : null}
-          <ReviewSection title={t('When')} onEdit={(from) => openPop('when', from)} missing={!stepOk[1] && (busy ? t('You already have a plan at this time. Tap Edit to change it.') : t('This time has passed. Tap Edit to pick a later one.'))}>
-            <ReviewLine icon="calendar-outline" title={shortDay(startsAt)} />
-            <ReviewLine icon="time-outline" title={`${clock(startsAt)} – ${clock(endsAt)}`} sub={`${f.duration}h`} />
+          <ReviewSection title={t('When')} onEdit={(from) => openPop('when', from)} missing={!view.stepOk[1] && (view.busy ? t('You already have a plan at this time. Tap Edit to change it.') : t('This time has passed. Tap Edit to pick a later one.'))}>
+            <ReviewLine icon="calendar-outline" title={shortDay(view.startsAt)} />
+            <ReviewLine icon="time-outline" title={`${clock(view.startsAt)} – ${clock(view.endsAt)}`} sub={`${view.f.duration}h`} />
           </ReviewSection>
-          <ReviewSection title={t('Where')} onEdit={(from) => openPop('where', from)} missing={!stepOk[2] && (!placeOk ? t('The meeting place is missing. Tap Edit to pick one.') : t('Confirm it is a public place. Tap Edit.'))}>
-            <ReviewLine icon="location-outline" title={venue} sub={city.trim()} />
+          <ReviewSection title={t('Where')} onEdit={(from) => openPop('where', from)} missing={!view.stepOk[2] && (!view.placeOk ? t('The meeting place is missing. Tap Edit to pick one.') : t('Confirm it is a public place. Tap Edit.'))}>
+            <ReviewLine icon="location-outline" title={view.venue} sub={view.city} />
           </ReviewSection>
           <ReviewSection title={t('Who can join')} onEdit={(from) => openPop('who', from)}>
-            <ReviewLine icon="people-outline" title={t('{n} people', { n: f.capacity })} sub={t('Including you')} />
-            <ReviewLine icon={f.joinPolicy === 'instant' ? 'flash' : 'hand-left-outline'} title={f.joinPolicy === 'instant' ? t('Instant join') : t('Request to join')} sub={f.joinPolicy === 'instant' ? t('Verified people join at once.') : t('You approve each person.')} />
+            <ReviewLine icon="people-outline" title={t('{n} people', { n: view.f.capacity })} sub={t('Including you')} />
+            <ReviewLine icon={view.f.joinPolicy === 'instant' ? 'flash' : 'hand-left-outline'} title={view.f.joinPolicy === 'instant' ? t('Instant join') : t('Request to join')} sub={view.f.joinPolicy === 'instant' ? t('Verified people join at once.') : t('You approve each person.')} />
           </ReviewSection>
           <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />
-          {reviewTried && !valid ? <Banner tone="bad">{t('Some details are missing. Fix the parts marked in red, then publish.')}</Banner> : null}
-          <AuthButton compact title={gate.verified ? t('Publish activity') : gate.title('publish')} loading={act.busy} onPress={publishNow} style={{ marginTop: 10 }} />
+          {reviewTried && !view.valid ? <Banner tone="bad">{t('Some details are missing. Fix the parts marked in red, then publish.')}</Banner> : null}
+          <AuthButton compact title={gate.verified ? t('Publish activity') : gate.title('publish')} loading={act.busy} onPress={publishNow} style={{ marginTop: sp(10) }} />
           <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t("Your activity is public in the feed. Only the venue is shown, never anyone's live location.")}</Text>
         </Screen>
       ) : null}
@@ -661,8 +676,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         <EditPopup
           from={pop.from}
           closing={closing}
-          onDone={donePop}
-          onClosed={() => (setPop(null), setPopTried(false))}
+          onDone={cancelPop}
+          onClosed={() => (setPop(null), setPopTried(false), (frozen.current = null))}
           header={
             <View style={{ alignItems: 'flex-end' }}>
               <EditPill section="" done onPress={donePop} />
@@ -686,7 +701,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       }>
 
         {/* swipe left for the next step (once this one is done), right for the one before; it stops at step 4 */}
-        <StepTransition step={step} style={{ gap: 16 }} swipe={{ canNext: step < 3 && stepOk[step], canBack: step > 0, onNext: () => setStep(step + 1), onBack: () => setStep(step - 1) }}>
+        <StepTransition step={step} style={{ gap: sp(16) }} swipe={{ canNext: step < 3 && stepOk[step], canBack: step > 0, onNext: () => setStep(step + 1), onBack: () => setStep(step - 1) }}>
         {stepShown(0) && (
           <View style={stepShown(0)}>
             <OnboardingHeading title={t('What are you planning?')} subtitle={t('Choose a vibe and give your spontaneous plan a catchy name.')} />

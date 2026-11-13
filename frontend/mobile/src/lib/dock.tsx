@@ -5,7 +5,7 @@ import { createContext, memo, useContext, useEffect, useRef, useSyncExternalStor
 import { Animated, Easing, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '@/lib/layout';
-import { scBase } from '@/lib/scale';
+import { scBase, sc } from '@/lib/scale';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 
@@ -85,8 +85,8 @@ export function onTabSwitch(fn: () => void) {
 
 /** Sizes of the phone dock, in points. Every icon is centred on the pill's middle line and drawn in an ICON square. */
 export const DOCK = {
-  icon: 26, // optical size shared by the three drawn icons (the profile photo is 28 so it matches optically)
-  avatar: 28,
+  icon: 26, // optical size shared by the three drawn icons and the profile photo
+  avatar: 34, // the ring around the profile photo; the photo inside is avatar - 8 = 26, the same size as the three drawn icons
   pill: 72, // height of the white pill (also the height of every tab slot, so each hit area is 72 tall)
   sideInset: 14, // pill's gap to the screen edges
   plus: 56, // diameter of the Create button: a plain disc sitting on the pill's top edge (no ring)
@@ -156,13 +156,13 @@ export const DockBackground = memo(function DockBackground({ bottom }: { bottom:
           right: DOCK.sideInset,
           top: 0,
           bottom,
-          borderRadius: 999,
+          borderRadius: sc(999),
           backgroundColor: c.surface,
           elevation: 5,
           shadowColor: SHADOW,
           shadowOpacity: 0.1,
           shadowRadius: 14,
-          shadowOffset: { width: 0, height: 3 },
+          shadowOffset: { width: 0, height: sc(3) },
         }}
       />
     </>
@@ -259,7 +259,7 @@ export const DockButton = memo(function DockButton(props: any) {
           }}
         >
           {/* the open-tab capsule: a soft tint with a fine rim (THERE adds a faint sheen and sand tint through its tokens) */}
-          <View style={{ position: 'absolute', left: 1, right: 1, top: 7, bottom: 7, borderRadius: 999, borderWidth: 1, borderColor: c.glassRim, backgroundColor: c.glassFill, overflow: 'hidden' }}>
+          <View style={{ position: 'absolute', left: 1, right: 1, top: sc(7), bottom: sc(7), borderRadius: sc(999), borderWidth: 1, borderColor: c.glassRim, backgroundColor: c.glassFill, overflow: 'hidden' }}>
             <LinearGradient colors={[c.glassShine, 'rgba(255,255,255,0)']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 0.6 }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
             <LinearGradient colors={[c.glassTint, c.glassTintEnd]} start={{ x: 0.5, y: 0.35 }} end={{ x: 0.5, y: 1 }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />
           </View>

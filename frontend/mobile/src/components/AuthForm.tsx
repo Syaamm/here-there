@@ -4,7 +4,8 @@ import { Pressable, View, type StyleProp, type TextInputProps, type ViewStyle } 
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useT } from '@/lib/i18n';
 import { tap } from '@/lib/haptics';
-import { sc } from '@/lib/scale';
+import { sc, sp, sph } from '@/lib/scale';
+import { BTN } from '@/lib/buttons';
 import { useTheme } from '@/lib/theme';
 import { pressed } from './ui';
 import { Text, TextInput } from './ScaledText';
@@ -19,7 +20,7 @@ export function AuthBack({ onPress }: { onPress: () => void }) {
   const { t } = useT();
   const { mode } = useTheme();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={t('Back')} hitSlop={6} onPress={onPress} style={({ pressed: p }) => [{ alignSelf: 'flex-start', width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t('Back')} hitSlop={6} onPress={onPress} style={({ pressed: p }) => [{ alignSelf: 'flex-start', width: sc(44), height: sc(44), alignItems: 'center', justifyContent: 'center' }, pressed(p)]}>
       <Svg width={41} height={41} viewBox="0 0 41 41" fill="none">
         {mode === 'there' ? <Circle cx={20.5} cy={20.5} r={20} fill="#fff" /> : null}
         <Rect x={0.525641} y={0.525641} width={39.9487} height={39.9487} rx={19.9744} stroke="black" strokeOpacity={0.09} strokeWidth={1.05128} />
@@ -33,9 +34,9 @@ export function AuthBack({ onPress }: { onPress: () => void }) {
 export function AuthHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   const { c, mode } = useTheme();
   return (
-    <View style={{ alignItems: 'center', gap: 8 }}>
+    <View style={{ alignItems: 'center', gap: sp(8) }}>
       <Text accessibilityRole="header" style={{ color: c.text, fontSize: 30, lineHeight: 36, fontWeight: mode === 'there' ? '700' : '600', textAlign: 'center' }}>{title}</Text>
-      {subtitle ? <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20, textAlign: 'center' }}>{subtitle}</Text> : null}
+      {subtitle ? <Text style={{ color: c.muted, fontSize: 16, lineHeight: 23, textAlign: 'center' }}>{subtitle}</Text> : null}
     </View>
   );
 }
@@ -48,8 +49,8 @@ export function AuthField({ label, hint, error, style, inputRef, ...rest }: Text
   const secret = !!rest.secureTextEntry;
   const multi = !!rest.multiline;
   return (
-    <View style={{ gap: 8 }}>
-      <Text style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{label}</Text>
+    <View style={{ gap: sp(14) }}>
+      <Text style={{ color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '600', paddingLeft: 2 }}>{label}</Text>
       <View>
         <TextInput
           ref={inputRef}
@@ -63,16 +64,16 @@ export function AuthField({ label, hint, error, style, inputRef, ...rest }: Text
           {...rest}
           secureTextEntry={secret && !shown}
           textAlignVertical={multi ? 'top' : 'center'}
-          style={[{ minHeight: sc(52), borderWidth: mode === 'there' && !error ? 0 : 1, borderRadius: 32, borderColor: error ? c.danger : c.line, backgroundColor: mode === 'there' ? '#fff' : c.surface, color: c.text, fontSize: 14, paddingHorizontal: 18, paddingVertical: 10, includeFontPadding: false }, secret ? { paddingRight: 52 } : null, style]}
+          style={[{ minHeight: sc(52), borderWidth: mode === 'there' && !error ? 0 : 1, borderRadius: sc(32), borderColor: error ? c.danger : c.line, backgroundColor: mode === 'there' ? '#fff' : c.surface, color: c.text, fontSize: 16, paddingHorizontal: sph(18), paddingVertical: sp(10), includeFontPadding: false }, secret ? { paddingRight: sph(52) } : null, style]}
         />
         {secret ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={shown ? t('Hide password') : t('Show password')} onPress={() => setShown((v) => !v)} hitSlop={4} style={{ position: 'absolute', right: 4, top: 0, bottom: 0, width: 44, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name={shown ? 'eye-off-outline' : 'eye-outline'} size={20} color={c.muted} />
+          <Pressable accessibilityRole="button" accessibilityLabel={shown ? t('Hide password') : t('Show password')} onPress={() => setShown((v) => !v)} hitSlop={4} style={{ position: 'absolute', right: sc(4), top: 0, bottom: 0, width: sc(44), alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name={shown ? 'eye-off-outline' : 'eye-outline'} size={sc(20)} color={c.muted} />
           </Pressable>
         ) : null}
       </View>
-      {hint && !error ? <Text style={{ color: c.muted, fontSize: 11, lineHeight: 15, paddingLeft: 4 }}>{hint}</Text> : null}
-      {error ? <Text style={{ color: c.danger, fontSize: 11, lineHeight: 15, paddingLeft: 4 }}>{error}</Text> : null}
+      {hint && !error ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16, paddingLeft: sph(4) }}>{hint}</Text> : null}
+      {error ? <Text style={{ color: c.danger, fontSize: 12, lineHeight: 16, paddingLeft: sph(4) }}>{error}</Text> : null}
     </View>
   );
 }
@@ -90,9 +91,9 @@ export function AuthButton({ title, onPress, loading, disabled, style, compact }
         tap('Medium');
         onPress();
       }}
-      style={({ pressed: p }) => [{ minHeight: sc(compact ? 44 : 54), borderRadius: compact ? 26 : 32, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, opacity: off ? 0.5 : 1 }, style, !off && pressed(p)]}
+      style={({ pressed: p }) => [{ minHeight: sc(BTN.large), borderRadius: BTN.radiusLarge, /* every main action is the same size, `compact` or not (it used to make Continue and Review smaller than Request to join) */ backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', paddingHorizontal: sph(20), opacity: off ? 0.5 : 1 }, style, !off && pressed(p)]}
     >
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: '#fff', fontSize: compact ? 14 : 15, fontWeight: '500' }}>{loading ? '…' : title}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: '#fff', ...BTN.text }}>{loading ? '…' : title}</Text>
     </Pressable>
   );
 }
@@ -101,11 +102,11 @@ export function AuthButton({ title, onPress, loading, disabled, style, compact }
 export function AuthSwitch({ prompt, action, onPress }: { prompt: string; action: string; onPress: () => void }) {
   const { c } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10) }}>
       <View style={{ flex: 1, height: 1, backgroundColor: c.line }} />
-      <Text style={{ color: c.muted, fontSize: 13, flexShrink: 1, textAlign: 'center' }}>{prompt}</Text>
-      <Pressable accessibilityRole="link" hitSlop={10} onPress={onPress} style={{ minHeight: 32, justifyContent: 'center' }}>
-        <Text style={{ color: c.forest, fontSize: 14, fontWeight: '600' }}>{action}</Text>
+      <Text style={{ color: c.muted, fontSize: 12, flexShrink: 1, textAlign: 'center' }}>{prompt}</Text>
+      <Pressable accessibilityRole="link" hitSlop={10} onPress={onPress} style={{ minHeight: sc(32), justifyContent: 'center' }}>
+        <Text style={{ color: c.forest, fontSize: 16, fontWeight: '600' }}>{action}</Text>
       </Pressable>
       <View style={{ flex: 1, height: 1, backgroundColor: c.line }} />
     </View>
@@ -116,11 +117,11 @@ export function AuthSwitch({ prompt, action, onPress }: { prompt: string; action
 export function AuthCheck({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   const { c, mode } = useTheme();
   return (
-    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 }}>
-      <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 1, borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : mode === 'there' ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-        {checked ? <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>✓</Text> : null}
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(12), minHeight: sc(44) }}>
+      <View style={{ width: sc(20), height: sc(20), borderRadius: sc(4), borderWidth: 1, borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : mode === 'there' ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+        {checked ? <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>✓</Text> : null}
       </View>
-      <Text style={{ flex: 1, color: c.text, fontSize: 14, lineHeight: 20 }}>{label}</Text>
+      <Text style={{ flex: 1, color: c.text, fontSize: 16, lineHeight: 23 }}>{label}</Text>
     </Pressable>
   );
 }

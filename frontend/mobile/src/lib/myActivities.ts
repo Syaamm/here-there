@@ -44,7 +44,7 @@ export function clashesWith(d: MyActivitiesData | null | undefined, a: Pick<Acti
 }
 
 /** Everything the person hosts, joined or asked to join, newest start first. Withdrawn requests are not listed. */
-export function myActivityItems(d: MyActivitiesData | null | undefined): MyActivityItem[] {
+export function myActivityItems(d: MyActivitiesData | null | undefined, sort = true): MyActivityItem[] {
   if (!d) return [];
   const items: MyActivityItem[] = [
     ...d.joined.map((a): MyActivityItem => ({ key: `j-${a.id}`, activity: a, kind: 'mine', label: a.role === 'host' ? 'You host this' : "You're going", tone: 'ok', hostOf: a.role === 'host' && !['completed', 'archived', 'cancelled', 'in_progress'].includes(a.status) })),
@@ -59,5 +59,6 @@ export function myActivityItems(d: MyActivitiesData | null | undefined): MyActiv
         hostOf: false,
       })),
   ];
-  return items.sort((x, y) => +new Date(y.activity.startsAt) - +new Date(x.activity.startsAt));
+  // `sort = false`: keep the order as it came (the server already ranks the My activities tab: on now, then the soonest)
+  return sort ? items.sort((x, y) => +new Date(y.activity.startsAt) - +new Date(x.activity.startsAt)) : items;
 }

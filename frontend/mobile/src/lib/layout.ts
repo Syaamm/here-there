@@ -1,4 +1,5 @@
 import { Platform, useWindowDimensions } from 'react-native';
+import { sc } from '@/lib/scale';
 
 /**
  * Where a page may start below the status bar. An iPhone reports a tall safe area (the notch or Dynamic Island), and
@@ -25,6 +26,6 @@ export function useLayout() {
     /** wide enough for a side navigation rail and two-pane screens */
     isWide: width >= BREAKPOINTS.expanded,
     /** comfortable side padding for the content column */
-    gutter: width >= BREAKPOINTS.medium ? 24 : 16,
+    gutter: width >= BREAKPOINTS.medium ? 24 : sc(20),
   };
 }

@@ -222,6 +222,24 @@ describe('confirmed plans, starting-soon reminders, drafts and appeals', () => {
     assert.equal((await notified(host, 'starting_soon')).length, 2);
   });
 
+  it('still sends the reminder when everyone joined only minutes before the first round (an activity made close to its start)', async () => {
+    const { ActivitiesService } = await import('../src/activities/activities.service');
+    const svc = app.get(ActivitiesService);
+    const host = await verified('RHostB');
+    const m = await verified('RMemberB');
+    const id = (await post('/v1/activities', host.token, activityBody({ title: 'Quick espresso', startsAt: hours(0.4), endsAt: hours(2), capacity: 4 }))).body.id;
+    await join(id, m, host);
+    await svc.sendStartingSoon();
+    assert.equal((await notified(m, 'starting_soon')).length, 0, 'they have only just joined');
+    // ten minutes later, with nothing reset by hand: the reminder is still due, and goes to both
+    await prisma.activityMembership.updateMany({ where: { activityId: id }, data: { createdAt: new Date(Date.now() - 10 * 60_000) } });
+    assert.ok((await svc.sendStartingSoon()) >= 2);
+    assert.equal((await notified(m, 'starting_soon')).length, 1);
+    assert.equal((await notified(host, 'starting_soon')).length, 1);
+    await svc.sendStartingSoon();
+    assert.equal((await notified(m, 'starting_soon')).length, 1, 'never twice');
+  });
+
   it('confirms a trip once everyone has agreed the final dates', async () => {
     const org = await verified('CTOrg');
     const mem = await verified('CTMem');

@@ -15,7 +15,8 @@ import { useMe } from '@/lib/auth';
 import { when } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 /** HERE · Join request. Chat stays closed until the host approves. */
 export default function Join() {
   const { t, tn } = useT();
@@ -50,9 +51,9 @@ export default function Join() {
   return (
     <Screen hasHeader>
       {/* cover block: a stand-in for the activity photo */}
-      <CatPhoto category={a.category} style={{ height: 190, borderRadius: 28 }} />
+      <CatPhoto category={a.category} style={{ height: sc(190), borderRadius: sc(28) }} />
       <View>
-        <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600' }}>{a.title}</Text>
+        <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700' }}>{a.title}</Text>
         <Txt variant="muted">{when(a.startsAt)} · {a.venueName} · {t('{going}/{capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
       </View>
 
@@ -61,8 +62,8 @@ export default function Join() {
       {a.spotsLeft === 0 ? <Banner tone="warn">{t('This activity is full. You can join the waiting list.')}</Banner> : null}
       {instant ? null : <AuthField label={t('Introduce yourself to the host')} placeholder={t('Say hi')} multiline value={intro} onChangeText={setIntro} maxLength={500} hint={`${intro.length}/500`} />}
 
-      <View style={{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: c.line, paddingHorizontal: 16, paddingVertical: 8 }}>
-        <Text style={{ color: c.text, fontSize: 16, fontWeight: '600', paddingTop: 8 }}>{t('Before joining')}</Text>
+      <View style={{ backgroundColor: c.surface, borderRadius: sc(24), borderWidth: 1, borderColor: c.line, paddingHorizontal: sph(16), paddingVertical: sp(8) }}>
+        <Text style={{ color: c.text, fontSize: 16, fontWeight: '600', paddingTop: sp(8) }}>{t('Before joining')}</Text>
         <CheckLine ok={adult} text={t('I am at least 18 years old')} />
         <CheckLine ok={verified} text={verified ? t('Identity verified') : t('Identity verification required')} action={!verified ? <Btn title={t('Verify now')} small variant="secondary" onPress={() => go('/verify')} style={{ alignSelf: 'flex-start' }} /> : undefined} />
         <AuthCheck checked={agree} onChange={setAgree} label={t('I agree to the group guidelines: be respectful, meet in public, and report anything that feels wrong.')} />

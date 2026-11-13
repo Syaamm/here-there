@@ -177,7 +177,7 @@ describe('planning limits: HERE activities and THERE trips', () => {
     assert.equal((await h.call('DELETE', '/v1/admin/regions/italy', admin)).body.code, 'PLACE_NOT_EMPTY');
     assert.equal((await h.call('DELETE', '/v1/admin/regions/global', admin)).body.code, 'INVALID_PLACE');
     const list = (await h.get('/v1/admin/regions', admin)).body;
-    assert.deepEqual(list.defaults, { here: 1, there: 6 });
+    assert.deepEqual(list.defaults, { here: 1, there: 6, area: 25 });
     const milan = list.items.find((i: { key: string }) => i.key === 'milan');
     assert.deepEqual([milan.effective.here, milan.effective.hereFrom, milan.hereMonths], [2, 'Italy', null]);
     assert.equal(list.items.find((i: { key: string }) => i.key === 'global').canEdit, true);

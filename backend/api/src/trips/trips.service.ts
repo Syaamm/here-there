@@ -25,6 +25,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SafetyService } from '../safety/safety.service';
 import { ClashService, tripWindow, withdrawnNote } from '../schedule/clash.service';
 import { isSampleEmail } from '../common/demo';
+import { expandSearchWord, phraseTerms, searchWords } from '../common/search-terms';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -299,13 +300,20 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       dateEnd: { gte: now },
       hostId: { notIn: blocked },
       OR: [{ visibility: 'public' }, { hostId: me.id }, { memberships: { some: { userId: me.id, state: 'approved' } } }],
-      ...(q.destination && { destinationKey: { contains: q.destination.toLowerCase() } }),
     };
     // Every filter is part of the database query, so the cap below only ever applies to trips that already match (a filter
     // applied afterwards could miss a matching trip that was not among the first rows). Filters filter: what does not match
     // is left out (owner, 2026-11-10; it used to be only a ranking preference for the departure city and what the budget covers).
     const filters: Prisma.TripWhereInput[] = [];
     if (q.travelStyle) filters.push({ travelStyle: q.travelStyle });
+    // the destination typed in the search: every word has to be in it, or a word that means the same ("giappone" finds Japan, in either
+    // language), and a small typo is forgiven (common/search-terms.ts). Text with no Latin letters is looked for as typed.
+    if (q.destination) {
+      const typed = searchWords(q.destination).slice(0, 3);
+      const phrase = phraseTerms(typed);
+      if (typed.length === 0) filters.push({ destinationKey: { contains: q.destination.toLowerCase() } });
+      for (const terms of phrase ? [phrase] : typed.map((w) => expandSearchWord(w))) filters.push({ OR: terms.slice(0, 14).map((term) => ({ destinationKey: { contains: term } })) });
+    }
     if (q.startFrom || q.startTo) filters.push({ dateStart: { ...(q.startFrom && { gte: q.startFrom }), ...(q.startTo && { lt: q.startTo }) } });
     // leaving from a city: trips that travel together from it ("Milan" matches "Milan" and "Milan, Italy"), and trips that meet at
     // the destination (they have no departure city, so anyone can join them from anywhere), unless only "together" was asked for

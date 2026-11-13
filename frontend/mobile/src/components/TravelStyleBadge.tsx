@@ -4,7 +4,8 @@ import { useT } from '@/lib/i18n';
 import { meetsThere } from '@/lib/travelStyle';
 import { useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 /**
  * How a trip's group gets there, as a label you notice at a glance, the same everywhere (cards, the trip page):
  *  - Travel together: deep green with white letters and a people icon (companions leave from one city);
@@ -23,13 +24,13 @@ export function TravelStyleBadge({ trip, onPhoto, small }: { trip: { travelStyle
       accessible
       accessibilityLabel={label}
       style={[
-        { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: small ? 4 : 6, backgroundColor: bg, borderRadius: 999, paddingHorizontal: small ? 9 : 12, paddingVertical: small ? 3 : 5 },
+        { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: small ? sp(4) : sp(6), backgroundColor: bg, borderRadius: sc(999), paddingHorizontal: small ? sph(9) : sph(12), paddingVertical: small ? sc(3) : sp(5) },
         meet && !onPhoto ? { borderWidth: 1, borderColor: 'rgba(16,47,41,0.14)' } : null,
         onPhoto ? { shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 } : null,
       ]}
     >
       <Ionicons name={meet ? 'location' : 'people'} size={small ? 12 : 14} color={ink} />
-      <Text style={{ color: ink, fontSize: small ? 11 : 12.5, lineHeight: small ? 15 : 17, fontWeight: '600' }}>{label}</Text>
+      <Text style={{ color: ink, fontSize: small ? 12 : 12, lineHeight: small ? 15 : 17, fontWeight: '600' }}>{label}</Text>
     </View>
   );
 }

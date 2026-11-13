@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { LiveService } from '../common/live.service';
 import { PrismaService } from '../common/prisma.service';
+import { alertUrl } from './alert-url';
 import { PushService } from '../common/push.service';
 
 export type Product = 'here' | 'there';
@@ -35,10 +36,8 @@ export class NotificationsService {
     // which product it belongs to travels with the alert, so an open app can tell a HERE alert from a THERE one
     const product = productOf(type, data);
     if (product && data) data.product = product;
-    const url = (() => {
-      const d = data as { activityId?: string; tripId?: string } | undefined;
-      return d?.activityId ? `/activity/${d.activityId}` : d?.tripId ? `/trip/${d.tripId}` : '/inbox';
-    })();
+    // the push opens the exact thing the alert is about (see alert-url.ts); the inbox when it is about nothing in particular
+    const url = alertUrl(type, data) ?? '/inbox';
     // Repeats are grouped: if this person already has an unread alert of this kind about the same thing, it is updated with
     // a count instead of a second one being added (many messages in one chat, a plan edited several times in a row).
     if (opts.group) {

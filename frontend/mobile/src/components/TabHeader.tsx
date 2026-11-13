@@ -9,7 +9,8 @@ import { type Mode, useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { BandTitle, useLightStatusBar } from './ui';
 import { LamisWordmark } from './LamisWordmark';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 const MAIN_TABS = ['/', '/discover', '/create', '/inbox', '/profile'];
 
 /**
@@ -31,12 +32,12 @@ export function ModeTabs() {
   // THERE is an off-white bar whose open side is a deep green pill with white letters. A soft shadow on both, one word per side.
   const hereLook = mode === 'here';
   return (
-    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: 40, backgroundColor: hereLook ? '#FFFFFF' : '#F6F4EF', padding: 8, gap: 4, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: sc(40), backgroundColor: hereLook ? '#FFFFFF' : '#F6F4EF', padding: sp(8), gap: sp(4), shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
       {opts.map(([m, label]) => {
         const on = mode === m;
         return (
-          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}', { name: label })} onPress={() => flip(m)} style={({ pressed: p }) => [{ flex: 1, minHeight: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (hereLook ? '#E9EDEA' : c.forest) : 'transparent' }, p && { opacity: 0.85 }]}>
-            <Text style={{ color: on && !hereLook ? '#fff' : c.text, fontWeight: '700', fontSize: 14, letterSpacing: 1.2, lineHeight: 18 }}>{label}</Text>
+          <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={t('Switch to {name}', { name: label })} onPress={() => flip(m)} style={({ pressed: p }) => [{ flex: 1, minHeight: sc(48), borderRadius: sc(24), alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (hereLook ? '#E9EDEA' : c.forest) : 'transparent' }, p && { opacity: 0.85 }]}>
+            <Text style={{ color: on && !hereLook ? '#fff' : c.text, fontWeight: '700', fontSize: 16, letterSpacing: 1.2, lineHeight: 21 }}>{label}</Text>
           </Pressable>
         );
       })}
@@ -54,9 +55,9 @@ export function Brand({ light }: { light?: boolean } = {}) {
   const { c } = useTheme();
   const { t } = useT();
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: sp(6) }}>
       <Wordmark size={24} light={light} />
-      <Text style={{ color: light ? c.onBandMuted : c.muted, fontSize: 11, lineHeight: 14 }}>{t('Be here. Go there.')}</Text>
+      <Text style={{ color: light ? c.onBandMuted : c.muted, fontSize: 12, lineHeight: 15 }}>{t('Be here. Go there.')}</Text>
     </View>
   );
 }
@@ -67,7 +68,7 @@ export function Brand({ light }: { light?: boolean } = {}) {
 export function TabHeader({ subtitle, children, compact, plain }: { subtitle?: string; children?: React.ReactNode; /** only the wordmark and the switch, no line underneath */ compact?: boolean; /** on the page's own colour (no band): dark wordmark */ plain?: boolean }) {
   const { c } = useTheme();
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: sp(6) }}>
       {/* the wordmark and its tagline (switching HERE | THERE is on the home page only) */}
       <Brand light={!plain} />
       {compact ? null : (children ?? (subtitle ? <Text style={{ color: c.onBandMuted, fontSize: 12 }}>{subtitle}</Text> : null))}
@@ -81,7 +82,7 @@ export function HeaderBar({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   return (
-    <View style={{ paddingTop: statusTop(insets.top) + headerGap, paddingBottom: 6, paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
+    <View style={{ paddingTop: statusTop(insets.top) + headerGap, paddingBottom: sp(6), paddingHorizontal: gutter + 6, backgroundColor: c.bg, zIndex: 2 }}>
       {children}
     </View>
   );
@@ -93,8 +94,8 @@ export function BackArrow() {
   const { c } = useTheme();
   const { t } = useT();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={t('Go back')} hitSlop={10} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={{ paddingRight: 8, paddingVertical: 2 }}>
-      <Ionicons name="chevron-back" size={24} color={c.text} />
+    <Pressable accessibilityRole="button" accessibilityLabel={t('Go back')} hitSlop={10} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={{ paddingRight: sph(8), paddingVertical: 2 }}>
+      <Ionicons name="chevron-back" size={sc(24)} color={c.text} />
     </Pressable>
   );
 }
@@ -113,7 +114,7 @@ export function InnerHeader({ options }: { options: { title?: string; headerTitl
   const custom = typeof options.headerTitle === 'function' ? options.headerTitle({ children: title ?? '', tintColor: c.onBand }) : null;
   const right = typeof options.headerRight === 'function' ? options.headerRight({ tintColor: c.onBand, canGoBack: true }) : null;
   return (
-    <View style={{ backgroundColor: c.band, paddingTop: statusTop(insets.top) + headerGap, paddingBottom: 14, paddingHorizontal: gutter + 6, zIndex: 2 }}>
+    <View style={{ backgroundColor: c.band, paddingTop: statusTop(insets.top) + headerGap, paddingBottom: sp(14), paddingHorizontal: gutter + 6, zIndex: 2 }}>
       <BandTitle title={title} custom={custom} right={right} />
     </View>
   );

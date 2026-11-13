@@ -16,7 +16,8 @@ import { dateSpan, timeRange } from '@/lib/format';
 import { Paged } from '@/lib/paged';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 /**
  * Group info, opened from the chat title: what the group is, who is in it (the host is the group admin), and the
  * ways out. Tapping a person opens their profile. The server decides who may see this, from live membership.
@@ -84,11 +85,11 @@ export default function GroupInfoScreen() {
     ...(me?.role === 'host' ? (!closed && !finished ? [{ icon: 'close-circle-outline' as const, label: trip ? t('Cancel trip') : t('Cancel activity'), onPress: cancel, danger: true }] : []) : !closed && !finished ? [{ icon: 'exit-outline' as const, label: t('Leave'), onPress: leave, danger: true }] : []),
   ];
   const fact = (icon: React.ComponentProps<typeof Ionicons>['name'], title: string, sub?: string) => (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: c.line }}>
-      <Ionicons name={icon} size={24} color={c.text} style={{ marginTop: 1 }} />
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: sp(14), paddingVertical: sp(16), borderBottomWidth: 1, borderBottomColor: c.line }}>
+      <Ionicons name={icon} size={sc(24)} color={c.text} style={{ marginTop: 1 }} />
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500' }}>{title}</Text>
-        {sub ? <Text style={{ color: c.muted, fontSize: 14, lineHeight: 19 }}>{sub}</Text> : null}
+        {sub ? <Text style={{ color: c.muted, fontSize: 16, lineHeight: 22 }}>{sub}</Text> : null}
       </View>
     </View>
   );
@@ -104,20 +105,20 @@ export default function GroupInfoScreen() {
         height: PHOTO,
         stop: barH + 110, // the card rises only about 90 px: it stops under the picture, so the picture stays in view
         photo: (
-          <LinearGradient colors={['#FFFFFF', mode === 'there' ? c.sand : '#B7DBCF']} style={{ height: PHOTO, paddingTop: barH + 4, paddingHorizontal: 16, alignItems: 'center', gap: 6 }}>
-            {g.category ? <CatPhoto category={g.category} style={{ width: 100, height: 100, borderRadius: 50 }} /> : <Avatar name={g.title} size={100} />}
-            <Text accessibilityRole="header" style={{ color: c.text, fontSize: 24, lineHeight: 30, fontWeight: '600', textAlign: 'center', marginTop: 6 }} numberOfLines={2}>{g.title}</Text>
-            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20, textAlign: 'center' }}>{trip ? t('Trip group') : t('Activity group')} · {tn(g.members.length, '{n} person', '{n} people')}</Text>
+          <LinearGradient colors={['#FFFFFF', mode === 'there' ? c.sand : '#B7DBCF']} style={{ height: PHOTO, paddingTop: barH + 4, paddingHorizontal: sph(16), alignItems: 'center', gap: sp(6) }}>
+            {g.category ? <CatPhoto category={g.category} style={{ width: sc(100), height: sc(100), borderRadius: sc(50) }} /> : <Avatar name={g.title} size={100} />}
+            <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700', textAlign: 'center', marginTop: sp(6) }} numberOfLines={2}>{g.title}</Text>
+            <Text style={{ color: c.muted, fontSize: 16, lineHeight: 23, textAlign: 'center' }}>{trip ? t('Trip group') : t('Activity group')} · {tn(g.members.length, '{n} person', '{n} people')}</Text>
           </LinearGradient>
         ),
       }}
     >
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={{ flexDirection: 'row', backgroundColor: c.surface, borderRadius: 36, paddingVertical: 10, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
+      <View style={{ flexDirection: 'row', backgroundColor: c.surface, borderRadius: sc(36), paddingVertical: sp(10), shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: sc(4) }, elevation: 3 }}>
         {actions.map((a, k) => (
-          <Pressable key={a.label} accessibilityRole="button" accessibilityLabel={a.label} disabled={a.danger && act.busy} onPress={a.onPress} style={({ pressed }) => [{ flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 4, borderLeftWidth: k ? 1 : 0, borderLeftColor: c.line }, pressed && { opacity: 0.7 }]}>
-            <Ionicons name={a.icon} size={22} color={a.danger ? c.danger : c.text} />
-            <Text numberOfLines={2} style={{ color: a.danger ? c.danger : c.muted, fontSize: 12, lineHeight: 16, textAlign: 'center', paddingHorizontal: 4 }}>{a.label}</Text>
+          <Pressable key={a.label} accessibilityRole="button" accessibilityLabel={a.label} disabled={a.danger && act.busy} onPress={a.onPress} style={({ pressed }) => [{ flex: 1, minHeight: sc(56), alignItems: 'center', justifyContent: 'center', gap: sp(4), borderLeftWidth: k ? 1 : 0, borderLeftColor: c.line }, pressed && { opacity: 0.7 }]}>
+            <Ionicons name={a.icon} size={sc(22)} color={a.danger ? c.danger : c.text} />
+            <Text numberOfLines={2} style={{ color: a.danger ? c.danger : c.muted, fontSize: 12, lineHeight: 16, textAlign: 'center', paddingHorizontal: sph(4) }}>{a.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -142,7 +143,7 @@ export default function GroupInfoScreen() {
         {fact('person-add-outline', t('{n} of {capacity} places taken', { n: g.members.length, capacity: g.capacity }), left > 0 ? tn(left, '{n} spot left', '{n} spots left') : undefined)}
       </View>
 
-      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '600', marginTop: 8 }}>{tn(g.members.length, '{n} person', '{n} people')}</Text>
+      <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500', marginTop: sp(8) }}>{tn(g.members.length, '{n} person', '{n} people')}</Text>
       <View style={{ gap: 2 }}>
         <Paged items={g.members} render={(m) => (
           <Pressable
@@ -150,22 +151,22 @@ export default function GroupInfoScreen() {
             accessibilityRole="button"
             accessibilityLabel={`${m.displayName}${m.isMe ? t(', you') : ''}${m.role === 'host' ? t(', host and group admin') : ''}. ${t('Open profile')}`}
             onPress={() => go(m.isMe ? '/profile' : `/user/${m.id}`)}
-            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10, minHeight: 64 }, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(14), paddingVertical: sp(10), minHeight: sc(64) }, pressed && { opacity: 0.8 }]}
           >
             <Avatar name={m.displayName} uri={m.photoUrl} size={45} />
             <View style={{ flex: 1, gap: 2 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(6) }}>
                 <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600', flexShrink: 1 }}>{m.displayName}{m.isMe ? ` ${t('(you)')}` : ''}</Text>
-                {m.verifiedAdult ? <Ionicons name="checkmark-circle" size={18} color="#2F7BE0" /> : null}
+                {m.verifiedAdult ? <Ionicons name="checkmark-circle" size={sc(18)} color="#2F7BE0" /> : null}
               </View>
-              <Text style={{ color: c.muted, fontSize: 14, lineHeight: 19 }}>{m.verifiedAdult ? t('Verified adult') : t('Not verified')}</Text>
+              <Text style={{ color: c.muted, fontSize: 16, lineHeight: 22 }}>{m.verifiedAdult ? t('Verified adult') : t('Not verified')}</Text>
             </View>
             {m.role === 'host' ? (
-              <View style={{ backgroundColor: mode === 'there' ? '#EBEFEE' : c.sand, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, flexShrink: 0 }}>
+              <View style={{ backgroundColor: mode === 'there' ? '#EBEFEE' : c.sand, borderRadius: sc(16), paddingHorizontal: sph(12), paddingVertical: sp(6), flexShrink: 0 }}>
                 <Text style={{ color: c.forest, fontSize: 12, lineHeight: 16, fontWeight: '500', includeFontPadding: false }}>{hostRole}</Text>
               </View>
             ) : null}
-            <Ionicons name="chevron-forward" size={18} color={c.muted} />
+            <Ionicons name="chevron-forward" size={sc(18)} color={c.muted} />
           </Pressable>
         )} />
       </View>

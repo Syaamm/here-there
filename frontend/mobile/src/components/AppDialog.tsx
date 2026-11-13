@@ -3,7 +3,8 @@ import { Alert, type AlertButton, Animated, Easing, Modal, Platform, Pressable, 
 import { Text } from '@/components/ScaledText';
 import { useTheme } from '@/lib/theme';
 import { Btn } from './ui';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 /**
  * Pop-ups (confirmations, warnings, notices) in the app's own look on Android: Android's system dialog looks nothing like the
  * app, while iPhone's own alert is good as it is and is kept. `appAlert` takes exactly what React Native's Alert.alert takes,
@@ -61,28 +62,28 @@ export function DialogHost() {
   return (
     <Modal transparent visible animationType="none" statusBarTranslucent onRequestClose={dismiss}>
       <Animated.View style={{ flex: 1, opacity: fade }}>
-        <Pressable accessibilityLabel="Close" onPress={dismiss} style={{ flex: 1, backgroundColor: 'rgba(10, 24, 20, 0.45)', alignItems: 'center', justifyContent: 'center', padding: 28 }}>
+        <Pressable accessibilityLabel="Close" onPress={dismiss} style={{ flex: 1, backgroundColor: 'rgba(10, 24, 20, 0.45)', alignItems: 'center', justifyContent: 'center', padding: sp(28) }}>
           {/* the card itself swallows taps, so only the dimmed area around it closes the pop-up */}
-          <Pressable onPress={() => undefined} accessibilityRole="alert" style={{ width: '100%', maxWidth: 380 }}>
+          <Pressable onPress={() => undefined} accessibilityRole="alert" style={{ width: '100%', maxWidth: sc(380) }}>
             <Animated.View
               style={{
                 backgroundColor: c.surface,
-                borderRadius: 22,
-                paddingHorizontal: 22,
-                paddingTop: 22,
-                paddingBottom: 18,
-                gap: 18,
+                borderRadius: sc(22),
+                paddingHorizontal: sph(22),
+                paddingTop: sp(22),
+                paddingBottom: sp(18),
+                gap: sp(18),
                 elevation: 12,
                 transform: [{ scale: fade.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }],
               }}
             >
-              <View style={{ gap: 8 }}>
-                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 18, lineHeight: 24, fontWeight: '800' }}>
+              <View style={{ gap: sp(8) }}>
+                <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 27, fontWeight: '500' }}>
                   {d.title}
                 </Text>
-                {d.message ? <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>{d.message}</Text> : null}
+                {d.message ? <Text style={{ color: c.muted, fontSize: 16, lineHeight: 23 }}>{d.message}</Text> : null}
               </View>
-              <View style={{ flexDirection: row ? 'row' : 'column', gap: 10 }}>
+              <View style={{ flexDirection: row ? 'row' : 'column', gap: sp(10) }}>
                 {ordered.map((b, i) => (
                   <Btn key={`${b.text}-${i}`} title={b.text ?? 'OK'} variant={variant(b)} onPress={() => close(b.onPress ? () => b.onPress!() : undefined)} style={row ? { flex: 1 } : undefined} />
                 ))}

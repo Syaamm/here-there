@@ -1,11 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image, type ImageSource } from 'expo-image';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
-import { Animated, PixelRatio, Platform, Pressable, Text as RNText, View, type ScrollViewInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { Animated, Easing, PixelRatio, Platform, Pressable, Text as RNText, View, type ScrollViewInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { reducedMotion } from './Pop';
 import { get } from '@/lib/api';
 import { localeTag, useT } from '@/lib/i18n';
 import { tick } from '@/lib/haptics';
-import { sc } from '@/lib/scale';
+import { sc, sp, sph } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
 import { Text, TextInput, type InputHandle } from './ScaledText';
 import type { Place } from './PlaceSearch';
@@ -21,18 +22,18 @@ export function WizardTop({ step, title, onBack, right, onStep, canStep }: { ste
   const { t } = useT();
   const { c, mode } = useTheme();
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: sp(10) }}>
       <PlainTitle
         onBack={onBack}
         custom={
           <View style={{ alignItems: 'center', gap: 2 }}>
-            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13, lineHeight: 16 }}>{t('Host activity')}</Text>
-            <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 15, lineHeight: 19, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
+            <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 15 }}>{t('Host activity')}</Text>
+            <Text accessibilityRole="header" numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 20, fontWeight: '500', textAlign: 'center' }}>{title}</Text>
           </View>
         }
       />
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 30 }}>
-        <StepLabel step={step} style={{ color: c.muted, fontSize: 12.7, lineHeight: 16 }} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: sc(30) }}>
+        <StepLabel step={step} style={{ color: c.muted, fontSize: 12, lineHeight: 15 }} />
         {right}
       </View>
       <StepBars step={step} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} onPick={onStep} canPick={canStep} />
@@ -45,12 +46,12 @@ export function WizardActions({ canRestart, onRestart, canClear, onClear }: { ca
   const { t } = useT();
   const { c } = useTheme();
   const action = (label: string, spoken: string, on: boolean, onPress: () => void) => (
-    <Pressable accessibilityRole="button" accessibilityLabel={spoken} accessibilityState={{ disabled: !on }} disabled={!on} hitSlop={8} onPress={onPress} style={{ minHeight: 30, justifyContent: 'center', opacity: on ? 1 : 0.4 }}>
-      <Text style={{ color: c.text, fontSize: 13, fontWeight: '500' }}>{label}</Text>
+    <Pressable accessibilityRole="button" accessibilityLabel={spoken} accessibilityState={{ disabled: !on }} disabled={!on} hitSlop={8} onPress={onPress} style={{ minHeight: sc(30), justifyContent: 'center', opacity: on ? 1 : 0.4 }}>
+      <Text style={{ color: c.text, fontSize: 12, fontWeight: '500' }}>{label}</Text>
     </Pressable>
   );
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(16) }}>
       {action(t('Restart'), t('Save as a draft and start again'), canRestart, onRestart)}
       {action(t('Clear all'), t('Clear all'), canClear, onClear)}
     </View>
@@ -79,7 +80,7 @@ export function PillInput({ label, style, ...rest }: TextInputProps & { label: s
       underlineColorAndroid="transparent"
       returnKeyType="done"
       {...rest}
-      style={[{ includeFontPadding: false, minHeight: sc(46), borderWidth: 1, borderRadius: 28, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, paddingHorizontal: 18, paddingVertical: 8 }, style]}
+      style={[{ includeFontPadding: false, minHeight: sc(46), borderWidth: 1, borderRadius: sc(28), borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 16, paddingHorizontal: sph(18), paddingVertical: sp(8) }, style]}
     />
   );
 }
@@ -97,7 +98,7 @@ export function PillArea({ label, style, ...rest }: TextInputProps & { label: st
       cursorColor={c.forest}
       underlineColorAndroid="transparent"
       {...rest}
-      style={[{ minHeight: sc(84), borderWidth: 1, borderRadius: 26, borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 14, lineHeight: 20, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 12 }, style]}
+      style={[{ minHeight: sc(84), borderWidth: 1, borderRadius: sc(26), borderColor: c.line, backgroundColor: c.surface, color: c.text, fontSize: 16, lineHeight: 23, paddingHorizontal: sph(18), paddingTop: sp(12), paddingBottom: sp(12) }, style]}
     />
   );
 }
@@ -107,16 +108,16 @@ export function PillArea({ label, style, ...rest }: TextInputProps & { label: st
  * A small round photo (the category chips and cards). The round frame clips the photo and draws the white ring: Android does not
  * reliably round an image's own corners or draw a border on it, which left square or uneven edges there.
  */
-export function RoundPhoto({ source, size, ring }: { source: ImageSource | number; size: number; ring?: boolean }) {
+export function RoundPhoto({ source, size, ring, emoji, tint }: { source?: ImageSource | number; size: number; ring?: boolean; /** a category an admin made has no photo: its emoji on its colour */ emoji?: string; tint?: string }) {
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', borderWidth: ring ? 1.5 : 0, borderColor: '#fff' }}>
-      <Image source={source} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+      {source ? <Image source={source} contentFit="cover" style={{ width: '100%', height: '100%' }} /> : <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: tint ?? '#CFE0D6' }}><RNText style={{ fontSize: size * 0.5 }}>{emoji || '•'}</RNText></View>}
     </View>
   );
 }
 
 /** A category card in the create form's grid. `width` is its column's width (three to a row, see CreateActivity). */
-export function CategoryPill({ label, spoken, photo, selected, onPress, width }: { label: string; spoken: string; photo: ImageSource | number; selected: boolean; onPress: () => void; width?: number }) {
+export function CategoryPill({ label, spoken, photo, emoji, tint, selected, onPress, width }: { label: string; spoken: string; photo?: ImageSource | number; emoji?: string; tint?: string; selected: boolean; onPress: () => void; width?: number }) {
   const { c } = useTheme();
   return (
     <Pressable
@@ -125,10 +126,10 @@ export function CategoryPill({ label, spoken, photo, selected, onPress, width }:
       accessibilityState={{ selected }}
       onPress={onPress}
       hitSlop={{ top: 2, bottom: 2 }}
-      style={({ pressed: p }) => [{ width: width ?? '30%', minHeight: sc(40), borderRadius: 999, borderWidth: 1, borderColor: selected ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: selected ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: sc(3), paddingLeft: sc(3), paddingRight: sc(8) }, pressed(p)]}
+      style={({ pressed: p }) => [{ width: width ?? '30%', minHeight: sc(40), borderRadius: sc(999), borderWidth: 1, borderColor: selected ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: selected ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(8), paddingVertical: sc(3), paddingLeft: sc(3), paddingRight: sph(8) }, pressed(p)]}
     >
-      <RoundPhoto source={photo} size={sc(32)} ring={selected} />
-      <Text numberOfLines={1} style={{ flex: 1, textAlign: 'center', color: selected ? '#fff' : c.forest, fontSize: 13 }}>{label}</Text>
+      <RoundPhoto source={photo} emoji={emoji} tint={tint} size={sc(32)} ring={selected} />
+      <Text numberOfLines={1} style={{ flex: 1, textAlign: 'center', color: selected ? '#fff' : c.forest, fontSize: 12 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -143,9 +144,9 @@ export function SmallPill({ label, spoken, active, onPress, compact }: { label: 
       accessibilityState={{ selected: active }}
       hitSlop={{ top: 4, bottom: 4 }}
       onPress={onPress}
-      style={({ pressed: p }) => [{ minHeight: compact ? 34 : 40, paddingHorizontal: compact ? 10 : 18, borderRadius: compact ? 28 : 32, ...(compact ? { flexShrink: 1 } : null), borderWidth: 1.2, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
+      style={({ pressed: p }) => [{ minHeight: compact ? sc(34) : sc(40), paddingHorizontal: compact ? sph(10) : sph(18), borderRadius: compact ? sc(28) : sc(32), ...(compact ? { flexShrink: 1 } : null), borderWidth: 1.2, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
     >
-      <Text numberOfLines={1} style={{ color: active ? '#fff' : c.forest, fontSize: compact ? 12.5 : 14, fontWeight: active ? '600' : '400' }}>{label}</Text>
+      <Text numberOfLines={1} style={{ color: active ? '#fff' : c.forest, fontSize: compact ? 12 : 16, fontWeight: active ? '600' : '400' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -321,7 +322,7 @@ function WheelIOS<T extends string | number>({ items, value, onChange, label, sp
       accessibilityValue={{ text: label(value) }}
       accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
       onAccessibilityAction={(e) => onChange(items[(want + (e.nativeEvent.actionName === 'increment' ? 1 : n - 1)) % n])}
-      style={{ width: 56, height: WHEEL_ROW * WHEEL_ROWS }}
+      style={{ width: sc(56), height: WHEEL_ROW * WHEEL_ROWS }}
     >
       <Animated.ScrollView
         ref={box}
@@ -461,7 +462,7 @@ function WheelAndroid<T extends string | number>({ items, value, onChange, label
       accessibilityValue={{ text: label(value) }}
       accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
       onAccessibilityAction={(e) => onChange(items[(want + (e.nativeEvent.actionName === 'increment' ? 1 : n - 1)) % n])}
-      style={{ width: 56, height: WHEEL_ROW * WHEEL_ROWS }}
+      style={{ width: sc(56), height: WHEEL_ROW * WHEEL_ROWS }}
     >
       <Animated.ScrollView
         ref={box}
@@ -519,7 +520,7 @@ export function RoundBtn({ icon, label, onPress, onLongPress, disabled, size = 4
 export function CountPill({ value, onMinus, onPlus, minusLabel, plusLabel, canMinus, canPlus }: { value: number; onMinus: () => void; onPlus: () => void; minusLabel: string; plusLabel: string; canMinus: boolean; canPlus: boolean }) {
   const { c } = useTheme();
   return (
-    <View style={{ alignSelf: 'center', width: '78%', minHeight: 56, borderRadius: 32, backgroundColor: c.sand, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8 }}>
+    <View style={{ alignSelf: 'center', width: '78%', minHeight: sc(56), borderRadius: sc(32), backgroundColor: c.sand, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: sph(8) }}>
       <RoundBtn filled icon="remove" label={minusLabel} disabled={!canMinus} onPress={onMinus} size={44} />
       <Text accessibilityLiveRegion="polite" style={{ color: c.text, fontSize: 32, lineHeight: 40, fontWeight: '700' }}>{value}</Text>
       <RoundBtn filled icon="add" label={plusLabel} disabled={!canPlus} onPress={onPlus} size={44} />
@@ -545,7 +546,7 @@ export function dateFormat(tag: string, opts: Intl.DateTimeFormatOptions) {
  * A month to pick the day from. Days outside min..max are greyed and cannot be picked. The arrows change the month,
  * only as far as the first and last day that can be picked.
  */
-export function MonthCalendar({ month, onMonth, selected, min, max, onPick, marks }: { month: Date; onMonth: (m: Date) => void; selected: Date; min: Date; max: Date; onPick: (d: Date) => void; /** days that already hold a plan of yours ("year-month-day", month from 0): a dot under the number */ marks?: Record<string, 'activity' | 'trip'> }) {
+export function MonthCalendar({ month, onMonth, selected, min, max, onPick, marks, range }: { month: Date; onMonth: (m: Date) => void; selected: Date; min: Date; max: Date; onPick: (d: Date) => void; /** a chosen stretch of days (a poll's first and last day): drawn as one soft green band, with the two ends marked, like the trip dates calendar */ range?: { from: Date | null; to: Date | null }; /** days that already hold a plan of yours ("year-month-day", month from 0): a dot under the number */ marks?: Record<string, 'activity' | 'trip'> }) {
   const { t } = useT();
   const { c } = useTheme();
   const tag = dateLang();
@@ -562,6 +563,31 @@ export function MonthCalendar({ month, onMonth, selected, min, max, onPick, mark
   const canNext = new Date(month.getFullYear(), month.getMonth() + 1, 1) <= hi;
   const monthName = dateFormat(tag, { month: 'long', year: 'numeric' }).format(first);
   const sel = startOfDay(selected);
+  const rf = range?.from ? startOfDay(range.from) : null;
+  const rt = range?.to ? startOfDay(range.to) : null;
+  // the green band eases in when a stretch is completed (the second tap), and the days slide in from the side when the month changes
+  const bandFade = useRef(new Animated.Value(1)).current;
+  const hadRange = useRef(false);
+  const hasRange = !!rf && !!rt && +rt > +rf;
+  useEffect(() => {
+    if (hasRange && !hadRange.current && !reducedMotion()) {
+      bandFade.setValue(0);
+      Animated.timing(bandFade, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    }
+    hadRange.current = hasRange;
+  }, [hasRange, bandFade]);
+  const slide = useRef(new Animated.Value(1)).current;
+  const slideDir = useRef(1);
+  const seenMonth = useRef(month.getFullYear() * 12 + month.getMonth());
+  const nowMonth = month.getFullYear() * 12 + month.getMonth();
+  useEffect(() => {
+    if (seenMonth.current === nowMonth) return;
+    slideDir.current = nowMonth > seenMonth.current ? 1 : -1;
+    seenMonth.current = nowMonth;
+    if (reducedMotion()) return;
+    slide.setValue(0);
+    Animated.timing(slide, { toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [nowMonth, slide]);
   // the days are drawn again only when what they show changes (the month, the chosen day, the first and last day allowed),
   // not on each redraw of the step (the time wheels, − / +, the clock that ticks)
   const pick = useRef(onPick);
@@ -569,33 +595,60 @@ export function MonthCalendar({ month, onMonth, selected, min, max, onPick, mark
   const days = useMemo(
     () =>
       cells.map((n, i) => {
-        if (n == null) return <View key={i} style={{ flex: 1, height: 44 }} />;
+        if (n == null) return <View key={i} style={{ flex: 1, height: sc(44) }} />;
         const d = new Date(month.getFullYear(), month.getMonth(), n);
         const off = d < lo || d > hi;
-        const on = +d === +sel;
+        // the two ends of a chosen stretch are marked like a chosen day; the days between them lie on one soft green band that runs on across the
+        // week (it is cut at Saturday and starts again at Sunday or Monday, and has round ends where the stretch starts and stops)
+        const isEnd = (!!rf && +d === +rf) || (!!rt && +d === +rt);
+        const inBand = !!rf && !!rt && +rt > +rf && d >= rf && d <= rt;
+        const col = i % 7;
+        const bandStart = inBand && (+d === +rf! || col === 0);
+        const bandEnd = inBand && (+d === +rt! || col === 6);
+        const on = +d === +sel || isEnd;
         const mark = marks?.[`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`];
         return (
-          <View key={i} style={{ flex: 1, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+          <View key={i} style={{ flex: 1, height: sc(44), alignItems: 'center', justifyContent: 'center' }}>
+            {inBand ? (
+              <Animated.View
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+                style={{
+                  position: 'absolute',
+                  top: sc(3),
+                  bottom: sc(3),
+                  left: +d === +rf! ? '50%' : 0,
+                  right: +d === +rt! ? '50%' : 0,
+                  backgroundColor: c.accentSoft,
+                  borderTopLeftRadius: bandStart && +d !== +rf! ? sc(19) : 0,
+                  borderBottomLeftRadius: bandStart && +d !== +rf! ? sc(19) : 0,
+                  borderTopRightRadius: bandEnd && +d !== +rt! ? sc(19) : 0,
+                  borderBottomRightRadius: bandEnd && +d !== +rt! ? sc(19) : 0,
+                  opacity: bandFade,
+                }}
+              />
+            ) : null}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={dateFormat(tag, { weekday: 'long', day: 'numeric', month: 'long' }).format(d) + (mark ? `. ${mark === 'trip' ? t('You are on a trip this day') : t('You have a plan this day')}` : '')}
               accessibilityState={{ selected: on, disabled: off }}
               disabled={off}
               onPress={() => pick.current(d)}
-              style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.forest : 'transparent' }}
+              style={{ width: sc(44), height: sc(44), borderRadius: sc(22), alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.forest : 'transparent' }}
             >
-              <Text style={{ color: on ? '#fff' : off ? c.placeholder : c.text, fontSize: 13, fontWeight: on ? '500' : '400' }}>{n}</Text>
+              <Text style={{ color: on ? '#fff' : off ? c.placeholder : c.text, fontSize: 12, fontWeight: on ? '500' : '400' }}>{n}</Text>
               {/* a day that already holds a plan of yours: a dot (red for an activity, amber for a trip; also said aloud above) */}
-              {mark ? <View style={{ position: 'absolute', bottom: 5, width: 5, height: 5, borderRadius: 3, backgroundColor: on ? '#fff' : mark === 'trip' ? c.warnFg : c.badFg }} /> : null}
+              {mark ? <View style={{ position: 'absolute', bottom: sc(5), width: sc(5), height: sc(5), borderRadius: sc(3), backgroundColor: on ? '#fff' : mark === 'trip' ? c.warnFg : c.badFg }} /> : null}
             </Pressable>
           </View>
         );
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [month.getFullYear(), month.getMonth(), +sel, +lo, +hi, tag, c, marks],
+    [month.getFullYear(), month.getMonth(), +sel, +lo, +hi, tag, c, marks, rf ? +rf : 0, rt ? +rt : 0],
   );
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: sp(10) }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <RoundBtn icon="chevron-back" label={t('Previous month')} disabled={!canPrev} onPress={() => onMonth(new Date(first.getFullYear(), first.getMonth() - 1, 1))} />
         <Text accessibilityRole="header" accessibilityLiveRegion="polite" style={{ color: c.text, fontSize: 16, fontWeight: '600', textTransform: 'capitalize' }}>{monthName}</Text>
@@ -603,17 +656,19 @@ export function MonthCalendar({ month, onMonth, selected, min, max, onPick, mark
       </View>
       <View style={{ flexDirection: 'row' }}>
         {weekdays.map((w, i) => (
-          <View key={i} style={{ flex: 1, alignItems: 'center', paddingVertical: 6 }}>
-            <Text numberOfLines={1} style={{ color: c.text, fontSize: 13 }}>{w}</Text>
+          <View key={i} style={{ flex: 1, alignItems: 'center', paddingVertical: sp(6) }}>
+            <Text numberOfLines={1} style={{ color: c.text, fontSize: 12 }}>{w}</Text>
           </View>
         ))}
       </View>
       {/* explicit rows of seven equal cells: percentage widths in a wrapping row can overflow by a pixel on Android and push Saturday to the next line */}
-      {Array.from({ length: 6 }, (_, r) => (
-        <View key={r} style={{ flexDirection: 'row' }}>
-          {days.slice(r * 7, r * 7 + 7)}
-        </View>
-      ))}
+      <Animated.View style={{ opacity: slide, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [slideDir.current * 26, 0] }) }] }}>
+        {Array.from({ length: 6 }, (_, r) => (
+          <View key={r} style={{ flexDirection: 'row' }}>
+            {days.slice(r * 7, r * 7 + 7)}
+          </View>
+        ))}
+      </Animated.View>
     </View>
   );
 }
@@ -661,23 +716,23 @@ export function PlacePick({ label, text, onText, place, onPlace, city, near, inp
 
   if (place) {
     return (
-      <View style={{ minHeight: sc(64), borderRadius: 32, backgroundColor: c.sand, flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 20, paddingRight: 8 }}>
-        <Ionicons name="location" size={22} color={c.forest} />
-        <View style={{ flex: 1, paddingVertical: 8 }}>
-          <Text numberOfLines={1} style={{ color: c.forest, fontSize: 14, fontWeight: '600' }}>{place.name}</Text>
+      <View style={{ minHeight: sc(64), borderRadius: sc(32), backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, flexDirection: 'row', alignItems: 'center', gap: sp(12), paddingLeft: sph(20), paddingRight: sph(8) }}>
+        <Ionicons name="location" size={sc(22)} color={c.forest} />
+        <View style={{ flex: 1, paddingVertical: sp(8) }}>
+          <Text numberOfLines={1} style={{ color: c.forest, fontSize: 16, fontWeight: '600' }}>{place.name}</Text>
           {place.address ? <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{place.address}</Text> : null}
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Change location, now {name}', { name: place.name })} hitSlop={6} onPress={() => { onText(''); onPlace(null); }} style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: 'center' }}>
-          <Text style={{ color: c.forest, fontSize: 14, fontWeight: '600' }}>{t('Change')}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Change location, now {name}', { name: place.name })} hitSlop={6} onPress={() => { onText(''); onPlace(null); }} style={{ minHeight: sc(44), paddingHorizontal: sph(12), justifyContent: 'center' }}>
+          <Text style={{ color: c.forest, fontSize: 16, fontWeight: '600' }}>{t('Change')}</Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <View style={{ gap: 10 }}>
-      <View style={{ minHeight: sc(56), borderRadius: 32, backgroundColor: c.sand, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, borderWidth: invalid ? 1.2 : 0, borderColor: c.danger }}>
-        <Ionicons name="search-outline" size={22} color={c.text} />
+    <View style={{ gap: sp(10) }}>
+      <View style={{ minHeight: sc(56), borderRadius: sc(32), backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(12), paddingHorizontal: sph(20), borderWidth: invalid ? 1.2 : 1, borderColor: invalid ? c.danger : c.line }}>
+        <Ionicons name="search-outline" size={sc(22)} color={c.text} />
         <TextInput
           accessibilityLabel={label}
           placeholder={t('Search a neighbourhood or area')}
@@ -693,32 +748,32 @@ export function PlacePick({ label, text, onText, place, onPlace, city, near, inp
           onChangeText={onText}
           maxLength={100}
           autoCorrect={false}
-          style={{ flex: 1, color: c.forest, fontSize: 14, paddingVertical: 12, includeFontPadding: false }}
+          style={{ flex: 1, color: c.forest, fontSize: 16, paddingVertical: sp(12), includeFontPadding: false }}
         />
       </View>
-      {state === 'searching' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{t('Searching…')}</Text> : null}
-      {state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{t('Search unavailable. Type the neighbourhood name.')}</Text> : null}
-      {state === 'done' && found && found.length === 0 ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{t('No neighbourhood found.')}</Text> : null}
+      {state === 'searching' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('Searching…')}</Text> : null}
+      {state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('Search unavailable. Type the neighbourhood name.')}</Text> : null}
+      {state === 'done' && found && found.length === 0 ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('No neighbourhood found.')}</Text> : null}
       {found && found.length > 0 ? (
-        <View style={{ borderRadius: 24, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
+        <View style={{ borderRadius: sc(24), borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
           {found.map((p, i) => (
             <Pressable
               key={p.id}
               accessibilityRole="button"
               accessibilityLabel={t('Use {name}, {address}', { name: p.name, address: p.address })}
               onPress={() => onPlace(p)}
-              style={({ pressed: isPressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 18, minHeight: 48, borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, isPressed && { backgroundColor: c.sand }]}
+              style={({ pressed: isPressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingVertical: sp(11), paddingHorizontal: sph(18), minHeight: sc(48), borderTopWidth: i ? 1 : 0, borderTopColor: c.line }, isPressed && { backgroundColor: c.sand }]}
             >
-              <Ionicons name="location-outline" size={18} color={c.muted} />
+              <Ionicons name="location-outline" size={sc(18)} color={c.muted} />
               <View style={{ flex: 1 }}>
-                <Text numberOfLines={1} style={{ color: c.text, fontSize: 14, fontWeight: '600' }}>{p.name}</Text>
+                <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, fontWeight: '600' }}>{p.name}</Text>
                 {p.address ? <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12 }}>{p.address}</Text> : null}
               </View>
             </Pressable>
           ))}
         </View>
       ) : null}
-      {state === 'done' || state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: 12 }}>{t('Pick the neighbourhood to show it on the map.')}</Text> : null}
+      {state === 'done' || state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('Pick the neighbourhood to show it on the map.')}</Text> : null}
     </View>
   );
 }

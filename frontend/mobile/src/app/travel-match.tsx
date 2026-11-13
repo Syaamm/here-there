@@ -10,7 +10,7 @@ import { AuthButton, AuthField } from '@/components/AuthForm';
 import { Text } from '@/components/ScaledText';
 import { Avatar, Banner, Btn, Chip, Empty, ErrorBanner, Row, Spinner, Txt } from '@/components/ui';
 import { closeKeyboard } from '@/lib/keyboard';
-import { sc } from '@/lib/scale';
+import { sc, sp, sph } from '@/lib/scale';
 import { del, get, post, put } from '@/lib/api';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { parseDay } from '@/lib/format';
@@ -87,32 +87,32 @@ export default function TravelMatch() {
   return (
     <View style={{ flex: 1 }}>
       <AcctScreen title={t('Travel buddies')} onRefresh={onRefresh} refreshing={refreshing}>
-        <Text style={{ color: c.muted, fontSize: 14, lineHeight: 27 }}>{t('Connect with verified locals and travelers when you explore new cities. You appear to others only while this mode is active.')}</Text>
+        <Text style={{ color: c.muted, fontSize: 16, lineHeight: 31 }}>{t('Connect with verified locals and travelers when you explore new cities. You appear to others only while this mode is active.')}</Text>
         <ErrorBanner message={o.error?.message ?? act.error} />
         {o.loading && !o.data && <Spinner />}
 
         {matched ? (
-          <View style={{ gap: 8 }}>
+          <View style={{ gap: sp(8) }}>
             <Banner tone="ok">{t('It is a match with {name}!', { name: matched.name })}</Banner>
             <Btn title={t('Open the chat')} onPress={() => r.push(`/chat/${matched.conversationId}` as never)} />
           </View>
         ) : null}
 
         {showForm ? (
-          <View style={{ gap: 18 }}>
+          <View style={{ gap: sp(18) }}>
             <ErrorBanner message={save.error} />
             <AuthField label={t('Where?')} placeholder={t('Lisbon')} autoCapitalize="words" value={dest} onChangeText={(v) => { setDest(v); setDestTyped(true); }} onFocus={() => { setDestFocus(true); setDestTyped(false); }} onBlur={() => setTimeout(() => setDestFocus(false), 200)} maxLength={100} />
             <DestinationResults text={dest} active={destFocus && destTyped} onPick={(label) => { setDest(label); setDestTyped(false); Keyboard.dismiss(); }} />
-            <View style={{ gap: 8 }}>
-              <Text style={{ color: c.forest, fontSize: 13, lineHeight: 16, fontWeight: '600', paddingLeft: 2 }}>{t('When would you like to go?')}</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel={t('Choose your travel dates')} onPress={() => { closeKeyboard(); setCalendar(true); }} style={{ minHeight: sc(54), borderWidth: 1, borderColor: c.line, borderRadius: 32, backgroundColor: mode === 'there' ? '#fff' : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 22, paddingRight: 8, paddingVertical: 6 }}>
-                <Text style={{ flex: 1, color: s && e ? c.text : c.placeholder, fontSize: 14 }}>{s && e ? range(s.toISOString(), e.toISOString()) : t('Choose your dates')}</Text>
-                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
-                  <Ionicons name="calendar-outline" size={20} color="#fff" />
+            <View style={{ gap: sp(8) }}>
+              <Text style={{ color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '600', paddingLeft: 2 }}>{t('When would you like to go?')}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Choose your travel dates')} onPress={() => { closeKeyboard(); setCalendar(true); }} style={{ minHeight: sc(54), borderWidth: 1, borderColor: c.line, borderRadius: sc(32), backgroundColor: mode === 'there' ? '#fff' : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: sph(22), paddingRight: sph(8), paddingVertical: sp(6) }}>
+                <Text style={{ flex: 1, color: s && e ? c.text : c.placeholder, fontSize: 16 }}>{s && e ? range(s.toISOString(), e.toISOString()) : t('Choose your dates')}</Text>
+                <View style={{ width: sc(40), height: sc(40), borderRadius: sc(20), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="calendar-outline" size={sc(20)} color="#fff" />
                 </View>
               </Pressable>
             </View>
-            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 27 }}>{t('We only show your first name, photo, home city and short bio, never your email, phone or exact location.')}</Text>
+            <Text style={{ color: c.muted, fontSize: 16, lineHeight: 31 }}>{t('We only show your first name, photo, home city and short bio, never your email, phone or exact location.')}</Text>
             <AuthButton
               title={!gate.verified ? gate.title('travel') : pref ? t('Save') : t('Turn on travel buddies')}
               loading={save.busy}
@@ -122,13 +122,13 @@ export default function TravelMatch() {
             {editing ? <Btn title={t('Cancel')} variant="ghost" onPress={() => setEditing(false)} /> : null}
           </View>
         ) : pref ? (
-          <AcctCard style={{ padding: 18, gap: 8 }}>
-            <Row style={{ gap: 8, alignItems: 'center' }}>
+          <AcctCard style={{ padding: sp(18), gap: sp(8) }}>
+            <Row style={{ gap: sp(8), alignItems: 'center' }}>
               <StatusTag label={t('On')} tone="ok" />
               <Txt variant="h3" style={{ flex: 1 }}>{pref.destination}</Txt>
             </Row>
             <Txt>{range(pref.dateStart, pref.dateEnd)}</Txt>
-            <Row style={{ gap: 8 }}>
+            <Row style={{ gap: sp(8) }}>
               <Btn title={t('Change')} variant="secondary" small onPress={startEdit} style={{ flex: 1 }} />
               <Btn title={t('Turn off')} variant="ghost" small onPress={() => void act.run(() => del('/v1/me/travel-match'))} />
             </Row>
@@ -140,8 +140,8 @@ export default function TravelMatch() {
             <Txt variant="h2" style={{ fontSize: 20 }}>{t('Travelers going there')}</Txt>
             {o.data && o.data.suggestions.length === 0 ? <Empty title={t('No one yet')} /> : null}
             {(o.data?.suggestions ?? []).map((p) => (
-              <AcctCard key={p.userId} style={{ padding: 18, gap: 10 }}>
-                <Row style={{ gap: 10, alignItems: 'center' }}>
+              <AcctCard key={p.userId} style={{ padding: sp(18), gap: sp(10) }}>
+                <Row style={{ gap: sp(10), alignItems: 'center' }}>
                   <Avatar name={p.displayName} uri={p.photoUrl ?? undefined} size={44} />
                   <View style={{ flex: 1 }}>
                     <Txt variant="h3" style={{ fontSize: 16, lineHeight: 22 }}>{p.displayName}</Txt>
@@ -152,11 +152,11 @@ export default function TravelMatch() {
                 {p.bio ? <Txt>{p.bio}</Txt> : null}
                 <Txt variant="small">{`${p.destination}, ${range(p.dateStart, p.dateEnd)} · ${tn(p.overlapDays, '{n} day in common', '{n} days in common')}`}</Txt>
                 {p.sharedInterests.length > 0 ? (
-                  <Row style={{ flexWrap: 'wrap', gap: 6 }}>
+                  <Row style={{ flexWrap: 'wrap', gap: sp(6) }}>
                     {p.sharedInterests.map((i) => <Chip key={i} label={t(i)} tone="neutral" />)}
                   </Row>
                 ) : null}
-                <Row style={{ gap: 8 }}>
+                <Row style={{ gap: sp(8) }}>
                   <Btn title={t('I would like to chat')} small loading={act.busy} onPress={() => void answer(p, 'yes')} style={{ flex: 2 }} />
                   <Btn title={t('Not now')} variant="secondary" small onPress={() => void answer(p, 'pass')} style={{ flex: 1 }} />
                 </Row>

@@ -137,8 +137,8 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
     try {
       return await fetch(BASE + path, {
         method,
-        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...(getPlace() && getPlace()!.key !== 'all' ? { 'x-admin-place': getPlace()!.key } : {}) },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: { 'content-type': body instanceof Blob ? body.type : 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...(getPlace() && getPlace()!.key !== 'all' ? { 'x-admin-place': getPlace()!.key } : {}) },
+        body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body), // a picture goes as its own bytes
       });
     } catch {
       throw new ApiError(0, 'NETWORK', `Cannot reach the API at ${BASE}. Is it running?`);

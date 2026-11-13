@@ -5,7 +5,8 @@ import { Text } from './ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 /**
  * "Update available -> Download -> Restart". Code-only changes reach phones as an update (OTA) instead of a new store build.
  * Checks once when the app opens. Does nothing in development, in a browser, or in a build without updates.
@@ -37,16 +38,16 @@ export function UpdatePrompt() {
 
   return (
     <View
-      style={{ position: 'absolute', left: 16, right: 16, bottom: insets.bottom + 90, backgroundColor: c.band, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+      style={{ position: 'absolute', left: sc(16), right: sc(16), bottom: insets.bottom + 90, backgroundColor: c.band, borderRadius: sc(16), padding: sp(14), flexDirection: 'row', alignItems: 'center', gap: sp(12) }}
       accessibilityRole="alert"
     >
-      <Text style={{ flex: 1, color: c.onBand, fontSize: 14 }}>
+      <Text style={{ flex: 1, color: c.onBand, fontSize: 16 }}>
         {state === 'failed' ? t('Update failed. Try again.') : t('A new version is available.')}
       </Text>
       {state === 'downloading' ? (
         <ActivityIndicator color={c.onBand} />
       ) : (
-        <Pressable onPress={download} accessibilityRole="button" hitSlop={8} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: c.onBand }}>
+        <Pressable onPress={download} accessibilityRole="button" hitSlop={8} style={{ paddingHorizontal: sph(14), paddingVertical: sp(8), borderRadius: sc(10), backgroundColor: c.onBand }}>
           <Text style={{ color: c.band, fontWeight: '600' }}>{t('Update')}</Text>
         </Pressable>
       )}

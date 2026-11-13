@@ -1,4 +1,4 @@
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
@@ -6,6 +6,7 @@ import { AcctCard, AcctScreen, StatusTag } from '@/components/AccountParts';
 import { SkeletonReportRow } from '@/components/Skeleton';
 import { Btn, Empty, ErrorBanner, Spinner, Txt } from '@/components/ui';
 import { del, post, type MyAppeal } from '@/lib/api';
+import { confirmAsync } from '@/lib/confirm';
 import { useMe } from '@/lib/auth';
 import { useAction, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
@@ -13,7 +14,8 @@ import { PagedTail, useCursorList } from '@/lib/paged';
 import { keyOf, markSeen, needsDot, readSeen } from '@/lib/reportsSeen';
 import { useTheme } from '@/lib/theme';
 import { dateText } from '@/lib/format';
-
+
+import { sc, sp, sph } from '@/lib/scale';
 type AboutMe = { id: string; category: string; targetType: string; decidedAt: string | null; decision: string | null; canAppeal: boolean; appeal: { id: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null } | null };
 type Blocked = { userId: string; displayName?: string };
 type Tone = 'warn' | 'ok' | 'bad' | 'neutral';
@@ -27,15 +29,15 @@ function AppealThread({ a, onSent }: { a: MyAppeal; onSent: () => void }) {
   if (thread.length === 0) return null;
   const lastFromStaff = thread[thread.length - 1].fromStaff;
   return (
-    <View style={{ gap: 6, marginTop: 4 }}>
+    <View style={{ gap: sp(6), marginTop: sp(4) }}>
       {thread.map((m) => (
-        <View key={m.id} style={{ alignSelf: m.fromStaff ? 'flex-start' : 'flex-end', maxWidth: '90%', backgroundColor: m.fromStaff ? c.accentSoft : c.accent, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 }}>
-          <Text style={{ color: m.fromStaff ? c.text : '#fff', fontSize: 14, lineHeight: 20 }}>{m.body}</Text>
+        <View key={m.id} style={{ alignSelf: m.fromStaff ? 'flex-start' : 'flex-end', maxWidth: '90%', backgroundColor: m.fromStaff ? c.accentSoft : c.accent, borderRadius: sc(12), paddingVertical: sp(8), paddingHorizontal: sph(12) }}>
+          <Text style={{ color: m.fromStaff ? c.text : '#fff', fontSize: 16, lineHeight: 23 }}>{m.body}</Text>
         </View>
       ))}
       {a.state === 'open' && lastFromStaff ? (
         <>
-          <TextInput value={text} onChangeText={setText} placeholder={t('Write your answer')} placeholderTextColor={c.muted} multiline maxLength={1000} accessibilityLabel={t('Your answer')} style={{ borderWidth: 1, borderColor: c.line, borderRadius: 12, padding: 12, minHeight: 48, color: c.text, fontSize: 15 }} />
+          <TextInput value={text} onChangeText={setText} placeholder={t('Write your answer')} placeholderTextColor={c.muted} multiline maxLength={1000} accessibilityLabel={t('Your answer')} style={{ borderWidth: 1, borderColor: c.line, borderRadius: sc(12), padding: sp(12), minHeight: sc(48), color: c.text, fontSize: 16 }} />
           <ErrorBanner message={send.error} />
           <Btn title={t('Send answer')} small disabled={send.busy || text.trim().length < 2} onPress={() => send.run(async () => { await post(`/v1/me/appeals/${a.id}/reply`, { message: text.trim() }); setText(''); onSent(); })} style={{ alignSelf: 'flex-start' }} />
         </>
@@ -60,7 +62,7 @@ function statusOf(state: string): { chips: { label: string; tone: Tone }[] } {
 function NewDot() {
   const { c } = useTheme();
   const { t } = useT();
-  return <View accessible accessibilityLabel={t('New')} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c.danger }} />;
+  return <View accessible accessibilityLabel={t('New')} style={{ width: sc(9), height: sc(9), borderRadius: sc(5), backgroundColor: c.danger }} />;
 }
 
 /**
@@ -82,10 +84,12 @@ export default function ReportsAndBlocked() {
   const blocks = useCursorList<Blocked>('/v1/blocks', {}, 'blocks');
   const unblock = useAction(() => void blocks.reload());
   const { refreshing, onRefresh } = useRefresh(() => Promise.all([reports.reload(), appeals.reload(), blocks.reload()]));
-  const items = reports.data?.items ?? [];
+  // opened from an alert about one decision or one review request: that one comes first and is marked
+  const { reportId, appealId } = useLocalSearchParams<{ reportId?: string; appealId?: string }>();
+  const items = [...(reports.data?.items ?? [])].sort((x, y) => Number(y.id === reportId) - Number(x.id === reportId));
   const shownItems = allReports ? items : items.slice(0, PREVIEW);
   // a request about a report is shown on that report; the others (a warning, a removed message, a removal, an identity check) have their own list
-  const requests = (appeals.data?.items ?? []).filter((a) => a.kind !== 'report');
+  const requests = (appeals.data?.items ?? []).filter((a) => a.kind !== 'report').sort((x, y) => Number(y.id === appealId) - Number(x.id === appealId));
   const shownRequests = allRequests ? requests : requests.slice(0, PREVIEW);
   const people = blocks.data?.items ?? [];
   const tabs: ['reports' | 'blocked', string][] = [['reports', t('Reports')], ['blocked', t('Blocked')]];
@@ -108,13 +112,13 @@ export default function ReportsAndBlocked() {
   );
   const isNew = (key: string, state: string) => !!seen && needsDot(state) && !seen.has(key);
 
-  const Row = ({ title, state, dot, last, children }: { title: string; state: string; dot: boolean; last: boolean; children?: React.ReactNode }) => (
-    <View style={{ paddingVertical: 16, gap: 6, borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+  const Row = ({ title, state, dot, last, focus, children }: { title: string; state: string; dot: boolean; last: boolean; /** the one the alert was about */ focus?: boolean; children?: React.ReactNode }) => (
+    <View style={[{ paddingVertical: sp(16), gap: sp(6), borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }, focus ? { backgroundColor: c.accentSoft, borderRadius: sc(16), paddingHorizontal: sph(12), borderBottomWidth: 0 } : null]}>
+      <View style={{ flexDirection: 'row', gap: sp(8), alignItems: 'center' }}>
         {dot ? <NewDot /> : null}
-        <Text style={{ color: c.text, fontSize: 15, lineHeight: 21, fontWeight: '500', flex: 1 }}>{title}</Text>
+        <Text style={{ color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', flex: 1 }}>{title}</Text>
       </View>
-      <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+      <View style={{ flexDirection: 'row', gap: sp(6), flexWrap: 'wrap' }}>
         {statusOf(state).chips.map((s) => (
           <StatusTag key={s.label} label={t(s.label)} tone={s.tone === 'neutral' ? 'warn' : s.tone} />
         ))}
@@ -125,12 +129,12 @@ export default function ReportsAndBlocked() {
 
   return (
     <AcctScreen title={t('Reports & Blocked')} onRefresh={onRefresh} refreshing={refreshing}>
-      <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: c.sand, borderRadius: 28, padding: 4, gap: 4 }}>
+      <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: c.sand, borderRadius: sc(28), padding: sp(4), gap: sp(4) }}>
         {tabs.map(([v, label]) => {
           const on = tab === v;
           return (
-            <Pressable key={v} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: on }} onPress={() => setTab(v)} style={{ flex: 1, minHeight: 44, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.surface : 'transparent' }}>
-              <Text style={{ color: on ? c.text : c.muted, fontWeight: on ? '600' : '500', fontSize: 14 }}>{label}</Text>
+            <Pressable key={v} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: on }} onPress={() => setTab(v)} style={{ flex: 1, minHeight: sc(44), borderRadius: sc(24), alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.surface : 'transparent' }}>
+              <Text style={{ color: on ? c.text : c.muted, fontWeight: on ? '600' : '500', fontSize: 16 }}>{label}</Text>
             </Pressable>
           );
         })}
@@ -141,7 +145,7 @@ export default function ReportsAndBlocked() {
           <Txt variant="muted">{t('Decisions about you, and the reviews you asked for. You can ask for a review once for each decision.')}</Txt>
           <ErrorBanner message={reports.error?.message ?? appeals.error?.message} />
           {(reports.loading && !reports.data) || (appeals.loading && !appeals.data) ? (
-            <AcctCard style={{ paddingVertical: 6, gap: 0 }}>
+            <AcctCard style={{ paddingVertical: sp(6), gap: 0 }}>
               <View accessibilityRole="progressbar" accessibilityLabel={t('Loading')}>
                 <SkeletonReportRow />
                 <SkeletonReportRow />
@@ -156,15 +160,15 @@ export default function ReportsAndBlocked() {
           {items.length > 0 ? (
             <>
               <Txt variant="h3">{t('Decisions about you')}</Txt>
-              <AcctCard style={{ paddingVertical: 6, gap: 0 }}>
+              <AcctCard style={{ paddingVertical: sp(6), gap: 0 }}>
                 {shownItems.map((x, i) => {
                   const state = stateOfReport(x);
                   return (
-                    <Row key={x.id} title={`${x.category === 'host_no_show' ? t('Host did not show up') : x.category.replace(/_/g, ' ')} · ${x.targetType}`} state={state} dot={isNew(keyOf('report', x.id, state), state)} last={i === shownItems.length - 1}>
+                    <Row key={x.id} focus={x.id === reportId} title={`${x.category === 'host_no_show' ? t('Host did not show up') : x.category.replace(/_/g, ' ')} · ${x.targetType}`} state={state} dot={isNew(keyOf('report', x.id, state), state)} last={i === shownItems.length - 1}>
                       {x.decidedAt ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Decided {date}', { date: dateText(x.decidedAt) })}</Text> : null}
-                      {x.decision ? <Text style={{ color: c.text, fontSize: 14, lineHeight: 20 }}>{x.decision}</Text> : null}
+                      {x.decision ? <Text style={{ color: c.text, fontSize: 16, lineHeight: 23 }}>{x.decision}</Text> : null}
                       {x.appeal?.decision ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Review: {text}', { text: x.appeal.decision })}</Text> : null}
-                      {x.canAppeal ? <Btn title={t('Ask for a review')} variant="secondary" small onPress={() => r.push(`/appeal?kind=report&targetId=${x.id}` as never)} style={{ alignSelf: 'flex-start', marginTop: 4 }} /> : null}
+                      {x.canAppeal ? <Btn title={t('Ask for a review')} variant="secondary" small onPress={() => r.push(`/appeal?kind=report&targetId=${x.id}` as never)} style={{ alignSelf: 'flex-start', marginTop: sp(4) }} /> : null}
                     </Row>
                   );
                 })}
@@ -181,13 +185,13 @@ export default function ReportsAndBlocked() {
           {requests.length > 0 ? (
             <>
               <Txt variant="h3">{t('Your review requests')}</Txt>
-              <AcctCard style={{ paddingVertical: 6, gap: 0 }}>
+              <AcctCard style={{ paddingVertical: sp(6), gap: 0 }}>
                 {shownRequests.map((a, i) => (
-                  <Row key={a.id} title={t(a.what.charAt(0).toUpperCase() + a.what.slice(1))} state={a.state} dot={isNew(keyOf('appeal', a.id, a.state), a.state)} last={i === shownRequests.length - 1}>
+                  <Row key={a.id} focus={a.id === appealId} title={t(a.what.charAt(0).toUpperCase() + a.what.slice(1))} state={a.state} dot={isNew(keyOf('appeal', a.id, a.state), a.state)} last={i === shownRequests.length - 1}>
                     <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Sent {date}', { date: dateText(a.createdAt) })}</Text>
                     {a.proofs?.length ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{a.proofs.length === 1 ? t('1 photo sent as proof') : t('{n} photos sent as proof', { n: a.proofs.length })}</Text> : null}
                     <AppealThread a={a} onSent={appeals.reload} />
-                    {a.decision ? <Text style={{ color: c.text, fontSize: 14, lineHeight: 20 }}>{a.decision}</Text> : null}
+                    {a.decision ? <Text style={{ color: c.text, fontSize: 16, lineHeight: 23 }}>{a.decision}</Text> : null}
                   </Row>
                 ))}
                 {allRequests && appeals.hasMore ? (
@@ -207,11 +211,11 @@ export default function ReportsAndBlocked() {
           {blocks.loading && !blocks.data && <Spinner />}
           {!blocks.loading && people.length === 0 && <Empty icon="ban-outline" title={t("You haven't blocked anyone.")} />}
           {people.length > 0 ? (
-            <AcctCard style={{ paddingVertical: 6, gap: 0 }}>
+            <AcctCard style={{ paddingVertical: sp(6), gap: 0 }}>
               {people.map((b, i) => (
-                <View key={b.userId} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 64, borderBottomWidth: i === people.length - 1 ? 0 : 1, borderBottomColor: c.line }}>
+                <View key={b.userId} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), minHeight: sc(64), borderBottomWidth: i === people.length - 1 ? 0 : 1, borderBottomColor: c.line }}>
                   <Text style={{ flex: 1, color: c.text, fontSize: 16, fontWeight: '500' }}>{b.displayName ?? b.userId}</Text>
-                  <Btn title={t('Unblock')} variant="secondary" small disabled={unblock.busy} onPress={() => unblock.run(() => del(`/v1/blocks/${b.userId}`))} />
+                  <Btn title={t('Unblock')} variant="secondary" small disabled={unblock.busy} onPress={async () => (await confirmAsync(t('Unblock {name}?', { name: b.displayName ?? t('this person') }), t("You will see each other's activities again, in HERE and THERE."), t('Unblock'))) && void unblock.run(() => del(`/v1/blocks/${b.userId}`))} />
                 </View>
               ))}
             </AcctCard>

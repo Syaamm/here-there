@@ -7,6 +7,7 @@ import { useTheme } from '@/lib/theme';
 import { PinIcon } from './PinIcon';
 import { MapOverlay, useMapData, type Group } from './mapShared';
 
+import { sc, sp } from '@/lib/scale';
 /** A light, flat base map (Google Maps styling, so Android; Apple Maps on iOS keeps its own look). */
 const GREY_MAP = [
   { elementType: 'geometry', stylers: [{ color: '#f2f2f2' }] },
@@ -75,7 +76,7 @@ export function MapHere() {
   if (!center)
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <View style={{ flex: 1, padding: 24, justifyContent: 'center' }}>
+        <View style={{ flex: 1, padding: sp(24), justifyContent: 'center' }}>
           {data.findingCity ? <Empty title={t('Finding the city…')}>{t('One moment.')}</Empty> : <Empty title={t('No map for this city yet')}>{t("We couldn't find this city. Check the spelling.")}</Empty>}
           <MapOverlay data={data} />
         </View>

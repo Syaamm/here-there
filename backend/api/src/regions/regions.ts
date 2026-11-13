@@ -8,6 +8,10 @@ export const DEFAULT_THERE_MONTHS = 6;
 export const HERE_MONTHS_RANGE = { min: 1, max: 12 } as const;
 export const THERE_MONTHS_RANGE = { min: 1, max: 24 } as const;
 
+/** How far around a city's centre its activities are shown, and may be placed (km). A place without its own value follows the one above. */
+export const DEFAULT_AREA_KM = 25;
+export const AREA_KM_RANGE = { min: 1, max: 100 } as const;
+
 export type Kind = 'global' | 'country' | 'region' | 'city';
 export const GLOBAL_KEY = 'global';
 
@@ -35,7 +39,7 @@ const WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight
 /** "one month", "six months", "18 months": for messages people read. */
 export const monthsWord = (n: number) => `${WORDS[n] || n} ${n === 1 ? 'month' : 'months'}`;
 
-export type RegionRow = { key: string; name: string; kind: string; parentKey: string | null; cityKey: string | null; hereMonths: number | null; thereMonths: number | null };
+export type RegionRow = { key: string; name: string; kind: string; parentKey: string | null; cityKey: string | null; hereMonths: number | null; thereMonths: number | null; areaKm?: number | null };
 
 /** The place itself, then the place above it, and so on up to the whole service. Stops if the chain is broken or loops. */
 export function chainOf(rows: RegionRow[], from: RegionRow | null): RegionRow[] {
@@ -47,6 +51,12 @@ export function chainOf(rows: RegionRow[], from: RegionRow | null): RegionRow[] 
     at = at.parentKey ? (byKey.get(at.parentKey) ?? null) : null;
   }
   return out;
+}
+
+/** The first place on the chain that sets a coverage distance, or the built-in 25 km. */
+export function effectiveAreaKm(chain: RegionRow[]) {
+  for (const r of chain) if (r.areaKm !== null && r.areaKm !== undefined) return { km: r.areaKm, from: { key: r.key, name: r.name, kind: r.kind } };
+  return { km: DEFAULT_AREA_KM, from: null };
 }
 
 /** The first place on the chain that sets this limit, or the built-in default. */
