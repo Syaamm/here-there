@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, can, get, post, type Session } from '../api';
 import { Select } from '../controls';
-import { askChecksText, askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, fmt, urlParam, setUrlParam, Icon, Loading, Page, PageBar, Segmented, useAction, useUrlParam, useLoad } from '../ui';
+import { askChecksText, askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, urlParam, setUrlParam, Icon, Loading, Page, PageBar, Search, Segmented, useAction, useUrlParam, useLoad } from '../ui';
 
 type R = {
   id: string;
@@ -198,23 +198,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
           </button>
         </p>
       ) : (
-        <div className="toolbar tight">
-          <div className="rs" role="search">
-            <Icon name="search" />
-            <input type="search" aria-label="Search reports by person" placeholder="Search by name or email" value={q} onChange={(e) => setQ(e.target.value)} />
-            {q && (
-              <button type="button" className="search-clear" aria-label="Clear the search" onClick={() => setQ('')}>
-                <Icon name="x" />
-              </button>
-            )}
-            <span className="rs-sep" aria-hidden="true" />
-            {(['both', 'against', 'by'] as const).map((w) => (
-              <button key={w} type="button" className={who === w ? 'on' : ''} aria-pressed={who === w} onClick={() => setWho(w)}>
-                {w === 'both' ? 'Both' : w === 'against' ? 'Against' : 'By'}
-              </button>
-            ))}
-          </div>
-          <div className="rs-end">
+        <FilterBar search={<Search label="Search reports by person" placeholder="Search by name or email" value={q} onChange={setQ} />}>
           <Segmented
             label="Status"
             value={status}
@@ -225,6 +209,11 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
               { id: 'dismissed', label: 'No action needed' },
             ]}
           />
+          <Select aria-label="Reports against or filed by the person" value={who} onChange={(v) => setWho(v as 'both' | 'against' | 'by')}>
+            <option value="both">Both</option>
+            <option value="against">Against them</option>
+            <option value="by">Filed by them</option>
+          </Select>
           <Select aria-label="Category" value={category} onChange={setCategory}>
             <option value="">All types</option>
             {CATEGORIES.map((c) => (
@@ -233,8 +222,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
               </option>
             ))}
           </Select>
-          </div>
-        </div>
+        </FilterBar>
       )}
       <ErrorBanner message={failed ?? act.error} onRetry={() => (reload(), summary.reload())} />
       {loading && !data && <Loading rows={6} />}

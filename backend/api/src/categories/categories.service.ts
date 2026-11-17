@@ -94,7 +94,8 @@ export class CategoriesService implements OnModuleInit {
   }
 
   async all(): Promise<Row[]> {
-    return this.cache.get('all', () => this.prisma.category.findMany({ orderBy: [{ kind: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }] }));
+    // alphabetical by name within each kind (the saved order number is no longer used to sort)
+    return this.cache.get('all', async () => (await this.prisma.category.findMany({ orderBy: [{ kind: 'asc' }, { createdAt: 'asc' }] })).sort((a, b) => a.kind.localeCompare(b.kind) || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })));
   }
   private changed() {
     this.cache.forget('all');

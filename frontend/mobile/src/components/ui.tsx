@@ -885,10 +885,11 @@ export const Spinner = ({ rows = 4 }: { rows?: number; label?: string }) => <Ske
 
 /** Soft green-led tints behind the initial, picked from the name so each person keeps the same colour everywhere. */
 /** A person's picture when they have one; otherwise their initials (the first letters of the first two words of the name) on the app's own deep green, the same for everyone. */
+const AVATAR_GREEN = '#D3EADD';
 const initialsOf = (name?: string) =>
   (name ?? '')
     .trim()
-    .split(/s+/)
+    .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => [...w][0]?.toUpperCase() ?? '')
@@ -899,7 +900,7 @@ export function Avatar({ name, size: base = 44, uri }: { name?: string; size?: n
   const [failed, setFailed] = useState(false);
   const src = photoSrc(uri, size);
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: c.ivory /* a soft green, the same in HERE and THERE, for people without a photo */, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: AVATAR_GREEN /* a soft green, fixed: the same in HERE and THERE (THERE's theme ivory is sand), for people without a photo */, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
       {src && !failed ? (
         // the address carries the upload time, so a kept copy never goes stale; expo-image keeps it on disk and in memory
         <Image source={{ uri: src }} contentFit="cover" cachePolicy="memory-disk" recyclingKey={src} transition={120} onError={() => setFailed(true)} style={{ width: size, height: size }} />

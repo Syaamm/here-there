@@ -50,7 +50,7 @@ const hasFirebase = hasAndroidFirebase || hasIosFirebase;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'LAMIS',
+  name: 'Lamis',
   slug: 'here-there',
   owner: 'cloudhouse-production',
   scheme: 'herethere',
@@ -128,7 +128,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-location',
       {
         locationWhenInUsePermission:
-          'LAMIS uses your approximate location only when you tap "Near me" or "Use my location", to show activities close to you and to find your city. It is never shared with other people.',
+          'Lamis uses your approximate location only when you tap "Near me" or "Use my location", to show activities close to you and to find your city. It is never shared with other people.',
       },
     ],
     // Plain HTTP to a dev machine is blocked on Android by default. Allowed only outside production.

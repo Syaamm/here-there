@@ -36,11 +36,12 @@ export function useThereFilters(ext?: { destination: string; setDestination: (v:
   const build = (dest = destination, st: typeof style = style, tg: string[] = tags): Record<string, string> => {
     const p = new URLSearchParams({ flexibility: flex, ...(openOnly && { openOnly: 'true' }) });
     if (dest.trim()) p.set('destination', dest.trim());
-    if (fromD) {
-      p.set('from', fromD.toISOString());
-      const end = new Date(toD ?? fromD);
+    // "Earliest departure" and "Latest return": the trip leaves on or after the first and is back on or before the second (either can be left empty)
+    if (fromD) p.set('startFrom', fromD.toISOString());
+    if (toD) {
+      const end = new Date(toD);
       end.setHours(23, 59, 59, 0);
-      p.set('to', end.toISOString());
+      p.set('endTo', end.toISOString());
     }
     if (origin.trim() && st !== 'meet_at_destination') p.set('originCity', origin.trim()); // a departure city means nothing for meet-at-destination trips
     if (st) p.set('travelStyle', st);
@@ -78,9 +79,11 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const toggleTag = (g: string) => f.setTags((p) => (p.includes(g) ? p.filter((x) => x !== g) : [...p, g]));
-  const chips = { flexDirection: 'row', flexWrap: 'wrap', gap: sp(10) } as const;
+  const chips = { flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) } as const;
   return (
     <ThereFilterSheet
+      compact
+      heightRatio={0.78} // the same size as HERE's filter
       visible={visible}
       onClose={onClose}
       footer={
@@ -115,7 +118,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
       }
     >
       {extra}
-      <View style={{ gap: sp(12) }}>
+      <View style={{ gap: sp(8) }}>
         <ThereLabel>{t('How the group gets there')}</ThereLabel>
         <View style={chips}>
           {([['', t('Both')], ['together', t('Travel together')], ['meet_at_destination', t('Meet at destination')]] as const).map(([v, l]) => (
@@ -129,7 +132,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
         <ThereInput label={t('Destination')} value={f.destination} onChangeText={f.setDestination} placeholder={t('Japan')} />
       </View>
 
-      <View style={{ gap: sp(12) }}>
+      <View style={{ gap: sp(8) }}>
         {/* the same calendar as when creating a trip: tap a box, pick the days */}
         <View style={{ flexDirection: 'row', gap: sp(16) }}>
           <ThereDateBox label={t('Earliest departure')} date={f.fromD} onPress={() => setCalendar('start')} spoken={t('{label}: {date}. Opens a calendar', { label: t('Earliest departure'), date: f.fromD ? shortDay(f.fromD) : t('any date') })} />
@@ -138,7 +141,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
         {f.from || f.to ? <Btn title={t('Clear dates')} variant="ghost" small onPress={() => (f.setFrom(''), f.setTo(''))} style={{ alignSelf: 'flex-start' }} /> : null}
       </View>
 
-      <View style={{ gap: sp(12) }}>
+      <View style={{ gap: sp(8) }}>
         <ThereLabel>{t('Date flexibility')}</ThereLabel>
         <View style={chips}>
           {FLEX.map(([v, l]) => (
@@ -152,7 +155,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
         <ThereBudgetSlider value={f.budget} onChange={f.setBudget} max={BUDGET_MAX} />
       </View>
 
-      <View style={{ gap: sp(12) }}>
+      <View style={{ gap: sp(8) }}>
         <ThereLabel>{t('Budget covers')}</ThereLabel>
         <View style={chips}>
           <ThereChip label={t('Any')} active={f.transport === 'any'} onPress={() => f.setTransport('any')} />
@@ -161,7 +164,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
         </View>
       </View>
 
-      <View style={{ gap: sp(12) }}>
+      <View style={{ gap: sp(8) }}>
         <ThereLabel>{t('Travel interests')}</ThereLabel>
         <View style={chips}>
           {TRIP_TAGS.map((g) => (
@@ -170,7 +173,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
         </View>
       </View>
 
-      <View style={{ gap: sp(12) }}>
+      <View style={{ gap: sp(8) }}>
         <ThereLabel>{t('How big should the group be?')}</ThereLabel>
         <View style={chips}>
           <ThereChip label={t('Any')} active={f.size === ''} onPress={() => f.setSize('')} />

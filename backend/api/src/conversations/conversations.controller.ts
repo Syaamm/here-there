@@ -128,7 +128,6 @@ export class ConversationsService {
       where: {
         conversationId: id,
         moderationState: { not: 'removed' },
-        senderId: { notIn: blocked },
         ...beforeKeyset(decodeKeyset(cursor)),
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -136,6 +135,7 @@ export class ConversationsService {
       include: { sender: { select: { id: true, profile: { select: { displayName: true, photoUrl: true } } } } },
     });
     const page = rows.slice(0, take);
+    const blockedSet = new Set(blocked);
     // poll messages carry the live poll: the dates, how many accepted or rejected, and this person's own answer
     const pollIds = page.filter((m) => m.kind === 'poll' && m.refId).map((m) => m.refId!);
     const polls = pollIds.length ? await this.prisma.tripPoll.findMany({ where: { id: { in: pollIds } }, include: { votes: true } }) : [];
@@ -172,7 +172,8 @@ export class ConversationsService {
           poll: m.kind === 'poll' && m.refId ? (pollDto.get(m.refId) ?? null) : null,
           link: m.kind === 'link' ? link(m.meta) : null,
           createdAt: m.createdAt,
-          sender: { id: m.sender.id, displayName: m.sender.profile?.displayName ?? 'Member', photoUrl: m.sender.profile?.photoUrl ?? null },
+          // a person who blocked you (or you blocked) still has their messages here, but who they are is hidden: "Blocked user"
+          sender: blockedSet.has(m.sender.id) ? BLOCKED_SENDER : { id: m.sender.id, displayName: m.sender.profile?.displayName ?? 'Member', photoUrl: m.sender.profile?.photoUrl ?? null },
         }))
         .reverse(),
       nextCursor: rows.length > take ? encodeKeyset(page[page.length - 1].createdAt, page[page.length - 1].id) : null,
@@ -203,13 +204,24 @@ export class ConversationsService {
   async info(me: User, id: string) {
     const { conv } = await this.assertAccess(me, id);
     const blocked = new Set(await this.safety.blockedWith(me.id));
-    const person = (u: { id: string; eligibility: string; profile: { displayName: string; photoUrl: string | null } | null }, host: boolean) => ({
+    let hidden = 0;
+    // someone blocked with you is still listed, but only as "Blocked user" (no name, photo or profile to open)
+    const person = (u: { id: string; eligibility: string; profile: { displayName: string; photoUrl: string | null } | null }, host: boolean) => (u.id !== me.id && blocked.has(u.id) ? {
+      id: `blocked-${hidden++}`,
+      displayName: 'Blocked user',
+      photoUrl: null,
+      verifiedAdult: false,
+      role: host ? ('host' as const) : ('member' as const),
+      isMe: false,
+      blocked: true as const,
+    } : {
       id: u.id,
       displayName: u.profile?.displayName ?? 'Member',
       photoUrl: u.profile?.photoUrl ?? null,
       verifiedAdult: u.eligibility === 'verified',
       role: host ? ('host' as const) : ('member' as const),
       isMe: u.id === me.id,
+      blocked: false as const,
     });
     const userSel = { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } };
     const order = <T extends { role: string; displayName: string }>(xs: T[]) =>
@@ -236,7 +248,7 @@ export class ConversationsService {
     if (conv.scopeType === 'activity' && conv.activityId) {
       const a = await this.prisma.activity.findUniqueOrThrow({ where: { id: conv.activityId } });
       const rows = await this.prisma.activityMembership.findMany({ where: { activityId: a.id, state: 'approved' }, include: { user: userSel } });
-      const members = order(rows.filter((r) => r.userId === me.id || !blocked.has(r.userId)).map((r) => person(r.user, r.userId === a.hostId)));
+      const members = order(rows.map((r) => person(r.user, r.userId === a.hostId)));
       return {
         id: conv.id,
         scope: 'activity' as const,
@@ -253,7 +265,7 @@ export class ConversationsService {
     }
     const t = await this.prisma.trip.findUniqueOrThrow({ where: { id: conv.tripId! } });
     const rows = await this.prisma.tripMembership.findMany({ where: { tripId: t.id, state: 'approved' }, include: { user: userSel } });
-    const members = order(rows.filter((r) => r.userId === me.id || !blocked.has(r.userId)).map((r) => person(r.user, r.userId === t.hostId)));
+    const members = order(rows.map((r) => person(r.user, r.userId === t.hostId)));
     return {
       id: conv.id,
       scope: 'trip' as const,
@@ -330,7 +342,7 @@ export class ConversationsService {
     return { id: poll.id };
   }
 
-  /** A member answers accept or reject (they can change it while the poll is open). */
+  /** A member answers accept or reject. The answer is recorded once and is final. */
   async vote(me: User, pollId: string, body: unknown) {
     const { vote } = parse(voteSchema, body);
     const poll = await this.prisma.tripPoll.findUnique({ where: { id: pollId } });
@@ -339,11 +351,13 @@ export class ConversationsService {
     if (!conv) throw E.notFound('Poll');
     await this.assertAccess(me, conv.id); // live membership, verified adult
     if (poll.state !== 'open') throw E.conflict('POLL_CLOSED', 'This poll is closed');
-    await this.prisma.tripPollVote.upsert({
-      where: { pollId_userId: { pollId, userId: me.id } },
-      create: { pollId, userId: me.id, vote },
-      update: { vote },
-    });
+    // the answer is recorded once and is final: it cannot be switched afterwards
+    if (await this.prisma.tripPollVote.findUnique({ where: { pollId_userId: { pollId, userId: me.id } } })) throw E.conflict('ALREADY_VOTED', 'You have already answered this poll, and an answer cannot be changed');
+    try {
+      await this.prisma.tripPollVote.create({ data: { pollId, userId: me.id, vote } });
+    } catch {
+      throw E.conflict('ALREADY_VOTED', 'You have already answered this poll, and an answer cannot be changed'); // two taps at once
+    }
     this.events.emit({ type: 'trip.poll_changed', id: poll.tripId });
     const votes = await this.prisma.tripPollVote.findMany({ where: { pollId } });
     return { accept: votes.filter((v) => v.vote === 'accept').length, reject: votes.filter((v) => v.vote === 'reject').length, myVote: vote };
@@ -449,7 +463,9 @@ export class ConversationsService {
     // live: the message reaches every open app of every member at once (the sender's other devices too)
     // `kind` lets the app put a plain text message straight on screen and ask again only for a poll or a notice
     const event = { type: 'message' as const, conversationId: conv.id, message: { id: m.id, body, kind: m.kind ?? 'text', createdAt: m.createdAt, sender: { id: sender.id, displayName: name, photoUrl: profile?.photoUrl ?? null } } };
+    // a member who is blocked with the sender gets the message too, with the sender hidden as "Blocked user" (no alert or push for them, below)
     this.live.sendMany(userIds.filter((u) => u === sender.id || !blocked.has(u)), event);
+    this.live.sendMany(userIds.filter((u) => u !== sender.id && blocked.has(u)), { ...event, message: { ...event.message, sender: BLOCKED_SENDER } });
     // Someone with this chat open in front of them has just seen the message arrive live: no alert to write (and none to clear
     // afterwards), no push. For a busy group this is most of the writes a message used to cause.
     const recipients = userIds.filter((u) => u !== sender.id && !blocked.has(u) && !this.live.isViewingChat(u, conv.id));
@@ -542,6 +558,9 @@ export class ConversationsService {
     return { items, nextCursor: page.nextCursor };
   }
 }
+
+/** What a chat shows for a person who is blocked with the reader: the messages stay, who sent them does not. */
+const BLOCKED_SENDER = { id: 'blocked', displayName: 'Blocked user', photoUrl: null as string | null, blocked: true as const };
 
 @Controller('v1')
 export class ConversationsController {

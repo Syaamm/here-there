@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { can, get, post, type Session } from '../api';
 import { DayCard, dayKey, DayLog } from '../DayLog';
 import { DateField, Select } from '../controls';
-import { askText, Chip, Empty, ErrorBanner, Loading, Page, PageBar, RowMenu, Search, Segmented, useAction, useLoad, Icon } from '../ui';
+import { askText, Chip, Empty, ErrorBanner, Loading, Page, PageBar, FilterBar, RowMenu, Search, Segmented, useAction, useLoad, Icon } from '../ui';
 
 type A = { createdAt: string; id: string; title: string; status: string; category: string; city: string; venueName: string; startsAt: string; endsAt: string; capacity: number; joinPolicy: string; going: number; waiting: number; host: { id: string; displayName?: string } };
 type T = { createdAt: string; id: string; title: string; status: string; destination: string; originCity: string; travelStyle: string; dateStart: string; dateEnd: string; budgetMin: number; budgetMax: number; budgetCurrency: string; maxCapacity: number; approvalMode: string; members: number; waiting: number; host: { id: string; displayName?: string } };
@@ -77,7 +77,8 @@ export function ContentPage({ me }: { me: Session }) {
     <Page
       fill
       title="Content"
-      actions={
+    >
+      <FilterBar search={<Search label="Search" placeholder="Search titles, places or hosts" value={q} onChange={setQ} />}>
         <Segmented
           label="Type"
           value={tab}
@@ -87,12 +88,6 @@ export function ContentPage({ me }: { me: Session }) {
             { id: 'trips', label: 'Trips' },
           ]}
         />
-      }
-    >
-      <div className="toolbar">
-        <div className="grow">
-          <Search label="Search" placeholder="Search titles, places or hosts" value={q} onChange={setQ} />
-        </div>
         <Select aria-label="Status" value={status} onChange={setStatus}>
           <option value="">All</option>
           {STATUSES.map(([id, name]) => (
@@ -101,7 +96,7 @@ export function ContentPage({ me }: { me: Session }) {
             </option>
           ))}
         </Select>
-      </div>
+      </FilterBar>
       <div className="toolbar" role="group" aria-label="Month">
         <button type="button" className="btn small" onClick={() => (setDay(''), setMonth((m) => m - 1))} aria-label="Previous month">
           <span style={{ display: 'grid', transform: 'rotate(90deg)' }}>

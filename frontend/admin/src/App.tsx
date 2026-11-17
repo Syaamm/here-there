@@ -6,18 +6,16 @@ import { AppealsPage } from './pages/Appeals';
 import { NoShowsPage } from './pages/NoShows';
 import { OverviewPage } from './pages/Overview';
 import { ChoosePassword } from './pages/ChoosePassword';
-import { PlaceSwitcher } from './pages/PlacePicker';
-import { CategoriesPage } from './pages/Categories';
-import { RegionsPage } from './pages/Regions';
 import { ReportsPage } from './pages/Reports';
 import { SecurityPage } from './pages/Security';
+import { SettingsHome } from './pages/SettingsHome';
 import { StaffPage } from './pages/Staff';
 import { UsersPage } from './pages/Users';
 import { VerificationsPage } from './pages/Verifications';
 import { AuthShell } from './AuthShell';
 import lamisLogo from './assets/lamis-logo-light.svg';
 import lamisMark from './assets/lamis-mark-light.svg';
-import { Avatar, clearLoadCache, DialogHost, errMsg, ErrorBanner, urlParam, Icon, Loading, setUrlParam, PageFrame, PageMeta, PopMenu, Tabs, useLoad, type IconName } from './ui';
+import { Avatar, Chip, clearLoadCache, DialogHost, errMsg, ErrorBanner, urlParam, Icon, Loading, setUrlParam, PageFrame, PageMeta, PopMenu, Tabs, useLoad, type IconName } from './ui';
 
 // ---------------------------------------------------------------- sections and their tabs
 type SectionId = 'dashboard' | 'reports' | 'verification' | 'users' | 'content' | 'team' | 'settings' | 'audit';
@@ -31,7 +29,7 @@ const SECTIONS: Section[] = [
   { id: 'users', label: 'Users', icon: 'users', group: 'Community', regional: true, perm: 'users' },
   { id: 'content', label: 'Content', icon: 'layers', group: 'Community', regional: true, perm: 'content' },
   { id: 'team', label: 'Staff', icon: 'userPlus', group: 'Team', admin: true },
-  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', regional: true, tabs: [{ id: 'places', label: 'Places & limits', regional: true }, { id: 'categories', label: 'Categories', admin: true }, { id: 'security', label: 'Two-step sign-in', regional: true }] },
+  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', regional: true, tabs: [{ id: 'overview', label: 'Overview', regional: true }, { id: 'security', label: 'Two-step sign-in', regional: true }] },
   { id: 'audit', label: 'Audit log', icon: 'clock', group: 'Setup', admin: true },
 ];
 
@@ -63,7 +61,6 @@ const readRoute = () => {
   const [s, t] = rest.split('/').filter(Boolean);
   return { section: (s || 'dashboard') as SectionId, tab: t || '' };
 };
-const WHOLE_SERVICE = { key: 'all', name: 'Whole service' };
 
 type MfaStatus = { enabled: boolean; required: boolean; passwordChangeRequired: boolean; setupNeeded: boolean; canSkip: boolean; recoveryCodesLeft: number };
 type Boot = { scope: { scope: Scope; permissions?: Permission[] }; mfa: MfaStatus };
@@ -210,24 +207,13 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
   const mfaData = mfa.data ?? boot?.mfa ?? null;
   useEffect(() => {
     if (!scopeLoad.data || !mfa.data) return;
-    writeBoot(signedIn.email, mfa.data.passwordChangeRequired || mfa.data.setupNeeded ? null : { scope: scopeLoad.data, mfa: mfa.data });
+    writeBoot(signedIn.email, mfa.data.passwordChangeRequired || (mfa.data.setupNeeded && mfa.data.required) ? null : { scope: scopeLoad.data, mfa: mfa.data });
   }, [scopeLoad.data, mfa.data, signedIn.email]);
   const session: Session = { ...signedIn, scope: scopeData?.scope ?? null, permissions: scopeData?.permissions ?? [] };
-  const regional = !!session.scope;
-  const canSwitch = session.role === 'admin' && !regional;
-  const [chosen, setChosen] = useState(getPlace);
-  const place = canSwitch && chosen ? chosen : WHOLE_SERVICE;
-  const [switching, setSwitching] = useState(false);
-  const pick = (key: string, name: string) => {
-    const next = key === 'all' ? null : { key, name };
-    setPlace(next);
-    clearLoadCache(); // what was loaded for the old place is not shown for the new one
-    setChosen(next);
-    setSwitching(false);
-  };
+  // The console is not split by place: everything works for the whole service. (A place chosen in an older version is forgotten.)
   useEffect(() => {
-    if (scopeLoad.data && !canSwitch && getPlace()) (setPlace(null), setChosen(null));
-  }, [scopeLoad.data, canSwitch]);
+    if (getPlace()) setPlace(null);
+  }, []);
 
   const [drawer, setDrawer] = useState(false);
   // The sidebar can be folded to a narrow strip of icons (computers and tablets; on a phone it is the drawer). The choice is
@@ -302,7 +288,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
         <DialogHost />
       </>
     );
-  if (mfaData && mfaData.setupNeeded)
+  if (mfaData && mfaData.setupNeeded && mfaData.required)
     return (
       <>
         <AuthShell headline="One more step to keep it secure." sub="A code from your phone protects the console, and everyone's data in it, if a password is ever stolen.">
@@ -374,13 +360,43 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
   if (key === 'users/') body = <UsersPage me={session} focusId={userId} onClearFocus={() => (setUserId(null), setBack(null), setUrlParam('back', null))} openReport={openReport} onShowReports={showReportsAbout} backLabel={backLabel} onBack={goBack} />;
   if (key === 'content/') body = <ContentPage me={session} />;
   if (key === 'team/') body = <StaffPage me={session} />;
-  if (key === 'settings/places') body = <RegionsPage me={session} />;
-  if (key === 'settings/categories') body = <CategoriesPage />;
+  // Settings: three cards (HERE, THERE, two-step sign-in); each opens its own settings
+  // Settings: Here and There side by side (admins), and two-step sign-in
+  const settingsTabs = section.id === 'settings' ? (section.tabs ?? []).map((t) => t.id) : [];
+  if (key === 'settings/overview')
+    body = (
+      <SettingsHome
+        me={session}
+        security={settingsTabs.includes('security')}
+        mfaOn={mfaData ? mfaData.enabled : null}
+        go={(t, f) => {
+          go('settings', t);
+          if (f) setUrlParam(f === 'setup' ? 'setup' : 'focus', f === 'setup' ? '1' : f);
+        }}
+      />
+    );
   if (key === 'settings/security' && mfaData) body = <SecurityPage status={mfaData} onChanged={mfa.reload} />;
   if (key === 'audit/') body = <AuditPage openReport={openReport} />;
 
+  // Settings has no tab bar: the cards are the way in, and HERE / THERE each hold their limit and categories on one page.
+  const toSettings = (
+    <button type="button" className="link" onClick={() => go('settings', 'overview')}>
+      ‹ Settings
+    </button>
+  );
+  const settingsFrame: { eyebrow?: ReactNode; title: string; sub?: ReactNode; extra?: ReactNode } =
+    section.id !== 'settings'
+      ? { title: section.label }
+      : tab === 'security'
+            ? {
+                eyebrow: toSettings,
+                title: 'Two-step sign-in',
+                extra: mfaData ? <Chip value={mfaData.enabled ? 'On' : 'Off'} tone={mfaData.enabled ? 'ok' : 'plain'} /> : undefined,
+                sub: mfaData?.enabled ? 'Signing in asks for your password and a code from your authenticator app.' : 'Right now, signing in only asks for your password. Add a code from your phone so nobody else can get in, even if they know it.',
+              }
+            : { title: 'Settings' };
   const tabs =
-    section.tabs && section.tabs.length > 1 ? (
+    section.id === 'settings' ? null : section.tabs && section.tabs.length > 1 ? (
       <Tabs label={section.label} value={tab} onChange={(t) => (setReportId(null), setUserId(null), go(section.id, t))} options={section.tabs.map((t) => ({ id: t.id, label: t.label, count: t.id === 'reports' ? badge.reports : undefined }))} />
     ) : null;
 
@@ -435,18 +451,6 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
           {shown.length === 0 && <p className="nav-empty">No page matches “{filter}”.</p>}
         </nav>
         <div className="side-foot">
-          {canSwitch && (
-            <button className="working-btn" onClick={() => setSwitching(true)} title={collapsed ? `Working in ${place.name}: switch to another country, region or city` : 'Switch to another country, region or city'} aria-label={`Working in ${place.name}. Switch place`}>
-              <span className="where-abbr" aria-hidden="true">
-                {place.name.slice(0, 2)}
-              </span>
-              <span className="where">
-                <small>Working in</small>
-                <strong>{place.name}</strong>
-              </span>
-              <span className="switch">Switch</span>
-            </button>
-          )}
           <div className="side-account">
           <PopMenu
             label="Your account"
@@ -465,7 +469,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
               <>
                 <strong>{session.name}</strong>
                 <span className="muted small">
-                  {roleLabel(session.role)} · {session.scope ? `${session.scope.name} (${session.scope.kind})` : 'whole service'}
+                  {roleLabel(session.role)}{session.scope ? ` · ${session.scope.name}` : ''}
                 </span>
               </>
             }
@@ -490,10 +494,10 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
             <span className="brand-sub">Admin</span>
           </div>
         </header>
-        <main className="main" id="main" ref={mainRef} tabIndex={-1} key={place.key}>
+        <main className="main" id="main" ref={mainRef} tabIndex={-1}>
           {section.tabs ? (
             // a section with tabs: its heading and tab bar are built once, only the page under them changes between tabs
-            <PageFrame key={section.id} title={section.label} tabs={tabs}>
+            <PageFrame key={section.id} eyebrow={settingsFrame.eyebrow} title={settingsFrame.title} titleExtra={settingsFrame.extra} sub={settingsFrame.sub} tabs={tabs}>
               {body}
             </PageFrame>
           ) : (
@@ -501,7 +505,6 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
           )}
         </main>
       </div>
-      {switching && <PlaceSwitcher current={place.key} onPick={pick} onClose={() => setSwitching(false)} />}
       <DialogHost />
     </div>
   );

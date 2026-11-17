@@ -8,7 +8,9 @@ import { DropPinSheet } from '@/components/DropPinSheet';
 import { Text, TextInput } from '@/components/ScaledText';
 import { Reveal } from '@/components/Reveal';
 import { DestinationResults } from '@/components/TripCreateParts';
-import { Btn, ErrorBanner, Pill, PillRow, Txt } from '@/components/ui';
+import { ThereChip, ThereDateBox, ThereFilterSheet, ThereLabel } from '@/components/ThereParts';
+import { DateRangeSheet, lastPlanningDay, shortDay } from '@/components/DateRangeSheet';
+import { Btn, ErrorBanner, Txt } from '@/components/ui';
 import { MapHint } from '@/components/MapHint';
 import { get, type Trip } from '@/lib/api';
 import { useCity, useCityPos } from '@/lib/city';
@@ -16,6 +18,7 @@ import { useDockSpace } from '@/lib/dock';
 import { TRIP_TAGS } from '@/lib/constants';
 import { tagLabel, useCategories } from '@/lib/categories';
 import { useLoad } from '@/lib/hooks';
+import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
 import { keyboardTaps } from '@/lib/keyboard';
 import { statusTop } from '@/lib/layout';
@@ -23,7 +26,6 @@ import { useTheme } from '@/lib/theme';
 import { PinIcon } from './PinIcon';
 import { useCityCenter } from './mapShared';
 import { useThereFilters } from './ThereFilters';
-import { dateLang, isoDay } from '@/lib/format';
 
 import { sc, sp, sph } from '@/lib/scale';
 /** Trips with a position, and every trip at (about) the same place: one pin on the map, however many go there. */
@@ -108,6 +110,8 @@ export function MapThere() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [dropped, setDropped] = useState<{ lat: number; lng: number } | null>(null);
   const [q, setQ] = useState('');
+  const [calendar, setCalendar] = useState<null | 'start' | 'end'>(null); // the date calendar inside the filter
+  const todayStart = useMemo(() => new Date(new Date().setHours(0, 0, 0, 0)), []);
   const [filtersOpen, setFiltersOpen] = useState(false); // the filter card under the search
   const [shown, setShown] = useState(PAGE); // how many of them it shows (20 at a time)
   const [typed, setTyped] = useState(false);
@@ -137,6 +141,10 @@ export function MapThere() {
     undefined,
     { keep: true },
   );
+  // a trip changed somewhere (new, full, new dates): the pins load again at once
+  useLiveEvents((e) => {
+    if (e.type === 'feed-changed') void feed.reload();
+  });
   const trips = feed.data?.items ?? [];
   // Trips made before they stored a map position are placed by looking their destination up once (the destination, never the departure city)
   const [looked, setLooked] = useState(0);
@@ -191,6 +199,40 @@ export function MapThere() {
     map.current?.animateToRegion({ latitude: at.lat, longitude: at.lng, latitudeDelta: d, longitudeDelta: d }, 600);
   };
 
+  // A filter was applied (or changed): the map flies to its first result. The result is asked for without the map's own window, because the
+  // first match may be far outside what is on screen. Clearing the filters leaves the map where it is.
+  const filterSig = JSON.stringify([f.style, tag, f.from, f.to]);
+  const sigSeen = useRef<string | null>(null);
+  useEffect(() => {
+    if (sigSeen.current === null) {
+      sigSeen.current = filterSig;
+      return; // arriving: nothing to fly to yet
+    }
+    if (sigSeen.current === filterSig) return;
+    sigSeen.current = filterSig;
+    if (!filtersOn) return;
+    let alive = true;
+    (async () => {
+      try {
+        const p = new URLSearchParams({ ...f.build('', f.style, tag ? [tag] : []), limit: '10' });
+        const r = await get<{ items: Trip[] }>(`/v1/trips?${p}`);
+        const hit = r.items[0];
+        if (!hit || !alive) return;
+        let at = hit.lat != null && hit.lng != null ? { lat: hit.lat, lng: hit.lng } : null;
+        if (!at && hit.destination.trim()) {
+          const pl = await get<{ items: { lat: number; lng: number }[] }>(`/v1/places/search?${new URLSearchParams({ q: hit.destination.trim(), kind: 'destination' })}`);
+          at = pl.items[0] ? { lat: pl.items[0].lat, lng: pl.items[0].lng } : null;
+        }
+        if (at && alive) flyTo(at, true);
+      } catch {
+        // no answer: the map stays where it is
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [filterSig]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const first = useRef(true);
   useEffect(() => {
     // arriving: show the area around the person's own city (a wide view), or the whole world when it is not known
@@ -203,15 +245,6 @@ export function MapThere() {
   const top = statusTop(insets.top) + 8;
   const shadow = { elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } } as const;
 
-  // the months to choose from: this one (from today), the next, and each one after for a year ahead. A month is a first and a last day in the same filters
-  // as every other date (f.from, f.to), so the trips on the map and in the list narrow to it, and "Clear" and the filter button's dot know about it.
-  const monthOptions = Array.from({ length: 12 }, (_, i) => {
-    const now = new Date();
-    const first = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
-    const name = first.toLocaleDateString(dateLang(), { month: 'long', ...(first.getFullYear() !== now.getFullYear() ? { year: 'numeric' as const } : {}) });
-    return { key: i, label: i === 0 ? t('This month') : i === 1 ? t('Next month') : name.charAt(0).toUpperCase() + name.slice(1), from: isoDay(i === 0 ? now : first), to: isoDay(last) };
-  });
   const filtersOn = f.style !== '' || tag !== null || f.from !== '';
   const clearFilters = () => {
     f.setStyle('');
@@ -348,7 +381,7 @@ export function MapThere() {
               accessibilityState={{ selected: filtersOpen || filtersOn }}
               onPress={() => {
                 Keyboard.dismiss();
-                setFiltersOpen((v) => !v);
+                setFiltersOpen(true);
               }}
               hitSlop={4}
               style={({ pressed }) => [{ width: sc(58), height: sc(58), borderRadius: sc(29), backgroundColor: filtersOpen || filtersOn ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, shadow, pressed && { transform: [{ scale: 0.94 }] }]}
@@ -368,48 +401,62 @@ export function MapThere() {
           />
         </View>
 
-        {/* the filters, on a card of their own so they read clearly over the map: how the group gets there, and the interest */}
-        {filtersOpen || filtersOn ? (
-          <View style={[{ width: '100%', maxWidth: sc(560), backgroundColor: c.surface, borderRadius: sc(26), padding: sp(14), gap: sp(12) }, shadow]}>
-            <View accessibilityRole="radiogroup" accessibilityLabel={t('How the group gets there')} style={{ gap: sp(6) }}>
-              <Txt variant="small">{t('How the group gets there')}</Txt>
-              <PillRow>
-                {STYLES.map(([v, label]) => (
-                  <Pill key={v || 'all'} label={t(label)} active={f.style === v} onPress={() => f.setStyle(v)} />
-                ))}
-              </PillRow>
+        {/* the filters open as a sheet, the same as HERE's map: how the group gets there, the month, the interest */}
+        <ThereFilterSheet
+          compact
+          heightRatio={0.78}
+          visible={filtersOpen}
+          onClose={() => setFiltersOpen(false)}
+          overlay={
+            <DateRangeSheet
+              visible={calendar !== null}
+              focus={calendar ?? 'start'}
+              start={f.from}
+              end={f.to}
+              min={todayStart}
+              max={lastPlanningDay(6)}
+              maxNights={200}
+              onClose={() => setCalendar(null)}
+              onDone={(st, e) => {
+                f.setFrom(st);
+                f.setTo(e);
+                setCalendar(null);
+              }}
+            />
+          }
+          footer={
+            <>
+              <Btn title={t('Show results')} onPress={() => setFiltersOpen(false)} />
+              <Btn title={t('Clear all')} variant="secondary" onPress={clearFilters} />
+            </>
+          }
+        >
+          <View accessibilityRole="radiogroup" accessibilityLabel={t('How the group gets there')} style={{ gap: sp(8) }}>
+            <ThereLabel>{t('How the group gets there')}</ThereLabel>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
+              {STYLES.map(([v, label]) => (
+                <ThereChip key={v || 'all'} label={t(label)} active={f.style === v} onPress={() => f.setStyle(v)} />
+              ))}
             </View>
-            <View style={{ gap: sp(6) }}>
-              <Txt variant="small">{t('Month')}</Txt>
-              <PillRow>
-                <Pill label={t('Any month')} active={!f.from} onPress={() => (f.setFrom(''), f.setTo(''))} />
-                {monthOptions.map((m) => (
-                  <Pill key={m.key} label={m.label} active={f.from === m.from && f.to === m.to} onPress={() => (f.setFrom(m.from), f.setTo(m.to))} />
-                ))}
-              </PillRow>
-              {/* what is being shown, easing in when a month is chosen */}
-              {f.from ? (
-                <Reveal key={f.from} from={6}>
-                  <Txt variant="small" color={c.green}>{t('Showing trips in {month}', { month: (monthOptions.find((m) => m.from === f.from && m.to === f.to)?.label ?? `${f.from} – ${f.to}`).toLowerCase() })}</Txt>
-                </Reveal>
-              ) : null}
-            </View>
-            <View style={{ gap: sp(6) }}>
-              <Txt variant="small">{t('Interest')}</Txt>
-              <PillRow>
-                <Pill label={t('All')} active={tag === null} onPress={() => setTag(null)} />
-                {TRIP_TAGS.map((k) => (
-                  <Pill key={k} label={t(tagLabel(k))} active={tag === k} onPress={() => setTag(tag === k ? null : k)} />
-                ))}
-              </PillRow>
-            </View>
-            {filtersOn ? (
-              <Pressable accessibilityRole="button" accessibilityLabel={t('Clear filters')} hitSlop={8} onPress={clearFilters} style={{ alignSelf: 'flex-start' }}>
-                <Txt variant="h3" color={c.forest} style={{ fontSize: 12 }}>{t('Clear filters')}</Txt>
-              </Pressable>
-            ) : null}
           </View>
-        ) : null}
+          {/* the trip dates: the same two boxes and calendar as the THERE search filter (tap a box, pick the days) */}
+          <View style={{ gap: sp(8) }}>
+            <View style={{ flexDirection: 'row', gap: sp(12) }}>
+              <ThereDateBox label={t('Earliest departure')} date={f.fromD} onPress={() => setCalendar('start')} spoken={t('{label}: {date}. Opens a calendar', { label: t('Earliest departure'), date: f.fromD ? shortDay(f.fromD) : t('any date') })} />
+              <ThereDateBox label={t('Latest return')} date={f.toD} onPress={() => setCalendar('end')} spoken={t('{label}: {date}. Opens a calendar', { label: t('Latest return'), date: f.toD ? shortDay(f.toD) : t('any date') })} />
+            </View>
+            {f.from || f.to ? <Btn title={t('Clear dates')} variant="ghost" small onPress={() => (f.setFrom(''), f.setTo(''))} style={{ alignSelf: 'flex-start' }} /> : null}
+          </View>
+          <View style={{ gap: sp(8) }}>
+            <ThereLabel>{t('Interest')}</ThereLabel>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
+              <ThereChip label={t('All')} active={tag === null} onPress={() => setTag(null)} />
+              {TRIP_TAGS.map((k) => (
+                <ThereChip key={k} label={t(tagLabel(k))} active={tag === k} onPress={() => setTag(tag === k ? null : k)} />
+              ))}
+            </View>
+          </View>
+        </ThereFilterSheet>
         {feed.error ? <View style={{ width: '100%', maxWidth: sc(560) }}><ErrorBanner message={feed.error.message} /></View> : null}
         <MapHint id="there" title={t('Finding your trip')}>{t('Zoom out to find your destination, then zoom in on the place. Tap a pin to see the trips that go there, or search a country or a place.')}</MapHint>
       </View>

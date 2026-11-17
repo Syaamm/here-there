@@ -9,7 +9,7 @@ import { StatsCard } from '@/components/StatsCard';
 import { ReliabilityIcon } from '@/components/ProfileParts';
 import { Avatar, Between, Btn, Card, Chip, Empty, ErrorBanner, Field, Grid, Pill, PillRow, Row, RowLink, Screen, Spinner, Txt, useGo } from '@/components/ui';
 import { get, patch, type Activity, type MyActivitiesPage, type MyReliability, type MyTripRow, type MyTripsPage, type Trip } from '@/lib/api';
-import { myActivityItems } from '@/lib/myActivities';
+import { FINISHED, myActivityItems } from '@/lib/myActivities';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useLiveEvents } from '@/lib/live';
@@ -41,20 +41,21 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
   const [tab, setTab] = useState<'activities' | 'trips' | 'favourites'>(mode === 'here' ? 'activities' : 'trips');
   const stats = useLoad(() => get<{ stats: { activitiesHosted: number; activitiesJoined: number; tripsDone: number } }>(`/v1/users/${me!.id}`), [me?.id], undefined, 'me:stats');
   // only the 3 newest of each list are fetched (the full lists are their own pages), with how many there are in all
-  const acts = useLoad(() => get<MyActivitiesPage>('/v1/me/activities/page?tab=all&limit=3'), [], undefined, 'me:acts:recent');
+  const acts = useLoad(() => get<MyActivitiesPage>('/v1/me/activities/page?tab=all&limit=12'), [], undefined, 'me:acts:recent2');
   // a request was approved, declined, moved up the waiting list or removed: the counts below are asked again at once
   useLiveEvents((e) => {
     if (e.type === 'notification' && REQUEST_ALERTS.has(e.notification.type)) void acts.reload();
   });
-  const trips = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?limit=2'), [], undefined, 'me:trips');
+  const trips = useLoad(() => get<MyTripsPage>('/v1/me/trips/page?limit=2&upcoming=1'), [], undefined, 'me:trips:upcoming');
   const rel = useLoad(() => get<MyReliability>('/v1/me/reliability'), [], undefined, 'me:reliability');
   const conns = useLoad(() => get<{ counts: { following: number; followers: number; buddies: number } }>('/v1/me/connections?limit=1'), [], undefined, 'me:buddies2');
   const favs = useLoad(() => get<{ items: Activity[]; total?: number }>('/v1/me/favorites?limit=3'), [], undefined, 'me:favs');
   const rows = acts.data?.items ?? [];
+  // finished ones (cancelled, completed) are not shown here: they are only in the My activities page
   const all = myActivityItems({
     joined: rows.filter((x): x is Extract<typeof x, { row: 'joined' }> => x.row === 'joined'),
     requests: rows.filter((x): x is Extract<typeof x, { row: 'request' }> => x.row === 'request'),
-  });
+  }).filter((x) => !FINISHED.includes(x.activity.status));
   const actsTotal = acts.data ? acts.data.counts.mine + acts.data.counts.pending + acts.data.counts.rejected : 0;
   type TripItem = { key: string; joined: Extract<MyTripRow, { row: 'joined' }> } | { key: string; app: Extract<MyTripRow, { row: 'application' }> };
   const tripItems: TripItem[] = (trips.data?.items ?? []).map((x): TripItem => (x.row === 'joined' ? { key: x.id, joined: x } : { key: x.applicationId, app: x }));
@@ -154,7 +155,8 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
               <Text style={{ color: c.text, fontSize: 16, fontWeight: '500' }}>{t('Confirm your email')}</Text>
             </Pressable>
           ) : null}
-          {v !== 'verified' ? (
+          {/* a guest ("Explore") has no account to verify */}
+          {v !== 'verified' && !gate.isGuest ? (
             <Pressable accessibilityRole="button" onPress={() => go('/verify')} style={{ minHeight: sc(54), borderRadius: sc(32), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', paddingHorizontal: sph(20), paddingVertical: sp(10) }}>
               <Text style={{ color: '#fff', fontSize: 16, lineHeight: 21, fontWeight: '500', textAlign: 'center' }}>{v === 'pending' ? t('Verification in review') : v === 'rejected' ? t('Try verification again') : v === 'expired' || v === 'reverification_required' ? t('Verify again to keep joining and chatting') : t('Get verified to join, host and chat')}</Text>
             </Pressable>
@@ -198,14 +200,6 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
 
       {tab === 'activities' && (
         <>
-          {/* the real totals (the list below shows only the latest few, so it cannot say how many there are): tap one to open it */}
-          {acts.data && actsTotal > 0 ? (
-            <PillRow>
-              <Pill label={`${t('My activities')} (${acts.data.counts.mine})`} onPress={() => go('/my-activities')} />
-              <Pill label={`${t('Pending')} (${acts.data.counts.pending})`} onPress={() => go('/my-activities?tab=pending')} />
-              <Pill label={`${t('Rejected')} (${acts.data.counts.rejected})`} onPress={() => go('/my-activities?tab=rejected')} />
-            </PillRow>
-          ) : null}
           {acts.data && actsTotal === 0 && <Empty icon="calendar-outline" title={t('No activities yet')} action={{ label: t('Find an activity'), onPress: () => go('/') }}>{t('Activities you host or join show up here.')}</Empty>}
           <Grid>
             {all.slice(0, SHOWN).map((x) => (
@@ -218,7 +212,8 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
               </View>
             ))}
           </Grid>
-          {actsTotal > SHOWN && <Btn title={t('More activities ({n} more)  ›', { n: actsTotal - SHOWN })} variant="secondary" onPress={() => go('/my-activities')} />}
+          {/* the My activities / Pending / Rejected filters live on that page, not here */}
+          {actsTotal > 0 && <Btn title={actsTotal > SHOWN ? t('View all activities ({n} more)  ›', { n: actsTotal - SHOWN }) : t('View all activities  ›')} variant="secondary" onPress={() => go('/my-activities')} />}
         </>
       )}
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Avatar, Chip, Empty, ErrorBanner, fmt, Icon, Loading, Page, PageBar, ProofImages, Segmented, useAction, useLoad, type Tone } from '../ui';
+import { askText, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, Icon, Loading, Page, PageBar, ProofImages, Search, Segmented, useAction, useLoad, type Tone } from '../ui';
 
 type Appeal = {
   id: string;
@@ -65,6 +65,12 @@ function lines(a: Appeal): [string, string][] {
 
 export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: string, from?: string) => void }) {
   const [view, setView] = useState<View>('open');
+  const [q, setQ] = useState('');
+  const [term, setTerm] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
   const [pageNo, setPageNo] = useState(1);
   const [sel, setSel] = useState<string | null>(null);
   const [pane, setPane] = useState<'list' | 'detail'>('list');
@@ -72,8 +78,8 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
     setPageNo(1);
     setSel(null);
     setPane('list');
-  }, [view]);
-  const first = useLoad(() => get<{ items: Appeal[]; page?: number; pages?: number; total?: number }>(`/v1/admin/appeals?page=${pageNo}&limit=20&state=${view}`), [view, pageNo], 6000);
+  }, [view, term]);
+  const first = useLoad(() => get<{ items: Appeal[]; page?: number; pages?: number; total?: number }>(`/v1/admin/appeals?page=${pageNo}&limit=20&state=${view}${term ? `&q=${encodeURIComponent(term)}` : ''}`), [view, pageNo, term], 6000);
   const act = useAction(first.reload);
   const items = first.data?.items ?? [];
   const selected = items.find((a) => a.id === sel) ?? items[0] ?? null;
@@ -97,7 +103,7 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
 
   return (
     <Page fill title="Appeals">
-      <div className="toolbar">
+      <FilterBar search={<Search label="Search appeals by person" onEnter={() => setTerm(q.trim())} placeholder="Search by name or email" value={q} onChange={setQ} />}>
         <Segmented
           label="Appeals"
           value={view}
@@ -108,10 +114,10 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
             { id: 'rejected', label: 'Rejected' },
           ]}
         />
-      </div>
+      </FilterBar>
       <ErrorBanner message={first.error ?? act.error} onRetry={first.reload} />
       {first.loading && !first.data && <Loading rows={5} />}
-      {first.data && items.length === 0 && <Empty>No appeals.</Empty>}
+      {first.data && items.length === 0 && <Empty>{term ? `No appeals match “${term}”.` : 'No appeals.'}</Empty>}
       {items.length > 0 && (
         <div className="split" data-pane={pane}>
           <section className="split-list" aria-label="Appeals">

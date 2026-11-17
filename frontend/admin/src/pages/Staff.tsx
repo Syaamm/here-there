@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, get, PERMISSIONS, post, roleLabel, saveSession, setRefreshToken, setToken, type Permission, type Role, type Session } from '../api';
 import { Select, useBackdropClose } from '../controls';
-import { Avatar, Chip, Empty, errMsg, ErrorBanner, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
+import { Avatar, Chip, Empty, errMsg, ErrorBanner, FilterBar, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
 
 type Member = { id: string; email: string; displayName: string | null; photoUrl: string | null; role: Role; regionKey: string | null; permissions: Permission[]; state: string; mfaEnabled: boolean; mustChangePassword: boolean; createdAt: string };
 type Place = { key: string; name: string; kind: string };
@@ -43,11 +43,7 @@ export function StaffPage({ me }: { me: Session }) {
           </button>
         </p>
       )}
-      <div className="toolbar">
-        <div className="grow">
-          <Search label="Search staff" placeholder="Search" value={q} onChange={setQ} />
-        </div>
-      </div>
+      <FilterBar search={<Search label="Search staff" placeholder="Search staff" value={q} onChange={setQ} />} />
       {list.loading && !list.data && <Loading rows={5} />}
       {list.data && rows.length === 0 && <Empty>No accounts.</Empty>}
       {rows.length > 0 && (

@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import tzlookup from 'tz-lookup';
 import { get } from './api';
+import { setViewZone } from './format';
 import { useMe } from './auth';
 import { setLiveCity } from './live';
 
@@ -27,7 +29,19 @@ let city = '';
 let near: Near | null = null;
 let pos: Near | null = null; // the chosen city's centre, when it was picked from the search
 const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
+// Every time and date on screen is written in the zone of the city being browsed (lib/format), not the phone's: the zone comes
+// from the chosen city's centre. A city typed by hand has no centre, so its times keep the phone's zone until one is picked.
+const syncZone = () => {
+  try {
+    setViewZone(city && pos ? tzlookup(pos.lat, pos.lng) : null);
+  } catch {
+    setViewZone(null);
+  }
+};
+const emit = () => {
+  syncZone();
+  listeners.forEach((l) => l());
+};
 const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => void listeners.delete(l);

@@ -1,0 +1,947 @@
+import { RegionsService } from '../regions/regions.service';
+import { cityKeyOf } from '../regions/regions';
+import { metrics } from '../common/observability';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Prisma, Trip, User } from '@prisma/client';
+import { z } from 'zod';
+import { AuditService } from '../common/audit.service';
+import { requireVerified } from '../common/auth';
+import { afterKeyset, decodeKeyset, pageByGroup, pageLimit, sliceKeyset, pageOf } from '../common/paging';
+import { decodeCursor, encodeCursor } from '../activities/feed-ranking';
+import { TtlCache } from '../common/ttl-cache';
+import { circleOf, crowd, tierCounts } from '../common/social';
+import { ReliabilityService } from '../reliability/reliability.controller';
+import { E } from '../common/errors';
+import { MAX_DATE_CHANGES } from '../common/constants';
+import { lockTrip } from '../common/locks';
+import { isZone } from '../common/timezone';
+import { JobsService } from '../common/jobs.service';
+import { PrismaService } from '../common/prisma.service';
+import { RateLimiter } from '../common/rate-limiter';
+import { contentProblem, parse } from '../common/validate';
+import { EventBus } from '../common/events';
+import { tripCities } from '../common/live.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { SafetyService } from '../safety/safety.service';
+import { ClashService, tripWindow, withdrawnNote } from '../schedule/clash.service';
+import { isSampleEmail } from '../common/demo';
+import { expandSearchWord, phraseTerms, searchWords } from '../common/search-terms';
+
+const DAY = 24 * 3600 * 1000;
+
+export const BUDGET_DISCLAIMER =
+  'Budgets are estimates, not quotes or booking offers. Trips are proposals - book travel suppliers independently and never send money to strangers.';
+
+const FLEX = ['exact', 'plus_minus_1', 'plus_minus_3', 'plus_minus_7', 'same_month'] as const;
+type Flex = (typeof FLEX)[number];
+
+/** Spec 6.5: organizer counts as one member; default 4-6, optional 2-3 and 7-10. */
+const GROUP_RANGES: Record<string, [number, number]> = { '2-3': [2, 3], '4-6': [4, 6], '7-10': [7, 10], '10+': [10, 20] };
+
+/** How the group gets there: leave together from one city, or each on their own and meet at the destination. */
+export const TRAVEL_STYLES = ['together', 'meet_at_destination'] as const;
+
+/**
+ * The city whose planning limit (how far ahead a trip may be planned) applies to a trip: where it leaves from, or for a "meet at
+ * destination" trip, which has no departure city, the destination's city ("Lisbon" of "Lisbon, Portugal").
+ */
+export const limitCityOf = (t: { travelStyle?: string | null; originCity: string; destination: string }) =>
+  t.travelStyle === 'meet_at_destination' || !t.originCity.trim() ? t.destination.split(',')[0].trim() : t.originCity;
+
+export const createSchema = z
+  .object({
+    title: z.string().trim().min(2).max(80).optional(),
+    destination: z.string().trim().min(2).max(100),
+    destinationPlaceId: z.string().max(200).optional(),
+    // the destination's position on the map (from the place search), so the trip shows as a pin
+    destinationLat: z.number().min(-90).max(90).optional(),
+    destinationLng: z.number().min(-180).max(180).optional(),
+    // the destination's time zone (an IANA name such as Asia/Tokyo), if the app knows it; decides which day of the trip it is
+    timeZone: z.string().max(60).refine(isZone, 'Unknown time zone').optional(),
+    // "together": companions leave from the same city (originCity, required); "meet_at_destination": everyone gets there on their
+    // own and the group meets at the destination (no departure city; one sent is ignored)
+    travelStyle: z.enum(TRAVEL_STYLES).default('together'),
+    originCity: z.string().trim().max(60).optional(),
+    dateStart: z.coerce.date(),
+    dateEnd: z.coerce.date(),
+    dateFlexibility: z.enum(FLEX).default('exact'),
+    budgetCurrency: z.string().length(3).toUpperCase().default('EUR'),
+    budgetMin: z.number().int().min(0).max(1_000_000),
+    budgetMax: z.number().int().min(0).max(1_000_000),
+    budgetIncludesTransport: z.boolean(),
+    // what the budget covers, chosen one by one: food, travel, stay (any of them, or none). `budgetIncludesTransport` stays, and is the same as "travel is in this list"
+    budgetIncludes: z.array(z.enum(['food', 'travel', 'stay'])).max(3).optional(),
+    tags: z.array(z.string().trim().min(1).max(24)).max(8).default([]),
+    description: z.string().trim().max(300).optional(), // a few sentences (lowered from 2000 by the owner, 2026-11-08)
+    // how many people, you included: an exact number, chosen like in HERE. It wins over the older `groupSize` range below, which
+    // stays so earlier app versions and saved drafts keep working.
+    capacity: z.number().int().min(2).max(20).optional(),
+    groupSize: z.enum(['2-3', '4-6', '7-10', '10+']).default('4-6'),
+    visibility: z.enum(['public', 'invite_only']).default('public'),
+    // who the organizer has in mind: a label only, nobody is stopped from joining by it
+    ageGroup: z.enum(['all', '18-25', '25-35', '35+']).default('all'),
+  })
+  .refine((d) => d.budgetMax > d.budgetMin, { message: 'The maximum budget must be higher than the minimum', path: ['budgetMax'] })
+  .refine((d) => d.travelStyle !== 'together' || (d.originCity ?? '').length >= 2, { message: 'Say where the group leaves from', path: ['originCity'] });
+
+export const updateSchema = z.object({
+  description: z.string().trim().max(300).optional(), // a few sentences (lowered from 2000 by the owner, 2026-11-08)
+  dateStart: z.coerce.date().optional(),
+  dateEnd: z.coerce.date().optional(),
+  dateFlexibility: z.enum(FLEX).optional(),
+  destination: z.string().trim().min(2).max(100).optional(),
+});
+
+export const searchSchema = z.object({
+  destination: z.string().trim().optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  flexibility: z.enum(FLEX).default('exact'),
+  originCity: z.string().trim().optional(),
+  /** only trips of this style (leave it out for both) */
+  travelStyle: z.enum(TRAVEL_STYLES).optional(),
+  /** only trips that LEAVE on or after / before this moment (the sections of THERE Home: leaving soon, in a few months, later) */
+  startFrom: z.coerce.date().optional(),
+  startTo: z.coerce.date().optional(),
+  budgetMax: z.coerce.number().int().min(0).optional(),
+  includesTransport: z.enum(['true', 'false']).optional(),
+  tags: z.string().optional(), // comma separated
+  groupSize: z.enum(['2-3', '4-6', '7-10', '10+']).optional(),
+  openOnly: z.enum(['true', 'false']).optional(),
+  /** leave out the trips the person hosts, is on, or has applied to (THERE Home and its "See all": those are in Next up) */
+  excludeMine: z.enum(['true', 'false']).optional(),
+  /** only trips whose destination is inside this part of the map (the THERE map sends what is on screen); trips with no position yet are still included */
+  south: z.coerce.number().min(-90).max(90).optional(),
+  north: z.coerce.number().min(-90).max(90).optional(),
+  west: z.coerce.number().min(-180).max(180).optional(),
+  east: z.coerce.number().min(-180).max(180).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const applySchema = z.object({
+  intro: z.string().trim().min(10).max(1000),
+  experience: z.enum(['beginner', 'intermediate', 'experienced']).optional(),
+  confirmBudget: z.literal(true, { error: 'Confirm your budget is compatible' }),
+  confirmDates: z.literal(true, { error: 'Confirm you can travel within the date window' }),
+  confirmGuidelines: z.literal(true, { error: 'Agree to the group guidelines' }),
+});
+export const decisionSchema = z.object({ decision: z.enum(['approve', 'decline']) });
+
+function flexDays(f: Flex) {
+  return f === 'plus_minus_1' ? 1 : f === 'plus_minus_3' ? 3 : f === 'plus_minus_7' ? 7 : 0;
+}
+
+/** [start,end] a trip could plausibly cover once flexibility is applied. */
+function expandedRange(start: Date, end: Date, f: Flex): [number, number] {
+  if (f === 'same_month') {
+    const s = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1);
+    const e = Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0, 23, 59, 59);
+    return [s, e];
+  }
+  return [+start - flexDays(f) * DAY, +end + flexDays(f) * DAY];
+}
+
+const overlaps = (a: [number, number], b: [number, number]) => a[0] <= b[1] && b[0] <= a[1];
+
+/** Stored status plus the clock: a trip whose last day has passed is "completed" even before the hourly clean-up records it. */
+export function effectiveTripStatus(t: { status: string; dateEnd: Date }, now = new Date()) {
+  return ['published', 'full', 'planning', 'confirmed'].includes(t.status) && +now > +t.dateEnd + 24 * 3600 * 1000 - 1 ? 'completed' : t.status;
+}
+
+@Injectable()
+export class TripsService implements OnModuleInit, OnModuleDestroy {
+  /** Once an hour, trips that have ended are recorded as completed (the app already shows them as such). */
+  onModuleInit() {
+    this.jobs.every('trips.complete-finished', 3600_000, () => this.completeFinished());
+  }
+
+  onModuleDestroy() {}
+
+  /** The last day counts in full: a trip ending on the 10th is completed from the start of the 11th. Returns how many changed. */
+  async completeFinished(now = new Date()) {
+    const r = await this.prisma.trip.updateMany({
+      where: { status: { in: ['published', 'full', 'planning', 'confirmed'] }, dateEnd: { lt: new Date(+now - 24 * 3600 * 1000 + 1) } },
+      data: { status: 'completed' },
+    });
+    if (r.count > 0) this.events.emit({ type: 'feed.refresh' });
+    return r.count;
+  }
+
+  /** The ranked result of one person's search, reused while they page through it (see `search`). */
+  private readonly rankedSearch = new TtlCache<Awaited<ReturnType<TripsService['rankTrips']>>>(Number(process.env.TRIP_SEARCH_CACHE_MS ?? (process.env.NODE_ENV === 'test' ? 0 : 15_000)), 1000);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly safety: SafetyService,
+    private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
+    private readonly limiter: RateLimiter,
+    private readonly reliability: ReliabilityService,
+    private readonly jobs: JobsService,
+    private readonly events: EventBus,
+    private readonly regions: RegionsService,
+    private readonly clash: ClashService,
+  ) {}
+
+  private readonly hostInclude = {
+    host: { select: { id: true, email: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } },
+  } as const;
+
+  private dto(t: Trip & { host: { id: string; eligibility: string; profile: { displayName: string; photoUrl: string | null } | null } }, members: number, extra: Record<string, unknown> = {}) {
+    return {
+      id: t.id,
+      title: t.title,
+      destination: t.destination,
+      lat: t.destLat,
+      lng: t.destLng,
+      timeZone: t.timeZone,
+      originCity: t.originCity,
+      travelStyle: t.travelStyle,
+      dateStart: t.dateStart,
+      dateEnd: t.dateEnd,
+      dateFlexibility: t.dateFlexibility,
+      // tentative until the organizer puts final dates to the group; "proposed" means every member must still confirm
+      datesState: t.datesState,
+      // how many more times a date poll may change the dates (the organizer is warned about this; it stops at the start of the trip too)
+      dateChangesLeft: Math.max(0, MAX_DATE_CHANGES - t.dateChanges),
+      dateChangesMax: MAX_DATE_CHANGES,
+      // budget semantics (spec 6.3): always an estimate, always with its scope
+      budget: {
+        label: 'Estimated personal budget',
+        currency: t.budgetCurrency,
+        min: t.budgetMin,
+        max: t.budgetMax,
+        includesTransport: t.budgetIncludesTransport,
+        // food, travel, stay: what the budget covers (an older trip only knows about travel)
+        includes: t.budgetIncludes ? t.budgetIncludes.split(',') : t.budgetIncludesTransport ? ['travel'] : [],
+        scope: t.budgetIncludesTransport ? 'Total including travel to the destination' : 'Destination spend, excluding travel to the destination',
+      },
+      tags: t.tags ? t.tags.split(',') : [],
+      description: t.description,
+      minCapacity: t.minCapacity,
+      maxCapacity: t.maxCapacity,
+      ageGroup: t.ageGroup,
+      members,
+      spotsLeft: Math.max(0, t.maxCapacity - members),
+      status: effectiveTripStatus(t),
+      kind: 'trip_proposal', // proposal, not a booking or confirmed itinerary
+      disclaimer: BUDGET_DISCLAIMER,
+      host: { id: t.host.id, displayName: t.host.profile?.displayName ?? 'Organizer', photoUrl: t.host.profile?.photoUrl ?? null, verifiedAdult: t.host.eligibility === 'verified', sample: isSampleEmail((t.host as { email?: string }).email) },
+      ...extra,
+    };
+  }
+
+  private memberCount(tripId: string) {
+    return this.prisma.tripMembership.count({ where: { tripId, state: 'approved' } });
+  }
+
+  /** Map rows to cards with each trip's member count, counted for the whole page in one query. */
+  private async withMembers<T, R>(rows: T[], tripId: (row: T) => string, build: (row: T, members: number) => R): Promise<R[]> {
+    const ids = [...new Set(rows.map(tripId))];
+    const counts = new Map<string, number>();
+    if (ids.length > 0)
+      for (const g of await this.prisma.tripMembership.groupBy({ by: ['tripId'], where: { tripId: { in: ids }, state: 'approved' }, _count: { _all: true } })) counts.set(g.tripId, g._count._all);
+    return rows.map((row) => build(row, counts.get(tripId(row)) ?? 0));
+  }
+
+  // ---------------------------------------------------------------- discovery
+  /**
+   * One page of trip search. Scoring up to 500 trips is the costly part and does not change from one page to the next, so the
+   * ranked list (ids and scores only) is kept for a short time per person and search, and the later pages are cut from it. Only
+   * the trips on the page are read again, so counts, blocks and cancellations are always current.
+   */
+  async search(me: User, query: unknown) {
+    const q = parse(searchSchema, query);
+    const now = new Date();
+    const cur = q.cursor ? decodeCursor(q.cursor) : null;
+    if (q.cursor && !cur) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
+
+    const { cursor: _c, limit: _l, ...filters } = q;
+    const ranked = await this.rankedSearch.get(`${me.id}|${JSON.stringify(filters)}`, async () => this.rankTrips(me, q, await this.safety.blockedWith(me.id), now));
+    const after = cur ? ranked.filter((x) => x.score < cur.score || (x.score === cur.score && x.id > cur.id)) : ranked;
+    const best = after.slice(0, q.limit + 1);
+    const picked = best.slice(0, q.limit);
+
+    // the page's trips are read fresh: one that was cancelled, blocked or made private since is simply left out
+    const blocked = await this.safety.blockedWith(me.id);
+    const rows = picked.length
+      ? await this.prisma.trip.findMany({
+          where: {
+            id: { in: picked.map((x) => x.id) },
+            hostId: { notIn: blocked },
+            status: { in: q.openOnly === 'true' ? ['published'] : ['published', 'full', 'planning', 'confirmed'] },
+            OR: [{ visibility: 'public' }, { hostId: me.id }, { memberships: { some: { userId: me.id, state: 'approved' } } }],
+          },
+          include: { ...this.hostInclude, _count: { select: { memberships: { where: { state: 'approved' } } } } },
+        })
+      : [];
+    const byId = new Map(rows.map((t) => [t.id, t]));
+    const last = picked[picked.length - 1];
+    return {
+      total: ranked.length,
+      items: picked.flatMap((x) => {
+        const t = byId.get(x.id);
+        if (!t) return [];
+        const members = t._count.memberships;
+        return [this.dto(t, members, {
+          match: { dates: x.dateMatch, budgetScopeMismatch: x.budgetScopeMismatch, score: Math.round(x.score) },
+          groupOpen: t.status !== 'full' && t.maxCapacity - members > 0,
+          buddiesGoing: x.buddies,
+          followingGoing: x.following,
+        })];
+      }),
+      nextCursor: best.length > q.limit && last ? encodeCursor(now, last.score, last.id) : null,
+    };
+  }
+
+  /** Every trip that fits the search, scored for this person, best first (score high to low, then id). Ids and scores only. */
+  private async rankTrips(me: User, q: z.infer<typeof searchSchema>, blocked: string[], now: Date) {
+    const where: Prisma.TripWhereInput = {
+      status: { in: q.openOnly === 'true' ? ['published'] : ['published', 'full', 'planning', 'confirmed'] },
+      dateStart: { gt: now }, // a trip that has started is no longer offered: people already on it see it under Taking part
+      dateEnd: { gte: now },
+      hostId: { notIn: blocked },
+      OR: [{ visibility: 'public' }, { hostId: me.id }, { memberships: { some: { userId: me.id, state: 'approved' } } }],
+    };
+    // Every filter is part of the database query, so the cap below only ever applies to trips that already match (a filter
+    // applied afterwards could miss a matching trip that was not among the first rows). Filters filter: what does not match
+    // is left out (owner, 2026-11-10; it used to be only a ranking preference for the departure city and what the budget covers).
+    const filters: Prisma.TripWhereInput[] = [];
+    if (q.travelStyle) filters.push({ travelStyle: q.travelStyle });
+    // the destination typed in the search: every word has to be in it, or a word that means the same ("giappone" finds Japan, in either
+    // language), and a small typo is forgiven (common/search-terms.ts). Text with no Latin letters is looked for as typed.
+    if (q.destination) {
+      const typed = searchWords(q.destination).slice(0, 3);
+      const phrase = phraseTerms(typed);
+      if (typed.length === 0) filters.push({ destinationKey: { contains: q.destination.toLowerCase() } });
+      for (const terms of phrase ? [phrase] : typed.map((w) => expandSearchWord(w))) filters.push({ OR: terms.slice(0, 14).map((term) => ({ destinationKey: { contains: term } })) });
+    }
+    if (q.startFrom || q.startTo) filters.push({ dateStart: { ...(q.startFrom && { gte: q.startFrom }), ...(q.startTo && { lt: q.startTo }) } });
+    // leaving from a city: trips that travel together from it ("Milan" matches "Milan" and "Milan, Italy"), and trips that meet at
+    // the destination (they have no departure city, so anyone can join them from anywhere), unless only "together" was asked for
+    const fromCity = q.originCity?.split(',')[0].trim();
+    if (fromCity)
+      filters.push({
+        OR: [
+          { originCity: { contains: fromCity, mode: 'insensitive' } },
+          ...(q.travelStyle === 'together' ? [] : [{ travelStyle: 'meet_at_destination' }]),
+        ],
+      });
+    // the part of the map on screen: a trip whose destination is in it (a view across the 180° line is two parts), or one with no position yet
+    if (q.south !== undefined && q.north !== undefined && q.west !== undefined && q.east !== undefined) {
+      const lng: Prisma.TripWhereInput = q.west <= q.east ? { destLng: { gte: q.west, lte: q.east } } : { OR: [{ destLng: { gte: q.west } }, { destLng: { lte: q.east } }] };
+      filters.push({ OR: [{ destLat: null }, { AND: [{ destLat: { gte: q.south, lte: q.north } }, lng] }] });
+    }
+    if (q.budgetMax !== undefined) filters.push({ budgetMin: { lte: q.budgetMax } });
+    if (q.includesTransport !== undefined) filters.push({ budgetIncludesTransport: q.includesTransport === 'true' });
+    if (q.groupSize) {
+      const [lo, hi] = GROUP_RANGES[q.groupSize];
+      filters.push({ maxCapacity: { gte: lo }, minCapacity: { lte: hi } });
+    }
+    const tagList = q.tags ? q.tags.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    if (tagList.length) filters.push({ OR: tagList.map((tag) => ({ tags: { contains: tag } })) });
+    // the dates: a wide first cut in the query (the exact overlap, with both sides' flexibility, is worked out below)
+    if (q.from) {
+      const slack = 40 * DAY; // more than any flexibility (a month either way, or a week)
+      filters.push({ dateEnd: { gte: new Date(+q.from - slack) }, dateStart: { lte: new Date(+(q.to ?? q.from) + slack) } });
+    }
+    // Home's lists are about trips to discover: yours (host, on it, applied or waitlisted) are already in Next up
+    const notMine: Prisma.TripWhereInput =
+      q.excludeMine === 'true'
+        ? {
+            hostId: { not: me.id },
+            memberships: { none: { userId: me.id, state: 'approved' } },
+            applications: { none: { applicantId: me.id, state: { in: ['pending', 'approved', 'waitlisted'] } } },
+          }
+        : {};
+    const rows = await this.prisma.trip.findMany({
+      where: { AND: [where, notMine, ...filters] },
+      orderBy: { dateStart: 'asc' },
+      take: 500,
+      include: { ...this.hostInclude, _count: { select: { memberships: { where: { state: 'approved' } } } } },
+    });
+
+    // the viewer's circle: where their friends (most), the people they follow (less) and their followers (a little) are going ranks higher
+    const circle = await circleOf(this.prisma, me.id);
+    const everyone = [...circle.buddies, ...circle.following, ...circle.followers];
+    const peopleByTrip = new Map<string, string[]>();
+    if (everyone.length > 0) {
+      const there = await this.prisma.tripMembership.findMany({
+        where: { tripId: { in: rows.map((t) => t.id) }, state: 'approved', userId: { in: everyone } },
+        select: { tripId: true, userId: true },
+      });
+      for (const m of there) peopleByTrip.set(m.tripId, [...(peopleByTrip.get(m.tripId) ?? []), m.userId]);
+      for (const t of rows) if (circle.buddies.has(t.hostId) || circle.following.has(t.hostId) || circle.followers.has(t.hostId)) peopleByTrip.set(t.id, [...(peopleByTrip.get(t.id) ?? []), t.hostId]);
+    }
+
+    const wantTags = q.tags ? q.tags.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    const window: [number, number] | null = q.from ? [+q.from, +(q.to ?? q.from)] : null;
+    const userWindow = window ? expandedRange(new Date(window[0]), new Date(window[1]), q.flexibility) : null;
+
+    const matches = rows
+      .map((t) => {
+        // date overlap: "exact" = nominal ranges overlap; "approximate" = only overlap after flexibility
+        let dateMatch: 'exact' | 'approximate' | 'none' | 'unspecified' = 'unspecified';
+        if (window) {
+          const nominal: [number, number] = [+t.dateStart, +t.dateEnd];
+          const tripFlex = expandedRange(t.dateStart, t.dateEnd, t.dateFlexibility as Flex);
+          if (overlaps(nominal, window)) dateMatch = 'exact';
+          else if (overlaps(tripFlex, userWindow!) || overlaps(nominal, userWindow!)) dateMatch = 'approximate';
+          else dateMatch = 'none';
+        }
+        if (dateMatch === 'none') return null;
+        if (q.travelStyle && t.travelStyle !== q.travelStyle) return null;
+
+        if (q.budgetMax !== undefined && t.budgetMin > q.budgetMax) return null;
+        if (q.groupSize) {
+          const [lo, hi] = GROUP_RANGES[q.groupSize];
+          if (t.maxCapacity < lo || t.minCapacity > hi) return null;
+        }
+        const tags = t.tags ? t.tags.split(',') : [];
+        if (wantTags.length && !wantTags.some((w) => tags.includes(w))) return null;
+
+        const budgetScopeMismatch =
+          q.includesTransport !== undefined && (q.includesTransport === 'true') !== t.budgetIncludesTransport;
+        const members = t._count.memberships;
+
+        // illustrative ranking weights from spec 7.4 (hypothesis, not a validated model)
+        let score = 0;
+        score += q.destination ? 35 : 20;
+        score += dateMatch === 'exact' ? 25 : dateMatch === 'approximate' ? 12 : 12;
+        score += wantTags.length ? (15 * wantTags.filter((w) => tags.includes(w)).length) / wantTags.length : 8;
+        score += q.budgetMax === undefined ? 8 : budgetScopeMismatch ? 7 : 15;
+        score += t.maxCapacity - members > 0 ? 10 : 0;
+        // the circle: friends going is the biggest boost (up to +30), people you follow a smaller one (up to +10), your
+        // followers a little (up to +4); everyone else adds nothing
+        const tiers = tierCounts(peopleByTrip.get(t.id) ?? [], circle);
+        score += 30 * crowd(tiers.buddies) + 10 * crowd(tiers.following) + 4 * crowd(tiers.followers);
+        // sooner departures a little higher (up to +6 for leaving now, nothing beyond 90 days), so among equals the next to
+        // leave comes first, and a trip your friends are on still beats a stranger's that leaves sooner
+        const daysAway = (+t.dateStart - +now) / 864e5;
+        score += 6 * Math.max(0, 1 - daysAway / 90);
+
+        // only the score is worked out here; the card is built later, for the page that is sent
+        return { id: t.id, score, dateMatch, budgetScopeMismatch, buddies: tiers.buddies, following: tiers.following };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    // the cursor is the last score and id sent, so a trip that appears or goes away between pages cannot cause a duplicate or a gap
+    return matches.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  async detail(me: User, id: string) {
+    const t = await this.prisma.trip.findUnique({ where: { id }, include: this.hostInclude });
+    if (!t || (await this.safety.isBlocked(me.id, t.hostId))) throw E.notFound('Trip');
+    const m = await this.prisma.tripMembership.findUnique({ where: { tripId_userId: { tripId: id, userId: me.id } } });
+    const isMember = m?.state === 'approved';
+    if (t.visibility === 'invite_only' && !isMember && t.hostId !== me.id) throw E.notFound('Trip');
+
+    const [members, app, conv, fav] = await Promise.all([
+      this.prisma.tripMembership.findMany({
+        where: { tripId: id, state: 'approved' },
+        include: { user: { select: { id: true, eligibility: true, profile: { select: { displayName: true, photoUrl: true } } } } },
+      }),
+      this.prisma.tripApplication.findUnique({ where: { tripId_applicantId: { tripId: id, applicantId: me.id } } }),
+      isMember ? this.prisma.conversation.findUnique({ where: { tripId: id } }) : null,
+      this.prisma.tripFavorite.findUnique({ where: { userId_tripId: { userId: me.id, tripId: id } } }),
+    ]);
+    return this.dto(t, members.length, {
+      favorited: !!fav,
+      isHost: t.hostId === me.id,
+      isMember,
+      canAppealRemoval: t.hostId === me.id && t.status === 'cancelled' && !t.cancelledAt && !(await this.prisma.appeal.findFirst({ where: { userId: me.id, kind: 'removal', targetId: id }, select: { id: true } })),
+      myApplication: app && {
+        id: app.id,
+        state: app.state,
+        canAppeal: app.state === 'declined' && !!app.reviewedBy && !app.appealedAt && !['cancelled', 'completed', 'full'].includes(t.status),
+        // explicit copy per state (T-US03)
+        message: {
+          pending: 'Pending organizer review',
+          approved: 'Approved - welcome to the group',
+          declined: 'Not approved this time',
+          waitlisted: 'You are on the waitlist',
+          withdrawn: 'You withdrew your application',
+          expired: 'This application expired',
+        }[app.state],
+      },
+      conversationId: conv?.id ?? null,
+      datesConfirmedCount: t.datesState === 'proposed' ? members.filter((x) => x.datesConfirmed).length : undefined,
+      myDatesConfirmed: isMember ? !!members.find((x) => x.userId === me.id)?.datesConfirmed : undefined,
+      participants: members.map((x) => ({
+        id: x.user.id,
+        displayName: x.user.profile?.displayName ?? 'Member',
+        photoUrl: x.user.profile?.photoUrl ?? null,
+        verifiedAdult: x.user.eligibility === 'verified',
+        role: x.role,
+        // while final dates wait for everyone: who has said yes (the organizer proposed them, so counts as yes)
+        datesConfirmed: t.datesState === 'proposed' ? x.datesConfirmed : undefined,
+      })),
+    });
+  }
+
+  // ---------------------------------------------------------------- creation
+  async create(me: User, body: unknown) {
+    requireVerified(me);
+    const dto = parse(createSchema, body);
+    const now = new Date();
+    if (dto.dateStart <= now) throw E.badRequest('INVALID_DATES', 'Trip must start in the future');
+    if (dto.dateEnd < dto.dateStart) throw E.badRequest('INVALID_DATES', 'End date must not be before start date');
+    if ((+dto.dateEnd - +dto.dateStart) / DAY > 90) throw E.badRequest('INVALID_DATES', 'Trips can span at most 90 days');
+    const originCity = dto.travelStyle === 'together' ? (dto.originCity ?? '').trim() : '';
+    const limitCity = limitCityOf({ travelStyle: dto.travelStyle, originCity, destination: dto.destination });
+    await this.regions.assertWithinLimit('there', limitCity, dto.dateEnd > dto.dateStart ? dto.dateEnd : dto.dateStart, 'INVALID_DATES'); // the whole trip must fall inside the limit of the city it starts from (or meets in)
+    for (const t of [dto.title, dto.description, dto.destination]) {
+      const bad = contentProblem(t);
+      if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
+    }
+    // one plan at a time: no activity or other trip you host or joined on those days (cancel it if it has not started, end it if it has)
+    await this.clash.assertFreeToCreate(me.id, ...tripWindow(dto), 'trip');
+    this.limiter.hit(`trip-create:${me.id}`, 5, 24 * 3600 * 1000);
+
+    // an exact number: the trip goes ahead once about two thirds of it are in (the same as the old ranges at their top: 3 -> 2, 6 -> 4, 10 -> 7)
+    const [minCapacity, maxCapacity] = dto.capacity ? [Math.max(2, Math.round((dto.capacity * 2) / 3)), dto.capacity] : GROUP_RANGES[dto.groupSize];
+    const trip = await this.prisma.$transaction(async (tx) => {
+      const t = await tx.trip.create({
+        data: {
+          hostId: me.id,
+          title: dto.title ?? `Trip to ${dto.destination}`,
+          destination: dto.destination,
+          destinationKey: dto.destination.toLowerCase(),
+          destinationPlaceId: dto.destinationPlaceId,
+          destLat: dto.destinationLat !== undefined && dto.destinationLng !== undefined ? dto.destinationLat : undefined,
+          destLng: dto.destinationLat !== undefined && dto.destinationLng !== undefined ? dto.destinationLng : undefined,
+          timeZone: dto.timeZone,
+          originCity,
+          originKey: cityKeyOf(limitCity),
+          travelStyle: dto.travelStyle,
+          dateStart: dto.dateStart,
+          dateEnd: dto.dateEnd,
+          dateFlexibility: dto.dateFlexibility,
+          budgetCurrency: dto.budgetCurrency,
+          budgetMin: dto.budgetMin,
+          budgetMax: dto.budgetMax,
+          budgetIncludesTransport: dto.budgetIncludes ? dto.budgetIncludes.includes('travel') : dto.budgetIncludesTransport,
+          budgetIncludes: dto.budgetIncludes ? [...new Set(dto.budgetIncludes)].join(',') : '',
+          tags: dto.tags.join(','),
+          description: dto.description,
+          minCapacity,
+          maxCapacity,
+          ageGroup: dto.ageGroup,
+          visibility: dto.visibility,
+          status: 'published',
+        },
+      });
+      await tx.tripMembership.create({ data: { tripId: t.id, userId: me.id, role: 'organizer' } });
+      await tx.conversation.create({ data: { scopeType: 'trip', tripId: t.id } });
+      return t;
+    });
+    // creating your own trip counts as getting in: your requests on those days are withdrawn, and the answer says which
+    const withdrawn = await this.clash.withdrawOverlappingPending(me.id, ...tripWindow(trip), { kind: 'trip', id: trip.id, title: trip.title });
+    await this.audit.log(me.id, 'trip.create', 'trip', trip.id);
+    this.events.emit({ type: 'trip.created', id: trip.id, cities: tripCities(trip) });
+    return { ...(await this.detail(me, trip.id)), withdrawn };
+  }
+
+  private async hostOwned(me: User, id: string) {
+    const t = await this.prisma.trip.findUnique({ where: { id } });
+    if (!t) throw E.notFound('Trip');
+    if (t.hostId !== me.id) throw E.forbidden('NOT_ORGANIZER', 'Only the organizer can do this');
+    return t;
+  }
+
+  private async memberIds(tripId: string, except?: string) {
+    const m = await this.prisma.tripMembership.findMany({
+      where: { tripId, state: 'approved', ...(except && { userId: { not: except } }) },
+    });
+    return m.map((x) => x.userId);
+  }
+
+  /** People who saved the trip with the heart but are not in it; the organizer, blocked people and inactive accounts are left out. */
+  private async savedOnlyIds(tripId: string, hostId: string) {
+    const [saved, members] = await Promise.all([
+      this.prisma.tripFavorite.findMany({ where: { tripId, userId: { not: hostId }, user: { state: 'active' } }, select: { userId: true } }),
+      this.prisma.tripMembership.findMany({ where: { tripId, state: 'approved' }, select: { userId: true } }),
+    ]);
+    const inside = new Set(members.map((m) => m.userId));
+    const blocked = new Set(await this.safety.blockedWith(hostId)); // one query for every block either way
+    return saved.map((f) => f.userId).filter((id) => !inside.has(id) && !blocked.has(id));
+  }
+
+  async update(me: User, id: string, body: unknown) {
+    const t = await this.hostOwned(me, id);
+    if (['cancelled', 'completed'].includes(t.status)) throw E.conflict('TRIP_CLOSED', 'This trip can no longer be edited');
+    const dto = parse(updateSchema, body);
+    const bad = contentProblem(dto.description);
+    if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
+    const dateStart = dto.dateStart ?? t.dateStart;
+    const dateEnd = dto.dateEnd ?? t.dateEnd;
+    if (dateStart <= new Date() || dateEnd < dateStart) throw E.badRequest('INVALID_DATES', 'Invalid dates');
+    if (dto.dateStart || dto.dateEnd) await this.regions.assertWithinLimit('there', limitCityOf(t), dateEnd > dateStart ? dateEnd : dateStart, 'INVALID_DATES');
+    if (+dateStart !== +t.dateStart || +dateEnd !== +t.dateEnd) await this.clash.assertFree(me.id, ...tripWindow({ dateStart, dateEnd }), { kind: 'trip', id });
+
+    await this.prisma.trip.update({
+      where: { id },
+      data: {
+        dateStart,
+        dateEnd,
+        ...(dto.dateFlexibility && { dateFlexibility: dto.dateFlexibility }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.destination && { destination: dto.destination, destinationKey: dto.destination.toLowerCase() }),
+      },
+    });
+
+    // dates/destination are material changes: all approved members hear about it (spec 7.3)
+    const material = +dateStart !== +t.dateStart || +dateEnd !== +t.dateEnd || (dto.destination && dto.destination !== t.destination);
+    if (material) {
+      await this.notifications.notifyMany(
+        await this.memberIds(id, me.id),
+        'trip_changed',
+        `Trip updated: ${t.title}`,
+        'The organizer changed the dates or destination. Please review and re-confirm.',
+        { tripId: id },
+      );
+      await this.notifications.notifyMany(
+        await this.savedOnlyIds(id, t.hostId),
+        'trip_changed',
+        `A trip you saved changed: ${t.title}`,
+        'The organizer changed the dates or destination. Have another look before you apply.',
+        { tripId: id, saved: true },
+      );
+      await this.audit.log(me.id, 'trip.material_change', 'trip', id);
+      this.events.emit({ type: 'trip.changed', id, cities: [...tripCities(t), ...(dto.destination ? tripCities({ originCity: t.originCity, destination: dto.destination }) : [])] });
+      // dates the group had already been asked to confirm have changed under them: ask everyone again
+      if (t.datesState === 'proposed' && (+dateStart !== +t.dateStart || +dateEnd !== +t.dateEnd)) {
+        await this.prisma.tripMembership.updateMany({ where: { tripId: id, state: 'approved', userId: { not: me.id } }, data: { datesConfirmed: false } });
+      }
+    }
+    return this.detail(me, id);
+  }
+
+  async cancel(me: User, id: string, byStaff = false) {
+    const t = byStaff ? await this.prisma.trip.findUnique({ where: { id } }) : await this.hostOwned(me, id);
+    if (!t) throw E.notFound('Trip');
+    if (t.status === 'cancelled') return { ok: true };
+    await this.prisma.trip.update({ where: { id }, data: { status: 'cancelled', ...(byStaff ? {} : { cancelledAt: new Date() }) } });
+    const pendingApps = await this.prisma.tripApplication.findMany({ where: { tripId: id, state: 'pending' }, select: { applicantId: true } });
+    await this.prisma.tripApplication.updateMany({ where: { tripId: id, state: 'pending' }, data: { state: 'declined', decidedAt: new Date() } });
+    for (const x of pendingApps) await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId: id }, x.applicantId);
+    await this.notifications.notifyMany(await this.memberIds(id, byStaff ? undefined : me.id), 'trip_cancelled', `Cancelled: ${t.title}`, 'This trip proposal was cancelled.', { tripId: id });
+    await this.notifications.notifyMany(await this.savedOnlyIds(id, t.hostId), 'trip_cancelled', `A trip you saved was cancelled: ${t.title}`, 'The organizer cancelled it.', { tripId: id, saved: true });
+    await this.audit.log(me.id, byStaff ? 'trip.removed_by_staff' : 'trip.cancel', 'trip', id);
+    this.events.emit({ type: 'trip.cancelled', id, cities: tripCities(t) });
+    return { ok: true };
+  }
+
+  /**
+   * The organizer says the trip is over: from its first day on. It becomes completed now, which frees the dates (a completed trip no
+   * longer holds anyone), and the group is told. Before it starts the organizer cancels it instead.
+   */
+  async end(me: User, id: string) {
+    const t = await this.hostOwned(me, id);
+    if (t.status === 'cancelled') throw E.conflict('TRIP_CLOSED', 'This trip is no longer on');
+    if (t.status === 'completed') return { ok: true };
+    if (new Date() < t.dateStart) throw E.conflict('TRIP_NOT_STARTED', 'A trip can be ended once it has started. Before that, cancel it');
+    await this.prisma.trip.update({ where: { id }, data: { status: 'completed' } });
+    const pendingApps = await this.prisma.tripApplication.findMany({ where: { tripId: id, state: 'pending' }, select: { applicantId: true } });
+    await this.prisma.tripApplication.updateMany({ where: { tripId: id, state: 'pending' }, data: { state: 'declined', decidedAt: new Date() } });
+    for (const x of pendingApps) await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId: id }, x.applicantId);
+    await this.notifications.notifyMany(await this.memberIds(id, me.id), 'trip_completed', `Ended: ${t.title}`, 'The organizer ended this trip.', { tripId: id });
+    await this.audit.log(me.id, 'trip.end', 'trip', id);
+    this.events.emit({ type: 'trip.changed', id, cities: tripCities(t) });
+    return { ok: true };
+  }
+
+  // ---------------------------------------------------------------- applications
+  async apply(me: User, id: string, body: unknown) {
+    requireVerified(me);
+    const dto = parse(applySchema, body);
+    const bad = contentProblem(dto.intro);
+    if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
+
+    const t = await this.prisma.trip.findUnique({ where: { id } });
+    if (!t || (await this.safety.isBlocked(me.id, t.hostId))) throw E.notFound('Trip');
+    if (t.hostId === me.id) throw E.conflict('IS_ORGANIZER', 'You are the organizer of this trip');
+    if (t.visibility === 'invite_only') throw E.forbidden('INVITE_ONLY', 'This trip is invitation-only');
+    if (['cancelled', 'completed'].includes(t.status)) throw E.conflict('TRIP_CLOSED', 'This trip is closed');
+    if (t.status === 'full' || (await this.memberCount(id)) >= t.maxCapacity) throw E.conflict('TRIP_FULL', 'This group is full');
+    // one plan at a time: a trip or activity you are in on those days blocks this (an application still waiting does not)
+    await this.clash.assertFree(me.id, ...tripWindow(t), { kind: 'trip', id });
+
+    this.limiter.hit(`trip-apply:${me.id}`, 20, 24 * 3600 * 1000);
+
+    const existing = await this.prisma.tripApplication.findUnique({
+      where: { tripId_applicantId: { tripId: id, applicantId: me.id } },
+    });
+    let app;
+    if (existing) {
+      if (existing.state !== 'withdrawn' && existing.state !== 'expired')
+        throw E.conflict('ALREADY_APPLIED', `You already have an application (${existing.state})`, { state: existing.state });
+      app = await this.prisma.tripApplication.update({
+        where: { id: existing.id },
+        data: { state: 'pending', intro: dto.intro, experience: dto.experience, decidedAt: null, reviewedBy: null },
+      });
+    } else {
+      // two taps at once: the second hits the unique (trip, person) pair and gets the same answer as a repeat application
+      app = await this.prisma.tripApplication
+        .create({ data: { tripId: id, applicantId: me.id, intro: dto.intro, experience: dto.experience } })
+        .catch((e) => {
+          if (e?.code === 'P2002') throw E.conflict('ALREADY_APPLIED', 'You already have an application for this trip');
+          throw e;
+        });
+    }
+    const p = await this.prisma.profile.findUnique({ where: { userId: me.id } });
+    await this.notifications.notify(t.hostId, 'trip_application', 'New trip application', `${p?.displayName ?? 'Someone'} applied to ${t.title}`, { tripId: id, applicantId: me.id });
+    return { id: app.id, state: app.state };
+  }
+
+  /** A declined applicant can ask the organizer to look again, once, with a short note (the trip must still be open). */
+  async appealDecline(me: User, id: string, body: unknown) {
+    requireVerified(me);
+    const dto = parse(z.object({ intro: z.string().trim().max(500).optional() }), body);
+    const bad = contentProblem(dto.intro);
+    if (bad) throw E.badRequest('CONTENT_REJECTED', bad);
+    const t = await this.prisma.trip.findUnique({ where: { id } });
+    if (!t || (await this.safety.isBlocked(me.id, t.hostId))) throw E.notFound('Trip');
+    if (['cancelled', 'completed'].includes(t.status) || t.dateEnd < new Date()) throw E.conflict('TRIP_CLOSED', 'This trip is closed');
+    if (t.status === 'full' || (await this.memberCount(id)) >= t.maxCapacity) throw E.conflict('TRIP_FULL', 'This group is full');
+    const a = await this.prisma.tripApplication.findUnique({ where: { tripId_applicantId: { tripId: id, applicantId: me.id } } });
+    if (!a || a.state !== 'declined' || !a.reviewedBy) throw E.conflict('NOT_DECLINED', 'Only an application the organizer declined can be asked about again');
+    if (a.appealedAt) throw E.conflict('ALREADY_APPEALED', 'You already asked the organizer to look again');
+    const updated = await this.prisma.tripApplication.update({
+      where: { id: a.id },
+      data: { state: 'pending', appealedAt: new Date(), ...(dto.intro ? { intro: dto.intro } : {}), decidedAt: null, reviewedBy: null },
+    });
+    const p = await this.prisma.profile.findUnique({ where: { userId: me.id } });
+    await this.notifications.notify(t.hostId, 'trip_application', 'Asked to look again', `${p?.displayName ?? 'Someone'} asked you to look again at their application for ${t.title}`, { tripId: id, applicantId: me.id });
+    return { id: updated.id, state: updated.state };
+  }
+
+  async withdraw(me: User, id: string) {
+    const a = await this.prisma.tripApplication.findUnique({ where: { tripId_applicantId: { tripId: id, applicantId: me.id } } });
+    if (!a || a.state !== 'pending') throw E.notFound('Pending application');
+    await this.prisma.tripApplication.update({ where: { id: a.id }, data: { state: 'withdrawn' } });
+    const trip = await this.prisma.trip.findUnique({ where: { id } });
+    if (trip) await this.notifications.settleRequest(trip.hostId, 'trip_application', { tripId: id }, me.id);
+    return { ok: true };
+  }
+
+  /** The organiser's applications a page at a time: the ones waiting first, then the waiting list, approved, declined, withdrawn, expired. */
+  async listApplications(me: User, id: string, limitRaw?: string, cursorRaw?: string) {
+    await this.hostOwned(me, id);
+    const limit = pageLimit(limitRaw, 20);
+    const [page, pending] = await Promise.all([
+      pageByGroup(['pending', 'waitlisted', 'approved', 'declined', 'withdrawn', 'expired'], limit, cursorRaw, (state, after, take) =>
+        this.prisma.tripApplication.findMany({
+          where: { tripId: id, state, ...afterKeyset(after) },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          include: { applicant: { select: { id: true, eligibility: true, profile: true } } },
+          take,
+        }),
+      ),
+      this.prisma.tripApplication.count({ where: { tripId: id, state: 'pending' } }),
+    ]);
+    const rows = page.items;
+    const levels = await this.reliability.forViewer(me, rows.map((a) => a.applicantId));
+    return {
+      nextCursor: page.nextCursor,
+      pending, // how many wait for an answer in all, not only on this page
+      items: rows.map((a) => ({
+        id: a.id,
+        state: a.state,
+        intro: a.intro,
+        experience: a.experience,
+        createdAt: a.createdAt,
+        applicant: {
+          id: a.applicant.id,
+          displayName: a.applicant.profile?.displayName,
+          photoUrl: a.applicant.profile?.photoUrl ?? null,
+          verifiedAdult: a.applicant.eligibility === 'verified', // organizer sees the badge, never documents
+          reliability: levels.get(a.applicantId) ?? null,
+          languages: a.applicant.profile?.languages ? a.applicant.profile.languages.split(',') : [],
+          interests: a.applicant.profile?.interests ? a.applicant.profile.interests.split(',') : [],
+        },
+      })),
+    };
+  }
+
+  async decide(me: User, tripId: string, applicationId: string, body: unknown) {
+    const { decision } = parse(decisionSchema, body);
+    const t = await this.hostOwned(me, tripId);
+    const a = await this.prisma.tripApplication.findFirst({ where: { id: applicationId, tripId } });
+    if (!a) throw E.notFound('Application');
+    if (a.state === 'withdrawn') throw E.conflict('APPLICATION_WITHDRAWN', 'The applicant withdrew');
+    if (await this.safety.isBlocked(me.id, a.applicantId)) throw E.forbidden('BLOCKED', 'Blocked user');
+    const applicant = await this.prisma.user.findUnique({ where: { id: a.applicantId } });
+    if (!applicant || applicant.state !== 'active') throw E.conflict('APPLICANT_UNAVAILABLE', 'Applicant account is unavailable');
+
+    if (decision === 'approve') {
+      if (['cancelled', 'completed'].includes(t.status)) throw E.conflict('TRIP_CLOSED', 'This trip is closed');
+      // the person may have joined or created another plan on those days since they applied
+      await this.clash.assertApplicantFree(a.applicantId, ...tripWindow(t), { kind: 'trip', id: tripId });
+      await this.prisma.$transaction(async (tx) => {
+        const { maxCapacity } = await lockTrip(tx, tripId);
+        const already = await tx.tripMembership.findUnique({ where: { tripId_userId: { tripId, userId: a.applicantId } } });
+        const count = await tx.tripMembership.count({ where: { tripId, state: 'approved' } });
+        const isNew = !already || already.state !== 'approved';
+        if (isNew && count >= maxCapacity) throw E.conflict('TRIP_FULL', 'This group is full');
+        await tx.tripMembership.upsert({
+          where: { tripId_userId: { tripId, userId: a.applicantId } },
+          create: { tripId, userId: a.applicantId, role: 'member', state: 'approved' },
+          update: { state: 'approved' },
+        });
+        await tx.tripApplication.update({ where: { id: a.id }, data: { state: 'approved', reviewedBy: me.id, decidedAt: new Date() } });
+        const total = isNew ? count + 1 : count;
+        if (total >= maxCapacity && t.status !== 'confirmed') await tx.trip.update({ where: { id: tripId }, data: { status: 'full' } });
+        else if (total >= t.minCapacity && t.status === 'published') await tx.trip.update({ where: { id: tripId }, data: { status: 'planning' } });
+      });
+      metrics.count('joins');
+      // first accepted wins; the person is not on screen, so the approval alert itself says what was withdrawn
+      const withdrawn = await this.clash.withdrawOverlappingPending(a.applicantId, ...tripWindow(t), { kind: 'trip', id: tripId, title: t.title }, { alert: false });
+      await this.notifications.notify(a.applicantId, 'application_approved', 'You are in!', `You're in ${t.title}.${withdrawnNote(withdrawn)}`, { tripId });
+    } else {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.tripApplication.update({ where: { id: a.id }, data: { state: 'declined', reviewedBy: me.id, decidedAt: new Date() } });
+        const m = await tx.tripMembership.findUnique({ where: { tripId_userId: { tripId, userId: a.applicantId } } });
+        if (m && m.state === 'approved' && m.role !== 'organizer') {
+          await tx.tripMembership.update({ where: { id: m.id }, data: { state: 'removed' } });
+          if (t.status === 'full') await tx.trip.update({ where: { id: tripId }, data: { status: 'published' } });
+        }
+      });
+      await this.dropConfirmedIfSmall(tripId);
+      if (t.status === 'full') await this.announceOpenSpot(tripId);
+      await this.notifications.notify(a.applicantId, 'application_declined', 'Application not approved', `Your application for ${t.title} was not approved.`, { tripId });
+    }
+    await this.notifications.settleRequest(t.hostId, 'trip_application', { tripId }, a.applicantId); // the organizer's "applied" alert is answered
+    await this.audit.log(me.id, `trip.application.${decision}`, 'trip_application', a.id, { tripId, applicantId: a.applicantId });
+    this.events.emit({ type: 'trip.members_changed', id: t.id, cities: tripCities(t) });
+    return { id: a.id, state: decision === 'approve' ? 'approved' : 'declined' };
+  }
+
+  /** A confirmed trip whose group has fallen below the minimum is open again. */
+  private async dropConfirmedIfSmall(tripId: string) {
+    const t = await this.prisma.trip.findUnique({ where: { id: tripId } });
+    if (t?.status === 'confirmed' && (await this.memberCount(tripId)) < t.minCapacity) await this.prisma.trip.update({ where: { id: tripId }, data: { status: 'published' } });
+  }
+
+  // ---------------------------------------------------------------- favourites
+  /** Save a trip with the heart, or take it out. Only a trip that is still ahead can be saved; removing is always allowed. */
+  async favorite(me: User, id: string, on: boolean) {
+    const t = await this.prisma.trip.findUnique({ where: { id } });
+    if (!t) throw E.notFound('Trip');
+    if (on) {
+      if (t.status === 'cancelled') throw E.conflict('TRIP_CLOSED', 'This trip was cancelled, so it cannot be saved');
+      if (!['published', 'full', 'planning', 'confirmed'].includes(t.status) || t.dateStart <= new Date()) throw E.conflict('TRIP_CLOSED', 'This trip has already started, so it cannot be saved');
+      await this.prisma.tripFavorite.upsert({ where: { userId_tripId: { userId: me.id, tripId: id } }, create: { userId: me.id, tripId: id }, update: {} });
+    } else {
+      await this.prisma.tripFavorite.deleteMany({ where: { userId: me.id, tripId: id } });
+    }
+    return { favorited: on };
+  }
+
+  /** The trips you saved, newest first (cancelled ones are left out). */
+  /** My favourite trips a page at a time (`limit`, `cursor`), newest saved first, with how many there are in all. */
+  async myFavorites(me: User, limitRaw?: string, cursorRaw?: string) {
+    const live = { userId: me.id, trip: { status: { not: 'cancelled' } } };
+    const [page, total] = await Promise.all([
+      pageOf((a) => this.prisma.tripFavorite.findMany({ ...a, include: { trip: { include: this.hostInclude } } }), { limit: pageLimit(limitRaw, 20), cursor: cursorRaw, where: live, idField: 'tripId' }),
+      this.prisma.tripFavorite.count({ where: live }),
+    ]);
+    const counts = new Map((await this.prisma.tripMembership.groupBy({ by: ['tripId'], where: { tripId: { in: page.items.map((f) => f.tripId) }, state: 'approved' }, _count: { _all: true } })).map((g) => [g.tripId, g._count._all]));
+    return { items: page.items.map((f) => this.dto(f.trip, counts.get(f.tripId) ?? 0, { favorited: true })), nextCursor: page.nextCursor, total };
+  }
+
+  /**
+   * A full trip has room again: tell the people who saved it with the heart. Anyone who is in the group, or has already
+   * applied (an application is already their place in line), is left out, and so is the organizer and anyone they blocked.
+   */
+  private async announceOpenSpot(tripId: string) {
+    const t = await this.prisma.trip.findUnique({ where: { id: tripId } });
+    if (!t || !['published', 'confirmed', 'planning'].includes(t.status) || t.dateStart <= new Date()) return;
+    if ((await this.memberCount(tripId)) >= t.maxCapacity) return;
+    const saved = (await this.prisma.tripFavorite.findMany({ where: { tripId, userId: { not: t.hostId }, user: { state: 'active' } }, select: { userId: true } })).map((f) => f.userId);
+    if (saved.length === 0) return;
+    const [members, apps] = await Promise.all([
+      this.prisma.tripMembership.findMany({ where: { tripId, userId: { in: saved }, state: 'approved' }, select: { userId: true } }),
+      this.prisma.tripApplication.findMany({ where: { tripId, applicantId: { in: saved }, state: { in: ['pending', 'waitlisted', 'approved'] } }, select: { applicantId: true } }),
+    ]);
+    const busy = new Set([...members.map((m) => m.userId), ...apps.map((a) => a.applicantId)]);
+    const blocked = new Set(await this.safety.blockedWith(t.hostId));
+    for (const userId of saved) {
+      if (busy.has(userId) || blocked.has(userId)) continue;
+      await this.notifications.notify(userId, 'spot_opened', 'A place opened up', `${t.title} has room again.`, { tripId });
+    }
+  }
+
+  // ---------------------------------------------------------------- exits
+  /** Members can leave without organizer permission (spec 7.3). */
+  async leave(me: User, id: string) {
+    const t = await this.prisma.trip.findUnique({ where: { id } });
+    if (!t) throw E.notFound('Trip');
+    if (t.hostId === me.id) throw E.conflict('ORGANIZER_CANNOT_LEAVE', 'Organizers must cancel the trip or hand it over');
+    const m = await this.prisma.tripMembership.findUnique({ where: { tripId_userId: { tripId: id, userId: me.id } } });
+    if (!m || m.state !== 'approved') throw E.notFound('Membership');
+    await this.prisma.tripMembership.update({ where: { id: m.id }, data: { state: 'left', leftAt: new Date() } });
+    await this.prisma.tripApplication.updateMany({ where: { tripId: id, applicantId: me.id }, data: { state: 'withdrawn' } });
+    if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
+    await this.dropConfirmedIfSmall(id);
+    if (t.status === 'full') await this.announceOpenSpot(id);
+    await this.audit.log(me.id, 'trip.member_left', 'trip', id);
+    this.events.emit({ type: 'trip.members_changed', id: t.id, cities: tripCities(t) });
+    return { ok: true };
+  }
+
+  async removeMember(me: User, id: string, userId: string, byStaff = false) {
+    const t = byStaff ? await this.prisma.trip.findUnique({ where: { id } }) : await this.hostOwned(me, id);
+    if (!t) throw E.notFound('Trip');
+    if (userId === t.hostId) throw E.conflict('CANNOT_REMOVE_ORGANIZER', 'The organizer cannot be removed');
+    const m = await this.prisma.tripMembership.findUnique({ where: { tripId_userId: { tripId: id, userId } } });
+    if (!m || m.state !== 'approved') throw E.notFound('Membership');
+    await this.prisma.tripMembership.update({ where: { id: m.id }, data: { state: 'removed' } });
+    if (t.status === 'full') await this.prisma.trip.update({ where: { id }, data: { status: 'published' } });
+    await this.dropConfirmedIfSmall(id);
+    if (t.status === 'full') await this.announceOpenSpot(id);
+    await this.audit.log(me.id, 'trip.member_removed', 'trip', id, { userId, byStaff });
+    this.events.emit({ type: 'trip.members_changed', id: t.id, cities: tripCities(t) });
+    await this.notifications.notify(userId, 'removed', 'Removed from trip', `You were removed from ${t.title}.`, { tripId: id });
+    return { ok: true };
+  }
+
+  /**
+   * Your trips a page at a time, soonest departure first: the ones you organise or are in (`row: joined`) and the ones you
+   * applied to that are pending, waitlisted or declined (`row: application`). `upcoming=1` keeps only what is still ahead
+   * (not cancelled or over, and no declined applications): what the THERE home shows as your next trip.
+   * `counts` is the number of each kind, for the profile figures.
+   */
+  async minePage(me: User, limitRaw?: string, cursorRaw?: string, upcoming?: string) {
+    const limit = pageLimit(limitRaw, 20);
+    const cur = decodeKeyset(cursorRaw);
+    const ahead = upcoming === '1' || upcoming === 'true';
+    const tripWhere = ahead ? { status: { notIn: ['cancelled', 'completed'] }, dateEnd: { gt: new Date() } } : {};
+    const after = cur ? { OR: [{ trip: { dateStart: { gt: cur.at } } }, { trip: { dateStart: cur.at }, id: { gt: cur.id } }] } : {};
+    const order = [{ trip: { dateStart: 'asc' as const } }, { id: 'asc' as const }];
+    const memberBase = { userId: me.id, state: 'approved' };
+    const appStates = ahead ? ['pending', 'waitlisted'] : ['pending', 'declined', 'waitlisted'];
+
+    const [m, a, joined, applications] = await Promise.all([
+      this.prisma.tripMembership.findMany({ where: { ...memberBase, trip: tripWhere, ...after }, include: { trip: { include: this.hostInclude } }, orderBy: order, take: limit + 1 }),
+      this.prisma.tripApplication.findMany({ where: { applicantId: me.id, state: { in: appStates }, trip: tripWhere, ...after }, include: { trip: { include: this.hostInclude } }, orderBy: order, take: limit + 1 }),
+      this.prisma.tripMembership.count({ where: memberBase }),
+      this.prisma.tripApplication.count({ where: { applicantId: me.id, state: { in: ['pending', 'declined', 'waitlisted'] } } }),
+    ]);
+    const merged = [
+      ...m.map((row) => ({ id: row.id, at: row.trip.dateStart, member: row, app: null })),
+      ...a.map((row) => ({ id: row.id, at: row.trip.dateStart, member: null, app: row })),
+    ].sort((x, y) => +x.at - +y.at || (x.id < y.id ? -1 : 1));
+    const page = sliceKeyset(merged, limit, (x) => x.at);
+    return {
+      items: await this.withMembers(page.items, (x) => (x.member ? x.member.tripId : x.app!.tripId), (x, n) =>
+        x.member
+          ? { ...this.dto(x.member.trip, n, { role: x.member.role }), row: 'joined' as const }
+          : { row: 'application' as const, applicationId: x.app!.id, state: x.app!.state, trip: this.dto(x.app!.trip, n) },
+      ),
+      nextCursor: page.nextCursor,
+      counts: { joined, applications },
+    };
+  }
+}

@@ -16,7 +16,7 @@ const PATHS = [
 export function LamisWordmark({ height = 26, onDark }: { height?: number; onDark?: boolean }) {
   const ink = onDark ? '#FFFFFF' : '#082F27';
   return (
-    <Svg width={(height * 947) / 276} height={height} viewBox="0 0 947 276" accessibilityRole="image" accessibilityLabel="LAMIS">
+    <Svg width={(height * 947) / 276} height={height} viewBox="0 0 947 276" accessibilityRole="image" accessibilityLabel="Lamis">
       {PATHS.map((d, i) => <Path key={i} d={d} fill={ink} />)}
       <Circle cx="908.684" cy="233.823" r="37.6079" fill={onDark ? '#9CB397' : '#859B7A'} />
     </Svg>

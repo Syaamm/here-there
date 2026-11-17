@@ -136,7 +136,7 @@ export function SplashLogo({ ink, dot = '#9CB397', dotEnd = '#859B7A', onDone }:
   });
 
   return (
-    <View style={{ width: w, height: h }} accessibilityRole="image" accessibilityLabel="LAMIS">
+    <View style={{ width: w, height: h }} accessibilityRole="image" accessibilityLabel="Lamis">
       <Svg width={w} height={h} viewBox="0 0 1920 1080">
         <G transform={cam}>
           <Ellipse cx={d.x} cy={d.base + 4} rx={d.r * lerp(1.05, 0.55, lift)} ry={6} fill={dot} opacity={shadowOp} />

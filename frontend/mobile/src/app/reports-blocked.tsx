@@ -14,7 +14,8 @@ import { PagedTail, useCursorList } from '@/lib/paged';
 import { keyOf, markSeen, needsDot, readSeen } from '@/lib/reportsSeen';
 import { useTheme } from '@/lib/theme';
 import { dateText } from '@/lib/format';
-
+
+
 import { sc, sp, sph } from '@/lib/scale';
 type AboutMe = { id: string; category: string; targetType: string; decidedAt: string | null; decision: string | null; canAppeal: boolean; appeal: { id: string; state: 'open' | 'upheld' | 'rejected'; decision: string | null } | null };
 type Blocked = { userId: string; displayName?: string };
@@ -112,8 +113,9 @@ export default function ReportsAndBlocked() {
   );
   const isNew = (key: string, state: string) => !!seen && needsDot(state) && !seen.has(key);
 
+  // the highlighted row reaches out over the card's padding (negative margin), so its text stays in line with the other rows
   const Row = ({ title, state, dot, last, focus, children }: { title: string; state: string; dot: boolean; last: boolean; /** the one the alert was about */ focus?: boolean; children?: React.ReactNode }) => (
-    <View style={[{ paddingVertical: sp(16), gap: sp(6), borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }, focus ? { backgroundColor: c.accentSoft, borderRadius: sc(16), paddingHorizontal: sph(12), borderBottomWidth: 0 } : null]}>
+    <View style={[{ paddingVertical: sp(16), gap: sp(6), borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }, focus ? { backgroundColor: c.accentSoft, borderRadius: sc(20), paddingHorizontal: sph(12), marginHorizontal: -sph(12), marginVertical: sp(4), borderBottomWidth: 0 } : null]}>
       <View style={{ flexDirection: 'row', gap: sp(8), alignItems: 'center' }}>
         {dot ? <NewDot /> : null}
         <Text style={{ color: c.text, fontSize: 16, lineHeight: 22, fontWeight: '500', flex: 1 }}>{title}</Text>

@@ -308,7 +308,7 @@ export const PageMeta = createContext<{ eyebrow?: string; title?: string; tabs?:
  * (Page below) sees it and then draws only its body, sending its action buttons up into the heading's right side.
  */
 const FrameContext = createContext<{ slot: HTMLElement | null } | null>(null);
-export function PageFrame({ eyebrow, title, tabs, children }: { eyebrow?: string; title: string; tabs?: ReactNode; children: ReactNode }) {
+export function PageFrame({ eyebrow, title, titleExtra, sub, tabs, children }: { eyebrow?: ReactNode; title: string; titleExtra?: ReactNode; sub?: ReactNode; tabs?: ReactNode; children: ReactNode }) {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const value = useMemo(() => ({ slot }), [slot]);
   return (
@@ -316,7 +316,11 @@ export function PageFrame({ eyebrow, title, tabs, children }: { eyebrow?: string
       <header className="page-head">
         <div>
           {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-          <h1>{title}</h1>
+          <div className="title-row">
+            <h1>{title}</h1>
+            {titleExtra}
+          </div>
+          {sub && <p className="sub">{sub}</p>}
         </div>
         <div className="row wrap" ref={setSlot} />
       </header>
@@ -547,6 +551,9 @@ const ICONS = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   copy: 'M9 9h11v11H9zM5 15V5a1 1 0 0 1 1-1h10',
   plane: 'M21 3L3 10.5l7 3 3 7zM10 13.5L21 3',
+  pin: 'M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  grid: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+  calendar: 'M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM4 10h16M8 3v4M16 3v4',
   plus: 'M12 5v14M5 12h14',
   menu: 'M4 7h16M4 12h16M4 17h16',
   userPlus: 'M15 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19 8v6M16 11h6',
@@ -580,11 +587,11 @@ export function Avatar({ name, size, photo }: { name?: string | null; size?: 'sm
 /** cmvgg3ymx000xyz86rh -> cmvgg3ymx000…86rh: ids stay recognisable without filling the row. */
 export const shortId = (id?: string | null) => (!id ? 'system' : id.length > 18 ? `${id.slice(0, 12)}…${id.slice(-4)}` : id);
 
-export const Search = ({ value, onChange, placeholder, label }: { value: string; onChange: (v: string) => void; placeholder: string; label: string }) => (
+export const Search = ({ value, onChange, placeholder, label, onEnter }: { value: string; onChange: (v: string) => void; placeholder: string; label: string; onEnter?: () => void }) => (
   <label className="search grow">
     <span className="sr">{label}</span>
     <Icon name="search" />
-    <input type="search" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+    <input type="search" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onEnter?.()} />
     {value && (
       <button type="button" className="search-clear" aria-label="Clear the search" onClick={(e) => (e.preventDefault(), onChange(''))}>
         <Icon name="x" />
@@ -592,6 +599,19 @@ export const Search = ({ value, onChange, placeholder, label }: { value: string;
     )}
   </label>
 );
+
+/**
+ * The one filter row every list page uses, always in the same place under the heading: the search on the left, then the filters
+ * (a switch such as All / Active, dropdowns) together on the right. Page-heading buttons are for actions only (Export, Add).
+ */
+export function FilterBar({ search, children }: { search?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="toolbar filterbar">
+      {search && <div className="fb-search">{search}</div>}
+      {children && <div className="fb-filters">{children}</div>}
+    </div>
+  );
+}
 
 /** A row of buttons that acts like tabs, e.g. All / Active / Suspended. */
 export function Segmented<T extends string>({ options, value, onChange, label }: { options: { id: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void; label: string }) {
@@ -743,5 +763,25 @@ export function PageBar({ page, pages, total, noun, onPage, busy }: { page: numb
         </div>
       )}
     </div>
+  );
+}
+
+/** An on and off switch (a button, so the keyboard and screen readers work). */
+export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  return (
+    <span className="row" style={{ gap: 8, alignItems: 'center' }}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!on)}
+        style={{ width: 42, height: 24, borderRadius: 999, border: 0, padding: 2, cursor: disabled ? 'default' : 'pointer', background: on ? '#12302b' : '#cfc9bb', display: 'flex', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background 0.15s', opacity: disabled ? 0.6 : 1 }}
+      >
+        <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,.3)' }} />
+      </button>
+      <span className="muted small" style={{ width: 24 }}>{on ? 'On' : 'Off'}</span>
+    </span>
   );
 }

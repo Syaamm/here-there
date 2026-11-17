@@ -15,7 +15,8 @@ import { useMe } from '@/lib/auth';
 import { when } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-
+
+
 import { sc, sp, sph } from '@/lib/scale';
 /** HERE · Join request. Chat stays closed until the host approves. */
 export default function Join() {
@@ -54,7 +55,7 @@ export default function Join() {
       <CatPhoto category={a.category} style={{ height: sc(190), borderRadius: sc(28) }} />
       <View>
         <Text accessibilityRole="header" style={{ color: c.text, fontSize: 22, lineHeight: 28, fontWeight: '700' }}>{a.title}</Text>
-        <Txt variant="muted">{when(a.startsAt)} · {a.venueName} · {t('{going}/{capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
+        <Txt variant="muted">{when(a.startsAt, a.timeZone)} · {a.venueName} · {t('{going}/{capacity} going', { going: a.going, capacity: a.capacity })}</Txt>
       </View>
 
       <ErrorBanner message={act.error} />

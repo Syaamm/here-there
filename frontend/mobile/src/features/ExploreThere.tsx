@@ -22,7 +22,8 @@ import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
 import { ThereFiltersSheet, useThereFilters } from './ThereFilters';
 import { LivePill } from './ExploreHere';
-
+
+
 import { sc, sp, sph } from '@/lib/scale';
 type When = 'any' | 'month' | 'quarter' | 'later';
 const DAY = 864e5;
@@ -86,12 +87,14 @@ export function ExploreThere() {
   // a trip that has started is no longer "next": it moves to Taking part (an application to one is simply over)
   const underWay = (x: { t: Trip }) => +new Date(x.t.dateStart) <= now;
   const typedWords = q.trim().length > 0; // something is typed in the search: results, not Next up, Taking part and the time sections
-  const taking = style || typedWords ? [] : mineAll.filter((x) => underWay(x) && x.tone === 'ok');
+  // any filter on (an interest, a time, or anything set in the filter sheet): the page is only what matches it, so your own trips step aside
+  const filtered = !!style || typedWords || when !== 'any' || !!applied;
+  const taking = filtered ? [] : mineAll.filter((x) => underWay(x) && x.tone === 'ok');
   const ahead = mineAll.filter((x) => !underWay(x));
   // the cards show the two soonest; "+N more" appears only when there are more than two, and lists just the others
   // with a travel interest chosen the page is only about those trips: your own (Next up, Taking part) step aside, as in HERE
-  const next = style || typedWords ? [] : ahead.slice(0, 2);
-  const more = style || typedWords ? [] : ahead.slice(2);
+  const next = filtered ? [] : ahead.slice(0, 2);
+  const more = filtered ? [] : ahead.slice(2);
   const [moreOpen, setMoreOpen] = useState(false);
   const [liveOpen, setLiveOpen] = useState(false); // the trips under way, when there are several
   const { width, gutter } = useLayout();

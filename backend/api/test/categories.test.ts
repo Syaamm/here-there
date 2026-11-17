@@ -21,8 +21,8 @@ const listAdmin = async (kind: string) => (await h.get(`/v1/admin/categories?kin
 describe('categories made by an admin', () => {
   it('starts with the categories the app always had', async () => {
     const r = await h.get('/v1/categories', admin);
-    assert.deepEqual(r.body.here.map((c: { key: string }) => c.key), ['coffee', 'drinks', 'food', 'sports', 'culture']);
-    assert.deepEqual(r.body.there.map((c: { key: string }) => c.key), ['adventure', 'nature', 'beach', 'photography']);
+    assert.deepEqual(r.body.here.map((c: { key: string }) => c.key), ['coffee', 'culture', 'drinks', 'food', 'sports']); // alphabetical
+    assert.deepEqual(r.body.there.map((c: { key: string }) => c.key), ['adventure', 'beach', 'nature', 'photography']);
   });
 
   it('only an admin can make or change one', async () => {
@@ -60,16 +60,15 @@ describe('categories made by an admin', () => {
     assert.equal((await h.get('/v1/activities?category=board-games&city=milan', host.token)).body.items.length, 1, 'the old plan is still found');
   });
 
-  it('an unused one can be removed, and renamed and reordered', async () => {
+  it('an unused one can be removed and renamed, and they are listed alphabetically', async () => {
     const made = await h.post('/v1/admin/categories', admin, { kind: 'there', label: 'City break' });
     assert.equal(made.status, 201);
     const id = (await listAdmin('there')).find((c) => c.key === 'city-break')!.id;
-    // the admin screen renumbers every row when one moves, so the order is never a tie
-    const rows = await listAdmin('there');
-    const order = [id, ...rows.filter((c) => c.id !== id).map((c) => c.id)];
-    for (const [position, c] of order.entries()) assert.equal((await patch(c, { position, ...(c === id && { label: 'City breaks' }) })).status, 200);
-    const there = (await h.get('/v1/categories?kind=there', admin)).body.there;
-    assert.equal(there[0].label, 'City breaks');
+    assert.equal((await patch(id, { label: 'City breaks' })).status, 200);
+    const there = (await h.get('/v1/categories?kind=there', admin)).body.there as { label: string }[];
+    assert.ok(there.some((c) => c.label === 'City breaks'));
+    const names = there.map((c) => c.label);
+    assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })), 'the app lists them alphabetically');
     assert.equal((await h.call('DELETE', `/v1/admin/categories/${id}`, admin)).status, 200);
     assert.ok(!(await listAdmin('there')).some((c) => c.key === 'city-break'));
   });

@@ -86,7 +86,7 @@ export function onTabSwitch(fn: () => void) {
 /** Sizes of the phone dock, in points. Every icon is centred on the pill's middle line and drawn in an ICON square. */
 export const DOCK = {
   icon: 26, // optical size shared by the three drawn icons and the profile photo
-  avatar: 34, // the ring around the profile photo; the photo inside is avatar - 8 = 26, the same size as the three drawn icons
+  avatar: 44, // the ring around the profile photo; the photo inside is avatar - 8 = 36, the same size as the profile photo at the top right of the home pages
   pill: 72, // height of the white pill (also the height of every tab slot, so each hit area is 72 tall)
   sideInset: 14, // pill's gap to the screen edges
   plus: 56, // diameter of the Create button: a plain disc sitting on the pill's top edge (no ring)

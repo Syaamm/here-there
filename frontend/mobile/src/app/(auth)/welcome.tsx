@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, Pressable, useWindowDimensions, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LamisWordmark } from '@/components/LamisWordmark';
 import { ErrorBanner } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -15,6 +16,7 @@ import { useT } from '@/lib/i18n';
 import { tracking, sc, sp, sph } from '@/lib/scale';
 
 const FOREST = '#102F29';
+const PANEL = '#112F2B';
 const IVORY = '#E9E5DD';
 
 /**
@@ -24,16 +26,18 @@ const IVORY = '#E9E5DD';
  */
 const LOOK = {
   here: {
-    bg: FOREST,
-    photo: require('../../../assets/welcome/here.webp'),
+    bg: PANEL,
+    fill: true, // the photo fills its box (cropped; `anchor` = which part of the picture stays in view, 0 top .. 1 bottom)
+    anchor: 0.3,
+    photo: require('../../../assets/welcome/lamis.jpg'),
     photoRatio: 1, // height / width of the picture
     photoW: 1.109, // the picture is a little wider than the screen, nudged up and left (all as a share of the screen width)
     photoLeft: -0.055,
     photoTop: -0.047,
-    fadeTop: 0.28, // where the photo starts to melt into the page colour (share of the screen height)
+    fadeTop: 0.33, // where the photo starts to melt into the page colour (share of the screen height)
     fadeH: 0.09,
-    fadeColors: ['rgba(16,47,41,0)', 'rgba(30,89,77,0.59)', FOREST] as const,
-    fadeAt: [0, 0.3, 1] as const,
+    fadeColors: ['rgba(17,47,43,0)', 'rgba(17,47,43,0.6)', PANEL] as const,
+    fadeAt: [0, 0.45, 1] as const,
     scrim: true, // a soft dark band behind the white status bar
     name: 'HERE',
     other: 'THERE',
@@ -48,8 +52,10 @@ const LOOK = {
   },
   there: {
     bg: IVORY,
-    photo: require('../../../assets/welcome/there.webp'),
-    photoRatio: 0.826,
+    fill: true,
+    anchor: 0.62,
+    photo: require('../../../assets/welcome/there.jpg'),
+    photoRatio: 1.339,
     photoW: 1.154,
     photoLeft: -0.077,
     photoTop: -0.047,
@@ -74,7 +80,7 @@ const LOOK = {
 const FOOTER = '18+ only · Privacy first · Terms apply';
 
 /** The coloured half of a welcome page: the photo, the page colour and the name. Both are always mounted; switching only cross-fades their opacity. The white sheet below is not part of it. */
-function Page({ mode, active, onSwitch, sheetH }: { mode: Mode; active: boolean; onSwitch: () => void; sheetH: number }) {
+function Page({ mode, sheetH }: { mode: Mode; sheetH: number }) {
   const { t } = useT();
   const look = LOOK[mode];
   const insets = useSafeAreaInsets();
@@ -82,26 +88,23 @@ function Page({ mode, active, onSwitch, sheetH }: { mode: Mode; active: boolean;
   const width = Math.min(screenW, 520);
   const fadeTop = Math.round(height * look.fadeTop);
   const fadeH = Math.round(height * look.fadeH);
+  const boxH = fadeTop + fadeH; // the photo's box
   return (
-    <View style={{ flex: 1, alignItems: 'center', backgroundColor: look.bg }} pointerEvents={active ? 'auto' : 'none'} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!active}>
+    <View style={{ flex: 1, alignItems: 'center', backgroundColor: look.bg }}>
       <View style={{ flex: 1, width: '100%', maxWidth: sc(520), backgroundColor: look.bg }}>
         <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, height: fadeTop + fadeH, overflow: 'hidden' }}>
-          <Image source={look.photo} resizeMode="cover" accessibilityLabel="" style={{ position: 'absolute', left: width * look.photoLeft, top: width * look.photoTop, width: width * look.photoW, height: width * look.photoW * look.photoRatio }} />
+          <Image source={look.photo} resizeMode="cover" accessibilityLabel="" style={look.fill ? { position: 'absolute', left: 0, width, height: Math.max(boxH, width * look.photoRatio), top: -(Math.max(boxH, width * look.photoRatio) - boxH) * look.anchor } : { position: 'absolute', left: width * look.photoLeft, top: width * look.photoTop, width: width * look.photoW, height: width * look.photoW * look.photoRatio }} />
           {look.scrim ? <LinearGradient colors={['rgba(0,0,0,0.38)', 'rgba(0,0,0,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: insets.top + 90 }} /> : null}
           <LinearGradient colors={look.fadeColors} locations={look.fadeAt} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: fadeH }} />
         </View>
         <View style={{ flex: 1 }} />
         {/* the name, then the line under it */}
-        <View style={{ paddingHorizontal: sph(20), marginBottom: sp(50) }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-            <Text accessibilityRole="header" style={{ color: look.nameColor, fontSize: 62, lineHeight: 68, fontWeight: '700', letterSpacing: tracking(-2.5) }}>{look.name}</Text>
-            <View style={{ width: sc(13), height: sc(13), borderRadius: sc(7), backgroundColor: look.dot, marginLeft: sph(8), marginRight: sph(16), marginBottom: sp(14) }} />
-            {/* the faint name of the other product: tapping it switches */}
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Switch to {name}', { name: look.other })} hitSlop={14} onPress={onSwitch} style={{ marginBottom: sp(10) }}>
-              <Text style={{ color: look.otherColor, fontSize: 30, lineHeight: 36, fontWeight: '700', letterSpacing: tracking(-1.2) }}>{look.other}</Text>
-            </Pressable>
+        <View style={{ paddingHorizontal: sph(20), marginBottom: sp(40) }}>
+          {/* the official wordmark */}
+          <View style={{ alignSelf: 'flex-start' }}>
+            <LamisWordmark height={Math.round((width * 0.47 * 276) / 947)} onDark={mode === 'here'} />
           </View>
-          <Text style={{ color: look.taglineColor, fontSize: 16, fontWeight: '500', marginTop: sp(10) }}>{t(look.tagline)}</Text>
+          <Text style={{ color: look.taglineColor, fontSize: 20, fontWeight: '500', marginTop: sp(8) }}>{t(look.tagline)}</Text>
         </View>
         {/* the white sheet is drawn once by Welcome and never animates: this only keeps its room */}
         <View style={{ height: sheetH }} />
@@ -119,13 +122,13 @@ function Sheet({ onLogin, onSignUp, onExplore, busy, error, onHeight }: { onLogi
   return (
     <View onLayout={(e) => onHeight(e.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' }}>
       <View style={{ width: '100%', maxWidth: sc(520) }}>
-        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: sc(54), borderTopRightRadius: sc(54), paddingTop: sp(56), paddingHorizontal: sph(22), paddingBottom: insets.bottom + 14, minHeight: height * 0.44 }}>
+        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: sc(54), borderTopRightRadius: sc(54), paddingTop: Math.round(height * 0.055), paddingHorizontal: sph(22), paddingBottom: insets.bottom + 14, minHeight: height * 0.44 }}>
           <ErrorBanner message={error} />
           <Pressable accessibilityRole="button" onPress={() => { tap('Medium'); onLogin(); }} style={({ pressed: p }) => [pill, { backgroundColor: FOREST }, p && { opacity: 0.88 }]}>
             <Text style={{ color: '#fff', fontSize: 16, fontWeight: '500' }}>{t('Log in')}</Text>
           </Pressable>
           <Pressable accessibilityRole="button" disabled={busy} onPress={() => { tap('Light'); onExplore(); }} style={({ pressed: p }) => [pill, { marginTop: sp(10), opacity: busy ? 0.5 : 1 }, p && { opacity: 0.88 }]}>
-            <Text style={{ color: '#000', fontSize: 16, fontWeight: '500' }}>{busy ? t('One moment…') : t('Explore the demo')}</Text>
+            <Text style={{ color: '#000', fontSize: 16, fontWeight: '500' }}>{busy ? t('One moment…') : t('Explore')}</Text>
           </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), marginTop: sp(37) }}>
             <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
@@ -143,35 +146,22 @@ function Sheet({ onLogin, onSignUp, onExplore, busy, error, onHeight }: { onLogi
   );
 }
 
-/** First screen: HERE and THERE under one roof, 18+ only. Tap the faint other name to cross-fade to it. */
+/** First screen: the green LAMIS page, 18+ only. There is no HERE / THERE switch here (the product is chosen inside the app). */
 export default function Welcome() {
   const router = useRouter();
   const { notice, signIn } = useMe();
-  const { mode, setMode } = useTheme();
   const demo = useAction();
   const { height: screenH } = useWindowDimensions();
   const [sheetH, setSheetH] = useState(Math.round(screenH * 0.44)); // measured once the sheet is drawn (an error line makes it taller)
-  // "Explore the demo": a temporary read-only guest session. No account, no personal data.
+  // "Explore": a temporary read-only guest session. No account, no personal data.
   const explore = () => demo.run(async () => signIn(await post<{ token: string }>('/v1/auth/guest')));
-  // 0 = HERE, 1 = THERE. Only opacity animates, on the native thread.
-  const fade = useRef(new Animated.Value(mode === 'there' ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(fade, { toValue: mode === 'there' ? 1 : 0, duration: 900, easing: Easing.bezier(0.45, 0, 0.2, 1), useNativeDriver: true }).start();
-  }, [mode, fade]);
-  // the old page fades away first, then the new one fades in (no ghosting of the two together)
-  const hereOpacity = fade.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0], extrapolate: 'clamp' });
-  const thereOpacity = fade.interpolate({ inputRange: [0.45, 1], outputRange: [0, 1], extrapolate: 'clamp' });
   const common = { onLogin: () => router.push('/login'), onSignUp: () => router.push('/register'), onExplore: explore, busy: demo.busy, error: notice ?? demo.error };
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-      <StatusBar style={LOOK[mode].bar} />
-      {/* needsOffscreenAlphaCompositing: on Android, fading a view with overlapping children fades each child on its own, which let the photo's hard lower edge show through its colour fade. This fades the page as one picture. */}
-      <Animated.View needsOffscreenAlphaCompositing pointerEvents={mode === 'here' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: hereOpacity }}>
-        <Page mode="here" active={mode === 'here'} onSwitch={() => setMode('there')} sheetH={sheetH} />
-      </Animated.View>
-      <Animated.View needsOffscreenAlphaCompositing pointerEvents={mode === 'there' ? 'auto' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: thereOpacity }}>
-        <Page mode="there" active={mode === 'there'} onSwitch={() => setMode('here')} sheetH={sheetH} />
-      </Animated.View>
+      <StatusBar style={LOOK.here.bar} />
+      <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
+        <Page mode="here" sheetH={sheetH} />
+      </View>
       <Sheet {...common} onHeight={setSheetH} />
     </View>
   );

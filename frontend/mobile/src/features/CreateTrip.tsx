@@ -18,7 +18,7 @@ import { useMe } from '@/lib/auth';
 import { useVerifyGate } from '@/lib/verifyGate';
 import { TRIP_TAGS } from '@/lib/constants';
 import { TripStylePicker } from '@/components/ThereParts';
-import { FLEX } from '@/lib/constants';
+import { AGE_GROUPS, ageGroupLabel, FLEX } from '@/lib/constants';
 import { money, parseDay } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
@@ -30,7 +30,8 @@ import { scrollToField } from '@/lib/pageScroll';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { backFromMain } from '@/lib/nav';
-
+
+
 import { sc, sp, sph } from '@/lib/scale';
 const STEPS = 4;
 /** "About the trip": the server's limit (trips.service), shown under the box as "120/300" */
@@ -107,7 +108,7 @@ const RANGE_TOP: Record<string, number> = { '2-3': 3, '4-6': 6, '7-10': 10, '10+
 
 // `style`: how the group gets there. `originOk` / `destOk` are false while the field holds typed text that was not picked from the
 // search results (a value picked, filled in from the profile, or from an older draft counts as picked)
-type Draft = { style: TravelStyle; originOk?: boolean; destOk?: boolean; destLat?: number; destLng?: number; destination: string; originCity: string; description: string; start: string; end: string; flex: string; min: string; max: string; includes: string[]; tags: string[]; capacity: number };
+type Draft = { style: TravelStyle; originOk?: boolean; destOk?: boolean; destLat?: number; destLng?: number; destination: string; originCity: string; description: string; start: string; end: string; flex: string; min: string; max: string; includes: string[]; tags: string[]; capacity: number; ageGroup: string };
 
 /** A bordered tile with a small label above the value, like the route and date boxes (also used by the trip search). */
 export function Tile({ label, children, style }: { label: string; children: ReactNode; style?: object }) {
@@ -148,7 +149,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const destRef = useRef<InputHandle>(null);
   const maxRef = useRef<InputHandle>(null);
   const aboutRef = useRef<InputHandle>(null);
-  const [f, setF] = useState<Draft>({ style: 'together', destination: '', originCity: me?.profile?.homeCity ?? '', description: '', start: '', end: '', flex: 'plus_minus_3', min: '', max: '', includes: [], tags: [], capacity: 6 });
+  const [f, setF] = useState<Draft>({ style: 'together', destination: '', originCity: me?.profile?.homeCity ?? '', description: '', start: '', end: '', flex: 'plus_minus_3', min: '', max: '', includes: [], tags: [], capacity: 6, ageGroup: 'all' });
   // a spot pinned on the THERE map ("Plan a trip here?") becomes the destination, with its position, so the trip shows as a pin
   useDroppedPin('trip', (p) => { setF((prev) => ({ ...prev, destination: p.name.slice(0, 100), destOk: true, destLat: p.lat, destLng: p.lng })); setStep(0); });
   const [agree, setAgree] = useState(false);
@@ -160,8 +161,12 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const [popTried, setPopTried] = useState(false);
   // Publish was tapped with something missing: the review cards that need it are marked, and a line says so
   const [reviewTried, setReviewTried] = useState(false);
+  // What the review page shows while a pop-up is open: the values as they were when it opened. The pop-up edits the form itself, but the page
+  // behind must not change until Done; closing it any other way (tapping outside, Back) puts the form back as it was (as in HERE).
+  const frozen = useRef<null | { f: Draft; routeProblems: string[]; budgetProblems: string[]; busy: boolean }>(null);
   const openPop = (card: 'route' | 'budget' | 'group' | 'about', from: Origin) => {
     Keyboard.dismiss();
+    frozen.current = { f, routeProblems, budgetProblems, busy };
     setClosing(false);
     setPopTried(false);
     setPop({ card, from });
@@ -305,6 +310,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
         budgetIncludes: f.includes,
         tags: f.tags.filter((x) => TRIP_TAGS.includes(x)),
         capacity: f.capacity,
+        ageGroup: (f.ageGroup ?? 'all') as 'all' | '18-25' | '25-35' | '35+',
       }),
     );
     if (created) {
@@ -418,6 +424,13 @@ function TripForm({ onReset }: { onReset: () => void }) {
         onPlus={() => set('capacity', Math.min(MAX_PEOPLE, f.capacity + 1))}
       />
       <Text style={{ color: c.muted, fontSize: 12, textAlign: 'center' }}>{`${t('Including you')} · ${tn(f.capacity - 1, 'You + {n} spot', 'You + {n} spots')}`}</Text>
+      {/* who the organizer has in mind: a label only, nobody is stopped from joining by it */}
+      <TripLabel>{t('Age group')}</TripLabel>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
+        {AGE_GROUPS.map(([k, label]) => (
+          <TripPill key={k} label={t(label)} active={(f.ageGroup ?? 'all') === k} onPress={() => set('ageGroup', k)} />
+        ))}
+      </View>
     </>
   );
   // the travel interests: the same four cards as the chips on THERE Home, several can be chosen (at least one)
@@ -451,6 +464,14 @@ function TripForm({ onReset }: { onReset: () => void }) {
   );
 
   // closing the pop-up: the keyboard and an open calendar go first, then it folds back into its card
+  /** tapping outside the pop-up, or Back: the changes made in it are thrown away */
+  const cancelPop = () => {
+    if (frozen.current) setF(frozen.current.f);
+    closeKeyboard();
+    setCalendar(null);
+    setPopTried(false);
+    setClosing(true);
+  };
   const donePop = () => {
     const wrong = pop?.card === 'route' ? routeProblems.length > 0 || busy : pop?.card === 'budget' ? budgetProblems.length > 0 : false;
     if (wrong) {
@@ -464,6 +485,11 @@ function TripForm({ onReset }: { onReset: () => void }) {
     setPopTried(false);
     setClosing(true);
   };
+  // the live values, for the review page (which swaps them for the frozen ones while a pop-up is open)
+  const liveF = f;
+  const liveRoute = routeProblems;
+  const liveBudget = budgetProblems;
+  const liveBusy = busy;
   const calendarSheet = (
     <DateRangeSheet
       visible={calendar !== null}
@@ -551,7 +577,22 @@ function TripForm({ onReset }: { onReset: () => void }) {
           </>
         )}
 
-        {step === 3 && (
+        {step === 3 && (() => {
+          // the review shows the frozen values while a pop-up is open (see `frozen`)
+          const rv = pop && frozen.current ? frozen.current : { f: liveF, routeProblems: liveRoute, budgetProblems: liveBudget, busy: liveBusy };
+          const f = rv.f;
+          const routeProblems = rv.routeProblems;
+          const budgetProblems = rv.budgetProblems;
+          const busy = rv.busy;
+          const start = parseDay(f.start);
+          const end = parseDay(f.end);
+          const min = Number(f.min);
+          const max = Number(f.max);
+          const nights = start && end ? Math.round((+end - +start) / 864e5) : null;
+          const together = f.style === 'together';
+          const flexLabel = t(FLEX.find(([v]) => v === f.flex)?.[1] ?? '');
+          const groupLabel = t('{n} people', { n: f.capacity });
+          return (
           <>
             <TripHeading title={t('Review your trip')} subtitle={t('Check everything before your trip goes live.')} />
             {!gate.verified && <Banner onPress={() => void gate.ask('publish')}>{gate.isGuest ? t("You're exploring as a guest. To publish, create a free account and verify your identity ›") : t('Verify your identity to publish. Everything you entered stays here ›')}</Banner>}
@@ -603,7 +644,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
             </ReviewCard>
 
             <ReviewCard title={t('Group and interests')} onEdit={(from) => openPop('group', from)}>
-              <Text style={{ color: c.text, fontSize: 16 }}>{groupLabel}</Text>
+              <Text style={{ color: c.text, fontSize: 16 }}>{groupLabel} · {t(ageGroupLabel(f.ageGroup))}</Text>
               {f.tags.some((x) => TRIP_TAGS.includes(x)) ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(6) }}>
                   {f.tags.filter((x) => TRIP_TAGS.includes(x)).map((tag) => (
@@ -619,7 +660,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
               <Text style={{ color: f.description.trim() ? c.text : c.muted, fontSize: 16, lineHeight: 23 }}>{f.description.trim() || t('Nothing written yet')}</Text>
             </ReviewCard>
           </>
-        )}
+        )
+        })()}
         </StepTransition>
 
         {/* on the last step, next to Publish: what stops it (the same card as under the dates) */}
@@ -643,8 +685,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
         <EditPopup
           from={pop.from}
           closing={closing}
-          onDone={donePop}
-          onClosed={() => (setPop(null), setPopTried(false))}
+          onDone={cancelPop}
+          onClosed={() => (setPop(null), setPopTried(false), (frozen.current = null))}
           header={
             <View style={{ alignItems: 'flex-end' }}>
               <DonePill onPress={donePop} />

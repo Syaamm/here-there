@@ -15,7 +15,8 @@ import { useAction, useLoad } from '@/lib/hooks';
 import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
 import { useEnterMode, useTheme } from '@/lib/theme';
-
+
+
 import { sc, sp, sph } from '@/lib/scale';
 type Req = {
   id: string;
@@ -86,7 +87,7 @@ export default function HostReview() {
             <CatPhoto category={a.category} style={{ width: sc(96), height: sc(96), borderRadius: sc(20) }} />
             <View style={{ flex: 1, gap: sp(8), paddingTop: sp(4) }}>
               <Text style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{a.title}</Text>
-              <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{a.venueName} | {when(a.startsAt)}</Text>
+              <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{a.venueName} | {when(a.startsAt, a.timeZone)}</Text>
               <View accessible accessibilityLabel={t('{going} of {capacity} approved', { going: a.going, capacity: a.capacity })} style={{ height: sc(5), borderRadius: sc(3), backgroundColor: c.line, overflow: 'hidden' }}>
                 <View style={{ width: `${Math.min(100, Math.round((a.going / Math.max(a.capacity, 1)) * 100))}%`, height: sc(5), backgroundColor: c.forest }} />
               </View>

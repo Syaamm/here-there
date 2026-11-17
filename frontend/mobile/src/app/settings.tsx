@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useGuestSignUp } from '@/lib/guestSignUp';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Constants from 'expo-constants';
 import { useEffect, useState } from 'react';
@@ -45,13 +46,15 @@ export default function Settings() {
     if (done) void logout(''); // nothing is said afterwards: the person chose this
   };
 
+  const signUp = useGuestSignUp();
   const signOut = async () => {
     if (await confirmAsync(t('Sign out?'), t('You can sign back in any time. Your plans and chats stay as they are.'), t('Sign out'), true)) void logout();
   };
 
   // the account rows, in the order of the design; the last one drops its hairline
   const rows: { key: string; icon: React.ComponentProps<typeof Ionicons>['name']; title: string; subtitle?: string; to: string }[] = [
-    { key: 'verify', icon: 'shield-checkmark-outline', title: t('Identity verification'), subtitle: verification, to: '/verify' },
+    // a guest ("Explore") has no account to verify
+    ...(!guest ? [{ key: 'verify', icon: 'shield-checkmark-outline' as const, title: t('Identity verification'), subtitle: verification, to: '/verify' }] : []),
     ...(!me?.emailVerified && !guest ? [{ key: 'confirm', icon: 'mail-outline' as const, title: t('Confirm your email'), to: '/onboarding' }] : []),
     ...(!guest
       ? [
@@ -82,12 +85,17 @@ export default function Settings() {
         </RoundCard>
       </Pressable>
 
-      <GroupLabel>{t('Account & Security')}</GroupLabel>
-      <RoundCard>
-        {rows.map((r, i) => (
-          <AccountRow key={r.key} icon={r.icon} title={r.title} subtitle={r.subtitle} dot={r.key === 'reports' && newReports > 0} onPress={() => go(r.to)} last={i === rows.length - 1} />
-        ))}
-      </RoundCard>
+      {/* a guest ("Explore") has no account to secure: the whole section is left out */}
+      {rows.length > 0 ? (
+        <>
+          <GroupLabel>{t('Account & Security')}</GroupLabel>
+          <RoundCard>
+            {rows.map((r, i) => (
+              <AccountRow key={r.key} icon={r.icon} title={r.title} subtitle={r.subtitle} dot={r.key === 'reports' && newReports > 0} onPress={() => go(r.to)} last={i === rows.length - 1} />
+            ))}
+          </RoundCard>
+        </>
+      ) : null}
 
       <GroupLabel>{t('Notifications')}</GroupLabel>
       <RoundCard>
@@ -126,18 +134,18 @@ export default function Settings() {
 
       <GroupLabel>{t('About')}</GroupLabel>
       <RoundCard>
-        <AccountRow icon="information-circle-outline" title="LAMIS" subtitle={t('Version {v}', { v: Constants.expoConfig?.version ?? '0.1.0' })} last />
+        <AccountRow icon="information-circle-outline" title="Lamis" subtitle={t('Version {v}', { v: Constants.expoConfig?.version ?? '0.1.0' })} last />
       </RoundCard>
 
-      {/* a white button with the sign-out icon and the words in red */}
+      {/* a white button with the sign-out icon and the words in red; a guest sees Sign up instead (there is nothing to sign out of) */}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={t('Sign out')}
-        onPress={() => void signOut()}
-        style={({ pressed }) => [{ minHeight: sc(BTN.large), borderRadius: BTN.radiusLarge, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(0,0,0,0.09)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(8), paddingHorizontal: sph(20) }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+        accessibilityLabel={guest ? t('Sign up') : t('Sign out')}
+        onPress={() => (guest ? signUp() : void signOut())}
+        style={({ pressed }) => [{ minHeight: sc(BTN.large), borderRadius: BTN.radiusLarge, backgroundColor: guest ? c.forest : '#FFFFFF', borderWidth: 1, borderColor: guest ? c.forest : 'rgba(0,0,0,0.09)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(8), paddingHorizontal: sph(20) }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
       >
-        <Ionicons name="log-out-outline" size={sc(20)} color={c.danger} />
-        <Text style={{ color: c.danger, ...BTN.text }}>{t('Sign out')}</Text>
+        <Ionicons name={guest ? 'person-add-outline' : 'log-out-outline'} size={sc(20)} color={guest ? '#fff' : c.danger} />
+        <Text style={{ color: guest ? '#fff' : c.danger, ...BTN.text }}>{guest ? t('Sign up') : t('Sign out')}</Text>
       </Pressable>
       {!guest ? <Btn title={t('Sign out of every device')} variant="ghost" onPress={() => void signOutEverywhere()} /> : null}
     </Screen>
