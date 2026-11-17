@@ -1,3 +1,12 @@
+/** The age group a host can say an activity is for: a label only, it never stops anyone from joining. */
+export const AGE_GROUPS: [value: string, label: string][] = [
+  ['all', 'All ages'],
+  ['18-25', '18–25'],
+  ['25-35', '25–35'],
+  ['35+', '35+'],
+];
+export const ageGroupLabel = (v?: string | null) => AGE_GROUPS.find(([k]) => k === v)?.[1] ?? 'All ages';
+
 export const CATS: Record<string, { label: string; emoji: string }> = {
   coffee: { label: 'Coffee', emoji: '☕' },
   drinks: { label: 'Drinks', emoji: '🍸' },

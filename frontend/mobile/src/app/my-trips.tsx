@@ -5,13 +5,19 @@ import { type MyTripRow } from '@/lib/api';
 import { useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
-
+import { useLiveEvents } from '@/lib/live';
+
+
 import { sc, sp } from '@/lib/scale';
 /** Every trip you organise, are in, or have applied to, a few at a time as you scroll (Profile shows only the latest 2). */
 export default function MyTripsPage() {
   const { t } = useT();
   const go = useGo();
   const trips = useCursorList<MyTripRow, { counts: { joined: number; applications: number } }>('/v1/me/trips/page', {}, 'me:trips:all');
+  // a trip changed somewhere (its dates, members): the list is asked again at once
+  useLiveEvents((e) => {
+    if (e.type === 'feed-changed' || e.type === 'group-changed') void trips.reload();
+  });
   const { refreshing, onRefresh } = useRefresh(trips.reload);
 
   return (

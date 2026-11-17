@@ -1,6 +1,7 @@
 // Split out of the original p0.test.ts (30 Oct 2026): one file per area, each with its own database, so the files
 // run side by side and a failure points at its area. The set-up below is the same in every file.
 process.env.NODE_ENV = 'test';
+process.env.RETENTION_DELETE = 'true'; // the clean-up is off by default (nothing is deleted); these tests check it when it is switched on
 process.env.DATABASE_URL = require('./test-db').testDatabaseUrl('p0-retention');
 process.env.VERIFICATION_MODE = 'manual';
 process.env.REGISTER_LIMIT_PER_HOUR = '10000';
@@ -150,7 +151,7 @@ async function exportOf(u: { token: string }, lang = 'en') {
 describe('retention: old data is purged on schedule', () => {
   const ago = (d: number) => new Date(Date.now() - d * 864e5);
 
-  it('deletes what has outlived its period and keeps everything else, including reported messages', async () => {
+  it('deletes what has outlived its period and keeps everything else, including all chat messages', async () => {
     const { RetentionService } = await import('../src/retention/retention.service');
     const u = await signup('Retainer');
     const plan = (endedDaysAgo: number, title: string) =>
@@ -187,8 +188,8 @@ describe('retention: old data is purged on schedule', () => {
     const latestCheck = await prisma.verificationCheck.create({ data: { userId: u.id, providerRef: 'old2', eligibility: 'verified', decidedAt: ago(400), createdAt: ago(401) } });
 
     const counts = await app.get(RetentionService).runOnce();
-    assert.equal(counts.messages, 1);
-    assert.equal(await prisma.message.count({ where: { id: oldMsg.id } }), 0, 'an old, unreported message is gone');
+    assert.equal(counts.messages, 0);
+    assert.equal(await prisma.message.count({ where: { id: oldMsg.id } }), 1, 'chat is never deleted, however old');
     assert.equal(await prisma.message.count({ where: { id: reportedMsg.id } }), 1, 'a reported message stays');
     assert.equal(await prisma.message.count({ where: { id: recentMsg.id } }), 1, 'a recent chat is untouched');
     const titles = (await prisma.notification.findMany({ where: { userId: u.id, type: 'x' } })).map((n: { title: string }) => n.title).sort();
@@ -212,7 +213,7 @@ describe('retention: old data is purged on schedule', () => {
     const r = await get('/v1/retention');
     assert.equal(r.status, 200);
     const chat = r.body.items.find((x: { what: string }) => x.what === 'Group chat messages');
-    assert.match(chat.kept, /3 months after the plan or trip ends/);
+    assert.match(chat.kept, /never deleted/i);
     assert.ok(r.body.items.find((x: { what: string }) => /audit/i.test(x.what)).kept.includes('2 years'));
     assert.ok(r.body.items.some((x: { what: string }) => /account details/i.test(x.what)));
   });

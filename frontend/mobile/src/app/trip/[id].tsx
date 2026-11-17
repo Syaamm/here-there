@@ -18,17 +18,19 @@ import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
 import { useVerifyGate } from '@/lib/verifyGate';
 import { TRIP_PHOTOS, tripStyle } from '@/components/Cards';
-import { FLEX } from '@/lib/constants';
+import { ageGroupLabel, FLEX } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, money } from '@/lib/format';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { useLiveEvents } from '@/lib/live';
 import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
 import { ReadMore } from '@/components/ReadMore';
 import { meetsThere } from '@/lib/travelStyle';
 import { TravelStyleBadge } from '@/components/TravelStyleBadge';
-
+
+
 import { sc, sp } from '@/lib/scale';
 /** THERE · Trip detail. A proposal with an estimated budget. Never a booking, never a guaranteed departure. Laid out like an activity. */
 export default function TripDetail() {
@@ -45,6 +47,10 @@ export default function TripDetail() {
   const { gutter } = useLayout();
   const [barH, setBarH] = useState(0); // the fixed bottom bar's measured height
   const { data: trip, error, loading, reload } = useLoad(() => get<Trip>(`/v1/trips/${id}`), [id], undefined, 'trip', { animate: true });
+  // this trip's dates, members or place changed somewhere (a date poll was used, someone joined): the page loads again at once
+  useLiveEvents((e) => {
+    if (e.type === 'ready' || (e.type === 'group-changed' && e.kind === 'trip' && e.id === id)) void reload();
+  });
   const { refreshing, onRefresh } = useRefresh(reload); // pull down to refresh, like Home
   const act = useAction(reload);
   const [report, setReport] = useState<{ type: 'trip' | 'user'; id: string } | null>(null);
@@ -179,6 +185,7 @@ export default function TripDetail() {
         <View style={{ gap: sp(22), paddingTop: sp(4) }}>
           <InfoRow icon="location-outline" title={trip.destination} sub={meetsThere(trip) ? t('Meet at destination: everyone travels on their own') : t('Travel together from {city}', { city: trip.originCity })} />
           <InfoRow icon="calendar-outline" title={dateSpan(trip.dateStart, trip.dateEnd)} sub={t(flex)} />
+          <InfoRow icon="people-outline" title={t(ageGroupLabel(trip.ageGroup))} sub={t('Age group')} />
           <InfoRow icon="wallet-outline" title={`${money(trip.budget.min, trip.budget.currency)}–${money(trip.budget.max, trip.budget.currency)} ${t('pp (estimate)')}`} sub={trip.budget.scope} />
         </View>
 

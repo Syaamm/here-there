@@ -19,6 +19,7 @@ import { VerifyBanner } from '@/components/VerifyBanner';
 import { Btn, Card, Chip, Empty, ErrorBanner, Pill, Screen, SearchBar, SectionHeader, Sheet, Spinner, Txt, useGo } from '@/components/ui';
 import { get, type Activity } from '@/lib/api';
 import { CATS } from '@/lib/constants';
+import { useCategories } from '@/lib/categories';
 import { useClock } from '@/lib/clock';
 import { comingUp, happeningNow, type MyActivitiesData } from '@/lib/myActivities';
 import { useLayout } from '@/lib/layout';
@@ -48,6 +49,7 @@ export function ExploreHere() {
   const [day, setDay] = useState<Date | null>(null);
   const [month, setMonth] = useState(() => new Date());
   const dayStart = day ? new Date(day.getFullYear(), day.getMonth(), day.getDate()) : null;
+  const { here: hereCats } = useCategories(); // HERE's own categories only (the trip categories are kept in CATS too, under there:…)
   const [filterOpen, setFilterOpen] = useState(false);
   const [openOnly, setOpenOnly] = useState(false); // only the activities that still have a place
   // how far from the city's centre: the admin sets the most (the city's coverage, 25 km unless changed in Settings > Places & limits), and
@@ -111,8 +113,10 @@ export function ExploreHere() {
   // searching or a category chosen: the page is only the matching activities, so Next up and the live pill step aside
   const typedWords = q.trim().length > 0; // something is typed in the search: results, not Next up and the time sections
   const searchingNow = typedWords || (when === 'date' && !!day); // a search, or one day picked in the calendar
-  const next = cat || searchingNow ? [] : soonAll.slice(0, 2);
-  const more = cat || searchingNow ? [] : soonAll.slice(2);
+  // any filter applied (a time, a category, only open places, a distance): the page shows just what matches it, so today's Next up and the live pill step aside
+  const filtered = !!cat || searchingNow || when !== 'any' || openOnly || distance !== null;
+  const next = filtered ? [] : soonAll.slice(0, 2);
+  const more = filtered ? [] : soonAll.slice(2);
   // what is already in your Next up (you host it or are going) is not listed again under Happening soon
   const inNext = new Set([...next, ...more].map((x) => x.activity.id));
   const soon = sections[0].items.filter((a) => !inNext.has(a.id));
@@ -138,7 +142,7 @@ export function ExploreHere() {
       <ModeTabs />
 
       {/* what you are at right now: a small pill (one opens it, several open a list); Next up is only for what is still to come */}
-      {liveNow.length > 0 && !searchingNow && !cat ? (
+      {liveNow.length > 0 && !filtered ? (
         <LivePill
           label={liveNow.length === 1 ? t("You're at {title} now", { title: liveNow[0].activity.title }) : t('{n} of your activities are happening now', { n: liveNow.length })}
           onPress={() => (liveNow.length === 1 ? go(`/activity/${liveNow[0].activity.id}`) : setLiveOpen(true))}
@@ -252,7 +256,7 @@ export function ExploreHere() {
           <Pressable
             key={x.key}
             accessibilityRole="button"
-            accessibilityLabel={t('{title}, {from} to {to}, {status}', { title: x.activity.title, from: hhmm(x.activity.startsAt), to: hhmm(x.activity.endsAt), status: t(x.label) })}
+            accessibilityLabel={t('{title}, {from} to {to}, {status}', { title: x.activity.title, from: hhmm(x.activity.startsAt, x.activity.timeZone), to: hhmm(x.activity.endsAt, x.activity.timeZone), status: t(x.label) })}
             onPress={() => {
               setSoonOpen(false);
               go(`/activity/${x.activity.id}`);
@@ -260,8 +264,8 @@ export function ExploreHere() {
             style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingVertical: sp(8), borderBottomWidth: 1, borderBottomColor: c.line }, pressed && { opacity: 0.8 }]}
           >
             <View style={{ width: sc(84) }}>
-              <Txt variant="h3" numberOfLines={1} style={{ fontSize: 16, lineHeight: 21 }}>{hhmm(x.activity.startsAt)}</Txt>
-              <Txt variant="small" numberOfLines={1} style={{ fontSize: 12 }}>{+new Date(x.activity.startsAt) <= now ? t('now') : t('to {time}', { time: hhmm(x.activity.endsAt) })}</Txt>
+              <Txt variant="h3" numberOfLines={1} style={{ fontSize: 16, lineHeight: 21 }}>{hhmm(x.activity.startsAt, x.activity.timeZone)}</Txt>
+              <Txt variant="small" numberOfLines={1} style={{ fontSize: 12 }}>{+new Date(x.activity.startsAt) <= now ? t('now') : t('to {time}', { time: hhmm(x.activity.endsAt, x.activity.timeZone) })}</Txt>
             </View>
             <View style={{ flex: 1, gap: sc(3) }}>
               <Txt variant="h3" numberOfLines={1} style={{ fontSize: 16, lineHeight: 21 }}>{x.activity.title}</Txt>
@@ -343,7 +347,7 @@ export function ExploreHere() {
           <ThereLabel>{t('What kind of activity')}</ThereLabel>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
             <ThereChip label={t('All')} active={cat === null} onPress={() => setCat(null)} />
-            {Object.entries(CATS).map(([k, v]) => (
+            {hereCats.filter((k) => CATS[k]).map((k) => [k, CATS[k]] as const).map(([k, v]) => (
               <ThereChip key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(cat === k ? null : k)} />
             ))}
           </View>

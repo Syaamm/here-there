@@ -486,16 +486,19 @@ export class AdminController {
   @RegionalOk()
   @Perm('verification')
   @Get('verifications')
-  async verifications(@CurrentUser() actor: User, @Query('status') status = 'pending', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string, @Query('page') pageRaw?: string, @Query('pageSize') pageSizeRaw?: string) {
+  async verifications(@CurrentUser() actor: User, @Query('status') status = 'pending', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string, @Query('page') pageRaw?: string, @Query('pageSize') pageSizeRaw?: string, @Query('q') q?: string) {
     const size = pageLimit(limit, 100, 200);
     const scope = await this.regions.scopeOf(actor, place);
+    // a search: the person's name, email or id
+    const needle = q?.trim().slice(0, 80);
+    const person: Prisma.UserWhereInput | null = needle ? { OR: [{ email: { contains: needle, mode: 'insensitive' } }, { profile: { displayName: { contains: needle, mode: 'insensitive' } } }, { id: needle }] } : null;
     // numbered pages ("Page 1 / 10"): one small page at a time, with the total
     if (pageRaw) {
       const pageSize = pageLimit(pageSizeRaw, 20, 50);
       if (status === 'unverified' || status === 'verified' || status === 'rejected') {
         // the people themselves, by where their identity stands now: verified, rejected, or not verified yet (never checked, waiting or expired).
         // Counted from the accounts, not from the check records, so everyone who is on the service shows up.
-        const where: Prisma.UserWhereInput = { AND: [{ role: 'user' }, { state: { not: 'deleted' } }, { eligibility: status === 'unverified' ? { notIn: ['verified', 'rejected'] } : status }, scope ? this.regions.peopleWhere(scope) : {}] };
+        const where: Prisma.UserWhereInput = { AND: [{ role: 'user' }, { state: { not: 'deleted' } }, { eligibility: status === 'unverified' ? { notIn: ['verified', 'rejected'] } : status }, scope ? this.regions.peopleWhere(scope) : {}, ...(person ? [person] : [])] };
         const total = await this.prisma.user.count({ where });
         const pages = Math.max(1, Math.ceil(total / pageSize));
         const page = Math.min(pages, Math.max(1, Math.floor(Number(pageRaw)) || 1));
@@ -506,7 +509,7 @@ export class AdminController {
         for (const c of checks) if (!latest.has(c.userId)) latest.set(c.userId, c);
         return { page, pages, total, pageSize, nextCursor: null, items: users.map((u) => ({ id: u.id, provider: null, method: latest.get(u.id)?.method ?? null, providerRef: latest.get(u.id)?.providerRef ?? null, eligibility: u.eligibility, createdAt: u.createdAt, user: { id: u.id, email: u.email, displayName: u.profile?.displayName, homeCity: u.profile?.homeCity } })) };
       }
-      const where: Prisma.VerificationCheckWhereInput = { AND: [{ eligibility: status }, scope ? { user: { profile: { homeCityKey: { in: [...scope.cityKeys] } } } } : {}] };
+      const where: Prisma.VerificationCheckWhereInput = { AND: [{ eligibility: status }, scope ? { user: { profile: { homeCityKey: { in: [...scope.cityKeys] } } } } : {}, ...(person ? [{ user: person }] : [])] };
       const total = await this.prisma.verificationCheck.count({ where });
       const pages = Math.max(1, Math.ceil(total / pageSize));
       const page = Math.min(pages, Math.max(1, Math.floor(Number(pageRaw)) || 1));

@@ -78,6 +78,8 @@ export const createSchema = z
     capacity: z.number().int().min(2).max(20).optional(),
     groupSize: z.enum(['2-3', '4-6', '7-10', '10+']).default('4-6'),
     visibility: z.enum(['public', 'invite_only']).default('public'),
+    // who the organizer has in mind: a label only, nobody is stopped from joining by it
+    ageGroup: z.enum(['all', '18-25', '25-35', '35+']).default('all'),
   })
   .refine((d) => d.budgetMax > d.budgetMin, { message: 'The maximum budget must be higher than the minimum', path: ['budgetMax'] })
   .refine((d) => d.travelStyle !== 'together' || (d.originCity ?? '').length >= 2, { message: 'Say where the group leaves from', path: ['originCity'] });
@@ -101,6 +103,8 @@ export const searchSchema = z.object({
   /** only trips that LEAVE on or after / before this moment (the sections of THERE Home: leaving soon, in a few months, later) */
   startFrom: z.coerce.date().optional(),
   startTo: z.coerce.date().optional(),
+  // the latest day the trip may end (the app's "Latest return"): trips that end on or before it
+  endTo: z.coerce.date().optional(),
   budgetMax: z.coerce.number().int().min(0).optional(),
   includesTransport: z.enum(['true', 'false']).optional(),
   tags: z.string().optional(), // comma separated
@@ -219,6 +223,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       description: t.description,
       minCapacity: t.minCapacity,
       maxCapacity: t.maxCapacity,
+      ageGroup: t.ageGroup,
       members,
       spotsLeft: Math.max(0, t.maxCapacity - members),
       status: effectiveTripStatus(t),
@@ -314,6 +319,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       if (typed.length === 0) filters.push({ destinationKey: { contains: q.destination.toLowerCase() } });
       for (const terms of phrase ? [phrase] : typed.map((w) => expandSearchWord(w))) filters.push({ OR: terms.slice(0, 14).map((term) => ({ destinationKey: { contains: term } })) });
     }
+    if (q.endTo) filters.push({ dateEnd: { lte: q.endTo } });
     if (q.startFrom || q.startTo) filters.push({ dateStart: { ...(q.startFrom && { gte: q.startFrom }), ...(q.startTo && { lt: q.startTo }) } });
     // leaving from a city: trips that travel together from it ("Milan" matches "Milan" and "Milan, Italy"), and trips that meet at
     // the destination (they have no departure city, so anyone can join them from anywhere), unless only "together" was asked for
@@ -524,6 +530,7 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
           description: dto.description,
           minCapacity,
           maxCapacity,
+          ageGroup: dto.ageGroup,
           visibility: dto.visibility,
           status: 'published',
         },

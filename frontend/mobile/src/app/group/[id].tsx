@@ -15,8 +15,10 @@ import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, timeRange } from '@/lib/format';
 import { Paged } from '@/lib/paged';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
+import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
-
+
+
 import { sc, sp, sph } from '@/lib/scale';
 /**
  * Group info, opened from the chat title: what the group is, who is in it (the host is the group admin), and the
@@ -31,6 +33,10 @@ export default function GroupInfoScreen() {
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   const info = useLoad(() => get<GroupInfo>(`/v1/conversations/${id}/info`), [id], undefined, 'chat:info');
+  // the group's members, dates or place changed: the card loads again at once
+  useLiveEvents((e) => {
+    if (e.type === 'ready' || (e.type === 'group-changed' && info.data && e.kind === info.data.scope && e.id === info.data.scopeId)) void info.reload();
+  });
   const { refreshing, onRefresh } = useRefresh(info.reload);
   const act = useAction();
   const g = info.data;
@@ -150,7 +156,7 @@ export default function GroupInfoScreen() {
             key={m.id}
             accessibilityRole="button"
             accessibilityLabel={`${m.displayName}${m.isMe ? t(', you') : ''}${m.role === 'host' ? t(', host and group admin') : ''}. ${t('Open profile')}`}
-            onPress={() => go(m.isMe ? '/profile' : `/user/${m.id}`)}
+            onPress={() => (m.blocked ? undefined : go(m.isMe ? '/profile' : `/user/${m.id}`))}
             style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(14), paddingVertical: sp(10), minHeight: sc(64) }, pressed && { opacity: 0.8 }]}
           >
             <Avatar name={m.displayName} uri={m.photoUrl} size={45} />

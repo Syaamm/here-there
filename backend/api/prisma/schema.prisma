@@ -218,6 +218,7 @@ model Activity {
   endsAt        DateTime
   capacity      Int // includes organizer
   joinPolicy    String    @default("host_approval")
+  ageGroup      String    @default("all") // a label the host sets (all | 18-25 | 25-35 | 35+); it never blocks anyone from joining
   visibility    String    @default("public") // public | invite_only
   language      String?
   status        String    @default("published") // draft | published | full | confirmed | in_progress | completed | cancelled | archived
@@ -302,6 +303,7 @@ model Trip {
   minCapacity             Int       @default(4)
   maxCapacity             Int       @default(6)
   approvalMode            String    @default("organizer_review")
+  ageGroup                String    @default("all") // a label the organizer sets (all | 18-25 | 25-35 | 35+); it never blocks anyone from joining
   visibility              String    @default("public")
   status                  String    @default("published") // draft | published | full | planning | confirmed | completed | cancelled
   createdAt               DateTime  @default(now())

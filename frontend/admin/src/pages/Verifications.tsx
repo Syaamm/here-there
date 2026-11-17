@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { get, type Session } from '../api';
-import { Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, PageBar, Segmented, useAction, useLoad } from '../ui';
+import { Avatar, Chip, ErrorBanner, FilterBar, fmt, Loading, Page, PageBar, Search, Segmented, useAction, useLoad } from '../ui';
 
 type V = { id: string; method?: string | null; providerRef: string | null; eligibility: string; createdAt: string; user: { id: string; email: string; displayName?: string; homeCity?: string } };
 type Status = 'verified' | 'rejected' | 'unverified';
@@ -26,10 +26,15 @@ function download(rows: Row[], name: string) {
 // the identity provider decides every check, so nothing here is approved by hand: this page is a record
 export function VerificationsPage({ me: _me }: { me: Session }) {
   const [status, setStatus] = useState<Status>('verified');
+  const [q, setQ] = useState('');
+  const [term, setTerm] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
   const [pageNo, setPageNo] = useState(1);
-  useEffect(() => setPageNo(1), [status]);
-  const list = useLoad(() => get<{ items: V[]; page?: number; pages?: number; total?: number }>(`/v1/admin/verifications?status=${status}&page=${pageNo}&pageSize=20`), [status, pageNo], 6000);
-  const copy = (t: string) => navigator.clipboard?.writeText(t).catch(() => {});
+  useEffect(() => setPageNo(1), [status, term]);
+  const list = useLoad(() => get<{ items: V[]; page?: number; pages?: number; total?: number }>(`/v1/admin/verifications?status=${status}&page=${pageNo}&pageSize=20${term ? `&q=${encodeURIComponent(term)}` : ''}`), [status, pageNo, term], 6000);
   const file = useAction(() => {});
   const menu = useRef<HTMLDetailsElement>(null);
   const save = (which: 'all' | 'verified' | 'unverified') =>
@@ -45,6 +50,17 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
       fill
       title="Verification"
       actions={
+        <details className="dl-menu" ref={menu}>
+          <summary className="btn primary">{file.busy ? 'Preparing…' : 'Download spreadsheet'}</summary>
+          <div className="dl-list">
+            <button type="button" disabled={file.busy} onClick={() => save('verified')}>Verified people</button>
+            <button type="button" disabled={file.busy} onClick={() => save('unverified')}>Not verified people</button>
+            <button type="button" disabled={file.busy} onClick={() => save('all')}>Everyone</button>
+          </div>
+        </details>
+      }
+    >
+      <FilterBar search={<Search label="Search people" onEnter={() => setTerm(q.trim())} placeholder="Search by name or email" value={q} onChange={setQ} />}>
         <Segmented
           label="Status"
           value={status}
@@ -55,25 +71,14 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
             { id: 'rejected', label: 'Rejected' },
           ]}
         />
-      }
-    >
-      <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
-        <details className="dl-menu" ref={menu}>
-          <summary className="btn small primary">{file.busy ? 'Preparing…' : 'Download spreadsheet'}</summary>
-          <div className="dl-list">
-            <button type="button" disabled={file.busy} onClick={() => save('verified')}>Verified people</button>
-            <button type="button" disabled={file.busy} onClick={() => save('unverified')}>Not verified people</button>
-            <button type="button" disabled={file.busy} onClick={() => save('all')}>Everyone</button>
-          </div>
-        </details>
-      </div>
+      </FilterBar>
       <ErrorBanner message={list.error ?? file.error} onRetry={list.reload} />
       {list.loading && !list.data && <Loading rows={5} />}
       {list.data && (
         <div className="scroll-card">
           <div className="list-scroll">
             {items.length === 0 ? (
-              <div className="state">Nothing here.</div>
+              <div className="state">{term ? `No one matches “${term}”.` : 'Nothing here.'}</div>
             ) : (
               <ul className="rows">
                 {items.map((v) => (
@@ -86,15 +91,7 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
                         {v.user.homeCity && ` · ${v.user.homeCity}`}
                       </span>
                     </div>
-                    {v.providerRef && (
-                      <div className="row" style={{ minWidth: 0 }}>
-                        <code className="mono clip" style={{ maxWidth: 180 }}>{v.providerRef}</code>
-                        <button type="button" className="icon-btn" aria-label="Copy reference" onClick={() => copy(v.providerRef!)}>
-                          <Icon name="copy" />
-                        </button>
-                        {v.method === 'document' && <Chip value="Document" tone="plain" />}
-                      </div>
-                    )}
+                    {v.providerRef && v.method === 'document' && <Chip value="Document" tone="plain" />}
                     <span className="small muted nowrap" title={fmt(v.createdAt)}>
                       Joined{' '}
                       {fmt(v.createdAt)}

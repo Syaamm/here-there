@@ -13,7 +13,7 @@ export type MyActivityItem = {
 };
 
 const HOUR = 3600e3;
-const FINISHED = ['cancelled', 'completed', 'archived'];
+export const FINISHED = ['cancelled', 'completed', 'archived'];
 
 /**
  * What is coming up for the person: starting within `hours`, not yet started (what is on now is in happeningNow). Soonest

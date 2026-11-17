@@ -3,7 +3,7 @@ import './Audit.css';
 import { get, PERMISSIONS, roleLabel } from '../api';
 import { Select } from '../controls';
 import { RangeCalendar } from '../RangeCalendar';
-import { Chip, Empty, ErrorBanner, Icon, Loading, Page, PageBar, Search, useLoad, type IconName, type Tone } from '../ui';
+import { Chip, Empty, ErrorBanner, FilterBar, Icon, Loading, Page, PageBar, Search, useLoad, type IconName, type Tone } from '../ui';
 
 type Meta = Record<string, unknown> | null;
 export type E = { id: string; actorId: string | null; actorName?: string | null; actorRole?: string | null; objectName?: string | null; objectRole?: string | null; action: string; objectType: string; objectId: string; metadata: unknown; createdAt: string };
@@ -324,10 +324,7 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
         </button>
       }
     >
-      <div className="toolbar">
-        <div className="grow">
-          <Search label="Search the audit log" placeholder="Search a person, plan, action or id" value={q} onChange={setQ} />
-        </div>
+      <FilterBar search={<Search label="Search the audit log" placeholder="Search a person, plan, action or id" value={q} onChange={setQ} />}>
         <Select aria-label="Who did it" value={who} onChange={setWho}>
           {WHO.map((w) => (
             <option key={w.id} value={w.id}>
@@ -371,15 +368,15 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
             Reset
           </button>
         )}
-      </div>
-      <div className="au-kinds" role="group" aria-label="Category">
-        {FILTERS.map((f) => (
-          <button key={f.id} type="button" className={`au-kind ${f.id || 'all'}${kind === f.id ? ' on' : ''}`} aria-pressed={kind === f.id} onClick={() => setKind(f.id)}>
-            {f.id && <span className={`au-dot ${f.id}`} aria-hidden="true" />}
-            {f.id ? f.label : 'All categories'}
-          </button>
-        ))}
-      </div>
+      
+        <Select aria-label="Category" value={kind} onChange={(v) => setKind(v as '' | Kind)}>
+          {FILTERS.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.id ? f.label : 'All categories'}
+            </option>
+          ))}
+        </Select>
+      </FilterBar>
       <ErrorBanner message={list.error} onRetry={list.reload} />
       {list.loading && !list.data && <Loading rows={6} />}
       {list.data && items.length === 0 && <Empty>{filtered ? 'Nothing matches these filters.' : 'Nothing in the last 7 days.'}</Empty>}

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, BASE, get, post } from '../api';
 import { useBackdropClose } from '../controls';
-import { Chip, Empty, ErrorBanner, Icon, Loading, Page, Segmented, useAction, useLoad } from '../ui';
+import { Chip, Empty, ErrorBanner, Icon, Loading, Switch, useAction, useLoad } from '../ui';
 
 type Kind = 'here' | 'there';
 type Category = { id: string; kind: Kind; key: string; label: string; emoji: string; color: string; imageUrl: string | null; position: number; active: boolean; uses: number };
@@ -10,26 +10,6 @@ const KINDS: { id: Kind; label: string; noun: string; use: string }[] = [
   { id: 'here', label: 'Activity', noun: 'activity', use: 'activities' },
   { id: 'there', label: 'Travel', noun: 'travel', use: 'trips' },
 ];
-
-/** An on and off switch (a button, so the keyboard and screen readers work). */
-function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
-  return (
-    <span className="row" style={{ gap: 8, alignItems: 'center' }}>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!on)}
-        style={{ width: 42, height: 24, borderRadius: 999, border: 0, padding: 2, cursor: disabled ? 'default' : 'pointer', background: on ? '#12302b' : '#cfc9bb', display: 'flex', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background 0.15s', opacity: disabled ? 0.6 : 1 }}
-      >
-        <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,.3)' }} />
-      </button>
-      <span className="muted small" style={{ width: 24 }}>{on ? 'On' : 'Off'}</span>
-    </span>
-  );
-}
 
 /** The picture of a category as the app shows it (a round crop), or its emoji when it has none. */
 function Pic({ src, emoji, size = 40 }: { src?: string | null; emoji?: string; size?: number }) {
@@ -46,40 +26,36 @@ function Pic({ src, emoji, size = 40 }: { src?: string | null; emoji?: string; s
 }
 
 /** The categories people choose from: for a HERE activity, and for a THERE trip. Turning one off hides it from new plans; older plans keep it. */
-export function CategoriesPage() {
+export function CategoriesPanel({ kind, limit }: { kind: Kind; limit?: ReactNode }) {
   const { data, error, loading, reload } = useLoad(() => get<{ items: Category[] }>('/v1/admin/categories'), []);
   const act = useAction(reload);
-  const [kind, setKind] = useState<Kind>('here');
   const [editing, setEditing] = useState<Category | 'new' | null>(null);
   const [viewing, setViewing] = useState<Category | null>(null);
   const info = KINDS.find((k) => k.id === kind)!;
-  const items = (data?.items ?? []).filter((c) => c.kind === kind);
+  const items = (data?.items ?? []).filter((c) => c.kind === kind).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
-  const move = (c: Category, by: -1 | 1) => {
-    const i = items.findIndex((x) => x.id === c.id);
-    if (!items[i + by]) return;
-    // swap the two places; every row is renumbered so equal numbers never leave the order unclear
-    return act.run(async () => {
-      const order = items.map((x) => x.id);
-      [order[i], order[i + by]] = [order[i + by], order[i]];
-      await Promise.all(order.map((id, position) => (items.find((x) => x.id === id)!.position === position ? null : api('PATCH', `/v1/admin/categories/${id}`, { position }))));
-    });
-  };
   const remove = (c: Category) => {
     if (confirm(`Remove ${c.label}?`)) act.run(async () => (await api('DELETE', `/v1/admin/categories/${c.id}`), setEditing(null)));
   };
 
+  const title = kind === 'here' ? 'Here' : 'There';
+  const blurb = kind === 'here' ? 'Activities: local plans for today or this week.' : 'Trips: getaways and longer trips away.';
   return (
-    <Page fill title="Categories">
+    <section className="card set-panel" aria-label={title}>
+      <header className="set-panel-head">
+        <h2>{title}</h2>
+        <span className="muted small">{blurb}</span>
+      </header>
+      {limit}
       <ErrorBanner message={error ?? act.error} onRetry={reload} />
-      <div className="toolbar">
-        <Segmented label="Kind" value={kind} onChange={setKind} options={KINDS.map((k) => ({ id: k.id, label: k.label, count: (data?.items ?? []).filter((c) => c.kind === k.id).length }))} />
-        <span className="muted small grow">
-          {kind === 'here' ? 'What a host picks when creating an activity, and what people filter by on Home and the map.' : 'The travel styles a trip can carry, and what people filter trips by. Choosing one is optional.'}
-        </span>
-        <button className="btn primary" onClick={() => (act.clear(), setEditing('new'))}>
+      <div className="set-panel-sub">
+        <div>
+          <strong>{kind === 'here' ? 'Activity categories' : 'Travel styles'}</strong>
+          <span className="muted small">{kind === 'here' ? 'What a host picks when creating an activity, and what people filter by on Home and the map.' : 'The travel styles a trip can carry, and what people filter trips by. Choosing one is optional.'}</span>
+        </div>
+        <button className="btn small primary" onClick={() => (act.clear(), setEditing('new'))}>
           <Icon name="plus" />
-          Add category
+          Add
         </button>
       </div>
       {loading && !data && <Loading rows={5} />}
@@ -90,24 +66,17 @@ export function CategoriesPage() {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 90 }}>Order</th>
                   <th>Category</th>
                   <th style={{ width: 120 }}>Status</th>
                   <th className="end" aria-label="Actions" style={{ width: 150 }} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((c, i) => (
+                {items.map((c) => (
                   <tr key={c.id} style={c.active ? undefined : { opacity: 0.6 }}>
                     <td>
                       <div className="row">
-                        <button className="icon-btn" aria-label={`Move ${c.label} up`} disabled={act.busy || i === 0} onClick={() => move(c, -1)}>↑</button>
-                        <button className="icon-btn" aria-label={`Move ${c.label} down`} disabled={act.busy || i === items.length - 1} onClick={() => move(c, 1)}>↓</button>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="row">
-                        <Pic src={c.imageUrl} emoji={c.emoji} />
+                        <Pic src={c.imageUrl} emoji={c.emoji} size={32} />
                         <span className="strong">{c.label}</span>
                       </div>
                     </td>
@@ -151,7 +120,7 @@ export function CategoriesPage() {
           }
         />
       )}
-    </Page>
+    </section>
   );
 }
 

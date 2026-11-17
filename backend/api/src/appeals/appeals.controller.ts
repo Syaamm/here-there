@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Injectable, Ip, Param, Post, Query } from '@nestjs/common';
-import { User } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { checkPassword } from '../common/password';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
@@ -196,11 +196,17 @@ export class AppealsService {
   }
 
   // ---------------------------------------------------------------- staff
-  async queue(actor: User, state: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string) {
+  async queue(actor: User, state: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string, qRaw?: string) {
     const scope = await this.regions.scopeOf(actor);
     const size = pageLimit(limitRaw, 100, 200);
     const include = { thread: { orderBy: { createdAt: 'asc' as const } }, user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } };
-    const where = { state, ...(scope && { user: this.regions.peopleWhere(scope) }) };
+    // a search: the person's name, email or id, or what they wrote in the appeal
+    const needle = qRaw?.trim().slice(0, 80);
+    const where: Prisma.AppealWhereInput = {
+      state,
+      ...(scope && { user: this.regions.peopleWhere(scope) }),
+      ...(needle && { AND: [{ OR: [{ user: { OR: [{ email: { contains: needle, mode: 'insensitive' } }, { profile: { displayName: { contains: needle, mode: 'insensitive' } } }, { id: needle }] } }, { message: { contains: needle, mode: 'insensitive' } }] }] }),
+    };
     // numbered pages ("Page 1 / 10"): newest first
     let paging: { page: number; pages: number; total: number; pageSize: number } | null = null;
     let found;
@@ -353,8 +359,8 @@ export class AppealsController {
   @RegionalOk()
   @Perm('reports')
   @Get('admin/appeals')
-  queue(@CurrentUser() actor: User, @Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string) {
-    return this.appeals.queue(actor, ['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor, page);
+  queue(@CurrentUser() actor: User, @Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string, @Query('q') q?: string) {
+    return this.appeals.queue(actor, ['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor, page, q);
   }
 
   @Staff(...STAFF)

@@ -24,7 +24,7 @@ import { useCategories } from '@/lib/categories';
 import { getAreaKm, useCity, useCityKnown, useCityPos } from '@/lib/city';
 import { kmBetween, useCityCenter } from '@/features/mapShared';
 import { CitySearch } from '@/components/CitySearch';
-import { catColor, CAT_IMAGES, CATS } from '@/lib/constants';
+import { AGE_GROUPS, ageGroupLabel, catColor, CAT_IMAGES, CATS } from '@/lib/constants';
 import { useAction, useLoad } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
@@ -34,7 +34,7 @@ import { scrollToField } from '@/lib/pageScroll';
 import { localeTag, useT } from '@/lib/i18n';
 import { sc, sp, sph } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
-import { timeText } from '@/lib/format';
+import { instantOf, timeText, wallOf, WALL } from '@/lib/format';
 import { backFromMain } from '@/lib/nav';
 
 /** the description: one or two light lines, not a paragraph (the server keeps the same limit) */
@@ -51,8 +51,7 @@ function earliestStart(now: number) {
 }
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 /** The quick day choices: today (while there is still time left) and tomorrow. Any later day (up to the city's limit) is picked from a calendar. */
-function dayChips(earliest: Date) {
-  const today = new Date();
+function dayChips(earliest: Date, today: Date) {
   const tomorrow = new Date(today.getTime() + 24 * 3600e3);
   const days = [
     { i: 0, d: today, label: 'Today' },
@@ -111,7 +110,7 @@ export function Round({ icon, label, onPress, onLongPress, disabled }: { icon: '
   );
 }
 
-type Draft = { title: string; category: string; dayIdx: number; hour: number; minute: number; duration: number; capacity: number; area: string; venueName: string; place: Place | null; description: string; joinPolicy: 'instant' | 'host_approval' };
+type Draft = { title: string; category: string; dayIdx: number; hour: number; minute: number; duration: number; capacity: number; area: string; venueName: string; place: Place | null; description: string; joinPolicy: 'instant' | 'host_approval'; ageGroup: string };
 
 /** The small white "Edit" pill that takes the review page back to a step. */
 function EditPill({ section, onPress, done }: { section: string; onPress: () => void; /** the open card's "Done" */ done?: boolean }) {
@@ -208,9 +207,12 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const [city] = useCity();
   const cityPos = useCityPos();
   // a clock that ticks, so options that have just become too soon disappear while the form is open
-  const now = useClock(20_000);
+  // The form works in the VENUE's clock (the chosen city's zone, not the phone's): "now", "today" and the picked time are wall-clock
+  // numbers of that city, held in a Date's local fields. Only when it is sent (or checked for clashes) are they turned into real moments.
+  const now = wallOf(useClock(20_000)).getTime();
+  const wallNow = () => wallOf(Date.now());
   const earliest = earliestStart(now);
-  const [f, setF] = useState<Draft>({ title: '', category: 'drinks', dayIdx: 0, hour: earliest.getHours(), minute: earliest.getMinutes(), duration: 2, capacity: 6, area: 'Brera', venueName: '', place: null, description: '', joinPolicy: 'host_approval' });
+  const [f, setF] = useState<Draft>({ title: '', category: 'drinks', dayIdx: 0, hour: earliest.getHours(), minute: earliest.getMinutes(), duration: 2, capacity: 6, area: 'Brera', venueName: '', place: null, description: '', joinPolicy: 'host_approval', ageGroup: 'all' });
   const [publicPlace, setPublicPlace] = useState(false);
   const act = useAction();
   // saving a draft when the app is left, "Clear all", and starting over after publishing: shared with the trip form
@@ -230,9 +232,9 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   // how far ahead this city's admin lets people plan (a month unless they set it otherwise)
   const limits = useLoad(() => get<{ here: { months: number; latest: string } }>(`/v1/regions/limits?city=${encodeURIComponent(city.trim())}`), [city.trim()]);
     const latest = limits.data ? new Date(limits.data.here.latest) : null;
-  const days = dayChips(earliest);
+  const days = dayChips(earliest, wallNow());
   // dayIdx is how many days from today: 0 today, 1 tomorrow, more = a day picked from the calendar
-  const later = f.dayIdx >= 2 ? { i: f.dayIdx, d: new Date(new Date().setHours(0, 0, 0, 0) + f.dayIdx * 864e5 + 12 * 3600e3), label: '' } : null;
+  const later = f.dayIdx >= 2 ? { i: f.dayIdx, d: new Date(wallNow().setHours(0, 0, 0, 0) + f.dayIdx * 864e5 + 12 * 3600e3), label: '' } : null;
   const day = later ?? days.find((d) => d.i === f.dayIdx) ?? days[0];
   const isEarliestDay = sameDay(day.d, earliest);
   const hours = Array.from({ length: 24 }, (_, h) => h).filter((h) => !isEarliestDay || h >= earliest.getHours());
@@ -252,7 +254,8 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   startsAt.setHours(hour, minute, 0, 0);
   const tooSoon = startsAt.getTime() < earliest.getTime();
   // one plan at a time: a plan you host or joined (HERE or THERE) at the chosen time blocks publishing
-  const clash = useClashes(startsAt, new Date(+startsAt + f.duration * 3600e3));
+  const startInstant = instantOf(startsAt);
+  const clash = useClashes(startInstant, new Date(+startInstant + f.duration * 3600e3));
   // only an activity of yours at that time stops you; a trip is just a warning (the person decides)
   const busy = clash.blocking.length > 0;
   // the days that already hold a plan of yours get a dot on the calendar (kept the same object until the plans or the minute change)
@@ -260,7 +263,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const valid = f.title.trim().length >= 2 && placeOk && publicPlace && !tooSoon && !busy;
 
   const submit = async () => {
-    const endsAt = new Date(+startsAt + f.duration * 3600e3);
+    const endsAt = new Date(+startInstant + f.duration * 3600e3);
     const a = await act.run(() =>
       post<Activity & { withdrawn?: Withdrawn[] }>('/v1/activities', {
         title: f.title.trim(),
@@ -271,10 +274,11 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         venuePlaceId: f.place?.id,
         lat: f.place?.lat,
         lng: f.place?.lng,
-        startsAt: startsAt.toISOString(),
+        startsAt: startInstant.toISOString(),
         endsAt: endsAt.toISOString(),
         capacity: f.capacity,
         joinPolicy: f.joinPolicy,
+        ageGroup: (f.ageGroup ?? 'all') as 'all' | '18-25' | '25-35' | '35+',
       }),
     );
     if (a) {
@@ -287,7 +291,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   };
 
   // set the whole start (day and clock) from one moment, for the quick picks
-  const setStart = (at: Date) => setF((p) => ({ ...p, dayIdx: sameDay(at, new Date()) ? 0 : 1, hour: at.getHours(), minute: at.getMinutes() }));
+  const setStart = (at: Date) => setF((p) => ({ ...p, dayIdx: sameDay(at, wallNow()) ? 0 : 1, hour: at.getHours(), minute: at.getMinutes() }));
   const roundUp5 = (ms: number) => {
     const d = new Date(ms);
     d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
@@ -312,7 +316,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const canMove = (d: number) => curMin + d >= 0 && curMin + d <= 24 * 60 - 1 && !(isEarliestDay && curMin + d < earliestMin);
   const move = (d: number) => canMove(d) && setF((p) => ({ ...p, hour: Math.floor((curMin + d) / 60), minute: (curMin + d) % 60 }));
   const endsAt = new Date(+startsAt + f.duration * 3600e3);
-  const clock = (d: Date) => timeText(d); // the app's one time format (lib/format)
+  const clock = (d: Date) => timeText(d, WALL); // the app's one time format (lib/format)
 
   const [step, setStep] = useState(0);
   const [barH, setBarH] = useState(0); // the height of the pinned Continue bar, so the page can scroll clear of it
@@ -386,7 +390,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   useFocusEffect(
     useCallback(() => {
       if (fresh.current.has) return;
-      const e = earliestStart(Date.now());
+      const e = earliestStart(wallOf(Date.now()).getTime());
       setF((p) => ({ ...p, dayIdx: 0, hour: e.getHours(), minute: e.getMinutes() }));
       setStep(0);
     }, []),
@@ -394,7 +398,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const router = useRouter();
   const back = () => (step > 0 ? setStep(step - 1) : router.navigate(backFromMain() as never));
   const pickDay = (d: Date) => {
-    const idx = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - new Date().setHours(0, 0, 0, 0)) / 864e5);
+    const idx = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - wallNow().setHours(0, 0, 0, 0)) / 864e5);
     set('dayIdx', idx);
   };
   const stepTitles = [t('Activity type'), t('Date and time'), t('Meeting place'), t('Group size and access')];
@@ -466,7 +470,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const catW = catRow ? Math.floor((catRow - 2 * 10) / 3) : undefined;
   // the admin's order, from Settings > Categories (the ones the app shipped with, until the list arrives)
   const catOrder = useCategories().here.filter((k) => CATS[k]);
-  const lastDay = latest ?? new Date(Date.now() + 24 * 3600e3);
+  const lastDay = latest ?? new Date(wallNow().getTime() + 24 * 3600e3);
 
   // the controls of the first three steps; the review page shows the same ones when a card is opened to edit it
   const whatFields = (
@@ -609,6 +613,14 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       />
       <Text style={{ color: c.muted, fontSize: 12, textAlign: 'center' }}>{`${t('Including you')} · ${tn(f.capacity - 1, 'You + {n} spot', 'You + {n} spots')}`}</Text>
 
+      {/* who the host has in mind: a label only, nobody is stopped from joining by it */}
+      <CreateLabel style={{ marginTop: sp(16) }}>{t('Age group')}</CreateLabel>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
+        {AGE_GROUPS.map(([k, label]) => (
+          <SmallPill compact key={k} label={t(label)} active={(f.ageGroup ?? 'all') === k} onPress={() => set('ageGroup', k)} />
+        ))}
+      </View>
+
       <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500', marginTop: sp(16) }}>{t('Access control')}</Text>
       {/* exactly one is always on: turning the one that is on off turns the other on */}
       <AccessRow
@@ -664,6 +676,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
           </ReviewSection>
           <ReviewSection title={t('Who can join')} onEdit={(from) => openPop('who', from)}>
             <ReviewLine icon="people-outline" title={t('{n} people', { n: view.f.capacity })} sub={t('Including you')} />
+            <ReviewLine icon="person-outline" title={t(ageGroupLabel(view.f.ageGroup))} sub={t('Age group')} />
             <ReviewLine icon={view.f.joinPolicy === 'instant' ? 'flash' : 'hand-left-outline'} title={view.f.joinPolicy === 'instant' ? t('Instant join') : t('Request to join')} sub={view.f.joinPolicy === 'instant' ? t('Verified people join at once.') : t('You approve each person.')} />
           </ReviewSection>
           <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" onChanged={() => void clash.reload()} />

@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Injectable, Param, Post, Query } from '@nestjs/common';
-import { AttendanceMark, User } from '@prisma/client';
+import { AttendanceMark, Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { beforeKeyset, decodeKeyset, pageLimit, pageOf, sliceKeyset } from '../common/paging';
@@ -329,11 +329,18 @@ export class ReliabilityService {
   }
 
   // ---------------------------------------------------------------- moderators
-  async adminList(state?: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string) {
+  async adminList(state?: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string, qRaw?: string) {
     // a state shows just that state; "all" (and nothing asked) shows every record, decided ones too.
     // Records still waiting for a decision go oldest first; the rest, newest first. A page at a time (default 50), nextCursor for the next.
     const waiting = state === 'disputed' || state === 'marked';
-    const where = state && state !== 'all' ? { state } : {};
+    // a search: the member or the host (name, email or id), or the plan's title
+    const needle = qRaw?.trim().slice(0, 80);
+    const found = needle ? await this.prisma.user.findMany({ where: { OR: [{ email: { contains: needle, mode: 'insensitive' } }, { profile: { displayName: { contains: needle, mode: 'insensitive' } } }, { id: needle }] }, select: { id: true }, take: 50 }) : [];
+    const ids = found.map((p) => p.id);
+    const where: Prisma.AttendanceMarkWhereInput = {
+      ...(state && state !== 'all' ? { state } : {}),
+      ...(needle && { OR: [{ userId: { in: ids } }, { markedById: { in: ids } }, { title: { contains: needle, mode: 'insensitive' } }] }),
+    };
     let numbered: { page: number; pages: number; total: number; pageSize: number } | null = null;
     let page: { items: AttendanceMark[]; nextCursor: string | null };
     if (pageRaw) {
@@ -565,8 +572,8 @@ export class ReliabilityController {
   // ---- moderators
   @Staff(...ALL)
   @Get('admin/no-shows')
-  adminList(@Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string) {
-    return this.reliability.adminList(state, limit, cursor, page);
+  adminList(@Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string, @Query('q') q?: string) {
+    return this.reliability.adminList(state, limit, cursor, page, q);
   }
 
   /** Hosts who say many people did not come (or whose notes keep being overturned): the check from the reliability hardening list. */

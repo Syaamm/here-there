@@ -19,6 +19,8 @@ import { MonthCalendar } from '@/components/CreateParts';
 import { ThereChip, ThereFilterSheet, ThereLabel } from '@/components/ThereParts';
 import { useDockSpace } from '@/lib/dock';
 import { catColor, CATS, CITY_CENTERS } from '@/lib/constants';
+import { useCategories } from '@/lib/categories';
+import { useClock } from '@/lib/clock';
 import { feedRange } from '@/lib/feed';
 import { when } from '@/lib/format';
 import { useLoad } from '@/lib/hooks';
@@ -167,8 +169,10 @@ export function useMapData() {
       // by day: today first; each "Show the next day" adds one more day (the activities list and the pins follow). With a day
       // picked in the filter: just that one day (today counts from now)
       const dayStart = new Date().setHours(0, 0, 0, 0) + (dayPick ?? 0) * 864e5;
-      const from = dayPick !== null && dayPick > 0 ? new Date(dayStart) : new Date();
-      const to = new Date(dayPick !== null ? dayStart + ((dayTo ?? dayPick) - dayPick + 1) * 864e5 : new Date().setHours(0, 0, 0, 0) + days * 864e5);
+      // "Show tomorrow" shows tomorrow only (not what is still on today); a day picked in the filter shows just that day
+      const tomorrowOnly = dayPick === null && !cat && days >= 2;
+      const from = tomorrowOnly ? new Date(new Date().setHours(0, 0, 0, 0) + 864e5) : dayPick !== null && dayPick > 0 ? new Date(dayStart) : new Date();
+      const to = new Date(dayPick !== null ? dayStart + ((dayTo ?? dayPick) - dayPick + 1) * 864e5 : new Date().setHours(0, 0, 0, 0) + (cat ? MAX_DAYS : days) * 864e5); // a chosen category looks across the whole month, not just today
       // the city's area (or, with "Near me", 3 km around the person inside the city)
       const p = new URLSearchParams({ ...(near ? { city } : cityQuery(city, cityPos)), from: from.toISOString(), to: to.toISOString(), limit: '50', ...(cat && { category: cat }) });
       if (near) {
@@ -214,15 +218,17 @@ export function useMapData() {
     }
   };
   // only rebuilt when the loaded activities change, so selecting a pin or closing the sheet never touches the map's markers
+  const clockNow = useClock(30_000);
   const pins = useMemo(() => {
-    const all = [...(feed.data?.items ?? []), ...(extraNow?.items ?? [])];
+    // an activity that has already started is not on the map (it leaves the minute it begins)
+    const all = [...(feed.data?.items ?? []), ...(extraNow?.items ?? [])].filter((a) => +new Date(a.startsAt) > clockNow);
     const seen = new Set<string>();
     return all.filter((a): a is Pin => a.lat != null && a.lng != null && !seen.has(a.id) && !!seen.add(a.id));
-  }, [feed.data, extraNow]);
+  }, [feed.data, extraNow, clockNow]);
   // Nothing on the map for today: tomorrow is shown by itself (once), instead of an empty map with a button to press
   useEffect(() => {
     if (searching || dayPick !== null || days !== FIRST_DAYS || autoNext.current || !feed.data || feed.error) return;
-    if (feed.data.items.length === 0) {
+    if (feed.data.items.filter((a) => +new Date(a.startsAt) > Date.now()).length === 0) {
       autoNext.current = true;
       setDays(FIRST_DAYS + 1);
     }
@@ -374,7 +380,7 @@ export function useMapData() {
     setDist(r.ok ? { status: 'done', me: { lat: r.lat, lng: r.lng } } : { status: r.reason });
   };
 
-  const nextDay = !searching && dayPick === null && days < MAX_DAYS ? new Date(new Date().setHours(0, 0, 0, 0) + days * 864e5) : null; // the day "Show the next day" would add (a search already covers the month)
+  const nextDay = !searching && !cat && dayPick === null && days < MAX_DAYS ? new Date(new Date().setHours(0, 0, 0, 0) + days * 864e5) : null; // the day "Show the next day" would add (a search already covers the month)
   /** What the map asked the server for, as parameters the results page can ask again (no paging in it). */
   const searchQuery = () => {
     const o = Object.fromEntries(new URLSearchParams(lastSearch.current));
@@ -637,6 +643,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const insets = useSafeAreaInsets();
   const dock = useDockSpace();
   const { height: screenH } = useWindowDimensions();
+  const { here: hereCats } = useCategories(); // HERE's own categories only (the trip categories are kept in CATS too, under there:…)
   const [filtersOpen, setFiltersOpen] = useState(false);
   const { city, setCity, cityCenter, cat, setCat, near, setNear, geoMsg, locating, locate, zoom, selected: selectedLive, activeId, feed, pins, dist, measure, days, dayPick, dayTo, setDayPick, setDayRange, nextDay, showNextDay, query, area, searching, hasMore, loadingMore, loadMore, pickPlace, searchWords, clearSearch, searchQuery } = data;
   // tapping the map empty lowers the card: its pin's activities stay on it while it slides down (swapping to the full list at once made it flash)
@@ -649,7 +656,12 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const selected = selectedLive ?? held;
   const nextLabel = nextDay ? nextDay.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) : '';
   // the button that adds a day: "Show tomorrow" while only today is loaded, then "Show Saturday, 14 Nov" and so on
-  const nextTitle = nextDay ? (days === 1 ? t('Show tomorrow') : t('Show {day}', { day: nextLabel })) : '';
+  // Show tomorrow adds just tomorrow; after that the button becomes "Select a date": a calendar opens and one single day is chosen
+  const [pickDateOpen, setPickDateOpen] = useState(false);
+  const dateStep = days >= 2 && !searching && !cat && dayPick === null; // tomorrow is already on the map: the next step is picking a date
+  const nextTitle = dateStep ? t('Select a date') : nextDay && days === 1 ? t('Show tomorrow') : '';
+  const nextPress = () => (dateStep ? setPickDateOpen(true) : showNextDay());
+  const showNext = dateStep || (!!nextDay && days === 1);
   const today0 = new Date(new Date().setHours(0, 0, 0, 0));
   const [calMonth, setCalMonth] = useState(today0); // the month the filter's calendar shows
   const [sheetH, setSheetH] = useState(0); // the bottom sheet's real height (grip, summary and list), so the buttons above it never sit on it
@@ -676,14 +688,14 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const SEARCH_FIRST = 5;
   const listRows = !selected && searching ? rows.slice(0, SEARCH_FIRST) : rows;
   const showAll = !selected && searching && (rows.length > SEARCH_FIRST || hasMore);
-  const ROW = 92; // one row and the gap under it
+  const ROW = sc(64) + sp(20) + 2 + sp(10); // one row (photo + padding + border) and the gap under it, in the scaled sizes the rows are drawn with: a fixed 92 clipped a lone row's bottom edge
   // Pulled up, the card rises over the map as far as the search bar (it is not a new page: the map stays where it was underneath,
   // and pulling the card down shows the very same map again). So the list is as tall as the room between the bar and the card's top part.
   const [baseH, setBaseH] = useState(96); // the sheet without its list: handle + summary
   const topBarBottom = statusTop(insets.top) + 8 + 58 + 12;
   const fullMax = Math.max(160, Math.round(screenH - topBarBottom - baseH - dock));
   // a tapped pin shows a short card of just its activities; the card pulled up (or tapped open) goes the whole way to the bar
-  const listMax = selected ? Math.min(fullMax, rows.length * ROW + 4) : fullMax;
+  const listMax = selected ? Math.min(fullMax, rows.length * ROW + sp(4) + 8) : fullMax;
 
   // 0 = just the summary, 1 = list showing. Driven by a finger (drag), a tap on the handle, or by tapping a pin.
   // The list always has its full height and the whole sheet slides (a transform), so the pull is drawn on the native
@@ -830,10 +842,10 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
             ) : feed.data && pins.length === 0 ? (
               <>
                 <Row style={{ justifyContent: 'space-between', gap: sp(10) }}>
-                  <Txt style={{ flex: 1 }}>{searching ? t('Nothing found in the next month. Try other words or another place.') : dayPick !== null ? t('No venues on the map for this day.') : days <= 1 ? t('No venues on the map for today.') : t('No venues on the map for these days yet.')}</Txt>
+                  <Txt style={{ flex: 1 }}>{searching ? t('Nothing found in the next month. Try other words or another place.') : dayPick !== null ? t('No venues on the map for this day.') : cat ? t('No venues match this filter.') : days <= 1 ? t('No venues on the map for today.') : t('No venues on the map for these days yet.')}</Txt>
                   {searching ? <Btn title={t('Clear')} small variant="secondary" onPress={clearSearch} /> : <Btn title={t('Create')} small onPress={() => go('/create')} />}
                 </Row>
-                {nextDay ? <Btn title={nextTitle} variant="secondary" onPress={showNextDay} /> : null}
+                {showNext ? <Btn title={nextTitle} variant="secondary" onPress={nextPress} /> : null}
               </>
             ) : (
               <Pressable accessibilityRole="button" accessibilityLabel={openAt.current > 0.5 ? t('Hide the list') : t('Show all activities')} onPress={() => settle(openAt.current > 0.5 ? 0 : 1)}>
@@ -874,11 +886,11 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
               <Reveal key={`${key}:${a.id}`} index={i}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={t('{title}, {when}, {n} spaces. Open activity', { title: a.title, when: when(a.startsAt), n: a.spotsLeft })}
+                  accessibilityLabel={t('{title}, {when}, {n} spaces. Open activity', { title: a.title, when: when(a.startsAt, a.timeZone), n: a.spotsLeft })}
                   onPress={() => go(`/activity/${a.id}`)}
                   style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(14), padding: sp(10), borderRadius: sc(26), borderWidth: 1, borderColor: activeId === a.id ? c.forest : c.line, backgroundColor: c.surface }, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
                 >
-                  <CatPhoto category={a.category} style={{ width: sc(64), height: sc(64), borderRadius: sc(18) }} />
+                  <CatPhoto category={a.category} age={a.ageGroup ?? 'all'} style={{ width: sc(64), height: sc(64), borderRadius: sc(18) }} />
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '600' }}>{a.title}</Text>
                     <Row style={{ gap: sp(6) }}>
@@ -887,23 +899,39 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
                       <Text style={{ color: '#2E7D32', fontSize: 12, lineHeight: 17, fontWeight: '500' }}>{t(CATS[a.category]?.label ?? a.category)}</Text>
                     </Row>
                     <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>
-                      {when(a.startsAt)} · {t('{going}/{capacity} going · {left} left', { going: a.going, capacity: a.capacity, left: a.spotsLeft })}{dist.me ? t(' · {km} away', { km: fmtKm(kmBetween(dist.me, { lat: a.lat, lng: a.lng })) }) : ''}
+                      {when(a.startsAt, a.timeZone)} · {t('{going}/{capacity} going · {left} left', { going: a.going, capacity: a.capacity, left: a.spotsLeft })}{dist.me ? t(' · {km} away', { km: fmtKm(kmBetween(dist.me, { lat: a.lat, lng: a.lng })) }) : ''}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={sc(18)} color={c.muted} />
                 </Pressable>
               </Reveal>
             ))}
-            {/* by day: today and tomorrow are loaded first; this brings in the next day's activities (and pins) */}
-            {!selected && nextDay ? <Btn title={nextTitle} variant="secondary" onPress={showNextDay} /> : null}
+            {/* by day: today and tomorrow are loaded first; this brings in the next day's activities (and pins). With no rows the empty-state above already has this button, so it is not drawn twice. */}
+            {!selected && showNext && listRows.length > 0 ? <Btn title={nextTitle} variant="secondary" onPress={nextPress} /> : null}
             {showAll ? <Btn title={t('Show all results')} variant="secondary" onPress={() => go(`/search-results?${new URLSearchParams(searchQuery()).toString()}`)} /> : null}
           </ScrollView>
         </Animated.View>
       </Animated.View>
 
+      {/* Select a date: a calendar, one single day */}
+      <Sheet visible={pickDateOpen} title={t('Select a date')} onClose={() => setPickDateOpen(false)}>
+        <MonthCalendar
+          month={calMonth}
+          onMonth={setCalMonth}
+          selected={new Date(0)}
+          min={today0}
+          max={new Date(today0.getTime() + 365 * 864e5)}
+          onPick={(d) => {
+            setDayPick(Math.round((new Date(d).setHours(0, 0, 0, 0) - today0.getTime()) / 864e5));
+            setPickDateOpen(false);
+          }}
+        />
+      </Sheet>
+
       {/* the filters open as a page of their own, the same sheet as THERE's: what kind of activity, and which day */}
       <ThereFilterSheet
         compact
+        heightRatio={0.78} // the same height as the home filter: room for the calendar (it was half the screen, which cramped it)
         visible={filtersOpen}
         onClose={closeFilters}
         footer={
@@ -924,7 +952,7 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
           <ThereLabel compact>{t('What kind of activity')}</ThereLabel>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
             <ThereChip compact label={t('All')} active={cat === ''} onPress={() => setCat('')} />
-            {Object.entries(CATS).map(([k, v]) => (
+            {hereCats.filter((k) => CATS[k]).map((k) => [k, CATS[k]] as const).map(([k, v]) => (
               <ThereChip compact key={k} label={t(v.label)} active={cat === k} onPress={() => setCat(k)} />
             ))}
           </View>

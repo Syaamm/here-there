@@ -46,6 +46,8 @@ export const createSchema = z.object({
   visibility: z.enum(['public', 'invite_only']).default('public'),
   // host_approval: the host decides on every request. instant: a verified person who asks while there is room is in at once.
   joinPolicy: z.enum(['host_approval', 'instant']).default('host_approval'),
+  // who the host has in mind: a label only, nobody is stopped from joining by it (no birth dates are kept)
+  ageGroup: z.enum(['all', '18-25', '25-35', '35+']).default('all'),
   language: z.string().max(20).optional(),
 });
 
@@ -232,6 +234,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
       status,
       visibility: a.visibility,
       joinPolicy: a.joinPolicy,
+      ageGroup: a.ageGroup,
       language: a.language,
       host: { id: a.host.id, displayName: a.host.profile?.displayName ?? 'Host', photoUrl: a.host.profile?.photoUrl ?? null, verifiedAdult: a.host.eligibility === 'verified', sample: isSampleEmail((a.host as { email?: string }).email) },
       ...extra,
@@ -654,6 +657,7 @@ export class ActivitiesService implements OnModuleInit, OnModuleDestroy {
           capacity: dto.capacity,
           visibility: dto.visibility,
           joinPolicy: dto.joinPolicy,
+          ageGroup: dto.ageGroup,
           language: dto.language,
           status: 'published',
         },

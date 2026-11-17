@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { can, get, post, roleLabel, type Role, type Session } from '../api';
 import './UserPanel.css';
 import { actionLabel, say, type E } from './Audit';
-import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad } from '../ui';
+import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, FilterBar, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad } from '../ui';
 
 type U = { adminRegionKey?: string | null; id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
 type Detail = {
@@ -142,7 +142,11 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, onShowReports
               Show everyone
             </button>
           </>
-        ) : (
+        ) : undefined
+      }
+    >
+      {!focusId && (
+        <FilterBar search={<Search label="Search people" placeholder="Name, email or ID" value={q} onChange={setQ} />}>
           <Segmented
             label="Show"
             value={view}
@@ -154,19 +158,13 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, onShowReports
               { id: 'notverified', label: 'Unverified' },
             ]}
           />
-        )
-      }
-    >
+        </FilterBar>
+      )}
       <ErrorBanner message={users.error ?? act.error} onRetry={users.reload} />
       {users.loading && !users.data && <Loading rows={6} />}
       {users.data && (
         <div className="split" data-pane={focusId ? 'detail' : pane}>
           <section className="split-list" aria-label="People">
-            {!focusId && (
-              <div className="split-tools">
-                <Search label="Search people" placeholder="Name, email or ID" value={q} onChange={setQ} />
-              </div>
-            )}
             <div className="list-scroll smooth-scroll" ref={listRef} onKeyDown={keys}>
               <ul className="items">
                 {shown.map((u) => (

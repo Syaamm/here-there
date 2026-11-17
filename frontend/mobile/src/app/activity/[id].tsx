@@ -17,15 +17,16 @@ import { del, get, post, type Activity } from '@/lib/api';
 import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
 import { useVerifyGate } from '@/lib/verifyGate';
-import { catColor, CATS } from '@/lib/constants';
+import { ageGroupLabel, catColor, CATS } from '@/lib/constants';
 import { confirmAsync } from '@/lib/confirm';
-import { dayWord, hhmm } from '@/lib/format';
+import { dayWord, hhmm, zoneTag } from '@/lib/format';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { t, tn, useT } from '@/lib/i18n';
 import { ReadMore } from '@/components/ReadMore';
-
+
+
 import { sc, sp } from '@/lib/scale';
 /** "Starts in 40 min", "Starts in 3 hrs", "Tomorrow", ... and how it ended once it is over. */
 function startsIn(a: Activity): { text: string; tone: 'info' | 'ok' | 'warn' | 'bad' | 'neutral' } {
@@ -38,7 +39,7 @@ function startsIn(a: Activity): { text: string; tone: 'info' | 'ok' | 'warn' | '
     const h = Math.round(m / 60);
     return { text: tn(h, 'Starts in {n} hr', 'Starts in {n} hrs'), tone: 'warn' };
   }
-  return { text: dayWord(a.startsAt), tone: 'warn' };
+  return { text: dayWord(a.startsAt, a.timeZone), tone: 'warn' };
 }
 
 /** HERE · Activity detail. The join button always reflects server-side state, never a client guess. */
@@ -116,8 +117,9 @@ export default function ActivityDetail() {
   ];
 
   // "Today, 01:05 PM – 03:05 PM" and how long it lasts
-  const day = dayWord(a.startsAt);
-  const timeText = `${day}, ${hhmm(a.startsAt)} – ${hhmm(a.endsAt)}`;
+  const day = dayWord(a.startsAt, a.timeZone);
+  const zoneNote = zoneTag(a.timeZone, a.startsAt); // "GMT+2" when the venue's clock differs from the phone's
+  const timeText = `${day}, ${hhmm(a.startsAt, a.timeZone)} – ${hhmm(a.endsAt, a.timeZone)}${zoneNote ? ` ${zoneNote}` : ''}`;
   const mins = Math.max(0, Math.round((+new Date(a.endsAt) - +new Date(a.startsAt)) / 60000));
   const length = mins >= 60 ? `${tn(Math.floor(mins / 60), '{n} hour', '{n} hours')}${mins % 60 ? ` ${t('{m} min', { m: mins % 60 })}` : ''}` : t('{m} min', { m: mins });
   // the map tab picks this activity's pin and zooms to its venue (it only exists in HERE, so flip there first)
@@ -232,6 +234,7 @@ export default function ActivityDetail() {
             trailing={<Ionicons name="map-outline" size={sc(18)} color={c.green} />}
           />
           <InfoRow icon="time-outline" title={timeText} sub={length} />
+          <InfoRow icon="people-outline" title={t(ageGroupLabel(a.ageGroup))} sub={t('Age group')} />
         </View>
 
         {over ? (

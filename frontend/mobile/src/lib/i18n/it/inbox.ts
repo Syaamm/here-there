@@ -222,7 +222,7 @@ export const inbox: Record<string, string> = {
   'Use these dates': 'Usa queste date',
   'Close poll': 'Chiudi sondaggio',
   'Using these dates asks every member to confirm them. Nobody is committed until they do.': 'Usando queste date, ogni membro dovrà confermarle. Nessuno è impegnato finché non lo fa.',
-  'Leave LAMIS?': 'Uscire da LAMIS?',
+  'Leave Lamis?': 'Uscire da Lamis?',
   "This opens {site} in your browser. We don't check outside websites. Never send money, deposits or ID documents to anyone you met through the app, and book travel only with suppliers you trust.": 'Si apre {site} nel browser. Non controlliamo i siti esterni. Non inviare mai denaro, caparre o documenti d\'identità a persone conosciute tramite l\'app e prenota viaggi solo con fornitori di cui ti fidi.',
   'Open link': 'Apri il link',
   'Opens a safety notice first': 'Prima mostra un avviso di sicurezza',

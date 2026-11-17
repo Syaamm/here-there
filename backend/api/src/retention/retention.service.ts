@@ -30,12 +30,18 @@ export const retention = () => ({
   reliability: days('RETENTION_RELIABILITY_DAYS', 730), // no-show notes and level history, counted from the plan's end / the change
 });
 
+/**
+ * Nothing is deleted by the clean-up (owner's decision): chats, plans, trips, alerts, reports, drafts, appeals, photos and codes all stay in
+ * the database. The periods below are kept so the clean-up can be switched back on by setting RETENTION_DELETE=true; until then it does nothing.
+ */
+export const deletionOn = () => process.env.RETENTION_DELETE === 'true';
+
 /** The same periods, in plain words, for the app. */
 export function retentionSchedule() {
   const r = retention();
   const d = (n: number) => (n % 365 === 0 ? `${n / 365} ${n === 365 ? 'year' : 'years'}` : n % 30 === 0 ? `${n / 30} months` : `${n} days`);
-  return [
-    { what: 'Group chat messages', kept: `${d(r.chat)} after the plan or trip ends`, why: 'So you can still look back at what was agreed. Messages that someone reported are kept until that report is closed and has aged out.' },
+  const items = [
+    { what: 'Group chat messages', kept: 'Kept, never deleted', why: 'So you can always look back at what was agreed.' },
     { what: 'Alerts', kept: `${d(r.alertsRead)} once read, ${d(r.alertsUnread)} if never read`, why: 'They are only there to tell you something happened.' },
     { what: 'Safety reports', kept: `${d(r.reports)} after they are closed (open ones are kept until they are dealt with)`, why: 'So moderators can see repeat problems and defend their decisions.' },
     { what: 'Records of actions on the platform (audit log)', kept: d(r.audit), why: 'Security and accountability. They hold ids and actions, not message text.' },
@@ -43,7 +49,7 @@ export function retentionSchedule() {
     { what: 'Warnings from moderators', kept: d(r.audit), why: 'So staff can see repeat problems and a warning can be reviewed if you ask.' },
     { what: 'Drafts (activities and trips you saved for later)', kept: `${d(r.drafts)} after you last changed them`, why: 'So you can finish them; they are private to you and never shown to anyone.' },
     { what: 'Travel matching (where and when you want to travel, and your yes or pass answers)', kept: `${d(r.matching)} after the last change, or as soon as your dates have passed`, why: 'Only used to suggest travelers to each other. You can switch it off any time.' },
-    { what: 'Messages in a private travel-match chat', kept: `${d(r.matching)} after they were sent`, why: 'So the two of you can look back while planning.' },
+    { what: 'Messages in a private travel-match chat', kept: 'Kept, never deleted', why: 'So the two of you can look back while planning.' },
     { what: 'Photos sent as proof (with an appeal or a dispute)', kept: `${d(r.proofs)} after the decision; a photo you added but never sent is removed after a day`, why: 'They can show other people\'s messages, so only you and the staff who handle your case can see them, and they do not stay.' },
     { what: 'Appeals', kept: `${d(r.appeals)} after the decision`, why: 'So staff can show how a decision was reviewed.' },
     { what: 'Reliability history', kept: d(r.reliability), why: 'Used to work out your level.' },
@@ -51,6 +57,8 @@ export function retentionSchedule() {
     { what: 'Plans and trips, and who joined them', kept: 'Kept as history (a deleted account is shown as "Deleted user")', why: 'Other people\'s plans and chats depend on them.' },
     { what: 'Your account details', kept: 'Until you delete your account; then they are erased straight away', why: 'You can download or delete them at any time under Settings, Your data.' },
   ];
+  // with deletion off nothing ages out: everything except the two lines that already say so is simply kept
+  return deletionOn() ? items : items.map((x) => (/account details|Plans and trips/.test(x.what) ? x : { ...x, kept: 'Kept, never deleted' }));
 }
 
 /** Deletes data that has outlived its period. Runs once a day, and can be run on demand (tests, support). */
@@ -70,17 +78,15 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {}
 
   async runOnce(now = new Date()) {
+    // switched off: nothing is deleted (see deletionOn)
+    if (!deletionOn()) {
+      return { messages: 0, alertsRead: 0, alertsUnread: 0, reports: 0, audit: 0, identityChecks: 0, codes: 0, attendanceNotes: 0, drafts: 0, warnings: 0, matching: 0, matchMessages: 0, appeals: 0, proofPhotos: 0, levelHistory: 0 };
+    }
     const r = retention();
     const ago = (n: number) => new Date(+now - n * DAY);
 
-    // chat: finished plans and trips, except messages a safety report still points at
-    const reported = (await this.prisma.report.findMany({ where: { targetType: 'message' }, select: { targetId: true } })).map((x) => x.targetId);
-    const messages = await this.prisma.message.deleteMany({
-      where: {
-        id: { notIn: reported },
-        conversation: { OR: [{ activity: { endsAt: { lt: ago(r.chat) } } }, { trip: { dateEnd: { lt: ago(r.chat) } } }] },
-      },
-    });
+    // Chat is never deleted (owner's decision): neither the messages of finished plans and trips, nor those of a private travel-match chat.
+    // Plans and trips are not deleted here either: they stay in the database as history.
     const alertsRead = await this.prisma.notification.deleteMany({ where: { readAt: { not: null, lt: ago(r.alertsRead) } } });
     const alertsUnread = await this.prisma.notification.deleteMany({ where: { readAt: null, createdAt: { lt: ago(r.alertsUnread) } } });
     const reports = await this.prisma.report.deleteMany({ where: { status: { in: ['resolved', 'dismissed'] }, resolvedAt: { lt: ago(r.reports) } } });
@@ -89,7 +95,6 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
     const levelHistory = await this.prisma.reliabilityChange.deleteMany({ where: { createdAt: { lt: ago(r.reliability) } } });
     const matchWishes = await this.prisma.travelMatchPref.deleteMany({ where: { OR: [{ updatedAt: { lt: ago(r.matching) } }, { dateEnd: { lt: new Date(+now - DAY) } }] } });
     const matchAnswers = await this.prisma.travelMatchChoice.deleteMany({ where: { createdAt: { lt: ago(r.matching) } } });
-    const matchMessages = await this.prisma.message.deleteMany({ where: { id: { notIn: reported }, conversation: { scopeType: 'match' }, createdAt: { lt: ago(r.matching) } } });
     const warnings = await this.prisma.userWarning.deleteMany({ where: { createdAt: { lt: ago(r.audit) } } });
     const drafts = await this.prisma.draft.deleteMany({ where: { updatedAt: { lt: ago(r.drafts) } } });
     const appeals = await this.prisma.appeal.deleteMany({ where: { state: { not: 'open' }, decidedAt: { lt: ago(r.appeals) } } });
@@ -112,7 +117,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       checks = (await this.prisma.verificationCheck.deleteMany({ where: { id: { in: doomed } } })).count;
     }
 
-    const counts = { messages: messages.count, alertsRead: alertsRead.count, alertsUnread: alertsUnread.count, reports: reports.count, audit: audit.count, identityChecks: checks, codes: codes.count, attendanceNotes: marks.count, drafts: drafts.count, warnings: warnings.count, matching: matchWishes.count + matchAnswers.count, matchMessages: matchMessages.count, appeals: appeals.count, proofPhotos: proofs.count, levelHistory: levelHistory.count };
+    const counts = { messages: 0, alertsRead: alertsRead.count, alertsUnread: alertsUnread.count, reports: reports.count, audit: audit.count, identityChecks: checks, codes: codes.count, attendanceNotes: marks.count, drafts: drafts.count, warnings: warnings.count, matching: matchWishes.count + matchAnswers.count, matchMessages: 0, appeals: appeals.count, proofPhotos: proofs.count, levelHistory: levelHistory.count };
     if (Object.values(counts).some((n) => n > 0)) await this.audit.log(null, 'retention.purged', 'system', 'retention', counts);
     return counts;
   }

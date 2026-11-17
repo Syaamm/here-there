@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, type Ref } from 'react';
 import { Platform, StyleSheet, Text as RNText, TextInput as RNTextInput, type TextInputProps, type TextProps } from 'react-native';
-import { interFamily } from '@/lib/fonts';
+import { interFamily, satoshiFamily } from '@/lib/fonts';
 import { notifyInputFocus } from '@/lib/keyboard';
 import { scaleText, useTextScale } from '@/lib/scale';
 
@@ -40,7 +40,7 @@ function withFont(style: TextProps['style'], nested: boolean): TextProps['style'
   const flat = StyleSheet.flatten(style) ?? {};
   if (flat.fontFamily) return style;
   if (nested && flat.fontWeight == null) return style; // inherits the parent's font file
-  const fontFamily = interFamily(flat.fontWeight);
+  const fontFamily = satoshiFamily(flat.fontWeight, typeof flat.fontSize === 'number' ? flat.fontSize : undefined) ?? interFamily(flat.fontWeight);
   // the weight is in the file itself: asking for bold on top would make the phone thicken it again
   return fontFamily ? [style, { fontFamily, fontWeight: 'normal' }] : style;
 }

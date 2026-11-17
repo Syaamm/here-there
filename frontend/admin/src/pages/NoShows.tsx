@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Chip, Empty, ErrorBanner, fmt, Loading, Page, PageBar, ProofImages, Segmented, useAction, useLoad, type Tone } from '../ui';
+import { askText, Chip, Empty, ErrorBanner, FilterBar, fmt, Loading, Page, PageBar, ProofImages, Search, Segmented, useAction, useLoad, type Tone } from '../ui';
 import './NoShows.css';
 
 type Person = { id: string; email: string; displayName: string };
@@ -40,9 +40,15 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { week
 /** Missed attendance: a host said a member did not attend. Disputed ones wait here for a decision. */
 export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: string, from?: string) => void }) {
   const [view, setView] = useState<View>('marked');
+  const [q, setQ] = useState('');
+  const [term, setTerm] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
   const [pageNo, setPageNo] = useState(1);
-  useEffect(() => setPageNo(1), [view]);
-  const { data, error, loading, reload } = useLoad(() => get<{ items: Note[]; page?: number; pages?: number; total?: number }>(`/v1/admin/no-shows?limit=20&page=${pageNo}&state=${view}`), [view, pageNo], 10000);
+  useEffect(() => setPageNo(1), [view, term]);
+  const { data, error, loading, reload } = useLoad(() => get<{ items: Note[]; page?: number; pages?: number; total?: number }>(`/v1/admin/no-shows?limit=20&page=${pageNo}&state=${view}${term ? `&q=${encodeURIComponent(term)}` : ''}`), [view, pageNo, term], 10000);
   // older records come a page at a time ("Load more"), not only the first 50
   // always on: only hosts who mark unusually many people absent (half or more of their guests, or marks that keep being overturned)
   const [hostsOpen, setHostsOpen] = useState(false);
@@ -67,7 +73,10 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
     );
 
   return (
-    <Page fill title="Attendance" actions={<Segmented label="Which records" value={view} onChange={setView} options={VIEWS.map((v) => ({ id: v.id, label: v.label }))} />}>
+    <Page fill title="Attendance">
+      <FilterBar search={<Search label="Search attendance records" onEnter={() => setTerm(q.trim())} placeholder="Search a person or plan" value={q} onChange={setQ} />}>
+        <Segmented label="Which records" value={view} onChange={setView} options={VIEWS.map((v) => ({ id: v.id, label: v.label }))} />
+      </FilterBar>
       <ErrorBanner message={error ?? act.error} />
       {loading && !data && <Loading rows={5} />}
       <details className="ns-hosts-box" open={hostsOpen} onToggle={(e) => setHostsOpen((e.target as HTMLDetailsElement).open)}>
@@ -100,7 +109,7 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
             <h2>{`People who did not come · ${VIEWS.find((v) => v.id === view)?.label}`}</h2>
             <span>{items.length}</span>
           </header>
-          {data && items.length === 0 && <Empty>{{ disputed: 'Nobody has disagreed.', marked: 'Nothing waiting.', upheld: 'Nothing confirmed yet.', overturned: 'Nothing removed yet.' }[view]}</Empty>}
+          {data && items.length === 0 && <Empty>{term ? `No records match “${term}”.` : { disputed: 'Nobody has disagreed.', marked: 'Nothing waiting.', upheld: 'Nothing confirmed yet.', overturned: 'Nothing removed yet.' }[view]}</Empty>}
           {items.map((n) => {
             const st = STATE[n.state] ?? { label: n.state, tone: 'plain' as Tone, dot: '' };
             const d = new Date(n.plan?.at ?? n.markedAt);

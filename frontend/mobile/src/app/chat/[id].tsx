@@ -29,7 +29,7 @@ import { useEnterMode, useTheme } from '@/lib/theme';
 import { ScaleScope, useSmallPhoneShrink, sc, sp, sph } from '@/lib/scale';
 
 type PollInfo = { id: string; title: string; dateStart: string | null; dateEnd: string | null; state: 'open' | 'adopted' | 'closed'; accept: number; reject: number; myVote: 'accept' | 'reject' | null };
-type Msg = { id: string; body: string; kind?: 'text' | 'poll' | 'system'; poll?: PollInfo | null; createdAt: string; sender: { id: string; displayName: string; photoUrl?: string | null } };
+type Msg = { id: string; body: string; kind?: 'text' | 'poll' | 'system'; poll?: PollInfo | null; createdAt: string; sender: { id: string; displayName: string; photoUrl?: string | null; /** blocked with you: shown only as "Blocked user" */ blocked?: boolean } };
 
 const hostOf = (url: string) => {
   try {
@@ -40,7 +40,7 @@ const hostOf = (url: string) => {
 };
 
 /** A date poll in the chat: everyone answers accept or reject; the organizer can turn the dates into the trip's final dates. */
-function PollCard({ m, amHost, busy, voting, error, datesLocked, onVote, onClose }: { m: Msg; amHost: boolean; busy: boolean; voting: boolean; error: string | null; datesLocked: string | null; onVote: (v: 'accept' | 'reject') => void; onClose: (adopt: boolean) => void }) {
+function PollCard({ m, amHost, busy, voting, error, datesLocked, current, onVote, onClose }: { m: Msg; /** the trip's dates right now, to compare with the proposed ones */ current?: { start: string; end: string } | null; amHost: boolean; busy: boolean; voting: boolean; error: string | null; datesLocked: string | null; onVote: (v: 'accept' | 'reject') => void; onClose: (adopt: boolean) => void }) {
   const { t } = useT();
   const { c } = useTheme();
   const p = m.poll;
@@ -55,8 +55,8 @@ function PollCard({ m, amHost, busy, voting, error, datesLocked, onVote, onClose
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={t('{label}. {n} so far', { label, n: v === 'accept' ? p.accept : p.reject })}
-        accessibilityState={{ selected: on, disabled: !open || busy || voting }}
-        disabled={!open || busy || voting}
+        accessibilityState={{ selected: on, disabled: !open || busy || voting || !!p.myVote }}
+        disabled={!open || busy || voting || !!p.myVote} // an answer is recorded once and is final
         onPress={() => onVote(v)}
         hitSlop={{ top: 3, bottom: 3 }}
         style={({ pressed }) => [{ flex: 1, height: sc(38), borderRadius: sc(999), borderWidth: 1.5, borderColor: on ? c.forest : c.line, backgroundColor: on ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(6), opacity: open ? 1 : 0.6 }, pressed && { opacity: 0.85 }]}
@@ -74,14 +74,27 @@ function PollCard({ m, amHost, busy, voting, error, datesLocked, onVote, onClose
       </View>
       <Text style={{ color: c.text, fontWeight: '800', fontSize: 16, lineHeight: 21 }}>{p.title}</Text>
       {p.dateStart && p.dateEnd ? (
-        <View style={{ alignSelf: 'flex-start', backgroundColor: c.accentSoft, borderRadius: sc(999), paddingHorizontal: sph(10), paddingVertical: sp(4) }}>
-          <Text style={{ color: c.forest, fontWeight: '700', fontSize: 12 }}>{dateSpan(p.dateStart, p.dateEnd)}</Text>
+        <View style={{ gap: sp(6) }}>
+          {/* the change at a glance: the trip's dates now, and the dates being voted on */}
+          {open && current ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(8) }}>
+              <Text style={{ color: c.muted, fontSize: 12, width: sc(64) }}>{t('Now')}</Text>
+              <Text style={{ color: c.muted, fontWeight: '500', fontSize: 12, textDecorationLine: 'line-through' }}>{dateSpan(current.start, current.end)}</Text>
+            </View>
+          ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(8) }}>
+            <Text style={{ color: c.muted, fontSize: 12, width: sc(64) }}>{p.state === 'adopted' ? t('New dates') : t('Proposed')}</Text>
+            <View style={{ backgroundColor: c.accentSoft, borderRadius: sc(999), paddingHorizontal: sph(10), paddingVertical: sp(4) }}>
+              <Text style={{ color: c.forest, fontWeight: '700', fontSize: 12 }}>{dateSpan(p.dateStart, p.dateEnd)}</Text>
+            </View>
+          </View>
         </View>
       ) : null}
       <View style={{ flexDirection: 'row', gap: sp(8) }}>
         {choice('accept', t('Accept'), 'checkmark')}
         {choice('reject', t('Reject'), 'close')}
       </View>
+      {p.myVote ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{p.myVote === 'accept' ? t('You accepted. Your answer is recorded and cannot be changed.') : t('You rejected. Your answer is recorded and cannot be changed.')}</Text> : null}
       {amHost && open ? (
         <View style={{ flexDirection: 'row', gap: sp(8) }}>
           {p.dateStart && p.dateEnd && !why ? <Btn title={t('Use these dates')} small onPress={() => onClose(true)} loading={busy} style={{ flex: 1 }} /> : null}
@@ -98,7 +111,7 @@ function PollCard({ m, amHost, busy, voting, error, datesLocked, onVote, onClose
 /** Opens an outside address, after a safety notice. */
 async function openLink(url: string) {
   const full = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-  if (await confirmAsync(t('Leave LAMIS?'), t("This opens {site} in your browser. We don't check outside websites. Never send money, deposits or ID documents to anyone you met through the app, and book travel only with suppliers you trust.", { site: hostOf(full) }), t('Open link'))) void Linking.openURL(full);
+  if (await confirmAsync(t('Leave Lamis?'), t("This opens {site} in your browser. We don't check outside websites. Never send money, deposits or ID documents to anyone you met through the app, and book travel only with suppliers you trust.", { site: hostOf(full) }), t('Open link'))) void Linking.openURL(full);
 }
 
 /** A message's text, with any web address in it pressable (it shows the safety notice before it opens). */
@@ -150,7 +163,7 @@ const Bubble = memo(
       <View style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: z < 1 ? '90%' : '86%', marginTop: showName || newDay ? sp(8) : 0, gap: sp(6) }}>
         {/* who wrote it: face and name above the bubble, once per run of messages (tap for their profile) */}
         {showName && (
-          <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => go(`/user/${m.sender.id}`)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), minHeight: sc(36) }}>
+          <Pressable accessibilityRole="link" accessibilityLabel={t("View {name}'s profile", { name: m.sender.displayName })} onPress={() => (m.sender.blocked ? undefined : go(`/user/${m.sender.id}`))} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), minHeight: sc(36) }}>
             <Avatar name={m.sender.displayName} uri={m.sender.photoUrl} size={34} />
             <Text numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontWeight: '500', fontSize: 16, lineHeight: 21 }}>{m.sender.displayName}</Text>
           </Pressable>
@@ -353,11 +366,25 @@ function Chat({ id }: { id: string }) {
       setPollPick(null);
     } else {
       setPollFrom(isoDay(d));
-      if (pTo && pTo < d) setPollTo(''); // a To before the new From no longer fits
+      // the To date is kept as it was, even when it now falls before the new From: the organizer is asked to pick a new To (below)
       setPollPick('to'); // next: until when
       setPollMonth(d);
     }
   };
+  // opening the poll starts from the trip's current dates (From and To already filled in); the organizer changes them one after the other
+  const openPoll = () => {
+    if (!pollFrom && !pollTo && conv?.scope === 'trip') {
+      const from = conv.startsAt.slice(0, 10);
+      const to = conv.endsAt.slice(0, 10);
+      if (parseDay(from) && parseDay(from)! >= tomorrow) {
+        setPollFrom(from);
+        setPollTo(to);
+        setPollMonth(parseDay(from)!);
+      }
+    }
+    setAdding('poll');
+  };
+  const badRange = !!pFrom && !!pTo && pTo < pFrom; // From moved past To: To is kept, but must be changed before posting
   const pollErr = null as string | null;
   const createPoll = async () => {
     const r = await plan.run(() => post(`/v1/conversations/${id}/polls`, { title: pollTitle.trim(), ...(pFrom && { dateStart: pFrom.toISOString(), dateEnd: (pTo ?? pFrom).toISOString() }) }));
@@ -380,12 +407,14 @@ function Chat({ id }: { id: string }) {
       await fn();
       void msgs.reload();
       void trip.reload();
+      void info.reload(); // the group's card and title row show the trip's dates: they move when the dates were just changed
     } catch (e) {
       if (isOutage(e)) showToast(t('Something went wrong. Please try again after some time.'), 'warn', 5000);
       else {
         setPollError({ id: pollId, message: errMsg(e) });
         void msgs.reload(); // the poll may have changed under us (closed, or its dates passed): show it as it is now
         void trip.reload();
+        void info.reload();
       }
     } finally {
       setVoting(null);
@@ -744,7 +773,7 @@ function Chat({ id }: { id: string }) {
             return (
               <Appear id={m.id} animate={loaded.current} gate={earlierBatch} style={{ gap: sc(3) }}>
                 {day}
-                <PollCard m={m} amHost={amHost} busy={!!m.poll && pollBusy === m.poll.id} voting={!!m.poll && voting === m.poll.id} error={m.poll && pollError?.id === m.poll.id ? pollError.message : null} datesLocked={datesLocked} onVote={(v) => void vote(m.poll!.id, v)} onClose={(adopt) => void closePoll(m.poll!.id, adopt)} />
+                <PollCard m={m} amHost={amHost} busy={!!m.poll && pollBusy === m.poll.id} voting={!!m.poll && voting === m.poll.id} error={m.poll && pollError?.id === m.poll.id ? pollError.message : null} datesLocked={datesLocked} current={conv && conv.scope === 'trip' ? { start: conv.startsAt, end: conv.endsAt } : null} onVote={(v) => void vote(m.poll!.id, v)} onClose={(adopt) => void closePoll(m.poll!.id, adopt)} />
               </Appear>
             );
           return (
@@ -766,7 +795,7 @@ function Chat({ id }: { id: string }) {
       ) : (
         <View style={{ flexDirection: 'row', gap: Math.round(12 * z), alignItems: 'flex-end', paddingHorizontal: Math.round(16 * z), paddingTop: sp(6), paddingBottom: bottomGap + 8 }}>
           {amHost && conv?.scope === 'trip' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={() => setAdding('poll')} style={({ pressed }) => [{ width: Math.max(40, Math.round(44 * z)), height: Math.max(40, Math.round(44 * z)), marginBottom: sp(4), borderRadius: sc(22), borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={openPoll} style={({ pressed }) => [{ width: Math.max(40, Math.round(44 * z)), height: Math.max(40, Math.round(44 * z)), marginBottom: sp(4), borderRadius: sc(22), borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
               <Ionicons name="add" size={sc(22)} color={c.forest} />
             </Pressable>
           ) : null}
@@ -822,7 +851,7 @@ function Chat({ id }: { id: string }) {
               accessibilityState={{ disabled: locked, selected: pollPick === k }}
               disabled={locked}
               onPress={() => openPick(k)}
-              style={{ flex: 1, minHeight: sc(56), borderRadius: sc(16), borderWidth: 1.5, borderColor: pollPick === k ? c.forest : c.line, backgroundColor: c.surface, paddingHorizontal: sph(14), paddingVertical: sp(8), justifyContent: 'center', opacity: locked ? 0.5 : 1 }}
+              style={{ flex: 1, minHeight: sc(56), borderRadius: sc(16), borderWidth: 1.5, borderColor: pollPick === k ? c.forest : k === 'to' && badRange ? c.danger : c.line, backgroundColor: c.surface, paddingHorizontal: sph(14), paddingVertical: sp(8), justifyContent: 'center', opacity: locked ? 0.5 : 1 }}
             >
               <Text style={{ color: c.muted, fontSize: 12 }}>{label}</Text>
               <Text style={{ color: c.text, fontSize: 16, fontWeight: '700' }}>{d ? shortDay(d) : t('Select date')}</Text>
@@ -833,14 +862,15 @@ function Chat({ id }: { id: string }) {
           <MonthCalendar month={pollMonth} onMonth={setPollMonth} range={{ from: pFrom, to: pTo }} selected={(pollPick === 'to' ? pTo : pFrom) ?? new Date(0)} min={pollPick === 'to' && pFrom ? pFrom : tomorrow} max={lastPlanningDay(12)} onPick={pickDay} marks={planMarks} />
         ) : null}
         {pFrom ? <Btn title={t('Clear the dates')} variant="ghost" small onPress={() => { setPollFrom(''); setPollTo(''); setPollPick(null); }} /> : null}
+        {badRange ? <Text accessibilityRole="alert" style={{ color: c.danger, fontSize: 12, lineHeight: 17, fontWeight: '600' }}>{t('The To date is before the From date. Pick a new To date.')}</Text> : null}
         <ErrorBanner message={plan.error} />
-        <Btn title={t('Post poll')} onPress={createPoll} loading={plan.busy} disabled={pollTitle.trim().length < 3 || !!pollErr} />
+        <Btn title={t('Post poll')} onPress={createPoll} loading={plan.busy} disabled={pollTitle.trim().length < 3 || !!pollErr || badRange} />
       </Sheet>
       <Sheet visible={!!picked} title={picked ? t('Message from {name}', { name: picked.sender.displayName }) : ''} onClose={() => setPicked(null)}>
         <Txt variant="muted" numberOfLines={3}>{picked?.body}</Txt>
-        <Btn title={t('View profile')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); go(`/user/${m.sender.id}`); }} />
+        {picked?.sender.blocked ? null : <Btn title={t('View profile')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); go(`/user/${m.sender.id}`); }} />}
         <Btn title={t('Report message')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); setReportMsg({ id: m.id }); }} />
-        <Btn title={t('Block {name}', { name: picked?.sender.displayName ?? '' })} variant="danger" onPress={() => { const m = picked!; setPicked(null); void block(m); }} />
+        {picked?.sender.blocked ? null : <Btn title={t('Block {name}', { name: picked?.sender.displayName ?? '' })} variant="danger" onPress={() => { const m = picked!; setPicked(null); void block(m); }} />}
       </Sheet>
     </Animated.View>
     </View>

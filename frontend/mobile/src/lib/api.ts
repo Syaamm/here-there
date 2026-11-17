@@ -411,6 +411,8 @@ export type Activity = {
   lng: number | null;
   startsAt: string;
   endsAt: string;
+  /** the venue's own IANA time zone: its times are written in it wherever the phone is */
+  timeZone?: string;
   capacity: number;
   going: number;
   spotsLeft: number;
@@ -418,6 +420,8 @@ export type Activity = {
   visibility: string;
   /** instant: whoever asks while there is room is in at once; host_approval: the host decides on each request */
   joinPolicy?: 'host_approval' | 'instant';
+  /** the host's age-group label (all | 18-25 | 25-35 | 35+); informational only */
+  ageGroup?: string;
   host: HostInfo;
   distanceKm?: number;
   /** the host's reliability level, shown to verified members on the activity page */
@@ -477,6 +481,8 @@ export type Trip = {
   description: string | null;
   minCapacity: number;
   maxCapacity: number;
+  /** the organizer's age-group label (all | 18-25 | 25-35 | 35+); informational only */
+  ageGroup?: string;
   members: number;
   spotsLeft: number;
   status: string;
@@ -522,7 +528,7 @@ export type GroupInfo = {
   endsAt: string;
   place: string;
   capacity: number;
-  members: { id: string; displayName: string; photoUrl: string | null; verifiedAdult: boolean; role: 'host' | 'member'; isMe: boolean }[];
+  members: { id: string; displayName: string; photoUrl: string | null; verifiedAdult: boolean; role: 'host' | 'member'; isMe: boolean; /** blocked with you: shown only as "Blocked user" */ blocked?: boolean }[];
 };
 
 export type ConversationRef = { conversationId: string; scope: 'activity' | 'trip' | 'match'; scopeId: string; title: string; category?: string | null; startsAt?: string; endsAt?: string; /** the time the server orders and pages the list by: the newest message, or when the chat was made if nobody has written yet */ lastMessageAt?: string; /** the newest message: who wrote it ("You" for yours), the first 140 characters and when */ lastMessage?: { body: string; at: string; from: string | null } | null };

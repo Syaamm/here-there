@@ -7,6 +7,7 @@ import { type Trip } from '@/lib/api';
 import { useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
+import { useLiveEvents } from '@/lib/live';
 import { SOON_DAYS } from '@/features/ExploreThere';
 
 import { sc, sp } from '@/lib/scale';
@@ -32,6 +33,10 @@ export default function AllTrips() {
     ...(Number.isFinite(group.to) ? { startTo: new Date(now + group.to * DAY).toISOString() } : {}),
   };
   const list = useCursorList<Trip>('/v1/trips', params, `trips:all:${section ?? 'soon'}:${style ?? ''}`);
+  // a trip changed somewhere (its dates, members): the list is asked again at once
+  useLiveEvents((e) => {
+    if (e.type === 'feed-changed' || e.type === 'group-changed') void list.reload();
+  });
   const { refreshing, onRefresh } = useRefresh(list.reload);
 
   return (

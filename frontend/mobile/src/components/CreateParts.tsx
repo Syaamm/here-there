@@ -146,7 +146,7 @@ export function SmallPill({ label, spoken, active, onPress, compact }: { label: 
       onPress={onPress}
       style={({ pressed: p }) => [{ minHeight: compact ? sc(34) : sc(40), paddingHorizontal: compact ? sph(10) : sph(18), borderRadius: compact ? sc(28) : sc(32), ...(compact ? { flexShrink: 1 } : null), borderWidth: 1.2, borderColor: active ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: active ? c.forest : c.surface, alignItems: 'center', justifyContent: 'center' }, pressed(p)]}
     >
-      <Text numberOfLines={1} style={{ color: active ? '#fff' : c.forest, fontSize: compact ? 12 : 16, fontWeight: active ? '600' : '400' }}>{label}</Text>
+      <Text numberOfLines={1} style={{ color: active ? '#fff' : c.forest, fontSize: compact ? 12 : 16, fontWeight: '500' /* the same weight picked or not: a bolder picked label is wider, so the pills beside it would shift (and wrap) on every tap */ }}>{label}</Text>
     </Pressable>
   );
 }

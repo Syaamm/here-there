@@ -12,6 +12,9 @@ import type { TextStyle } from 'react-native';
  * weights use Regular; heavier ones (800, 900) use Bold, so no heading is heavier than the design. Only these four files are in the app.
  */
 const FILES = {
+  Satoshi_400Regular: require('../../assets/fonts/Satoshi-Regular.ttf'),
+  Satoshi_500Medium: require('../../assets/fonts/Satoshi-Medium.ttf'),
+  Satoshi_700Bold: require('../../assets/fonts/Satoshi-Bold.ttf'),
   Inter_400Regular,
   Inter_500Medium,
   Inter_600SemiBold,
@@ -42,4 +45,19 @@ export function interFamily(weight: TextStyle['fontWeight']): string | undefined
 export function fontOf(weight: TextStyle['fontWeight']): TextStyle {
   const fontFamily = interFamily(weight);
   return fontFamily ? { fontFamily, fontWeight: 'normal' } : { fontWeight: weight };
+}
+
+/**
+ * Satoshi for headlines, brand and UI (bold / large text); Inter stays for body, interface and long text.
+ * Set USE_SATOSHI to false to go straight back to Inter everywhere (or restore backup/satoshi-v1).
+ */
+export const USE_SATOSHI = true;
+
+/** The Satoshi file for a text, or undefined when Inter should be used. Headline = weight 600+ or size 20+. */
+export function satoshiFamily(weight: TextStyle['fontWeight'], size?: number): string | undefined {
+  if (!USE_SATOSHI || !interReady) return undefined;
+  const w = weight === 'bold' ? 700 : weight == null || weight === 'normal' ? 400 : Number(weight) || 400;
+  if (w < 600 && !(size != null && size >= 20)) return undefined;
+  if (w >= 600) return 'Satoshi_700Bold';
+  return w >= 500 ? 'Satoshi_500Medium' : 'Satoshi_400Regular';
 }
