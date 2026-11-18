@@ -192,7 +192,7 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
       </>}
       {p.languages.length > 0 && <Txt variant="small">{t('Languages: {list}', { list: p.languages.map((l) => t(l)).join(', ') })}</Txt>}
 
-      <PillRow>
+      <PillRow fit>
         <Pill label={t('My activities')} active={tab === 'activities'} onPress={() => setTab('activities')} />
         <Pill label={t('My trips')} active={tab === 'trips'} onPress={() => setTab('trips')} />
         <Pill label={t('Favourites')} active={tab === 'favourites'} onPress={() => setTab('favourites')} />

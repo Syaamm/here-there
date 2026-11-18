@@ -17,7 +17,8 @@ import { del, get, post, type Me } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction, useLoad } from '@/lib/hooks';
 import { localeTag, useT } from '@/lib/i18n';
-
+
+
 import { sc, sp } from '@/lib/scale';
 type Eligibility = Me['eligibility'];
 type Status = {
@@ -167,13 +168,13 @@ export default function Verify() {
     <AcctScreen title={t('Get verified')}>
       {/* the picture that opens the page: a verified profile on a phone. Drawn from the designer's vector file at 4x (876 x 852), so it
           stays sharp on every screen; the old 392 px picture was stretched to about twice its size */}
-      <Image source={require('../../assets/illustrations/verified.webp')} contentFit="contain" accessibilityElementsHidden importantForAccessibility="no" style={{ width: '100%', height: sc(250), marginTop: sp(4), marginBottom: sp(8) }} />
+      <Image source={require('../../assets/illustrations/verified.webp')} contentFit="contain" accessibilityElementsHidden importantForAccessibility="no" style={{ width: '100%', height: sc(190), marginTop: sp(4), marginBottom: sp(4) }} />
 
-      <AcctCard style={{ gap: sp(6), paddingVertical: sp(18) }}>
+      <AcctCard style={{ gap: sp(4), paddingVertical: sp(14) }}>
         {statusRows.map(([icon, label, tag, tone]) => (
-          <View key={icon} accessible accessibilityLabel={`${label}: ${tag}`} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(16), minHeight: sc(52) }}>
-            <Ionicons name={icon} size={sc(28)} color={c.text} />
-            <Text style={{ flex: 1, color: c.text, fontSize: 20, opacity: 0.85 }}>{label}</Text>
+          <View key={icon} accessible accessibilityLabel={`${label}: ${tag}`} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(14), minHeight: sc(44) }}>
+            <Ionicons name={icon} size={sc(22)} color={c.text} />
+            <Text style={{ flex: 1, color: c.text, fontSize: 16, lineHeight: 21, opacity: 0.85 }}>{label}</Text>
             <StatusTag label={tag} tone={tone} />
           </View>
         ))}

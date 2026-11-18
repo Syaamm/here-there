@@ -2,7 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { tap } from './haptics';
 import { usePathname } from 'expo-router';
 import { createContext, memo, useContext, useEffect, useRef, useSyncExternalStore } from 'react';
-import { Animated, Easing, Pressable, View } from 'react-native';
+import { Animated, Easing, Platform, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '@/lib/layout';
 import { scBase, sc } from '@/lib/scale';
@@ -117,6 +117,8 @@ export function useAnim(initial: number) {
 }
 
 const SHADOW = '#0B2620';
+/** The lighter dock motion (no squash, jump or springs) is for Android; the iPhone dock keeps its full animation. */
+const ANDROID = Platform.OS === 'android';
 
 /**
  * The tab bar's backdrop (phones): a soft fade so page content melts out behind the dock, and the white pill.
@@ -193,7 +195,9 @@ export const DockButton = memo(function DockButton(props: any) {
   const animateTo = (open: boolean) => {
     if (target.current === open) return;
     target.current = open;
-    Animated.spring(drop, { toValue: open ? 1 : 0, friction: open ? 8 : 12, tension: open ? 320 : 300, useNativeDriver: true }).start();
+    // Android: one short fade-in, no spring (a spring's wobbling tail looked stuck half-way while the next page was being built)
+    if (ANDROID) Animated.timing(drop, { toValue: open ? 1 : 0, duration: 150, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    else Animated.spring(drop, { toValue: open ? 1 : 0, friction: open ? 8 : 12, tension: open ? 320 : 300, useNativeDriver: true }).start();
     fill.setValue(open ? 1 : 0); // the icon is simply solid or outline: no filling-up motion
   };
   // keeps up with changes that did not start from a tap on this dock (back button, links)
@@ -215,19 +219,36 @@ export const DockButton = memo(function DockButton(props: any) {
   selectedNow.current = selected;
   const squash = useAnim(1); // vertical scale: below 1 squashed
   const lift = useAnim(0); // 1 at the top of the little jump, 0 on the ground
+  const tapT = useAnim(0); // Android: the time of the one squash-and-jump animation, 0 to 1
+  // Android keyframes over tapT: squash to 0.88 by 22% (60 ms), back to full by 55%; the jump rises 3 pt from 30% to 55% and is down again by 90%
+  const squashY = ANDROID ? tapT.interpolate({ inputRange: [0, 0.22, 0.55, 1], outputRange: [1, 0.88, 1, 1] }) : squash;
+  const liftY = ANDROID ? tapT.interpolate({ inputRange: [0, 0.3, 0.55, 0.9, 1], outputRange: [0, 0, -3, 0, 0] }) : lift.interpolate({ inputRange: [0, 1], outputRange: [0, -3] });
   const down = () => {
     tap('Light'); // a small tap under the finger, like the Create button
-    squash.stopAnimation();
-    lift.stopAnimation();
-    Animated.timing(squash, { toValue: 0.88, duration: 60, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+    if (ANDROID) {
+      // Android: the squash AND the jump are ONE native animation (tapT 0 -> 1 in 280 ms; the keyframes are in the render below),
+      // started here, from the touch. Nothing in it waits for the release event or for another step to end, so it cannot be left
+      // half-way while the JS thread is busy building the next page: it always plays to its end.
+      tapT.stopAnimation();
+      tapT.setValue(0);
+      Animated.timing(tapT, { toValue: 1, duration: 280, easing: Easing.linear, useNativeDriver: true }).start();
+    } else {
+      squash.stopAnimation();
+      lift.stopAnimation();
+      Animated.timing(squash, { toValue: 0.88, duration: 60, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+    }
     // the tab looks open the moment the finger lands (the page itself follows on release)
     animateTo(true);
     pressListeners.forEach((l) => l(me));
   };
   const up = () => {
-    Animated.spring(squash, { toValue: 1, friction: 12, tension: 420, useNativeDriver: true }).start();
-    lift.setValue(1); // starts at the top and falls back in one spring
-    Animated.spring(lift, { toValue: 0, friction: 14, tension: 420, useNativeDriver: true }).start();
+    if (ANDROID) {
+      // nothing to do: the whole squash-and-jump already runs by itself from the touch (see down)
+    } else {
+      Animated.spring(squash, { toValue: 1, friction: 12, tension: 420, useNativeDriver: true }).start();
+      lift.setValue(1); // starts at the top and falls back in one spring
+      Animated.spring(lift, { toValue: 0, friction: 14, tension: 420, useNativeDriver: true }).start();
+    }
     // a touch that slid off without choosing the tab: the dock goes back to what is really open
     setTimeout(() => animateTo(selectedNow.current), 600);
   };
@@ -266,7 +287,7 @@ export const DockButton = memo(function DockButton(props: any) {
         </Animated.View>
       ) : null}
       
-      <Animated.View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transformOrigin: 'center bottom', transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }, { scaleY: squash }] }}><DockFillContext.Provider value={fill}>{children}</DockFillContext.Provider></Animated.View>
+      <Animated.View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', transformOrigin: 'center bottom', transform: [{ translateY: liftY }, { scaleY: squashY }] }}><DockFillContext.Provider value={fill}>{children}</DockFillContext.Provider></Animated.View>
     </Pressable>
   );
 });

@@ -7,6 +7,7 @@ import { get } from '@/lib/api';
 import { localeTag, useT } from '@/lib/i18n';
 import { tick } from '@/lib/haptics';
 import { sc, sp, sph } from '@/lib/scale';
+import { BTN } from '@/lib/buttons';
 import { useTheme } from '@/lib/theme';
 import { Text, TextInput, type InputHandle } from './ScaledText';
 import type { Place } from './PlaceSearch';
@@ -129,7 +130,7 @@ export function CategoryPill({ label, spoken, photo, emoji, tint, selected, onPr
       style={({ pressed: p }) => [{ width: width ?? '30%', minHeight: sc(40), borderRadius: sc(999), borderWidth: 1, borderColor: selected ? c.forest : 'rgba(0,0,0,0.08)', backgroundColor: selected ? c.forest : c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(8), paddingVertical: sc(3), paddingLeft: sc(3), paddingRight: sph(8) }, pressed(p)]}
     >
       <RoundPhoto source={photo} emoji={emoji} tint={tint} size={sc(32)} ring={selected} />
-      <Text numberOfLines={1} style={{ flex: 1, textAlign: 'center', color: selected ? '#fff' : c.forest, fontSize: 12 }}>{label}</Text>
+      <Text numberOfLines={1} style={{ flex: 1, textAlign: 'center', color: selected ? '#fff' : c.forest, ...BTN.text /* the same 16 as the category chips on HERE and THERE */ }}>{label}</Text>
     </Pressable>
   );
 }
