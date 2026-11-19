@@ -9,6 +9,7 @@ import { ChoosePassword } from './pages/ChoosePassword';
 import { ReportsPage } from './pages/Reports';
 import { SecurityPage } from './pages/Security';
 import { SettingsHome } from './pages/SettingsHome';
+import { IntegrationsPage } from './pages/Integrations';
 import { StaffPage } from './pages/Staff';
 import { UsersPage } from './pages/Users';
 import { VerificationsPage } from './pages/Verifications';
@@ -29,7 +30,7 @@ const SECTIONS: Section[] = [
   { id: 'users', label: 'Users', icon: 'users', group: 'Community', regional: true, perm: 'users' },
   { id: 'content', label: 'Content', icon: 'layers', group: 'Community', regional: true, perm: 'content' },
   { id: 'team', label: 'Staff', icon: 'userPlus', group: 'Team', admin: true },
-  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', regional: true, tabs: [{ id: 'overview', label: 'Overview', regional: true }, { id: 'security', label: 'Two-step sign-in', regional: true }] },
+  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', regional: true, tabs: [{ id: 'overview', label: 'Overview', regional: true }, { id: 'security', label: 'Two-step sign-in', regional: true }, { id: 'integrations', label: 'Integrations', admin: true }] },
   { id: 'audit', label: 'Audit log', icon: 'clock', group: 'Setup', admin: true },
 ];
 
@@ -368,6 +369,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
       <SettingsHome
         me={session}
         security={settingsTabs.includes('security')}
+        integrations={settingsTabs.includes('integrations')}
         mfaOn={mfaData ? mfaData.enabled : null}
         go={(t, f) => {
           go('settings', t);
@@ -375,6 +377,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
         }}
       />
     );
+  if (key === 'settings/integrations') body = <IntegrationsPage />;
   if (key === 'settings/security' && mfaData) body = <SecurityPage status={mfaData} onChanged={mfa.reload} />;
   if (key === 'audit/') body = <AuditPage openReport={openReport} />;
 
@@ -394,7 +397,9 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
                 extra: mfaData ? <Chip value={mfaData.enabled ? 'On' : 'Off'} tone={mfaData.enabled ? 'ok' : 'plain'} /> : undefined,
                 sub: mfaData?.enabled ? 'Signing in asks for your password and a code from your authenticator app.' : 'Right now, signing in only asks for your password. Add a code from your phone so nobody else can get in, even if they know it.',
               }
-            : { title: 'Settings' };
+            : tab === 'integrations'
+              ? { eyebrow: toSettings, title: 'Integrations', sub: 'The email and identity-verification services, and which one is on. Passwords and keys are stored encrypted and are never shown again.' }
+              : { title: 'Settings' };
   const tabs =
     section.id === 'settings' ? null : section.tabs && section.tabs.length > 1 ? (
       <Tabs label={section.label} value={tab} onChange={(t) => (setReportId(null), setUserId(null), go(section.id, t))} options={section.tabs.map((t) => ({ id: t.id, label: t.label, count: t.id === 'reports' ? badge.reports : undefined }))} />

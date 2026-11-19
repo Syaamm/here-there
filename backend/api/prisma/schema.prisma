@@ -853,3 +853,22 @@ model CategoryImage {
   mime       String   @default("image/webp")
   updatedAt  DateTime @updatedAt
 }
+
+// Third-party services an admin sets up (Settings > Integrations). kind: email | verification. Only one of each kind is on at a time.
+// "settings" holds the plain details shown in the console (host, sender, template id); "secret" is one encrypted JSON blob
+// (passwords, API keys) that the console never shows again once it is saved.
+model Integration {
+  id          String   @id @default(cuid())
+  kind        String // email | verification
+  provider    String // smtp | resend | sendgrid | persona | idenfy | sandbox
+  name        String
+  description String   @default("")
+  settings    Json     @default("{}")
+  secret      String?
+  active      Boolean  @default(false)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([kind, active])
+}

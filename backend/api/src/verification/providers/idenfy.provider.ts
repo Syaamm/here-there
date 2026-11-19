@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { setting } from '../../common/integration-config';
 import { ApiError } from '../../common/errors';
 import { ageFrom } from './persona.provider';
 import type { IdentityProvider, ProviderOutcome, WebhookHeaders } from './types';
@@ -35,7 +36,8 @@ const DEFAULT_BASE = 'https://ivs.idenfy.com';
 const REASONS = ['underage', 'document', 'liveness', 'fraud', 'other'] as const;
 const LOOKUP_EVERY_MS = 30_000; // iDenfy asks that its status address is not polled: this is only the safety net
 
-const env = (k: string) => (process.env[k] ?? '').trim();
+/** A server setting: the identity-verification integration's own value while one is on in Settings > Integrations, otherwise .env. */
+const env = (k: string) => setting('verification', k);
 const base = () => (env('IDENFY_BASE_URL') || DEFAULT_BASE).replace(/\/$/, '');
 
 type Result = {

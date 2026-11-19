@@ -367,7 +367,7 @@ describe('identity verification: one-time, shared, expiring, minimal', () => {
       const again = await (await webhook({ providerRef: ref, status: 'declined', reason: 'document' })).json();
       assert.equal(again.ignored, true); // a late or duplicate message cannot flip a finished check
       assert.equal((await get('/v1/me', u.token)).body.eligibility, 'verified');
-      assert.equal((await webhook(ok, true, 'veriff')).status, 404); // unknown provider
+      assert.equal((await webhook(ok, true, 'acme-id')).status, 404); // unknown provider
     });
   });
 

@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { setting } from '../../common/integration-config';
 import { ApiError, E } from '../../common/errors';
 import type { IdentityProvider, ProviderOutcome, WebhookHeaders } from './types';
 
@@ -30,7 +31,8 @@ const DEFAULT_VERSION = '2026-09-29';
 const TOLERANCE_SECONDS = 5 * 60; // a signed message older than this is refused (replay protection; Persona gives no window)
 const REASONS = ['underage', 'document', 'liveness', 'fraud', 'other'] as const;
 
-const env = (k: string) => (process.env[k] ?? '').trim();
+/** A server setting: the identity-verification integration's own value while one is on in Settings > Integrations, otherwise .env. */
+const env = (k: string) => setting('verification', k);
 
 /** Persona writes keys in kebab-case, but the style can be changed: read camelCase and snake_case the same way. */
 const kebab = (k: string) => k.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/_/g, '-').toLowerCase();
