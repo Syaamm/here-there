@@ -782,18 +782,28 @@ export function SectionHeader({ title, right }: { title: string; right?: ReactNo
   );
 }
 
+/** Inside a PillRow `fit`: the pills share the row's width instead of scrolling. */
+const FitPills = createContext(false);
+
 export function Pill({ label, active, onPress, icon }: { label: string; active?: boolean; onPress: () => void; icon?: React.ComponentProps<typeof Ionicons>['name'] }) {
   const { c } = useTheme();
+  const fit = useContext(FitPills);
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} hitSlop={6} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, { minHeight: sc(BTN.pill), borderRadius: BTN.radiusPill, borderWidth: 1, paddingHorizontal: sph(16), backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} hitSlop={6} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, fit ? { flexShrink: 1, flexGrow: 1, flexBasis: 0, paddingHorizontal: sph(8) } : null, { minHeight: sc(BTN.pill), borderRadius: BTN.radiusPill, borderWidth: 1, paddingHorizontal: sph(16), backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
       {icon ? <Ionicons name={icon} size={sc(15)} color={active ? '#fff' : c.text} style={{ marginRight: sph(6) }} /> : null}
-      <Text style={{ color: active ? '#fff' : c.text, ...BTN.text }}>{label}</Text>
+      <Text {...(fit ? { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.75 } : null)} style={{ color: active ? '#fff' : c.text, ...BTN.text }}>{label}</Text>
     </Pressable>
   );
 }
 
-/** Horizontal scrolling row of pills (category filters, time chips…). */
-export function PillRow({ children }: { children: ReactNode }) {
+/** Horizontal scrolling row of pills (category filters, time chips…). With `fit` the pills are tabs that share the width and never scroll. */
+export function PillRow({ children, fit }: { children: ReactNode; fit?: boolean }) {
+  if (fit)
+    return (
+      <FitPills.Provider value>
+        <View style={{ flexDirection: 'row', gap: sp(8), paddingVertical: 2 }}>{children}</View>
+      </FitPills.Provider>
+    );
   return (
     <ScrollView horizontal overScrollMode="never" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: sp(8), paddingVertical: 2 }} keyboardShouldPersistTaps={keyboardTaps}>
       {children}

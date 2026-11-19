@@ -91,6 +91,11 @@ export function MapHere() {
         style={StyleSheet.absoluteFill}
         initialRegion={{ latitude: center[0], longitude: center[1], latitudeDelta: 0.08, longitudeDelta: 0.08 }}
         customMapStyle={GREY_MAP}
+        // Android: until the map has drawn its first frame its surface shows white and then BLACK (seen when opening the Map tab);
+        // the loading background paints the page's own colour over that, so the map just appears
+        loadingEnabled
+        loadingBackgroundColor={c.bg}
+        loadingIndicatorColor={c.bg}
         onPress={() => {
           if (Date.now() - lastPinTap.at < 500) return; // that was the pin's own tap
           setSelected(null);

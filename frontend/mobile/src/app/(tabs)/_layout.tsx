@@ -17,7 +17,7 @@ import { HomeIcon, MessageIcon, ProfileGlyph, SearchIcon, svgTabIcon } from '@/c
 import { useTheme } from '@/lib/theme';
 import { fontOf } from '@/lib/fonts';
 import { useT } from '@/lib/i18n';
-
+
 import { sc, sp, sph } from '@/lib/scale';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 const MAIN_TAB_PATHS = ['/', '/discover', '/create', '/inbox', '/profile'];
@@ -118,6 +118,9 @@ export default function TabsLayout() {
     <View style={{ flex: 1 }}>
     <Tabs
       backBehavior="history"
+      // Android: the tab pages stay attached to the window when you leave them (iPhone keeps the default). Detaching and re-attaching
+      // a page made every tab switch wait about half a second (the map above all) and blanked the avatars on coming back.
+      detachInactiveScreens={Platform.OS !== 'android'}
       screenOptions={{
         headerShown: false,
         // the dock steps aside while someone is typing, so it never rides on top of the keyboard
@@ -149,7 +152,8 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: t('Home'), tabBarAccessibilityLabel: t('Home'), tabBarIcon: svgTabIcon(HomeIcon) }} />
-      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? t('Map') : t('Explore'), tabBarAccessibilityLabel: mode === 'here' ? t('Map') : t('Explore'), tabBarIcon: svgTabIcon(SearchIcon) }} />
+      {/* the map is not frozen when you leave it: freezing a page with a native map in it makes Android rebuild the map on return (a flash) */}
+      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? t('Map') : t('Explore'), tabBarAccessibilityLabel: mode === 'here' ? t('Map') : t('Explore'), tabBarIcon: svgTabIcon(SearchIcon), freezeOnBlur: false }} />
       <Tabs.Screen
         name="create"
         options={{

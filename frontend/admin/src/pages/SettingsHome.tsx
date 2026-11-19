@@ -4,18 +4,26 @@ import { CategoriesPanel } from './Categories';
 import { LimitCard } from './Limit';
 
 /**
- * Settings opens here. Planning: one card for Here (activities) on the left and one for There (trips) on the right, each holding
- * that side's planning window and its categories. Security: two-step sign-in, a plain on / off choice (its own page).
+ * Settings opens here. On top: Integrations, and two-step sign-in (a plain on / off choice, its own page). Below: Planning, one card
+ * for Here (activities) on the left and one for There (trips) on the right, each holding that side's planning window and its categories.
  */
-export function SettingsHome({ me, security, mfaOn, go }: { me: Session; security: boolean; mfaOn: boolean | null; go: (tab: string, focus?: string) => void }) {
+export function SettingsHome({ me, security, integrations, mfaOn, go }: { me: Session; security: boolean; integrations?: boolean; mfaOn: boolean | null; go: (tab: string, focus?: string) => void }) {
   const planning = can.admin(me.role);
   return (
     <Page fill title="Settings">
-      {planning && (
-        <section className="set-planning" aria-label="Planning">
-          <div className="set-grid">
-            <CategoriesPanel kind="here" limit={<LimitCard me={me} side="here" />} />
-            <CategoriesPanel kind="there" limit={<LimitCard me={me} side="there" />} />
+      {integrations && (
+        <section aria-label="Integrations">
+          <div className="set-security">
+            <span className="set-security-icon">
+              <Icon name="key" />
+            </span>
+            <div className="set-security-text">
+              <span className="set-security-title">Integrations</span>
+              <p>Email, SMS and identity verification: set them up here and choose which one the app uses.</p>
+            </div>
+            <button type="button" className="btn primary" onClick={() => go('integrations')}>
+              Manage
+            </button>
           </div>
         </section>
       )}
@@ -35,6 +43,14 @@ export function SettingsHome({ me, security, mfaOn, go }: { me: Session; securit
             <button type="button" className={mfaOn ? 'btn' : 'btn primary'} onClick={() => go('security', mfaOn ? undefined : 'setup')}>
               {mfaOn ? 'Manage' : 'Turn on'}
             </button>
+          </div>
+        </section>
+      )}
+      {planning && (
+        <section className="set-planning" aria-label="Planning">
+          <div className="set-grid">
+            <CategoriesPanel kind="here" limit={<LimitCard me={me} side="here" />} />
+            <CategoriesPanel kind="there" limit={<LimitCard me={me} side="there" />} />
           </div>
         </section>
       )}

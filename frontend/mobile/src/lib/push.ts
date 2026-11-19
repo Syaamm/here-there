@@ -160,6 +160,8 @@ export async function enablePush(): Promise<PushState> {
       }
       const Notifications = loadNotifications();
       if (!Notifications) return 'unsupported';
+      // Android 13 and later show the permission prompt only once the app has a notification channel, so make it first
+      if (Platform.OS === 'android') await alertsChannel(Notifications);
       const r = await Notifications.requestPermissionsAsync();
       if (r.granted) await subscribeNative();
     }
@@ -232,12 +234,12 @@ const isOpenChat = (url: unknown) => typeof url === 'string' && !!currentOpenCha
 // The same message can reach the app twice while it is open (iPhone hands it to the notification handler and to Firebase): one
 // banner each, remembered for a few seconds by its words.
 const shownAt = new Map<string, number>();
-function alreadyShown(title: string, body: string) {
+function alreadyShown(title: string, body: string, mark = true) {
   const key = `${title}\n${body}`;
   const now = Date.now();
   for (const [k, at] of shownAt) if (now - at > 5000) shownAt.delete(k);
   if (shownAt.has(key)) return true;
-  shownAt.set(key, now);
+  if (mark) shownAt.set(key, now);
   return false;
 }
 
@@ -302,7 +304,9 @@ export function usePushTaps() {
             const thread = typeof msg.data?.thread === 'string' ? msg.data.thread : undefined;
             if (!Notifications || (!title && !body) || isOpenChat(url)) return;
             setTimeout(() => {
-              if (alreadyShown(title, body)) return;
+              // only LOOKS (mark = false): the handler above records it when it shows the banner. Recording it here made that handler
+              // see the banner as already shown and hide it, so on Android (where only this path shows anything) no banner ever appeared
+              if (alreadyShown(title, body, false)) return;
               void Notifications.scheduleNotificationAsync({
                 // the same thread (one chat) reuses one notification, as the pushes do: the newest message replaces the last
                 ...(thread ? { identifier: thread } : {}),

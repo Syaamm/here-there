@@ -90,7 +90,9 @@ function Gate() {
 
   return (
     <WebFrame>
-      <StatusBar style="dark" />
+      {/* same style as the splash above: a changed prop here is applied by React Native a tick AFTER the home page's own
+          setStatusBarStyle (useLightStatusBar) and turned the clock and battery dark on the dark band at launch. Pages set it from here. */}
+      <StatusBar style={c.bandIsDark ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
           // SDK 58 makes iOS headers transparent by default; keep ours solid so content sits below them.

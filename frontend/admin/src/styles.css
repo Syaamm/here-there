@@ -1022,3 +1022,34 @@ input[type='search']::-webkit-search-cancel-button { display: none !important; }
 /* Settings category lists scroll (wheel, trackpad, touch) without showing a scrollbar */
 .set-panel .table-scroll { scrollbar-width: none; -ms-overflow-style: none; scrollbar-gutter: auto; }
 .set-panel .table-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* ---- Settings > Integrations: one card per kind; a row is name, detail tags, on / off switch, Edit, Delete */
+.int-page { display: grid; gap: 16px; align-content: start; }
+.int-card { padding: 0; overflow: hidden; }
+.int-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 16px 24px; }
+.int-head > div { display: grid; gap: 2px; min-width: 0; }
+.int-head h2 { margin: 0; font-size: var(--fs-xl, 20px); }
+.int-card > .empty { margin: 0 24px 16px; }
+.int-row { display: flex; align-items: center; gap: 16px; padding: 12px 24px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.int-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-2, #cfc9bb); }
+.int-dot.on { background: var(--ok-fg); }
+.int-name { display: grid; gap: 2px; flex: 0 1 220px; min-width: 140px; }
+.int-tags { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 200px; min-width: 0; }
+.int-tag { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: var(--fs-sm); max-width: 100%; overflow-wrap: anywhere; }
+.int-tag b { color: var(--text); font-weight: 600; }
+@media (max-width: 700px) { .int-head, .int-row { padding-left: 16px; padding-right: 16px; } }
+
+/* the add / edit pop-up: a small header with the section name and a close button, then the fields, then Cancel and the main button */
+.dialog.int-dlg { padding: 0; width: min(480px, calc(100vw - 32px)); overflow: hidden; }
+.int-dlg form { gap: 0; }
+.int-dlg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--line); }
+.int-dlg-kind { display: block; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.int-dlg-head h2 { margin: 0; font-size: var(--fs-lg); }
+.int-dlg-x { flex: none; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 20px; line-height: 1; cursor: pointer; }
+.int-dlg-x:hover { background: var(--surface-2); }
+.int-dlg-body { display: grid; gap: 16px; padding: 20px 24px 24px; max-height: calc(100vh - 160px); overflow-y: auto; }
+.int-dlg-body label { display: grid; gap: 8px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.int-dlg-body label input, .int-dlg-body label textarea { text-transform: none; letter-spacing: normal; font-size: var(--fs-md); font-weight: 400; color: var(--text); }
+.int-dlg-foot { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; margin-top: 4px; }
+.int-dlg-foot .btn { justify-content: center; width: 100%; }
+@media (max-width: 700px) { .int-dlg-head, .int-dlg-body { padding-left: 16px; padding-right: 16px; } }

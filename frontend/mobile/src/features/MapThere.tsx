@@ -323,6 +323,10 @@ export function MapThere() {
         style={StyleSheet.absoluteFill}
         initialRegion={{ latitude: home?.[0] ?? 25, longitude: home?.[1] ?? 10, latitudeDelta: home ? 12 : 90, longitudeDelta: home ? 12 : 90 }}
         customMapStyle={GREY_MAP}
+        // Android: hides the white-then-black flash before the map's first frame (see MapHere)
+        loadingEnabled
+        loadingBackgroundColor={c.bg}
+        loadingIndicatorColor={c.bg}
         onPress={() => {
           Keyboard.dismiss(); // a tap on the map (not a drag) puts the keyboard away
           if (Date.now() - lastPinTap.at < 500) return;

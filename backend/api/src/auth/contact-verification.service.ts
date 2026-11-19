@@ -78,7 +78,7 @@ export class ContactVerificationService implements OnModuleInit {
       data: { userId: user.id, channel, target, codeHash: this.hash(user.id, channel, code), expiresAt: new Date(Date.now() + CODE_TTL_MS) },
     });
     await deliver(code);
-    return this.email.devEcho ? { devCode: code } : {};
+    return (channel === 'phone' ? this.sms.devEcho : this.email.devEcho) ? { devCode: code } : {}; // each follows its own switch (Settings > Integrations, or .env)
   }
 
   /** Validates the submitted code and, if right, returns the stored row so the caller can apply the result. */

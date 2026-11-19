@@ -5,7 +5,8 @@ import { del, post } from '@/lib/api';
 import { useAction, useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { PagedTail, useCursorList } from '@/lib/paged';
-
+
+
 import { sc, sp } from '@/lib/scale';
 type Kind = 'buddies' | 'following' | 'followers';
 type Person = { userId: string; displayName: string; homeCity: string | null; photoUrl: string | null; verifiedAdult: boolean; following: boolean; followsYou: boolean; buddy: boolean };
@@ -41,7 +42,7 @@ export default function Connections() {
 
   return (
     <Screen tabBar wide onRefresh={onRefresh} refreshing={refreshing}>
-      <PillRow>
+      <PillRow fit>
         {(['buddies', 'following', 'followers'] as Kind[]).map((k) => (
           <Pill key={k} label={`${t(LABEL[k])}${list.data ? ` ${list.data.counts[k]}` : ''}`} active={kind === k} onPress={() => setKind(k)} />
         ))}

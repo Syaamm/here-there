@@ -14,9 +14,16 @@
 > - **`DATABASE_URL`**: any empty PostgreSQL database (the app does not run without one). If the owner gives no address, set up PostgreSQL on the server yourself (the Docker one-liner is under "What the server needs") and use that. Percent-encode special characters in the password (`@` is `%40`, `#` is `%23`).
 > - **`PORT`**: where the API listens; nginx passes everything to it.
 > - **`TRUST_PROXY=1`**: behind nginx every visitor otherwise looks like the same address, so everyone shares one sign-in limit and people lock each other out.
-> - **`VERIFICATION_MODE=sandbox`**: the simulated identity check (a page where you press Approve), so no ID provider is needed.
-> - **`EMAIL_DEV_ECHO=true`**: sign-up codes are shown inside the app, so no mail server is needed.
+> - **`VERIFICATION_MODE=sandbox`**: only the fallback now. Identity checks are chosen in the admin console under **Settings > Integrations > Identity verification** (see the Integrations box below); while one is switched on there, such as **Manual Review**, this line is ignored. Still write it into a new `.env`.
+> - **`EMAIL_DEV_ECHO=true`**: only the fallback now. The sign-up code (`123456`) and whether it is shown inside the app are the **Test mode** rows under Settings > Integrations (Email and SMS); while one is on, this line is ignored. Still write it into a new `.env`.
 > - **Never add `NODE_ENV=production`** (the server would then demand encryption keys and refuse the simulated checks), and add no other keys or production settings. If you create `.env`, write it and do not read it back.
+
+> ## SETTINGS > INTEGRATIONS IN THE ADMIN CONSOLE DECIDES EMAIL, SMS AND IDENTITY CHECKS
+> The owner sets up email, SMS and identity verification in the admin console (**Settings > Integrations**), not in `.env`. The one switched on for each kind replaces the matching `.env` setting; with none on, `.env` is used as before.
+> - **Nothing extra to do on deploy.** `npm run deploy` creates the `Integration` table (`db:push`) and builds the admin console. On the first start the server fills the page: Test mode (code `123456`) for email and SMS, and **Manual Review** for identity checks. Any old Sandbox or Automatic row is turned into Manual Review. Do not undo this and do not "restore" the simulated sandbox check.
+> - **Manual Review**: people who apply for verification appear under **Verification > Waiting** in the admin console, and an admin approves or rejects them there. That is how it should work; it needs no provider.
+> - **Keys saved there are encrypted** with a key derived from the server's login secret (`JWT_SECRET`). **Never change that secret** (saved keys would become unreadable and would have to be typed in again), and never read, print or copy integration keys out of the database or the API answers.
+> - **Phone push is not part of it.** The `FIREBASE_SERVICE_ACCOUNT_*` line in `.env` is unchanged and still must never be removed or renamed.
 
 This is the guide for putting the project on a server so the site works at a web address. It is written for a developer or for an AI assistant (Claude) doing the deployment for the owner. **It deploys in development mode on purpose**: the same way the owner works on it every day, with no production keys, no production settings and no `NODE_ENV=production`. It is a test site for showing the product, with made-up data. It is not a real launch (that list is in `deployment/FOR_DEPLOYMENT.md`, which is private and may not be in your copy).
 
@@ -55,7 +62,7 @@ The web server (nginx) only passes everything on to the API. The app and the adm
    EMAIL_DEV_ECHO=true
    ```
    - `TRUST_PROXY=1` matters: behind nginx every visitor otherwise looks like the same address, so everyone shares one sign-in limit and people lock each other out.
-   - `VERIFICATION_MODE=sandbox` gives the simulated identity check (a page where you press Approve). `EMAIL_DEV_ECHO=true` shows sign-up codes inside the app, since there is no mail server.
+   - `VERIFICATION_MODE=sandbox` and `EMAIL_DEV_ECHO=true` are the fallback only: while an integration is switched on in **Settings > Integrations** (see the Integrations box at the top), it is used instead. On first start the console fills that page itself (Test mode for email and SMS, Manual Review for identity checks), so nothing needs setting up by hand.
    - **Do not set `NODE_ENV=production`.** The server would then refuse to start without the encryption keys and would refuse the simulated checks.
    - Percent-encode special characters in the database password (`@` is `%40`, `#` is `%23`).
 3. **Install and deploy:**

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
-import { isDemo } from './demo';
+import { allowsSimulated, isDemo } from './demo';
+import { activeIntegration } from './integration-config';
 
 /**
  * Transactional email (verification codes now; notifications later).
@@ -25,10 +26,39 @@ export class EmailService {
   }
 
   get devEcho() {
+    const on = activeIntegration('email'); // Settings > Integrations decides while one is on
+    if (on) return (isDemo() || allowsSimulated()) && on.provider === 'dev' && (on.values.showCode ?? 'true') === 'true';
     return process.env.EMAIL_DEV_ECHO === 'true' || isDemo();
   }
 
+  private smtp: { key: string; transport: nodemailer.Transporter } | null = null;
+  /** The SMTP connection of the email integration that is on, rebuilt only when its details change. */
+  private integrationTransport() {
+    const on = activeIntegration('email');
+    if (!on || on.provider === 'dev' || !on.values.host) return null;
+    const v = on.values;
+    const key = JSON.stringify(v);
+    if (this.smtp?.key !== key) {
+      const port = Number(v.port) || 587;
+      this.smtp = { key, transport: nodemailer.createTransport({ host: v.host, port, secure: port === 465, ...(v.username ? { auth: { user: v.username, pass: v.password ?? '' } } : {}) }) };
+    }
+    return { transport: this.smtp.transport, from: v.from || undefined };
+  }
+
   async send(to: string, subject: string, text: string) {
+    const integration = this.integrationTransport();
+    if (integration) {
+      await integration.transport.sendMail({ from: integration.from ?? process.env.EMAIL_FROM ?? 'LAMIS <no-reply@herethere.local>', to, subject, text });
+      return;
+    }
+    if (activeIntegration('email')?.provider === 'dev' && process.env.NODE_ENV !== 'test') {
+      console.log(`
+[dev email] to: ${to}
+[dev email] subject: ${subject}
+${text}
+`); // test mode: never delivered
+      return;
+    }
     if (this.transporter) {
       await this.transporter.sendMail({ from: process.env.EMAIL_FROM ?? 'LAMIS <no-reply@herethere.local>', to, subject, text });
       return;

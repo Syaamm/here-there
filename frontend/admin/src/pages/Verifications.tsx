@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { get, type Session } from '../api';
-import { Avatar, Chip, ErrorBanner, FilterBar, fmt, Loading, Page, PageBar, Search, Segmented, useAction, useLoad } from '../ui';
+import { get, post, type Session } from '../api';
+import { askChoiceText, Avatar, Chip, ErrorBanner, FilterBar, fmt, Loading, Page, PageBar, Search, Segmented, useAction, useLoad } from '../ui';
 
-type V = { id: string; method?: string | null; providerRef: string | null; eligibility: string; createdAt: string; user: { id: string; email: string; displayName?: string; homeCity?: string } };
-type Status = 'verified' | 'rejected' | 'unverified';
+type V = { id: string; provider?: string | null; method?: string | null; providerRef: string | null; eligibility: string; createdAt: string; user: { id: string; email: string; displayName?: string; homeCity?: string } };
+type Status = 'pending' | 'verified' | 'rejected' | 'unverified';
 type Row = { name: string; email: string; city: string; verified: boolean; identityCheck: string; accountState: string; joined: string; verifiedUntil: string | null };
 const WORD: Record<string, string> = { verified: 'Verified', rejected: 'Rejected', unverified: 'Not verified', pending: 'Waiting', expired: 'Expired' };
 
@@ -23,9 +23,10 @@ function download(rows: Row[], name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// the identity provider decides every check, so nothing here is approved by hand: this page is a record
+// Waiting: applications for Manual Review, which the admin approves or rejects here. A check run by an identity provider (Persona, Veriff,
+// iDenfy) is decided by the provider, so it only shows as waiting. The other tabs are a record.
 export function VerificationsPage({ me: _me }: { me: Session }) {
-  const [status, setStatus] = useState<Status>('verified');
+  const [status, setStatus] = useState<Status>('pending');
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
   useEffect(() => {
@@ -36,6 +37,14 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
   useEffect(() => setPageNo(1), [status, term]);
   const list = useLoad(() => get<{ items: V[]; page?: number; pages?: number; total?: number }>(`/v1/admin/verifications?status=${status}&page=${pageNo}&pageSize=20${term ? `&q=${encodeURIComponent(term)}` : ''}`), [status, pageNo, term], 6000);
   const file = useAction(() => {});
+  const decide = useAction(list.reload);
+  const approve = (v: V) => {
+    if (confirm(`Approve ${v.user.displayName ?? v.user.email}? This confirms they are 18 or older and that their ID is genuine.`)) decide.run(() => post(`/v1/admin/verifications/${v.id}/decision`, { decision: 'verified' }));
+  };
+  const reject = async (v: V) => {
+    const r = await askChoiceText(`Reject ${v.user.displayName ?? v.user.email}?`, [['document', 'Problem with the ID'], ['liveness', 'Photo or selfie problem'], ['underage', 'Under 18'], ['other', 'Other']], { confirm: 'Reject', choiceLabel: 'Reason', label: 'Note (optional)', required: false });
+    if (r) decide.run(() => post(`/v1/admin/verifications/${v.id}/decision`, { decision: 'rejected', reason: r.choice }));
+  };
   const menu = useRef<HTMLDetailsElement>(null);
   const save = (which: 'all' | 'verified' | 'unverified') =>
     file.run(async () => {
@@ -66,19 +75,20 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
           value={status}
           onChange={setStatus}
           options={[
+            { id: 'pending', label: 'Waiting' },
             { id: 'verified', label: 'Verified' },
             { id: 'unverified', label: 'Not verified' },
             { id: 'rejected', label: 'Rejected' },
           ]}
         />
       </FilterBar>
-      <ErrorBanner message={list.error ?? file.error} onRetry={list.reload} />
+      <ErrorBanner message={list.error ?? file.error ?? decide.error} onRetry={list.reload} />
       {list.loading && !list.data && <Loading rows={5} />}
       {list.data && (
         <div className="scroll-card">
           <div className="list-scroll">
             {items.length === 0 ? (
-              <div className="state">{term ? `No one matches “${term}”.` : 'Nothing here.'}</div>
+              <div className="state">{term ? `No one matches “${term}”.` : status === 'pending' ? 'No one is waiting for verification.' : 'Nothing here.'}</div>
             ) : (
               <ul className="rows">
                 {items.map((v) => (
@@ -93,10 +103,21 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
                     </div>
                     {v.providerRef && v.method === 'document' && <Chip value="Document" tone="plain" />}
                     <span className="small muted nowrap" title={fmt(v.createdAt)}>
-                      Joined{' '}
+                      {v.eligibility === 'pending' ? 'Applied' : 'Joined'}{' '}
                       {fmt(v.createdAt)}
                     </span>
-                    <Chip value={WORD[v.eligibility] ?? v.eligibility} tone={v.eligibility === 'verified' ? 'ok' : v.eligibility === 'pending' ? 'line' : v.eligibility === 'rejected' ? 'bad' : 'plain'} />
+                    {v.eligibility === 'pending' && v.provider === 'manual' ? (
+                      <span className="row" style={{ gap: 8 }}>
+                        <button className="btn small primary" disabled={decide.busy} onClick={() => approve(v)}>
+                          Approve
+                        </button>
+                        <button className="btn small danger" disabled={decide.busy} onClick={() => reject(v)}>
+                          Reject
+                        </button>
+                      </span>
+                    ) : (
+                      <Chip value={v.eligibility === 'pending' ? 'Waiting for provider' : (WORD[v.eligibility] ?? v.eligibility)} tone={v.eligibility === 'verified' ? 'ok' : v.eligibility === 'pending' ? 'line' : v.eligibility === 'rejected' ? 'bad' : 'plain'} />
+                    )}
                   </li>
                 ))}
               </ul>

@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { isDemo } from './demo';
+import { allowsSimulated, isDemo } from './demo';
+import { activeIntegration, setting } from './integration-config';
+import { SMS_SENDERS } from './sms-providers';
 
 /**
  * Text messages for the optional mobile-number check.
@@ -13,13 +15,17 @@ export class SmsService {
   readonly outbox: { to: string; text: string }[] = [];
 
   get devEcho() {
+    const on = activeIntegration('sms'); // Settings > Integrations decides while one is on
+    if (on) return (isDemo() || allowsSimulated()) && on.provider === 'dev' && (on.values.showCode ?? 'true') === 'true';
     return process.env.EMAIL_DEV_ECHO === 'true' || isDemo(); // the same switches as email; refused in production by EmailService unless it is a demo
   }
 
   async send(to: string, text: string) {
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    const token = process.env.TWILIO_AUTH_TOKEN;
-    const from = process.env.TWILIO_FROM;
+    const on = activeIntegration('sms');
+    if (on && SMS_SENDERS[on.provider]) return SMS_SENDERS[on.provider](to, text, on.values); // MSG91, Vonage, Plivo, Sinch
+    const sid = setting('sms', 'TWILIO_ACCOUNT_SID');
+    const token = setting('sms', 'TWILIO_AUTH_TOKEN');
+    const from = setting('sms', 'TWILIO_FROM');
     if (sid && token && from) {
       const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
         method: 'POST',
@@ -29,7 +35,7 @@ export class SmsService {
       if (!res.ok) throw new Error(`SMS provider returned ${res.status}`);
       return;
     }
-    if (process.env.NODE_ENV === 'test') {
+    if (process.env.NODE_ENV === 'test' && !activeIntegration('sms')) {
       this.outbox.push({ to, text });
       return;
     }

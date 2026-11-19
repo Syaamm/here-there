@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Keyboard, LayoutAnimation, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Animated, Easing, Keyboard, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Text, TextInput } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CatPhoto } from '@/components/CatPhoto';
@@ -438,35 +438,37 @@ function TopTool({ icon, label, onPress, on }: { icon: React.ComponentProps<type
   );
 }
 
+/** the width of the top row (greeting on the left, search and filter on the right) */
+const topRowW = (screenW: number) => Math.min(screenW - 2 * sc(16), sc(560));
+
 /** "Hi, Alex / Milan": your face, a greeting and the city; tapping it picks another city. */
-function GreetingPill({ city, onPick, compact }: { city: string; onPick: (c: string, at?: Near) => void; /** just the round face (the map search is open beside it) */ compact?: boolean }) {
+function GreetingPill({ city, onPick, p }: { city: string; onPick: (c: string, at?: Near) => void; /** 0 = the full pill, 1 = just the round face (the map search is open beside it); shared with the search bar so they move as one */ p: Animated.Value }) {
   const { t } = useT();
   const { c } = useTheme();
   const { me } = useMe();
   const [open, setOpen] = useState(false);
   const cityPos = useCityPos(); // places near the chosen city are listed first
   const name = me?.profile?.displayName?.split(' ')[0];
-  // 0 = the full pill, 1 = just the face. The words fade out/in on the native side; the pill itself narrows and widens through the
-  // system's layout animation (started by the map, together with the search field), so both move as one, off the JS thread.
-  const v = useRef(new Animated.Value(compact ? 1 : 0)).current;
-  useEffect(() => {
-    // the words go quickly when the search opens (the pill is narrowing at the same moment), and come back a little slower
-    Animated.timing(v, { toValue: compact ? 1 : 0, duration: compact ? 110 : 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [compact]); // eslint-disable-line react-hooks/exhaustive-deps
-  // narrowed to a circle, the face sits exactly in the middle of it (58 wide); in the full pill it is 6 from the left edge
+  // the pill just transforms: its width, the face sliding to the middle of the circle and the words fading all follow the one value p
+  const { width: screenW } = useWindowDimensions();
+  const [fullW, setFullW] = useState<number | null>(null); // the pill's natural width: face, greeting and city
   const face = 46 * useScale();
-  const faceLeft = compact ? Math.max(0, (58 - face) / 2) : 6;
+  const slide = (sc(58) - face) / 2 - 6; // from 6 off the left edge to the exact middle of the circle
   return (
     <>
-      <View style={[{ flexShrink: 1, minHeight: sc(58), borderRadius: sc(32), backgroundColor: c.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }, compact && { width: sc(58), flexShrink: 0 }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: sc(58), paddingLeft: faceLeft, overflow: 'hidden', borderRadius: sc(32) }}>
-        <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={46} />
-        <Animated.View style={{ flexShrink: 1, marginLeft: sph(12), paddingRight: sph(22), opacity: v.interpolate({ inputRange: [0, 0.6], outputRange: [1, 0], extrapolate: 'clamp' }) }}>
-          {name ? <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Hi, {name}', { name })}</Text> : null}
-          <Text numberOfLines={1} style={{ color: c.muted, fontSize: 16, lineHeight: 21 }}>{city}</Text>
-        </Animated.View>
-      </Pressable>
-      </View>
+      <Animated.View style={{ height: sc(58), flexShrink: 0, width: fullW === null ? undefined : p.interpolate({ inputRange: [0, 1], outputRange: [Math.min(fullW, topRowW(screenW) - 2 * sc(58) - 2 * sp(10)), sc(58)] }), opacity: fullW === null ? 0 : 1, borderRadius: sc(32), backgroundColor: c.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
+        <View style={{ flex: 1, overflow: 'hidden', borderRadius: sc(32) }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('City: {city}. Change city', { city })} onPress={() => setOpen(true)} onLayout={(e) => { const w = Math.ceil(e.nativeEvent.layout.width); setFullW((o) => (o === w ? o : w)); }} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', height: sc(58), paddingLeft: 6 }}>
+            <Animated.View style={{ flexShrink: 0, transform: [{ translateX: p.interpolate({ inputRange: [0, 1], outputRange: [0, slide] }) }] }}>
+              <Avatar name={me?.profile?.displayName} uri={me?.profile?.photoUrl} size={46} />
+            </Animated.View>
+            <Animated.View style={{ flexShrink: 0, maxWidth: screenW * 0.45, marginLeft: sph(12), paddingRight: sph(22), opacity: p.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0], extrapolate: 'clamp' }) }}>
+              {name ? <Text numberOfLines={1} style={{ color: c.text, fontSize: 16, lineHeight: 21, fontWeight: '500' }}>{t('Hi, {name}', { name })}</Text> : null}
+              <Text numberOfLines={1} style={{ color: c.muted, fontSize: 16, lineHeight: 21 }}>{city}</Text>
+            </Animated.View>
+          </Pressable>
+        </View>
+      </Animated.View>
       <Sheet visible={open} title={t('Choose your city')} onClose={() => setOpen(false)}>
         <CitySearch
           near={cityPos}
@@ -484,7 +486,7 @@ function GreetingPill({ city, onPick, compact }: { city: string; onPick: (c: str
  * The map's search: type a neighbourhood or area of the city shown, pick it, and the map flies there. Only places within the
  * city's area (the admin's coverage distance from its centre) are offered, the same area the map and Home show.
  */
-function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClosed, listMode, onListText }: { /** the card is pulled up: typing only narrows its list (no place search, the map stays put) */ listMode?: boolean; onListText?: (text: string) => void; city: string; centre: [number, number] | null; onPick: (at: Fix, name: string) => void; /** the words to find activities by (Enter, or the first row) */ onWords: (text: string) => void; /** set while it plays its closing animation */ closing: boolean; /** asks to close (the face grows back at once) */ onClose: () => void; /** the closing animation has finished */ onClosed: () => void }) {
+function MapSearchField({ city, centre, onPick, onWords, active, s, onOpen, lit, onClose, listMode, onListText }: { /** the card is pulled up: typing only narrows its list (no place search, the map stays put) */ listMode?: boolean; onListText?: (text: string) => void; city: string; centre: [number, number] | null; onPick: (at: Fix, name: string) => void; /** the words to find activities by (Enter, or the first row) */ onWords: (text: string) => void; /** the bar is open (typing); false = the round search button */ active: boolean; /** 0 = the round button, 1 = the open bar: the same value that turns the greeting into a circle */ s: Animated.Value; /** a tap on the round button */ onOpen: () => void; /** a search is on: the round button is filled */ lit: boolean; /** asks to close */ onClose: () => void }) {
   const { t } = useT();
   const { c } = useTheme();
   const [q, setQ] = useState('');
@@ -492,15 +494,24 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
   const [far, setFar] = useState(0); // how many results were left out for being outside the city's area
   const [state, setState] = useState<'idle' | 'searching' | 'done' | 'error'>('idle');
   const latest = useRef(0);
-  // it slides in from the search button on the right, growing leftwards, and fades up (native driver: smooth on Android too)
-  const grow = useRef(new Animated.Value(0)).current;
+  const { width: screenW } = useWindowDimensions();
+  // the round button is the bar, just narrower: it grows leftwards from the filter button to the pill's edge, and shrinks back to a circle
+  const barW = topRowW(screenW) - 2 * sc(58) - 2 * sp(10);
+  const closing = !active;
+  // the keyboard comes up only once the bar has finished growing: raising it mid-animation re-lays the screen out and made the motion
+  // happen in two steps
+  const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
   useEffect(() => {
-    Animated.timing(grow, { toValue: 1, duration: 300, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true }).start();
-  }, [grow]);
-  // closing: the same movement backwards (shrinks to the right and fades), then it goes
+    if (!active) return;
+    const id = setTimeout(() => inputRef.current?.focus(), 300);
+    return () => clearTimeout(id);
+  }, [active]);
   useEffect(() => {
-    if (closing) Animated.timing(grow, { toValue: 0, duration: 240, easing: Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: true }).start(() => onClosed());
-  }, [closing]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!active) {
+      setQ(''); // a closed search starts empty next time
+      onListText?.('');
+    }
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const text = q.trim();
     const mine = ++latest.current;
@@ -531,12 +542,18 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
     return () => clearTimeout(timer);
   }, [q, listMode]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Animated.View style={{ flex: 1, opacity: grow.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0.9, 1] }), transform: [{ translateX: grow.interpolate({ inputRange: [0, 1], outputRange: [36, 0] }) }] }}>
-      <View style={{ height: sc(58), borderRadius: sc(29), backgroundColor: c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(8), paddingLeft: sph(16), paddingRight: sph(6), elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
-        <Ionicons name="search-outline" size={sc(20)} color={c.muted} />
+    <Animated.View style={{ width: s.interpolate({ inputRange: [0, 1], outputRange: [sc(58), barW] }) }}>
+      <View style={{ height: sc(58), borderRadius: sc(29), backgroundColor: lit && !active ? c.forest : c.surface, overflow: 'hidden', elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}>
+        {/* the bar's contents keep their full size and are only revealed as it grows, so nothing reflows while it moves */}
+        <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: barW, flexDirection: 'row', alignItems: 'center', gap: sp(8), paddingLeft: sph(16), paddingRight: sph(6) }}>
+        <Animated.View style={{ transform: [{ translateX: s.interpolate({ inputRange: [0, 1], outputRange: [(sc(58) - sc(20)) / 2 - sph(16), 0] }) }] }}>
+          <Ionicons name="search-outline" size={sc(20)} color={lit && !active ? '#fff' : c.muted} />
+        </Animated.View>
+        {active ? (
+        <Animated.View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: sp(8), opacity: s.interpolate({ inputRange: [0.5, 1], outputRange: [0, 1], extrapolate: 'clamp' }) }}>
         <TextInput
+          ref={inputRef}
           accessibilityLabel={t('Search a place or an activity')}
-          autoFocus
           value={q}
           onChangeText={(v) => {
             setQ(v);
@@ -566,6 +583,11 @@ function MapSearchField({ city, centre, onPick, onWords, closing, onClose, onClo
         }} style={{ width: sc(40), height: sc(40), alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="close" size={sc(20)} color={c.text} />
         </Pressable>
+        </Animated.View>
+        ) : <View style={{ flex: 1 }} />}
+        </View>
+        {/* the round button: the whole circle is the tap target */}
+        {!active ? <Pressable accessibilityRole="button" accessibilityLabel={t('Search a place or an activity')} accessibilityState={{ selected: lit }} onPress={onOpen} hitSlop={4} style={StyleSheet.absoluteFill} /> : null}
       </View>
       {state !== 'idle' && !closing ? (
         <View style={{ position: 'absolute', top: sc(64), left: 0, right: -sc(68), backgroundColor: c.surface, borderRadius: sc(20), paddingVertical: sp(6), elevation: 4, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: sc(3) } }}>
@@ -666,11 +688,20 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
   const [calMonth, setCalMonth] = useState(today0); // the month the filter's calendar shows
   const [sheetH, setSheetH] = useState(0); // the bottom sheet's real height (grip, summary and list), so the buttons above it never sit on it
   const [search, setSearchNow] = useState<'closed' | 'open' | 'closing'>('closed');
-  // the pill narrows/widens and the field makes room in ONE native layout animation, so nothing jumps and nothing runs on the JS thread
+  // 0 = the greeting pill and the round search button, 1 = the round face and the open search bar: the pill turns into a circle while the
+  // search button grows into the bar, both from this one value
+  const searchP = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (search === 'closed') return;
+    const open = search === 'open';
+    Animated.timing(searchP, { toValue: open ? 1 : 0, duration: open ? 280 : 240, easing: open ? Easing.bezier(0.22, 1, 0.36, 1) : Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: false }).start(({ finished }) => {
+      if (finished && !open) setSearchNow('closed');
+    });
+  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the pill's width is animated by its own value (see GreetingPill); the field just fills what is left, so nothing else needs animating
   const setSearch = (next: 'closed' | 'open' | 'closing') => {
     // opening: the same fast-start easing as the search field growing in (easeInEaseOut starts slowly, so the pill looked late);
     // closing: the field's own ease-in-out, shrinking back
-    LayoutAnimation.configureNext({ duration: next === 'open' ? 260 : 240, update: { type: next === 'open' ? LayoutAnimation.Types.easeOut : LayoutAnimation.Types.easeInEaseOut } });
     setSearchNow(next);
   };
 
@@ -787,11 +818,10 @@ export function MapOverlay({ data }: { data: ReturnType<typeof useMapData> }) {
       {/* top: your greeting and the city on the left, search and filters on the right; the category chips open under the filter button */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top: statusTop(insets.top) + 8, left: sc(16), right: sc(16), gap: sp(10), alignItems: 'center' }}>
         <View style={{ width: '100%', maxWidth: sc(560), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: sp(10) }}>
-          <GreetingPill city={city} onPick={setCity} compact={search === 'open'} />
-          {search !== 'closed' ? <MapSearchField listMode={listMode} onListText={setListQ} city={city} centre={cityCenter} closing={search === 'closing'} onClose={() => setSearch('closing')} onClosed={() => setSearch('closed')} onPick={pickPlace} onWords={searchWords} /> : null}
+          <GreetingPill city={city} onPick={setCity} p={searchP} />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10) }}>
-            {/* search: a field opens here, from your face to the filter button, to find a neighbourhood of this city on the map */}
-            {search !== 'closed' ? null : <TopTool icon="search-outline" label={t('Search a place or an activity')} on={searching} onPress={() => setSearch('open')} />}
+            {/* search: the round button grows leftwards into the bar, from the filter button to the greeting, and back */}
+            <MapSearchField listMode={listMode} onListText={setListQ} city={city} centre={cityCenter} active={search === 'open'} s={searchP} lit={searching} onOpen={() => setSearch('open')} onClose={() => setSearch('closing')} onPick={pickPlace} onWords={searchWords} />
             <TopTool icon="options-outline" label={cat || dayPick !== null ? t('Filters, on') : t('Filters')} on={cat !== '' || dayPick !== null} onPress={() => setFiltersOpen(true)} />
           </View>
         </View>

@@ -10,7 +10,9 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { ManualProvider } from './providers/manual.provider';
 import { IdenfyProvider } from './providers/idenfy.provider';
 import { PersonaProvider } from './providers/persona.provider';
+import { VeriffProvider } from './providers/veriff.provider';
 import { allowsSimulated, isDemo } from '../common/demo';
+import { activeIntegration } from '../common/integration-config';
 import { SandboxProvider } from './providers/sandbox.provider';
 import type { IdentityProvider, ProviderOutcome, WebhookHeaders } from './providers/types';
 
@@ -35,7 +37,8 @@ export type ReverifyReason = 'expired' | 'security' | 'fraud_suspected' | 'provi
  * VERIFICATION_MODE: manual (default: staff decide in the admin console) | auto (instant, dev) | sandbox (local
  * simulated provider with signed webhooks, dev) | persona (Persona's hosted flow: needs the PERSONA_* settings, see
  * providers/persona.provider.ts; works with Persona's sandbox key in development and the live key in production) |
- * idenfy (iDenfy's hosted flow, EU data centres: needs the IDENFY_* settings, see providers/idenfy.provider.ts).
+ * idenfy (iDenfy's hosted flow, EU data centres: needs the IDENFY_* settings, see providers/idenfy.provider.ts) |
+ * veriff (Veriff's hosted flow: needs the VERIFF_* settings, see providers/veriff.provider.ts).
  * Another vendor registers as another provider below.
  */
 @Injectable()
@@ -46,7 +49,8 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     sandbox: new SandboxProvider(),
     persona: new PersonaProvider(),
     idenfy: new IdenfyProvider(),
-    // veriff: new VeriffProvider(...), sumsub: new SumsubProvider(...)
+    veriff: new VeriffProvider(),
+    // sumsub: new SumsubProvider(...)
   };
 
   constructor(
@@ -63,6 +67,7 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
     if (!this.providers[this.mode]) throw new Error(`Unknown VERIFICATION_MODE "${this.mode}"`);
     if (this.mode === 'persona') (this.providers.persona as PersonaProvider).assertReady(); // a half-set-up provider is refused at start-up
     if (this.mode === 'idenfy') (this.providers.idenfy as IdenfyProvider).assertReady();
+    if (this.mode === 'veriff') (this.providers.veriff as VeriffProvider).assertReady();
     this.jobs.every('verification.expire-due', 3600 * 1000, () => this.expireDue());
     // verification no longer runs out: anyone still carrying an old end date keeps their badge for good
     try {
@@ -74,6 +79,8 @@ export class VerificationService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {}
 
   get mode() {
+    const on = activeIntegration('verification'); // Settings > Integrations decides while one is on
+    if (on && this.providers[on.provider] && (allowsSimulated() || !['auto', 'sandbox'].includes(on.provider))) return on.provider;
     return process.env.VERIFICATION_MODE ?? (isDemo() ? 'sandbox' : 'manual');
   }
   private get provider() {

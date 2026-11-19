@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as account from '../account/account.controller';
 import * as activities from '../activities/activities.service';
 import * as admin from '../admin/admin.controller';
+import * as integrations from '../admin/integrations.service';
 import * as auth from '../auth/auth.controller';
 import * as contact from '../auth/contact-verification.service';
 import * as chat from '../conversations/conversations.controller';
@@ -254,6 +255,10 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   'DELETE /v1/admin/categories/{id}/image': { tag: T.admin, summary: 'Remove the picture of a category; the app then shows its emoji on its colour (administrators)', returns: '{ imageUrl: null }' },
   'GET /v1/categories/{id}/image': { tag: T.here, summary: 'The picture of a category, as a plain image address (open without signing in)', returns: 'the image (webp)' },
   'DELETE /v1/admin/categories/{id}': { tag: T.admin, summary: 'Remove a category nothing uses; a used one is turned off instead (administrators)', returns: '{ ok }', errors: ['CATEGORY_IN_USE', 'LAST_CATEGORY'] },
+  'GET /v1/admin/integrations': { tag: T.admin, summary: 'The email, SMS and identity-verification services set up in Settings > Integrations, with what each needs. The one switched on for a kind is what the app runs on, instead of the .env settings. Secrets are never returned, only the last four characters (administrators)', returns: '{ catalog, kinds, items: [{ id, kind, provider, name, description, active, settings, secretsSet, updatedAt }] }' },
+  'POST /v1/admin/integrations': { tag: T.admin, summary: 'Add an email, SMS or identity-verification service; its secrets are stored encrypted (administrators)', body: integrations.createIntegrationSchema, returns: '{ id }', errors: ['INTEGRATION_PROVIDER', 'INTEGRATION_FIELD', 'INTEGRATION_SIMULATED'] },
+  'PATCH /v1/admin/integrations/{id}': { tag: T.admin, summary: 'Rename a service, change its details (a secret left empty is kept) or turn it on; turning one on turns the others of its kind off (administrators)', body: integrations.updateIntegrationSchema, returns: '{ id }', errors: ['INTEGRATION_FIELD', 'INTEGRATION_SIMULATED'] },
+  'DELETE /v1/admin/integrations/{id}': { tag: T.admin, summary: 'Remove a service (administrators)', returns: '{ id }' },
   'GET /v1/admin/regions/unassigned': { tag: T.admin, summary: 'City names people have used that no place covers yet (whole-service staff only)', returns: '{ items: [{ cityKey, uses }] }, most used first' },
   'POST /v1/admin/regions': { tag: T.admin, summary: 'Add a country, region or city under a place you look after (administrators)', body: regions.createRegionSchema, returns: '{ key }', errors: ['OUT_OF_SCOPE', 'INVALID_PLACE', 'CITY_ALREADY_ASSIGNED'] },
   'PATCH /v1/admin/regions/{key}': { tag: T.admin, summary: 'Change a place\'s name or its planning limits: HERE months (1 to 12) and THERE months (1 to 24) and the coverage distance around a city in km (areaKm, 1 to 100); null = follow the place above (administrators)', body: regions.updateRegionSchema, returns: '{ key }', errors: ['OUT_OF_SCOPE'] },
