@@ -1,4 +1,5 @@
-const APP_URL = "https://app.example.com";
+// Where every "Open the app" button goes. For now the top of this page; put the web app address here once it is live.
+const APP_URL = "#top";
 
 const COPY = {
   en: {
@@ -153,12 +154,31 @@ mobileNav.querySelectorAll("a").forEach(link => link.addEventListener("click", (
   menuToggle.setAttribute("aria-label", "Open menu");
 }));
 
+// FAQ: the answer slides open (its height grows while the text rises and fades in) and slides shut again.
+const faqReduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 document.querySelectorAll(".faq-question").forEach(button => {
   button.addEventListener("click", () => {
     const expanded = button.getAttribute("aria-expanded") === "true";
     const answer = button.closest(".faq-item").querySelector(".faq-answer");
+    const text = answer.firstElementChild;
     button.setAttribute("aria-expanded", String(!expanded));
-    answer.hidden = expanded;
+    if (faqReduce || !answer.animate) { answer.hidden = expanded; return; }
+    // a click during an animation takes over from wherever the answer is now
+    const from = answer.hidden ? 0 : answer.getBoundingClientRect().height;
+    answer.getAnimations().forEach(a => a.cancel());
+    text?.getAnimations().forEach(a => a.cancel());
+    answer.hidden = false;
+    const full = answer.scrollHeight, pad = getComputedStyle(answer).paddingBottom;
+    const ease = "cubic-bezier(.22,1,.36,1)";
+    answer.style.overflow = "hidden";
+    if (!expanded) {
+      answer.animate([{ height: from + "px", paddingBottom: from ? pad : "0px" }, { height: full + "px", paddingBottom: pad }], { duration: 420, easing: ease })
+        .onfinish = () => { answer.style.overflow = ""; };
+      text?.animate([{ opacity: 0, transform: "translateY(-8px)" }, { opacity: 1, transform: "none" }], { duration: 380, delay: 80, easing: ease, fill: "backwards" });
+    } else {
+      const anim = answer.animate([{ height: from + "px", paddingBottom: pad, opacity: 1 }, { height: "0px", paddingBottom: "0px", opacity: 0 }], { duration: 320, easing: ease });
+      anim.onfinish = () => { answer.hidden = true; answer.style.overflow = ""; };
+    }
   });
 });
 
@@ -179,6 +199,30 @@ if ("IntersectionObserver" in window && !window.matchMedia("(prefers-reduced-mot
   revealItems.forEach(item => item.classList.add("is-visible"));
 }
 
+// ===== Text reveal on scroll =====
+// Every piece of text below the hero (eyebrows, headings, paragraphs, links, FAQ rows, footer) rises and fades in as
+// it scrolls into view; pieces that arrive together follow one another. Styles: "Text reveal" in styles.css. The hero text
+// plays the same reveal once on load (.hero-intro). Text inside the phone mockups is left alone.
+(() => {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce || !("IntersectionObserver" in window)) return;
+  const picks = "main section:not(.hero) :is(.eyebrow, h2, h3, p, .text-link, .faq-item, .mode-kicker), .site-footer :is(.footer-links a, .footer-bottom > span, .powered-by)";
+  const skip = ".phone, .phone-gallery-frame, .hp-wrap, [aria-hidden='true'], .faq-answer, .faq-item h3";
+  const items = [...document.querySelectorAll(picks)].filter(el => !el.closest(skip) && !el.parentElement.closest(".rt"));
+  items.forEach(el => el.classList.add("rt"));
+  const observer = new IntersectionObserver(entries => {
+    const arriving = entries.filter(e => e.isIntersecting).map(e => e.target)
+      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top || a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    arriving.forEach((el, i) => {
+      el.style.transitionDelay = `${Math.min(i, 8) * 90}ms`;
+      el.classList.add("rt-in");
+      observer.unobserve(el);
+    });
+  }, { threshold: .15, rootMargin: "0px 0px -6% 0px" });
+  items.forEach(el => observer.observe(el));
+  document.documentElement.classList.add("rt-on");
+})();
+
 
 // Keep a clearly labelled fallback visible only when the supplied photo is missing.
 document.querySelectorAll(".hero-photo").forEach(panel => {
@@ -191,25 +235,22 @@ document.querySelectorAll(".hero-photo").forEach(panel => {
 });
 
 // ===== Hero phone =====
-// The LAMIS welcome screen, built live (markup: .hp-wrap in index.html; styles: "Hero phone" in styles.css). The timing follows
-// the Motion film it came from: the phone glides up and turns into place once, then floats; the screen builds (photo settles,
-// wordmark rises, its dot pops, the tagline word by word, then the sheet and its buttons), a soft light crosses the glass and
-// later the Log in button. The build plays again on every HERE | THERE or language switch.
+// The LAMIS welcome screen, built live (markup: .hp-wrap in index.html; styles: "Hero phone" in styles.css). The motion follows
+// the Motion film it came from ("Lamis Welcome Screen"): the finished screen floats and turns gently in a seamless 8 s loop,
+// a soft light crosses the glass and the Log in button catches a glint once per loop.
 const heroPhone = (() => {
   const wrap = document.querySelector(".hp-wrap");
   if (!wrap) return { rebuild() {} };
   const $ = (s) => wrap.querySelector(s);
   const el = { phone: $(".hp-phone"), shadow: $(".hp-shadow"), photo: () => wrap.querySelector(hero.classList.contains("is-there") ? ".hp-img-there" : ".hp-img-here"),
     mark: $(".hp-mark-in"), dot: $(".hp-dot"), tag: $(".hp-tag"), sheet: $(".hp-sheet"), login: $(".hp-login"), explore: $(".hp-explore"),
-    row: $(".hp-row"), foot: $(".hp-foot"), shine: $(".hp-shine"), glare: $(".hp-glare") };
+    row: $(".hp-row"), foot: $(".hp-foot"), shine: wrap.querySelectorAll(".hp-shine"), glare: wrap.querySelectorAll(".hp-glare") };
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
   const seg = (t, a, b) => clamp01((t - a) / (b - a));
   const lerp = (a, b, p) => a + (b - a) * p;
-  const eo = (p) => 1 - Math.pow(1 - p, 3);
   const eio = (p) => (p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
-  const eob = (p, s = 1.70158) => 1 + (s + 1) * Math.pow(p - 1, 3) + s * Math.pow(p - 1, 2);
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let words = [], start = performance.now(), buildStart = start, raf = 0, visible = true;
+  let words = [], start = performance.now(), raf = 0, visible = true;
 
   function splitTag() {
     // the sentence as written: read it fresh when it is plain text (first time, or after a language switch put new text in),
@@ -219,49 +260,39 @@ const heroPhone = (() => {
     el.tag.innerHTML = text.split(/\s+/).map((w) => "<span>" + w.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])) + "</span>").join("");
     words = [...el.tag.children];
   }
-  const rise = (node, p, d) => { node.style.opacity = p.toFixed(3); node.style.transform = "translateY(" + ((1 - p) * d).toFixed(1) + "px)"; };
+  const glow = wrap.querySelector(".hp-glow");
 
-  function render(tp, tb) {
-    // the phone: glides up and turns into place, then floats and sways a little
-    const g = seg(tp, -0.5, 1.9), turn = seg(tp, -0.5, 2.3), settle = seg(tp, 1.6, 2.8);
-    const fl = Math.sin((tp - 1.9) * Math.PI * 2 / 4) * settle, sway = Math.sin((tp - 2) * Math.PI * 2 / 6.5) * settle;
-    const y = lerp(190, 0, eo(g)) + 10 * fl;
-    const ry = lerp(-30, -9, eio(turn)) + 2.4 * sway, rx = lerp(12, 4, eio(turn)) + 0.8 * fl, rz = lerp(7, -1.5, eob(seg(tp, -0.5, 2.0), 1.3));
-    el.phone.style.transform = "translateY(" + y.toFixed(2) + "px) rotateX(" + rx.toFixed(2) + "deg) rotateY(" + ry.toFixed(2) + "deg) rotateZ(" + rz.toFixed(2) + "deg)";
-    const lift = clamp01(y / 200);
-    el.shadow.style.opacity = (0.95 - lift * 0.55 - fl * 0.06).toFixed(3);
-    el.shadow.style.transform = "scale(" + (1 - lift * 0.25 - fl * 0.03).toFixed(3) + ", 1)";
-    // the screen builds
-    const ps = lerp(1.15, 1.04, eo(seg(tb, -0.5, 3))) - 0.03 * seg(tb, 3, 8);
-    el.photo().style.transform = "translateY(" + lerp(-8, 6, seg(tb, 0, 8)).toFixed(1) + "px) scale(" + ps.toFixed(4) + ")";
-    const m = eo(seg(tb, 0.8, 1.5));
-    el.mark.style.opacity = clamp01(m * 1.6).toFixed(3);
-    el.mark.style.transform = "translateY(" + ((1 - m) * 72).toFixed(1) + "px)";
-    el.dot.style.transform = "scale(" + Math.max(0, eob(seg(tb, 1.45, 1.9), 1.8)).toFixed(3) + ")";
-    words.forEach((w, i) => rise(w, eo(seg(tb, 1.7 + i * 0.11, 2.2 + i * 0.11)), 14));
-    el.sheet.style.transform = "translateY(" + lerp(360, 0, eo(seg(tb, 2.25, 3.05))).toFixed(1) + "px)";
-    rise(el.login, eo(seg(tb, 2.8, 3.35)), 24);
-    rise(el.explore, eo(seg(tb, 3.0, 3.55)), 24);
-    rise(el.row, eo(seg(tb, 3.2, 3.75)), 18);
-    rise(el.foot, eo(seg(tb, 3.4, 3.95)), 14);
-    // a soft light crosses the glass once, and later the Log in button
-    const gl = seg(tb, 0.4, 2.6);
-    el.glare.style.opacity = (Math.sin(gl * Math.PI) * 0.9).toFixed(3);
-    el.glare.style.transform = "translateX(" + lerp(-120, 720, eio(gl)).toFixed(1) + "px) rotate(18deg)";
-    const sh = seg(tb, 5.0, 6.0);
-    el.shine.style.opacity = Math.sin(sh * Math.PI).toFixed(3);
-    el.shine.style.transform = "translateX(" + lerp(-90, 380, eio(sh)).toFixed(1) + "px) skewX(-18deg)";
+  function render(t) {
+    // A seamless 8 s loop: every motion is a sine whose period divides 8, so second 8 matches second 0.
+    const L = 8, p = (t % L) / L, lt = t % L, TAU = Math.PI * 2;
+    const a = Math.sin(TAU * p), b = Math.sin(TAU * p * 2), c = Math.cos(TAU * p);
+    // the camera breathes very slightly; the phone floats: two gentle bobs and one slow turn per loop
+    const s = 1.012 + 0.008 * c, y = -12 * b;
+    const ry = -8 + 7 * a, rx = 4 + 1.2 * b, rz = -1.2 + 1.0 * c;
+    el.phone.style.transform = "scale(" + s.toFixed(4) + ") translateY(" + y.toFixed(2) + "px) rotateX(" + rx.toFixed(2) + "deg) rotateY(" + ry.toFixed(2) + "deg) rotateZ(" + rz.toFixed(2) + "deg)";
+    el.shadow.style.opacity = (0.82 + 0.12 * b).toFixed(3);
+    el.shadow.style.transform = "translateX(" + (-10 * a).toFixed(1) + "px) scale(" + (1 + 0.05 * b).toFixed(3) + ", 1)";
+    if (glow) glow.style.opacity = (0.88 + 0.12 * b).toFixed(3);
+    // the photo drifts a touch, like a live moment
+    el.photo().style.transform = "translate(" + (-6 * a).toFixed(1) + "px," + (3 * c).toFixed(1) + "px) scale(" + (1.05 + 0.015 * c).toFixed(4) + ")";
+    // light glides across the glass as the phone turns toward it, then the Log in button catches a glint
+    const gl = seg(lt, 1.2, 3.6);
+    const glO = (Math.sin(gl * Math.PI) * 0.9).toFixed(3), glT = "translateX(" + lerp(-120, 720, eio(gl)).toFixed(1) + "px) rotate(18deg)";
+    el.glare.forEach((g) => { g.style.opacity = glO; g.style.transform = glT; });
+    const sh = seg(lt, 4.6, 5.6);
+    const shO = Math.sin(sh * Math.PI).toFixed(3), shT = "translateX(" + lerp(-90, 400, eio(sh)).toFixed(1) + "px) skewX(-18deg)";
+    el.shine.forEach((g) => { g.style.opacity = shO; g.style.transform = shT; });
   }
 
   function frame(now) {
     raf = 0;
-    render((now - start) / 1000, (now - buildStart) / 1000);
+    render((now - start) / 1000);
     if (visible) raf = requestAnimationFrame(frame);
   }
   function play() { if (!raf && !reduce) raf = requestAnimationFrame(frame); }
 
   splitTag();
-  if (reduce) render(3, 10); // no motion: the finished screen, standing still
+  if (reduce) render(0); // no motion: the screen standing still
   else play();
   // only animate while the hero is on screen
   if ("IntersectionObserver" in window) new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) play(); }).observe(wrap);
@@ -271,8 +302,7 @@ const heroPhone = (() => {
       splitTag();
       // the photo of the mode just left keeps no leftover movement
       wrap.querySelectorAll(".hp-img").forEach((img) => (img.style.transform = ""));
-      if (reduce) return render(3, 10);
-      buildStart = performance.now();
+      if (reduce) return render(0);
       play();
     },
   };
