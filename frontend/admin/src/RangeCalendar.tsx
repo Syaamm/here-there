@@ -19,6 +19,7 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
   });
   const [start, setStart] = useState<string | null>(null); // the first day, while the last is still to be chosen
   const [hover, setHover] = useState<string | null>(null);
+  const [cleared, setCleared] = useState(false); // "Clear" was pressed: the earlier range is no longer drawn, a new one starts
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useLayoutEffect(() => {
@@ -60,13 +61,22 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
   const atMax = !!max && iso(new Date(month.getFullYear(), month.getMonth() + 1, 1)) > max;
 
   // the span drawn on the grid: the chosen range, or the first day to wherever the pointer is
-  const lo = start ?? from;
-  const hi = start ? (hover && hover >= start ? hover : start) : to;
+  const lo = start ?? (cleared ? '' : from);
+  const hi = start ? (hover && hover >= start ? hover : start) : cleared ? '' : to;
+  // the two boxes above the grid say which date is being chosen now, and show what is chosen so far
+  const endShown = start ? (hover && hover > start ? hover : '') : cleared ? '' : to;
+  const nice = (d: string) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+  const hasAny = !!start || (!cleared && !!(from || to));
 
   const choose = (d: string) => {
     if (max && d > max) return;
     if (!start || d < start) return setStart(d);
     onPick(start, d);
+  };
+  const clear = () => {
+    setStart(null);
+    setHover(null);
+    setCleared(true);
   };
 
   return createPortal(
@@ -84,7 +94,17 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
           </span>
         </button>
       </div>
-      <p className="rc-hint">{start ? 'Now choose the last day' : 'Choose the first day'}</p>
+      <div className="rc-fields" role="group" aria-label="Chosen dates">
+        <div className={start ? 'rc-field' : 'rc-field on'} aria-current={!start}>
+          <span>Start date</span>
+          <strong>{nice(lo) || 'Select'}</strong>
+        </div>
+        <div className={start ? 'rc-field on' : 'rc-field'} aria-current={!!start}>
+          <span>End date</span>
+          <strong>{nice(endShown) || 'Select'}</strong>
+        </div>
+      </div>
+      <p className="rc-hint" aria-live="polite">{start ? 'Now click the end date' : 'Click the start date'}</p>
       <div className="rc-grid" onMouseLeave={() => setHover(null)}>
         {WEEK.map((w) => (
           <span key={w} className="rc-dow">
@@ -97,10 +117,10 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
               key={d}
               type="button"
               disabled={!!max && d > max}
-              className={['rc-day', d >= lo && d <= hi ? 'in' : '', d === lo ? 'edge' : '', d === hi ? 'edge' : '', d === iso(new Date()) ? 'today' : ''].filter(Boolean).join(' ')}
+              className={['rc-day', lo && d >= lo && d <= hi ? 'in' : '', d === lo ? 'edge' : '', d === hi ? 'edge' : '', d === iso(new Date()) ? 'today' : ''].filter(Boolean).join(' ')}
               onMouseEnter={() => setHover(d)}
               onClick={() => choose(d)}
-              aria-label={new Date(`${d}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+              aria-label={new Date(`${d}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + (d === lo ? ', start date' : '') + (d === hi && hi !== lo ? ', end date' : '')}
             >
               {Number(d.slice(8))}
             </button>
@@ -108,6 +128,11 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
             <span key={`e${i}`} />
           ),
         )}
+      </div>
+      <div className="rc-foot">
+        <button type="button" className="rc-clear" disabled={!hasAny} onClick={clear}>
+          Clear
+        </button>
       </div>
     </div>,
     document.body,

@@ -14,14 +14,14 @@ self.addEventListener('push', (event) => {
       body: d.body || '',
       // one notification per chat: a newer message from the same chat replaces the older one
       tag: d.url || 'here-there',
-      data: { url: d.url || '/' },
+      data: { url: d.url || self.registration.scope },
     }),
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/';
+  const url = (event.notification.data && event.notification.data.url) || self.registration.scope;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
       for (const w of wins) {

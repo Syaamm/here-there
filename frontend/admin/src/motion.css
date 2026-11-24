@@ -34,13 +34,12 @@
   /* ---- touch: everything clickable answers at once */
   .btn, .icon-btn, .nav, .tab, .seg, .chip, .list-item, .card.stat, .rowlink, .menu button, .menu-btn, .avatar { transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.18s ease, transform 0.15s var(--mo-ease), opacity 0.15s ease; }
   .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(18, 48, 43, 0.1); }
-  .btn:active:not(:disabled), .icon-btn:active, .seg:active, .tab:active, .nav:active { transform: scale(0.97); box-shadow: none; }
+  .btn:active:not(:disabled), .icon-btn:active, .seg:active, .tab:active { transform: scale(0.97); box-shadow: none; }
   .card.stat:hover, button.stat:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(18, 48, 43, 0.09); }
   .card.stat:active, button.stat:active { transform: scale(0.99); box-shadow: none; }
   .stat.hot:hover { box-shadow: 0 10px 24px rgba(18, 48, 43, 0.22); }
-  .nav .icon { transition: transform 0.2s var(--mo-spring); }
-  .nav:hover .icon { transform: scale(1.12); }
-  .nav.active .icon { transform: scale(1.08); }
+  .nav .icon { transition: opacity 0.15s ease; opacity: 0.85; } /* a plain fade: no bounce, no resize */
+  .nav:hover .icon, .nav.active .icon { opacity: 1; }
   .data-table tbody tr { transition: background-color 0.15s ease; }
   .data-table tbody tr:hover { background: var(--surface-2); }
   .page-tabs .tab { transition: color 0.15s ease, border-color 0.2s ease; }

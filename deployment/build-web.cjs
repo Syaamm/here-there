@@ -1,5 +1,5 @@
 /**
- * Builds the whole website in one go: the web version of the app (at /) and the admin console (at /admin/), and puts them
+ * Builds the whole website in one go: the landing page (at /), the web version of the app (at /app/) and the admin console (at /admin/), and puts them
  * together in one folder: build/site.
  *
  *   npm run build:web
@@ -23,6 +23,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const mobile = path.join(root, 'frontend', 'mobile');
 const admin = path.join(root, 'frontend', 'admin');
+const landing = path.join(root, 'frontend', 'landing');
 const out = path.join(root, 'build', 'site');
 
 const given = (process.argv[2] ?? process.env.PUBLIC_API_URL ?? '').trim().replace(/\/+$/, '');
@@ -51,20 +52,23 @@ run('Admin console', 'npm run build', admin, { VITE_API_URL: raw });
 
 // 2. the web version of the app: frontend/mobile/dist
 fs.rmSync(path.join(mobile, 'dist'), { recursive: true, force: true });
-run('Web version of the app', 'npx expo export --platform web --output-dir dist', mobile, { EXPO_PUBLIC_API_URL: raw, EXPO_OFFLINE: '1', CI: '1' });
+// (WEB_BASE_URL makes it live under /app/: the landing page owns /)
+run('Web version of the app', 'npx expo export --platform web --output-dir dist', mobile, { EXPO_PUBLIC_API_URL: raw, EXPO_OFFLINE: '1', CI: '1', WEB_BASE_URL: '/app' });
 
-// 3. one folder: the app at the top, the admin console in /admin
+// 3. one folder: the landing page at the top, the app in /app, the admin console in /admin
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
-fs.cpSync(path.join(mobile, 'dist'), out, { recursive: true });
+fs.cpSync(landing, out, { recursive: true });
+fs.cpSync(path.join(mobile, 'dist'), path.join(out, 'app'), { recursive: true });
 fs.cpSync(path.join(admin, 'dist'), path.join(out, 'admin'), { recursive: true });
 
-const hasApp = fs.existsSync(path.join(out, 'index.html'));
+const hasLanding = fs.existsSync(path.join(out, 'index.html'));
+const hasApp = fs.existsSync(path.join(out, 'app', 'index.html'));
 const hasAdmin = fs.existsSync(path.join(out, 'admin', 'index.html'));
-if (!hasApp || !hasAdmin) {
-  console.error(`\nSomething is missing in ${out} (app page: ${hasApp}, admin page: ${hasAdmin}).`);
+if (!hasLanding || !hasApp || !hasAdmin) {
+  console.error(`\nSomething is missing in ${out} (landing page: ${hasLanding}, app page: ${hasApp}, admin page: ${hasAdmin}).`);
   process.exit(1);
 }
-console.log(`\nDone: ${out}\n\n  /        the app\n  /admin/  the admin console\n\n` + (raw === 'same-origin'
-  ? 'The API serves this folder itself: start it (npm start in backend/api) and both are live at the API\'s address.'
+console.log(`\nDone: ${out}\n\n  /        the landing page\n  /app/    the app (web version)\n  /admin/  the admin console\n\n` + (raw === 'same-origin'
+  ? 'The API serves this folder itself: start it (npm start in backend/api) and all three are live at the API\'s address.'
   : `Upload the CONTENTS of the folder to the web server; the API itself must be running at ${raw}. See deployment/FOR_DEPLOYMENT.md.`));

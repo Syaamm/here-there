@@ -111,7 +111,9 @@ export async function forgetPushDevice(known?: string) {
 
 /** Browser: register the service worker (/sw.js, which shows the notification) and give the server this browser's address. */
 async function subscribeWeb() {
-  const reg = await navigator.serviceWorker.register('/sw.js');
+  // the web app lives under /app/ on the served website, so its service worker does too
+  const base = location.pathname === '/app' || location.pathname.startsWith('/app/') ? '/app' : '';
+  const reg = await navigator.serviceWorker.register(`${base}/sw.js`);
   await navigator.serviceWorker.ready;
   const { publicKey } = await api<{ publicKey: string }>('GET', '/v1/push/config');
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) as BufferSource }));

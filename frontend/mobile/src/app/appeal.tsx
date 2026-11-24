@@ -9,7 +9,7 @@ import { post, type MyAppeal } from '@/lib/api';
 import { useAction, useRefresh } from '@/lib/hooks';
 import { useCursorList } from '@/lib/paged';
 import { useT } from '@/lib/i18n';
-
+
 import { sc, sp, sph } from '@/lib/scale';
 const ASK: Record<string, { title: string; hint: string }> = {
   verification: { title: 'Ask for a review of your identity check', hint: 'Tell us what went wrong.' },
@@ -38,7 +38,10 @@ export default function Appeal() {
     setProofKey((k) => k + 1); // the photo picker starts empty again
     void mine.reload();
   });
-  const ask = kind ? ASK[kind] : undefined;
+  const { general } = useLocalSearchParams<{ general?: string }>();
+  // a general warning (sent from the person's profile) has no review: it is only shown
+  const noReview = kind === 'warning' && general === '1';
+  const ask = kind && !noReview ? ASK[kind] : undefined;
   const items = mine.data?.items ?? [];
   const hasOpen = items.some((a) => a.state === 'open');
   // each decision can be reviewed once, whatever the answer was: no form again for a problem that already has a request
@@ -62,7 +65,7 @@ export default function Appeal() {
               <Btn title={aboutType === 'trip' ? t('View trip') : t('View activity')} variant="secondary" small onPress={() => go(aboutType === 'trip' ? `/trip/${aboutId}` : `/activity/${aboutId}`)} />
             </>
           ) : null}
-          {!already ? <Txt variant="small" color={c.muted}>{t('If you think this is a mistake, ask for a review below. Another member of staff will look at it.')}</Txt> : null}
+          {!already && !noReview ? <Txt variant="small" color={c.muted}>{t('If you think this is a mistake, ask for a review below. Another member of staff will look at it.')}</Txt> : null}
         </AcctCard>
       ) : null}
       {ask && already ? (

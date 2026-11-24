@@ -318,6 +318,8 @@ function Chat({ id }: { id: string }) {
   const [reportMsg, setReportMsg] = useState<{ id: string; category?: string } | null>(null);
   // press and hold a message: report it (spam is one of the reasons in the report), see who wrote it, or block them
   const [picked, setPicked] = useState<Msg | null>(null);
+  // what to do once the message options sheet has fully closed: iOS cannot show a second sheet or alert while the first is still leaving
+  const afterPicked = useRef<(() => void) | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const send = useAction(() => void msgs.reload());
   // a refusal (a risky link, a request for money) goes away by itself after a few seconds
@@ -866,11 +868,11 @@ function Chat({ id }: { id: string }) {
         <ErrorBanner message={plan.error} />
         <Btn title={t('Post poll')} onPress={createPoll} loading={plan.busy} disabled={pollTitle.trim().length < 3 || !!pollErr || badRange} />
       </Sheet>
-      <Sheet visible={!!picked} title={picked ? t('Message from {name}', { name: picked.sender.displayName }) : ''} onClose={() => setPicked(null)}>
+      <Sheet visible={!!picked} title={picked ? t('Message from {name}', { name: picked.sender.displayName }) : ''} onClose={() => setPicked(null)} onClosed={() => { const next = afterPicked.current; afterPicked.current = null; next?.(); }}>
         <Txt variant="muted" numberOfLines={3}>{picked?.body}</Txt>
         {picked?.sender.blocked ? null : <Btn title={t('View profile')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); go(`/user/${m.sender.id}`); }} />}
-        <Btn title={t('Report message')} variant="secondary" onPress={() => { const m = picked!; setPicked(null); setReportMsg({ id: m.id }); }} />
-        {picked?.sender.blocked ? null : <Btn title={t('Block {name}', { name: picked?.sender.displayName ?? '' })} variant="danger" onPress={() => { const m = picked!; setPicked(null); void block(m); }} />}
+        <Btn title={t('Report message')} variant="secondary" onPress={() => { const m = picked!; afterPicked.current = () => setReportMsg({ id: m.id }); setPicked(null); }} />
+        {picked?.sender.blocked ? null : <Btn title={t('Block {name}', { name: picked?.sender.displayName ?? '' })} variant="danger" onPress={() => { const m = picked!; afterPicked.current = () => void block(m); setPicked(null); }} />}
       </Sheet>
     </Animated.View>
     </View>

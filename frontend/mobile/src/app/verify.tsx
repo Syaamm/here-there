@@ -132,7 +132,8 @@ export default function Verify() {
     else if (r?.url) await openCheck(r.url);
     else {
       tab?.close();
-      if (r && r.eligibility !== 'verified') act.setError(t('The check started but no page link came back ({status}). Tap Check for an update, or Cancel and start over.', { status: r.eligibility }));
+      // "pending" with no page is how a manual review starts (a team member approves it): the page already says "Check in progress", that is no error
+      if (r && r.eligibility !== 'verified' && r.eligibility !== 'pending') act.setError(t('The check started but no page link came back ({status}). Tap Check for an update, or Cancel and start over.', { status: r.eligibility }));
     }
   };
 
@@ -180,7 +181,8 @@ export default function Verify() {
         ))}
       </AcctCard>
 
-      <ErrorBanner message={act.error} />
+      {/* an old message never stays once the check is approved */}
+      <ErrorBanner message={e === 'verified' ? undefined : act.error} />
 
       {e === 'verified' && (
         <>

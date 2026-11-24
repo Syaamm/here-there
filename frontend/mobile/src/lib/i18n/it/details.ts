@@ -669,6 +669,7 @@ export const details: Record<string, string> = {
   'One tap, and it cannot be changed after. The group sees whether you went. We never track your location.': 'Un tocco, e poi non si può cambiare. Il gruppo vede se c’eri. Non tracciamo mai la tua posizione.',
   'Undo': 'Annulla',
   "Tap to read why. You can ask for a review.": "Tocca per leggere il motivo. Puoi chiedere una revisione.",
+  "Tap to read why.": "Tocca per leggere il motivo.",
   "Action taken on a report about you": "Provvedimento su una segnalazione su di te",
   "Tap to see the decision. You can ask for a review.": "Tocca per vedere la decisione. Puoi chiedere una revisione.",
   "The host says you didn't come": "L’organizzatore dice che non sei venuto",

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, Icon, Loading, Page, PageBar, ProofImages, Search, Segmented, useAction, useLoad, type Tone } from '../ui';
+import { askText, cap, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, Icon, Loading, Page, PageBar, ProofImages, Search, Segmented, useAction, useLoad, type Tone } from '../ui';
 
 type Appeal = {
   id: string;
@@ -176,7 +176,7 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
 
                 <div className="box">
                   <span className="label">What they say</span>
-                  <p className="quote">{selected.message}</p>
+                  <p className="quote">{cap(selected.message)}</p>
                   <ProofImages ids={selected.proofs} />
                 </div>
 
@@ -187,7 +187,7 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
                       {lines(selected).map(([k, v]) => (
                         <div key={k}>
                           <dt>{k}</dt>
-                          <dd>{v}</dd>
+                          <dd>{cap(v)}</dd>
                         </div>
                       ))}
                     </dl>
@@ -202,7 +202,7 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
                         <li key={m.id}>
                           <span className="muted">{fmt(m.createdAt)}</span>
                           <span>
-                            <b>{m.fromStaff ? 'You' : selected.user.displayName ?? 'They'}:</b> {m.body}
+                            <b>{m.fromStaff ? 'You' : selected.user.displayName ?? 'They'}:</b> {cap(m.body)}
                           </span>
                         </li>
                       ))}
@@ -214,12 +214,12 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
                 {selected.decision && (
                   <div className="box">
                     <span className="label">Our decision</span>
-                    <p>{selected.decision}</p>
+                    <p>{cap(selected.decision)}</p>
                   </div>
                 )}
 
                 {selected.state === 'open' && canDecide(selected) && (
-                  <div className="actions-bar" style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+                  <div className="actions-bar detail-foot" style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
                     <button className="btn" onClick={() => reply(selected)} disabled={act.busy}>
                       Reply
                     </button>

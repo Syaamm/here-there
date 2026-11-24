@@ -99,6 +99,8 @@ export class AppealsService {
     } else if (dto.kind === 'warning') {
       const w = await this.prisma.userWarning.findUnique({ where: { id: dto.targetId } });
       if (!w || w.userId !== me.id || w.withdrawnAt) throw E.conflict('NOTHING_TO_APPEAL', 'There is no warning of yours to appeal');
+      // a general warning (sent from the profile, not on a report or a message) has no review
+      if (!w.reportId && !w.messageId) throw E.conflict('NOTHING_TO_APPEAL', 'This is a general warning and cannot be appealed');
       targetType = 'warning';
       targetId = w.id;
     } else if (dto.kind === 'message') {
@@ -196,14 +198,15 @@ export class AppealsService {
   }
 
   // ---------------------------------------------------------------- staff
-  async queue(actor: User, state: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string, qRaw?: string) {
+  async queue(actor: User, state: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string, qRaw?: string, reportId?: string) {
     const scope = await this.regions.scopeOf(actor);
     const size = pageLimit(limitRaw, 100, 200);
     const include = { thread: { orderBy: { createdAt: 'asc' as const } }, user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } };
     // a search: the person's name, email or id, or what they wrote in the appeal
     const needle = qRaw?.trim().slice(0, 80);
+    // one report's appeal (the report page shows it under the decision): whatever state it is in
     const where: Prisma.AppealWhereInput = {
-      state,
+      ...(reportId ? { kind: 'report', targetId: reportId } : { state }),
       ...(scope && { user: this.regions.peopleWhere(scope) }),
       ...(needle && { AND: [{ OR: [{ user: { OR: [{ email: { contains: needle, mode: 'insensitive' } }, { profile: { displayName: { contains: needle, mode: 'insensitive' } } }, { id: needle }] } }, { message: { contains: needle, mode: 'insensitive' } }] }] }),
     };
@@ -359,8 +362,8 @@ export class AppealsController {
   @RegionalOk()
   @Perm('reports')
   @Get('admin/appeals')
-  queue(@CurrentUser() actor: User, @Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string, @Query('q') q?: string) {
-    return this.appeals.queue(actor, ['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor, page, q);
+  queue(@CurrentUser() actor: User, @Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string, @Query('q') q?: string, @Query('reportId') reportId?: string) {
+    return this.appeals.queue(actor, ['open', 'upheld', 'rejected'].includes(state) ? state : 'open', limit, cursor, page, q, reportId);
   }
 
   @Staff(...STAFF)

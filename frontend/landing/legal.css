@@ -1,0 +1,70 @@
+/* LAMIS legal and support pages (privacy, terms, account deletion, ...) */
+:root {
+  --forest: #102F29;
+  --text: #14221F;
+  --muted: #5C6B66;
+  --line: #E2E8E4;
+  --soft: #F6F8F6;
+  --link: #2F7D65;
+  --font-head: "Satoshi", "Inter", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: #FFFFFF; color: var(--text); font: 16px/1.65 var(--font-body); }
+a { color: var(--link); }
+.legal { max-width: 760px; margin: 0 auto; padding: 32px 20px 24px; }
+
+.legal-brand { display: inline-flex; align-items: center; gap: 12px; color: var(--forest); text-decoration: none; font: 700 17px var(--font-head); }
+.legal-brand img { width: 32px; height: 32px; }
+
+.legal h1 { margin: 28px 0 6px; font: 700 clamp(28px, 5vw, 34px)/1.2 var(--font-head); color: var(--forest); }
+.legal .lead { margin: 0; }
+.legal .updated { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.legal h2 { margin: 36px 0 8px; font: 700 20px/1.3 var(--font-head); color: var(--forest); }
+.legal p { margin: 0 0 12px; }
+.legal ul, .legal ol { margin: 0 0 12px; padding-left: 22px; }
+.legal li { margin-bottom: 4px; }
+
+.table-wrap { overflow-x: auto; margin: 8px 0 12px; }
+.legal table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.legal th, .legal td { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+.legal th { background: var(--soft); font-weight: 600; }
+
+.provider { margin: 40px 0 28px; padding: 18px 18px 8px; border: 1px solid var(--line); border-radius: 12px; }
+.provider h3 { margin: 0 0 10px; font: 600 16px var(--font-body); color: var(--forest); }
+.provider dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 10px; }
+.provider dt { color: var(--muted); }
+.provider dd { margin: 0; overflow-wrap: anywhere; }
+
+.legal .legal-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; list-style: none; }
+.legal-links a { color: var(--text); text-decoration: none; }
+.legal-links a:hover { color: var(--link); text-decoration: underline; }
+
+.legal-back { display: inline-block; margin-top: 20px; font-size: 15px; }
+
+/* "Powered by CloudHouse" line, also used at the bottom of index.html */
+.powered-by { padding: 18px 20px 26px; text-align: center; font: 500 14px var(--font-body); color: #6B6B78; }
+.powered-by a { color: inherit; text-decoration: none; }
+.powered-by b { font-weight: 700; background: linear-gradient(90deg, #7B2FF7, #C81E9B); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.powered-by a:hover b { text-decoration: underline; text-decoration-color: #7B2FF7; }
+
+@media (max-width: 560px) {
+  .legal { padding-top: 24px; }
+  .provider dl { grid-template-columns: 1fr; gap: 0; }
+  .provider dd { margin-bottom: 8px; }
+}
+
+/* Phones: the data table becomes one card per row, each value labelled */
+@media (max-width: 600px) {
+  .legal table, .legal tbody, .legal tr, .legal td { display: block; width: 100%; }
+  .legal thead { display: none; }
+  .legal tr { margin-bottom: 12px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .legal td { border: 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 9px 12px; }
+  .legal td:first-child { border-top: 0; background: var(--soft); font-weight: 600; grid-template-columns: 1fr; }
+  .legal td:first-child::before { display: none; }
+  .legal td::before { content: attr(data-label); color: var(--muted); font-size: 13px; }
+}
+
+/* Typography: Satoshi for the page title and section headings (h1, h2), Inter for everything else */
+.legal h3, .legal-links, .legal-back { font-family: var(--font-body); }

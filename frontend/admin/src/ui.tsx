@@ -177,6 +177,7 @@ export function useAction(after: () => void) {
     try {
       await fn();
       after();
+      window.dispatchEvent(new Event('ht-queues-changed')); // the numbers on the tabs and the sidebar update at once
     } catch (e) {
       setError(errMsg(e));
     } finally {
@@ -187,8 +188,16 @@ export function useAction(after: () => void) {
 }
 
 // ---------------------------------------------------------------- reason dialog
-type Ask = { title: string; label: string; confirm: string; required: boolean; choices?: [string, string][]; choiceLabel?: string; multi?: boolean; initial?: string[]; resolve: (v: string | null) => void };
+type Ask = { title: string; label: string; confirm: string; required: boolean; choices?: [string, string][]; choiceLabel?: string; multi?: boolean; initial?: string[]; message?: string; noText?: boolean; resolve: (v: string | null) => void };
 let openAsk: ((a: Ask) => void) | null = null;
+
+/** Promise-based replacement for window.confirm, in the console's own dialog: a title, a line of explanation, Cancel and the action. */
+export function askConfirm(title: string, message: string, confirm = 'Confirm') {
+  return new Promise<boolean>((resolve) => {
+    if (!openAsk) return resolve(false);
+    openAsk({ title, message, noText: true, label: '', confirm, required: false, resolve: (v) => resolve(v !== null) });
+  });
+}
 
 /** Promise-based replacement for window.prompt. Resolves null when cancelled. */
 export function askText(title: string, opts: { label?: string; confirm?: string; required?: boolean; choices?: [string, string][]; choiceLabel?: string; multi?: boolean; initial?: string[] } = {}) {
@@ -278,15 +287,18 @@ export function DialogHost() {
             </Select>
           </label>
         )}
-        <label>
-          {ask.label}
-          <textarea autoFocus rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} />
-        </label>
+        {ask.message && <p className="muted">{ask.message}</p>}
+        {!ask.noText && (
+          <label>
+            {ask.label}
+            <textarea autoFocus required={ask.required} rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} />
+          </label>
+        )}
         <div className="row end">
           <button type="button" className="btn" onClick={() => close(null)}>
             Cancel
           </button>
-          <button type="submit" className="btn primary" disabled={tooShort}>
+          <button type="submit" className="btn primary" autoFocus={!!ask.noText} disabled={tooShort}>
             {ask.confirm}
           </button>
         </div>
@@ -510,12 +522,15 @@ export function ProofImages({ ids }: { ids?: string[] }) {
   );
 }
 
+/** The first letter in capitals, the rest as written (so emails, names and codes keep their form). For text that comes from data. */
+export const cap = (s?: string | null): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
+
 export function Chip({ value, tone, icon }: { value: string; tone?: Tone; icon?: IconName }) {
   const t = { warn: 'line', bad: 'dark', info: 'plain' }[tone as string] ?? tone ?? toneFor(value);
   return (
     <span className={`chip ${t}`}>
       {icon && <Icon name={icon} />}
-      {value.replace(/_/g, ' ')}
+      {cap(value.replace(/_/g, ' '))}
     </span>
   );
 }

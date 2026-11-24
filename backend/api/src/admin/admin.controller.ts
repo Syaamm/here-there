@@ -50,14 +50,14 @@ export const staffCreateSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   displayName: z.string().trim().min(2).max(40),
   role: z.literal('staff').optional(),
-  regionKey: z.string().trim().min(1).max(60),
+  regionKey: z.string().trim().min(1).max(60).nullable().optional(), // staff have no area any more: they work for the whole service
   permissions: z.array(z.enum(STAFF_PERMISSIONS)).optional(),
   /** the password the administrator gives this person: the administrator looks after it from then on */
   password: z.string().min(10, 'Use at least 10 characters').max(200),
 });
 /** An admin changes what one staff member may do, or where. */
 export const staffUpdateSchema = z.object({
-  regionKey: z.string().trim().min(1).max(60).optional(),
+  regionKey: z.string().trim().min(1).max(60).nullable().optional(), // null takes an old area away
   permissions: z.array(z.enum(STAFF_PERMISSIONS)).optional(),
   email: z.string().trim().toLowerCase().email().max(254).optional(),
   password: z.string().min(10, 'Use at least 10 characters').max(200).optional(),
@@ -159,9 +159,10 @@ export class AdminController {
     // the Verification card: the same three groups as the Verification page's tabs
     const [pendingVerifications, verifiedChecks, rejectedChecks, unverifiedPeople, activeActivities, activeTrips] = await Promise.all([
       this.prisma.verificationCheck.count({ where: checkWhere({ eligibility: 'pending' }) }),
-      this.prisma.verificationCheck.count({ where: checkWhere({ eligibility: 'verified' }) }),
-      this.prisma.verificationCheck.count({ where: checkWhere({ eligibility: 'rejected' }) }),
-      this.prisma.user.count({ where: { AND: [members, { eligibility: { not: 'verified' } }] } }),
+      // people, by where their identity stands now: exactly what the Verification page's Verified / Not verified / Rejected tabs list
+      this.prisma.user.count({ where: { AND: [members, { eligibility: 'verified' }] } }),
+      this.prisma.user.count({ where: { AND: [members, { eligibility: 'rejected' }] } }),
+      this.prisma.user.count({ where: { AND: [members, { eligibility: { notIn: ['verified', 'rejected'] } }] } }),
       this.prisma.activity.count({ where: actWhere({ status: { in: ['published', 'full', 'confirmed'] }, endsAt: { gt: now } }) }),
       this.prisma.trip.count({ where: tripWhere({ status: { in: ['published', 'full', 'planning', 'confirmed'] }, dateEnd: { gt: now } }) }),
     ]);
@@ -414,8 +415,8 @@ export class AdminController {
   async createStaff(@CurrentUser() actor: User, @Body() body: unknown) {
     const dto = parse(staffCreateSchema, body);
     if (await this.prisma.user.findUnique({ where: { email: dto.email } })) throw E.conflict('EMAIL_TAKEN', 'An account with that email already exists. Change its role from the Users page instead.');
-    const area = dto.regionKey;
-    if (!(await this.regions.exists(area))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
+    const area = dto.regionKey ?? null;
+    if (area && !(await this.regions.exists(area))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
     const permissions = dto.permissions ?? [...STAFF_PERMISSIONS];
     const user = await this.prisma.user.create({
       data: {
@@ -443,7 +444,7 @@ export class AdminController {
     if (!row || row.state === 'deleted') throw E.notFound('User');
     if (row.role !== 'staff') throw E.badRequest('INVALID_TARGET', 'Only staff accounts have an area and permissions');
     if (dto.regionKey && !(await this.regions.exists(dto.regionKey))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
-    const data = { ...(dto.regionKey && { adminRegionKey: dto.regionKey }), ...(dto.permissions && { staffPermissions: dto.permissions }) };
+    const data = { ...(dto.regionKey !== undefined && { adminRegionKey: dto.regionKey }), ...(dto.permissions && { staffPermissions: dto.permissions }) };
     // sign-in details: the administrator sets the email and the password of a staff account
     const credentials: Prisma.UserUpdateInput = {};
     if (dto.email && dto.email !== row.email) {
@@ -678,6 +679,8 @@ export class AdminController {
     await this.audit.log(actor.id, `report.${dto.status}`, 'report', id, { resolution: dto.resolution });
     // a decision was taken about someone: they can read it and ask for a review once
     if (dto.status === 'resolved' && report.status !== 'resolved') await this.moderation.tellSubject(report).catch(() => undefined);
+    // and the person who filed it hears the outcome too (only the person it is about can ask for a review)
+    if (dto.status !== 'in_review' && !['resolved', 'dismissed'].includes(report.status)) await this.moderation.tellReporter(report, dto.status).catch(() => undefined);
     // "resolved" on a host-did-not-show-up report means a moderator confirmed it: the host's notes for that plan are cancelled
     if (dto.status === 'resolved' && report.category === 'host_no_show' && report.status !== 'resolved') await this.reliability.onHostAbsenceUpheld(actor, report);
     return { ok: true };

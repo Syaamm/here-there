@@ -9,7 +9,9 @@ export function alertText(n: Pick<Notif, 'type' | 'title' | 'body' | 'data'>, t:
     case 'warning': {
       // when it is about a plan, the alert says which one
       const about = (n as { data?: { aboutTitle?: string } | null }).data?.aboutTitle;
-      return { title: t('A moderator warned you'), body: about ? t('{title} · Tap to read why.', { title: about }) : t('Tap to read why. You can ask for a review.') };
+      // a general warning (sent from the person's profile) cannot be appealed, so it does not say so
+      const general = (n as { data?: { appealable?: boolean } | null }).data?.appealable === false;
+      return { title: t('A moderator warned you'), body: about ? t('{title} · Tap to read why.', { title: about }) : general ? t('Tap to read why.') : t('Tap to read why. You can ask for a review.') };
     }
     case 'message_removed':
       return { title: t('A moderator removed your message'), body: t('Tap to read why. You can ask for a review.') };
@@ -47,7 +49,8 @@ export function alertRoute(n: Pick<Notif, 'type' | 'data'>): string | null {
   // a warning about a plan: the page names it and can open it
   const plan = d as { aboutType?: string; aboutId?: string; aboutTitle?: string } | null;
   const about = plan?.aboutId ? `&aboutType=${plan.aboutType}&aboutId=${plan.aboutId}&aboutTitle=${encodeURIComponent(plan.aboutTitle ?? '')}` : '';
-  if (n.type === 'warning' && d?.warningId) return `/appeal?kind=warning&targetId=${d.warningId}${why}${about}`;
+  const general = n.type === 'warning' && (d as { appealable?: boolean } | null)?.appealable === false ? '&general=1' : '';
+  if (n.type === 'warning' && d?.warningId) return `/appeal?kind=warning&targetId=${d.warningId}${why}${about}${general}`;
   if (n.type === 'message_removed' && d?.messageId) return `/appeal?kind=message&targetId=${d.messageId}${why}`;
   // a review request's answer or a moderator's message: the list, with that exact request first and marked
   if (n.type === 'appeal_decided' || n.type === 'appeal_reply') return ids?.reportId ? `/reports-blocked?reportId=${ids.reportId}` : ids?.appealId ? `/reports-blocked?appealId=${ids.appealId}` : '/reports-blocked';

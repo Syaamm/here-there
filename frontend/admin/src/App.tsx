@@ -135,46 +135,31 @@ export default function App() {
     setUnauthorizedHandler(logout);
   }, []);
 
-  // badges: waiting reports and identity checks this person has not opened yet (remembered in this browser)
-  const [open, setOpen] = useState<{ reports: string[]; verifications: string[] } | null>(null);
-  const seenKey = `ht_admin_seen:${session?.email ?? ''}`;
-  const readSeen = () => {
-    try {
-      return new Set<string>(JSON.parse(localStorage.getItem(seenKey) ?? '[]'));
-    } catch {
-      return new Set<string>();
-    }
-  };
-  const [seen, setSeen] = useState<Set<string>>(readSeen);
-  useEffect(() => setSeen(readSeen()), [seenKey]);
+  // badges: how many are still waiting for a decision (reports, appeals, attendance). A number only goes down when someone decides one:
+  // opening a page does not clear it.
+  const [waiting, setWaiting] = useState<{ reports: number; appeals: number; attendance: number } | null>(null);
   useEffect(() => {
     if (!session) return;
     let live = true;
-    // the ids of the open reports come from a small summary (not the whole queue), so asking every few seconds stays cheap
-    const ids = () => api<{ openIds: string[] }>('GET', '/v1/admin/reports/waiting').then((r) => r.openIds, () => [] as string[]);
-    const load = () => Promise.all([ids(), Promise.resolve([] as string[])]).then(([reports, verifications]) => live && setOpen({ reports, verifications }));
+    const total = (path: string) => api<{ total?: number }>('GET', path).then((r) => r.total ?? 0, () => 0);
+    const load = () =>
+      Promise.all([
+        api<{ total?: number }>('GET', '/v1/admin/reports/waiting').then((r) => r.total ?? 0, () => 0),
+        total('/v1/admin/appeals?state=open&page=1&limit=1'),
+        Promise.all([total('/v1/admin/no-shows?state=marked&page=1&limit=1'), total('/v1/admin/no-shows?state=disputed&page=1&limit=1')]).then(([a, b]) => a + b),
+      ]).then(([reports, appeals, attendance]) => live && setWaiting({ reports, appeals, attendance }));
     load();
     const t = setInterval(() => !document.hidden && load(), 6000);
     const back = () => !document.hidden && load();
     document.addEventListener('visibilitychange', back);
+    window.addEventListener('ht-queues-changed', load);
     return () => {
       live = false;
       clearInterval(t);
       document.removeEventListener('visibilitychange', back);
+      window.removeEventListener('ht-queues-changed', load);
     };
   }, [session]);
-  useEffect(() => {
-    const ids = loc.section === 'reports' && (loc.tab || 'reports') === 'reports' ? open?.reports : loc.section === 'verification' ? open?.verifications : null;
-    if (!ids || ids.every((id) => seen.has(id))) return;
-    const next = new Set([...seen, ...ids]);
-    setSeen(next);
-    try {
-      localStorage.setItem(seenKey, JSON.stringify([...next].slice(-500)));
-    } catch {
-      /* storage unavailable */
-    }
-  }, [loc, open]);
-  const fresh = (ids?: string[]) => (ids ?? []).filter((id) => !seen.has(id)).length;
 
   if (!session)
     return (
@@ -183,7 +168,7 @@ export default function App() {
         <DialogHost />
       </>
     );
-  return <Console session={session} updateSession={setSession} loc={loc} go={go} reportId={reportId} setReportId={setReportId} userId={userId} setUserId={setUserId} badge={{ reports: fresh(open?.reports), verification: fresh(open?.verifications) }} logout={logout} />;
+  return <Console session={session} updateSession={setSession} loc={loc} go={go} reportId={reportId} setReportId={setReportId} userId={userId} setUserId={setUserId} badge={{ reports: waiting?.reports ?? 0, appeals: waiting?.appeals ?? 0, attendance: waiting?.attendance ?? 0, verification: 0 }} logout={logout} />;
 }
 
 type ConsoleProps = {
@@ -195,7 +180,7 @@ type ConsoleProps = {
   setReportId: (id: string | null) => void;
   userId: string | null;
   setUserId: (id: string | null) => void;
-  badge: { reports: number; verification: number };
+  badge: { reports: number; appeals: number; attendance: number; verification: number };
   logout: () => void;
 };
 
@@ -343,7 +328,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
     setUrlParam('who', 'against');
   };
   const nav = (id: SectionId) => (setReportId(null), setUserId(null), go(id));
-  const count = (id: SectionId) => (id === 'reports' ? badge.reports : id === 'verification' ? badge.verification : 0);
+  const count = (id: SectionId) => (id === 'reports' ? badge.reports + badge.appeals + badge.attendance : id === 'verification' ? badge.verification : 0);
 
   let body: ReactNode = null;
   const key = `${section.id}/${tab}`;
@@ -402,7 +387,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
               : { title: 'Settings' };
   const tabs =
     section.id === 'settings' ? null : section.tabs && section.tabs.length > 1 ? (
-      <Tabs label={section.label} value={tab} onChange={(t) => (setReportId(null), setUserId(null), go(section.id, t))} options={section.tabs.map((t) => ({ id: t.id, label: t.label, count: t.id === 'reports' ? badge.reports : undefined }))} />
+      <Tabs label={section.label} value={tab} onChange={(t) => (setReportId(null), setUserId(null), go(section.id, t))} options={section.tabs.map((t) => ({ id: t.id, label: t.label, count: t.id === 'reports' ? badge.reports : t.id === 'appeals' ? badge.appeals : t.id === 'noshows' ? badge.attendance : undefined }))} />
     ) : null;
 
   const shown = sections.filter((s) => s.label.toLowerCase().includes(filter.trim().toLowerCase()));
@@ -432,7 +417,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
               <Icon name="x" />
             </button>
           )}
-          <kbd aria-hidden="true">Ctrl K</kbd>
+          {!filter && <kbd aria-hidden="true">Ctrl K</kbd>}
         </label>
         <nav aria-label="Main">
           {groups.map((g) => (

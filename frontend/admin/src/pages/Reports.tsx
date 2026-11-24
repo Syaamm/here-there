@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, can, get, post, type Session } from '../api';
 import { Select } from '../controls';
-import { askChecksText, askChoiceText, askText, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, urlParam, setUrlParam, Icon, Loading, Page, PageBar, Search, Segmented, useAction, useUrlParam, useLoad } from '../ui';
+import { askChecksText, askChoiceText, askText, cap, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, urlParam, setUrlParam, Icon, Loading, Page, PageBar, Search, Segmented, useAction, useUrlParam, useLoad } from '../ui';
 
 type R = {
   id: string;
@@ -21,6 +21,8 @@ type R = {
   reporter: { id: string; email?: string | null; profile?: { displayName: string } | null };
   subject: { userId: string; displayName: string | null; email?: string | null; state: string | null } | null;
   message: { id: string; body: string; moderationState: string } | null;
+  /** the activity or trip the report is about */
+  target?: { type: 'activity' | 'trip'; id: string; title: string; description: string | null; where: string; startsAt: string; endsAt: string | null; status: string; capacity: number; members: number; hostId: string; hostName: string | null } | null;
   repeatOffender: { flag: boolean; reasons: string[] } | null;
   open?: boolean;
   answerBy?: string | null;
@@ -140,14 +142,16 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
     const t = setTimeout(() => setTerm(q.trim()), 350);
     return () => clearTimeout(t);
   }, [q]);
-  const waiting = status === 'waiting' && !focusId && !term;
-  const cat = category ? '&category=' + category : '';
-  // a search looks through every report of that person: all states and all types
+  // A search stays inside the tab and the type that are chosen (Waiting, Action taken, No action needed). The one exception is a
+  // search opened from a person's profile ("Reports against"): that looks across every state until a tab is picked.
+  const [allStates, setAllStates] = useState(() => !!urlParam('q'));
+  const pickStatus = (s: 'waiting' | 'resolved' | 'dismissed') => (setAllStates(false), setStatus(s));
+  const everyState = allStates && !!term;
   const [pageNo, setPageNo] = useState(1);
-  useEffect(() => setPageNo(1), [term, who, status, category]);
-  const params = new URLSearchParams({ limit: '20', page: String(pageNo), ...(!focusId && !term && { status }), ...(category && !term && { category }), ...(term && { q: term, who }) });
+  useEffect(() => setPageNo(1), [term, who, status, category, everyState]);
+  const params = new URLSearchParams({ limit: '20', page: String(pageNo), ...(!focusId && !everyState && { status }), ...(category && { category }), ...(term && { q: term, who }) });
   // every list is read a page at a time (Waiting too: in queue order, urgent first), "Load more" asks for the next page
-  const { data, error, loading, reload } = useLoad(() => get<{ items: R[]; nextCursor?: string | null; page?: number; pages?: number; total?: number }>('/v1/admin/reports?' + params), [status, category, focusId, term, who, pageNo], 10000);
+  const { data, error, loading, reload } = useLoad(() => get<{ items: R[]; nextCursor?: string | null; page?: number; pages?: number; total?: number }>('/v1/admin/reports?' + params), [status, category, focusId, term, who, pageNo, everyState], 10000);
   // how many wait, for the tab's number (a small summary, not the queue)
   const summary = useLoad(() => get<{ total: number }>('/v1/admin/reports/waiting'), [], 10000);
   const refreshAll = () => (reload(), summary.reload());
@@ -202,9 +206,10 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
           <Segmented
             label="Status"
             value={status}
-            onChange={setStatus}
+            onChange={pickStatus}
             options={[
-              { id: 'waiting', label: 'Waiting', count: summary.data?.total ?? 0 },
+              // while searching inside Waiting, the number is how many of the found reports are waiting
+              { id: 'waiting', label: 'Waiting', count: term && status === 'waiting' && !everyState && data?.total != null ? data.total : (summary.data?.total ?? 0) },
               { id: 'resolved', label: 'Action taken' },
               { id: 'dismissed', label: 'No action needed' },
             ]}
@@ -226,7 +231,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
       )}
       <ErrorBanner message={failed ?? act.error} onRetry={() => (reload(), summary.reload())} />
       {loading && !data && <Loading rows={6} />}
-      {ready && items.length === 0 && <Empty>{focusId ? 'Report not found.' : term ? `No ${status === 'waiting' ? 'waiting ' : ''}reports ${who === 'by' ? 'filed by' : 'against'} “${term}”.` : 'No reports.'}</Empty>}
+      {ready && items.length === 0 && <Empty>{focusId ? 'Report not found.' : term ? `No ${everyState ? '' : status === 'waiting' ? 'waiting ' : status === 'resolved' ? '“action taken” ' : '“no action needed” '}reports ${who === 'by' ? 'filed by' : who === 'against' ? 'against' : 'about or filed by'} “${term}”.` : 'No reports.'}</Empty>}
       {items.length > 0 && (
         <div className="split" data-pane={pane}>
           <section className="split-list" aria-label="Reports">
@@ -249,7 +254,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
                           <li key={r.id}>
                             <button className={r.id === selected?.id ? 'list-item active' : 'list-item'} aria-current={r.id === selected?.id} onClick={() => (setSel(r.id), setPane('detail'))}>
                               <span className="body">
-                                <span className="title">{r.details || label(r.category)}</span>
+                                <span className="title">{cap(r.details) || label(r.category)}</span>
                                 <span className="meta">
                                   {label(r.category)} · {nameOf(r)}
                                 </span>
@@ -317,7 +322,7 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
   const history: { at: string; text: string }[] = [{ at: r.createdAt, text: `Filed by ${byOf(r)}` }];
   if (escalated && r.answerBy) history.push({ at: r.answerBy, text: 'Passed to a senior team member' });
   // a decided report names who decided it (the server records the decider on the report)
-  if (!active) history.push({ at: r.createdAt, text: `${r.status === 'resolved' ? 'Action taken' : 'No action needed'}${r.assignedName ? ` by ${r.assignedName}` : ''}${r.resolution ? `: ${r.resolution}` : ''}` });
+  if (!active) history.push({ at: r.createdAt, text: `${r.status === 'resolved' ? 'Action taken' : 'No action needed'}${r.assignedName ? ` by ${r.assignedName}` : ''}${r.resolution ? `: ${cap(r.resolution)}` : ''}` });
 
   return (
     <div className="detail-scroll">
@@ -328,7 +333,7 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
           {r.priority === 'urgent' && active && <Chip tone="dark" value="Needs quick action" />}
           {escalated && active && <Chip tone="dark" value={r.escalationLevel === 2 ? 'Very serious' : 'Passed to a senior'} />}
         </div>
-        <h2 style={{ margin: 0 }}>{r.details || 'No details'}</h2>
+        <h2 style={{ margin: 0 }}>{cap(r.details) || 'No details'}</h2>
         <p className="small muted">
           {fmt(r.createdAt)}
           {d && ` · ${d.text}`}
@@ -343,14 +348,51 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
 
       <WhatHappened id={r.id} />
 
-      {r.evidence ? (
-        <EvidenceBox e={r.evidence} />
-      ) : r.message ? (
+      {r.target ? (
         <div className="box">
-          <span className="label">Message{r.message.moderationState === 'removed' ? ' · hidden' : ''}</span>
-          <p className="quote">{r.message.body}</p>
+          <span className="label">{r.target.type === 'trip' ? 'Reported trip' : 'Reported activity'}</span>
+          <p>
+            <strong>{cap(r.target.title)}</strong>
+          </p>
+          <dl className="facts" style={{ marginTop: 8 }}>
+            <div>
+              <dt>{r.target.type === 'trip' ? 'Where' : 'Place'}</dt>
+              <dd>{r.target.where}</dd>
+            </div>
+            <div>
+              <dt>When</dt>
+              <dd>
+                {fmt(r.target.startsAt)}
+                {r.target.endsAt ? ` to ${fmt(r.target.endsAt)}` : ''}
+              </dd>
+            </div>
+            <div>
+              <dt>{r.target.type === 'trip' ? 'Organizer' : 'Host'}</dt>
+              <dd>{r.target.hostName ?? 'Unknown'}</dd>
+            </div>
+            <div>
+              <dt>Members</dt>
+              <dd>
+                {r.target.members} of {r.target.capacity}
+              </dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>{cap(r.target.status.replace(/_/g, ' '))}</dd>
+            </div>
+          </dl>
+          {r.target.description ? <p className="quote">{cap(r.target.description)}</p> : null}
+          <div className="actions-bar" style={{ marginTop: 8 }}>
+            {/* the public page of the plan (the API serves it at /a/<id> and /t/<id>), in a new tab */}
+            <a className="btn" href={`/${r.target.type === 'trip' ? 't' : 'a'}/${r.target.id}`} target="_blank" rel="noopener noreferrer">
+              Open {r.target.type === 'trip' ? 'trip' : 'activity'} ↗
+            </a>
+          </div>
         </div>
       ) : null}
+
+      {/* the reported message itself is shown once, above, under "What was reported" */}
+      {r.evidence ? <EvidenceBox e={r.evidence} /> : null}
 
       <div>
         <h3 style={{ marginTop: 0 }}>History</h3>
@@ -365,26 +407,90 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
       </div>
 
       {mod && active && (
-        <div className="stack" style={{ gap: 12, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
-          <label>
-            Reason for closing without action (they will be told)
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Only needed for “No action needed”" maxLength={500} />
+        <div className="detail-foot detail-decide">
+          {/* one line: the reason (only needed to close without action; they will be told) and the two decisions */}
+          <label className="grow">
+            <span className="sr">Reason for closing without action (they will be told)</span>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for closing without action (they will be told)" maxLength={500} />
           </label>
-          <div className="actions-bar">
-            <span style={{ flex: 1 }} />
-            <button className="btn" disabled={busy || !noteOk} onClick={() => p.onResolve(r, 'dismissed', note.trim())}>
-              No action needed
-            </button>
-            <button className="btn primary" disabled={busy} onClick={takeAction}>
-              {r.category === NO_SHOW ? 'Host did not show up' : 'Take action'}
-            </button>
-          </div>
+          <button className="btn" disabled={busy || !noteOk} onClick={() => p.onResolve(r, 'dismissed', note.trim())}>
+            No action needed
+          </button>
+          <button className="btn primary" disabled={busy} onClick={takeAction}>
+            {r.category === NO_SHOW ? 'Host did not show up' : 'Take action'}
+          </button>
         </div>
       )}
+      {/* a decided report has no "Take action" again: the only thing left is the person's appeal of it, if there is one */}
+      {!active && <ReportAppeal reportId={r.id} me={p.me} />}
       {mod && !active && r.message?.moderationState === 'removed' && (
         <div className="actions-bar">
           <button className="btn" onClick={() => p.onRestore(r)} disabled={busy}>
             Restore message
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ReportAppealRow = { id: string; state: 'open' | 'upheld' | 'rejected'; message: string; decision: string | null; createdAt: string; decidedAt: string | null; proofs?: string[]; thread?: { id: string; fromStaff: boolean; body: string; createdAt: string }[]; user: { displayName: string | null; email: string } };
+
+/** The appeal of a decided report, when the person asked for one: "View appeal", then Accept or Reject while it waits. */
+function ReportAppeal({ reportId, me }: { reportId: string; me: Session }) {
+  const [open, setOpen] = useState(false);
+  const list = useLoad(() => get<{ items: ReportAppealRow[] }>(`/v1/admin/appeals?reportId=${encodeURIComponent(reportId)}&limit=1`), [reportId], 8000);
+  const act = useAction(list.reload);
+  const a = list.data?.items[0];
+  if (!a) return null;
+  const decide = async (decision: 'uphold' | 'reject') => {
+    const note = await askText(decision === 'uphold' ? 'Accept appeal' : 'Reject appeal', { label: 'Note (shown to the person)', confirm: decision === 'uphold' ? 'Accept' : 'Reject' });
+    if (note) act.run(() => post(`/v1/admin/appeals/${a.id}/decision`, { decision, note }));
+  };
+  return (
+    <div className="stack" style={{ gap: 12, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+      <div className="row wrap" style={{ gap: 8 }}>
+        <h3 style={{ margin: 0, flex: 1 }}>Appeal</h3>
+        <Chip value={a.state === 'open' ? 'Waiting' : a.state === 'upheld' ? 'Accepted' : 'Rejected'} tone={a.state === 'upheld' ? 'ok' : a.state === 'open' ? 'line' : 'plain'} />
+        <button className="btn small" onClick={() => setOpen((v) => !v)}>
+          {open ? 'Hide appeal' : 'View appeal'}
+        </button>
+      </div>
+      {open && (
+        <>
+          <ErrorBanner message={act.error} />
+          <div className="box">
+            <span className="label">What {a.user.displayName ?? a.user.email} says · {fmt(a.createdAt)}</span>
+            <p className="quote">{cap(a.message)}</p>
+          </div>
+          {(a.thread?.length ?? 0) > 0 && (
+            <ul className="timeline">
+              {a.thread!.map((m) => (
+                <li key={m.id}>
+                  <span className="muted">{fmt(m.createdAt)}</span>
+                  <span>
+                    <b>{m.fromStaff ? 'You' : (a.user.displayName ?? 'They')}:</b> {cap(m.body)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {a.decision && (
+            <div className="box">
+              <span className="label">Our decision{a.decidedAt ? ` · ${fmt(a.decidedAt)}` : ''}</span>
+              <p>{cap(a.decision)}</p>
+            </div>
+          )}
+        </>
+      )}
+      {a.state === 'open' && can.moderate(me.role) && (
+        <div className="actions-bar">
+          <span style={{ flex: 1 }} />
+          <button className="btn primary" disabled={act.busy} onClick={() => decide('uphold')}>
+            Accept appeal
+          </button>
+          <button className="btn" disabled={act.busy} onClick={() => decide('reject')}>
+            Reject appeal
           </button>
         </div>
       )}
@@ -441,7 +547,8 @@ function WhatHappened({ id }: { id: string }) {
         <div className="box">
           <span className="label">
             What was reported · {d.target.type}
-            {d.target.state ? ` · ${d.target.state}` : ''}
+            {/* only a state worth knowing: a message that is fine is just "ok", which says nothing; a hidden one says so */}
+            {d.target.state && d.target.state.toLowerCase() !== 'ok' ? ` · ${d.target.state === 'removed' ? 'Hidden' : cap(d.target.state.replace(/_/g, ' '))}` : ''}
           </span>
           <p className={d.target.type === 'Message' ? 'quote' : undefined}>
             <strong>{d.target.type === 'Message' ? `“${d.target.title}”` : d.target.title}</strong>

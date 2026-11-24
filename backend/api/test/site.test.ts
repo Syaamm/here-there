@@ -8,11 +8,13 @@ import { startHarness } from './harness';
 // a small stand-in for the built website (npm run build:web makes the real one in build/site)
 const dir = mkdtempSync(path.join(os.tmpdir(), 'here-there-site-'));
 mkdirSync(path.join(dir, 'admin', 'assets'), { recursive: true });
-mkdirSync(path.join(dir, '_expo', 'static', 'js'), { recursive: true });
-writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>THE APP</title>');
+mkdirSync(path.join(dir, 'app', '_expo', 'static', 'js'), { recursive: true });
+writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>THE LANDING PAGE</title>');
+writeFileSync(path.join(dir, 'privacy-policy.html'), '<!doctype html><title>PRIVACY</title>');
+writeFileSync(path.join(dir, 'app', 'index.html'), '<!doctype html><title>THE APP</title>');
 writeFileSync(path.join(dir, 'admin', 'index.html'), '<!doctype html><title>THE ADMIN CONSOLE</title>');
 writeFileSync(path.join(dir, 'admin', 'assets', 'index-abc123.js'), 'console.log("admin")');
-writeFileSync(path.join(dir, '_expo', 'static', 'js', 'entry-abc123.js'), 'console.log("app")');
+writeFileSync(path.join(dir, 'app', '_expo', 'static', 'js', 'entry-abc123.js'), 'console.log("app")');
 process.env.SITE_DIR = dir;
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -30,12 +32,15 @@ const page = async (p: string, init?: RequestInit) => {
 };
 
 describe('the API serves the website it finds in build/site', () => {
-  it('shows the app at / and the admin console at /admin/, however the visitor got there', async () => {
-    assert.match((await page('/')).text, /THE APP/);
+  it('shows the landing page at /, the app at /app/ and the admin console at /admin/, however the visitor got there', async () => {
+    assert.match((await page('/')).text, /THE LANDING PAGE/);
+    assert.match((await page('/privacy-policy.html')).text, /PRIVACY/);
+    assert.match((await page('/app/')).text, /THE APP/);
+    assert.match((await page('/app')).text, /THE APP/, 'without the slash it still ends up on the app');
     assert.match((await page('/admin/')).text, /THE ADMIN CONSOLE/);
     assert.match((await page('/admin')).text, /THE ADMIN CONSOLE/, 'without the slash it still ends up on the console');
     // a screen of the app, or of the console, opened straight from a link or after a reload
-    assert.match((await page('/activity/abc123', { headers: { accept: 'text/html' } })).text, /THE APP/);
+    assert.match((await page('/app/activity/abc123', { headers: { accept: 'text/html' } })).text, /THE APP/);
     assert.match((await page('/admin/users', { headers: { accept: 'text/html' } })).text, /THE ADMIN CONSOLE/);
   });
 
@@ -47,7 +52,7 @@ describe('the API serves the website it finds in build/site', () => {
     assert.equal(js.status, 200);
     assert.match(js.type, /javascript/);
     assert.match(js.cache, /immutable/);
-    assert.match((await page('/_expo/static/js/entry-abc123.js')).cache, /immutable/);
+    assert.match((await page('/app/_expo/static/js/entry-abc123.js')).cache, /immutable/);
   });
 
   it('never hides the API: its own addresses and a missing file are answered by the API, not by a page', async () => {
@@ -61,5 +66,8 @@ describe('the API serves the website it finds in build/site', () => {
     const share = await page('/a/no-such-plan', { headers: { accept: 'text/html' } });
     assert.doesNotMatch(share.text, /THE APP/, 'a shared-link address belongs to the API');
     assert.equal((await page('/', { method: 'POST' })).status, 404, 'only reading is served as a page');
+    const stray = await page('/no-such-page', { headers: { accept: 'text/html' } });
+    assert.equal(stray.status, 404, 'an unknown address is a 404: only /app/ and /admin/ fall back to their page');
+    assert.doesNotMatch(stray.text, /THE (APP|LANDING PAGE)/);
   });
 });

@@ -185,34 +185,30 @@ describe('phone numbers at rest, one number per account, and repeat accounts', (
     assert.equal((await get('/v1/me', old.token)).body.phone, '+39••••22');
   });
 
-  it('limits accounts per device, and remembers a banned account so it cannot start over from the same device', async () => {
-    const reg = (name: string, device?: string) =>
+  it('does not limit sign-ups per device or per address, and a ban remembers the email but not the device', async () => {
+    const reg = (name: string, email = `${name}${++n}@example.com`) =>
       fetch(base + '/v1/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...(device ? { 'x-device-id': device } : {}) },
-        body: JSON.stringify({ email: `${name}${++n}@example.com`, password: 'a-long-password-1', displayName: name, adultConfirmed: true }),
+        headers: { 'content-type': 'application/json', 'x-device-id': 'device-aaaaaaaaaaaaaaaaaaaaaaaa' }, // an old app may still send this id: it is ignored
+        body: JSON.stringify({ email, password: 'a-long-password-1', displayName: name, adultConfirmed: true }),
       });
-    const deviceA = 'device-aaaaaaaaaaaaaaaaaaaaaaaa';
-    for (let i = 0; i < 3; i++) assert.equal((await reg('Same', deviceA)).status, 201);
-    const fourth = await reg('Same', deviceA);
-    assert.equal(fourth.status, 403);
-    assert.equal((await fourth.json()).code, 'REGISTRATION_BLOCKED');
-    assert.equal((await reg('Other', 'device-bbbbbbbbbbbbbbbbbbbbbbbb')).status, 201, 'another device is fine');
-    assert.equal((await reg('NoId')).status, 201, 'an old app that sends no id is not blocked');
+    // many accounts from one device and one address, and none is turned away
+    for (let i = 0; i < 12; i++) assert.equal((await reg('Same')).status, 201);
 
-    // a ban remembers the device; a timed suspension does not; restoring forgets it
-    assert.equal((await reg('Banned', 'device-cccccccccccccccccccccccc')).status, 201);
-    const bad = { user: await prisma.user.findFirstOrThrow({ where: { email: { startsWith: 'banned' } } }) };
-    assert.equal((await post(`/v1/admin/users/${bad.user.id}/suspend`, adminToken, { reason: 'timed', days: 3 })).status, 201);
-    assert.equal(await prisma.bannedIdentity.count({ where: { userId: bad.user.id } }), 0);
-    assert.equal((await reg('Retry', 'device-cccccccccccccccccccccccc')).status, 201);
-    assert.equal((await post(`/v1/admin/users/${bad.user.id}/restore`, adminToken, { reason: 'all fine' })).status, 201);
-    assert.equal((await post(`/v1/admin/users/${bad.user.id}/suspend`, adminToken, { reason: 'fraud' })).status, 201);
-    assert.ok((await prisma.bannedIdentity.count({ where: { userId: bad.user.id } })) >= 2, 'email and device are remembered');
-    const again = await reg('Again', 'device-cccccccccccccccccccccccc');
+    // a ban (suspended until further notice) remembers the email, never the device; a timed suspension remembers nothing; restoring forgets it
+    assert.equal((await reg('Banned')).status, 201);
+    const bad = await prisma.user.findFirstOrThrow({ where: { email: { startsWith: 'banned' } } });
+    assert.equal((await post(`/v1/admin/users/${bad.id}/suspend`, adminToken, { reason: 'timed', days: 3 })).status, 201);
+    assert.equal(await prisma.bannedIdentity.count({ where: { userId: bad.id } }), 0);
+    assert.equal((await post(`/v1/admin/users/${bad.id}/restore`, adminToken, { reason: 'all fine' })).status, 201);
+    assert.equal((await post(`/v1/admin/users/${bad.id}/suspend`, adminToken, { reason: 'fraud' })).status, 201);
+    assert.equal(await prisma.bannedIdentity.count({ where: { userId: bad.id, kind: 'device' } }), 0, 'the device is not remembered');
+    assert.ok((await prisma.bannedIdentity.count({ where: { userId: bad.id, kind: 'email' } })) >= 1, 'the email is remembered');
+    assert.equal((await reg('Again')).status, 201, 'a new account from the same device is fine');
+    const again = await reg('Again', bad.email);
     assert.equal(again.status, 403);
     assert.equal((await again.json()).code, 'REGISTRATION_BLOCKED');
-    assert.equal((await post(`/v1/admin/users/${bad.user.id}/restore`, adminToken, { reason: 'mistake' })).status, 201);
-    assert.equal(await prisma.bannedIdentity.count({ where: { userId: bad.user.id } }), 0);
+    assert.equal((await post(`/v1/admin/users/${bad.id}/restore`, adminToken, { reason: 'mistake' })).status, 201);
+    assert.equal(await prisma.bannedIdentity.count({ where: { userId: bad.id } }), 0);
   });
 });
