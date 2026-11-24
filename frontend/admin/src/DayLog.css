@@ -66,3 +66,8 @@
   .ct-going { display: none; }
   .ct-side { grid-template-columns: 96px 104px 38px; }
 }
+
+/* the pagination bar stays at the bottom of the card, still, while the days scroll (like the Audit log); with few rows it sits at the bottom edge */
+.au-scroll { display: flex; flex-direction: column; }
+.au-scroll > * { flex: none; }
+.au-scroll > .au-more { margin-top: auto; position: sticky; bottom: 0; z-index: 3; background: var(--surface); }

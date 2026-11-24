@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 /**
- * The website: the web version of the app at `/` and the admin console at `/admin/`, served by the API itself when it has been
+ * The website: the landing page at `/`, the web version of the app at `/app/` and the admin console at `/admin/`, served by the API itself when it has been
  * built (`npm run build:web`, which writes build/site at the repository root). Then one program and one address do everything,
  * so putting the code on a server and starting the API is all that is needed for the admin console to be live. Without a
  * build (development, tests) nothing here is active and the API answers only the API.
@@ -18,6 +18,7 @@ export function siteDir(): string | null {
 
 const API_PATHS = /^\/(v1|a|t|\.well-known)(\/|$)/;
 const ADMIN_PATH = /^\/admin(\/|$)/;
+const APP_PATH = /^\/app(\/|$)/;
 const YEAR = 365 * 86_400;
 
 export function siteHandlers(): RequestHandler[] | null {
@@ -43,7 +44,9 @@ export function siteHandlers(): RequestHandler[] | null {
   const pages = (req: Request, res: Response, next: NextFunction) => {
     if ((req.method !== 'GET' && req.method !== 'HEAD') || API_PATHS.test(req.path) || path.extname(req.path) || !req.accepts('html')) return next();
     const admin = ADMIN_PATH.test(req.path);
-    res.set('Cache-Control', admin ? 'no-store' : 'no-cache').sendFile(path.join(dir, admin ? 'admin' : '', 'index.html'));
+    // the landing page is plain files: any other address is left to answer 404
+    if (!admin && !APP_PATH.test(req.path)) return next();
+    res.set('Cache-Control', admin ? 'no-store' : 'no-cache').sendFile(path.join(dir, admin ? 'admin' : 'app', 'index.html'));
   };
 
   return [serveFiles, pages];

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { get, post, type Session } from '../api';
-import { askChoiceText, Avatar, Chip, ErrorBanner, FilterBar, fmt, Loading, Page, PageBar, Search, Segmented, useAction, useLoad } from '../ui';
+import { askChoiceText, askConfirm, Avatar, Chip, ErrorBanner, FilterBar, fmt, Loading, Page, PageBar, Search, Segmented, useAction, useLoad } from '../ui';
 
 type V = { id: string; provider?: string | null; method?: string | null; providerRef: string | null; eligibility: string; createdAt: string; user: { id: string; email: string; displayName?: string; homeCity?: string } };
 type Status = 'pending' | 'verified' | 'rejected' | 'unverified';
 type Row = { name: string; email: string; city: string; verified: boolean; identityCheck: string; accountState: string; joined: string; verifiedUntil: string | null };
-const WORD: Record<string, string> = { verified: 'Verified', rejected: 'Rejected', unverified: 'Not verified', pending: 'Waiting', expired: 'Expired' };
+const WORD: Record<string, string> = { verified: 'Verified', rejected: 'Rejected', unverified: 'Not verified', pending: 'Waiting', expired: 'Expired', reverification_required: 'Re-check needed' };
 
 /** A spreadsheet file Excel opens (comma separated, with the mark Excel needs to read accents correctly). */
 function download(rows: Row[], name: string) {
@@ -38,8 +38,8 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
   const list = useLoad(() => get<{ items: V[]; page?: number; pages?: number; total?: number }>(`/v1/admin/verifications?status=${status}&page=${pageNo}&pageSize=20${term ? `&q=${encodeURIComponent(term)}` : ''}`), [status, pageNo, term], 6000);
   const file = useAction(() => {});
   const decide = useAction(list.reload);
-  const approve = (v: V) => {
-    if (confirm(`Approve ${v.user.displayName ?? v.user.email}? This confirms they are 18 or older and that their ID is genuine.`)) decide.run(() => post(`/v1/admin/verifications/${v.id}/decision`, { decision: 'verified' }));
+  const approve = async (v: V) => {
+    if (await askConfirm(`Approve ${v.user.displayName ?? v.user.email}?`, 'This confirms they are 18 or older and that their ID is genuine.', 'Approve')) decide.run(() => post(`/v1/admin/verifications/${v.id}/decision`, { decision: 'verified' }));
   };
   const reject = async (v: V) => {
     const r = await askChoiceText(`Reject ${v.user.displayName ?? v.user.email}?`, [['document', 'Problem with the ID'], ['liveness', 'Photo or selfie problem'], ['underage', 'Under 18'], ['other', 'Other']], { confirm: 'Reject', choiceLabel: 'Reason', label: 'Note (optional)', required: false });

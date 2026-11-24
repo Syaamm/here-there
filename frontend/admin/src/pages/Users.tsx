@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { can, get, post, roleLabel, type Role, type Session } from '../api';
 import './UserPanel.css';
 import { actionLabel, say, type E } from './Audit';
-import { askChoiceText, askText, Avatar, Chip, ErrorBanner, fmt, FilterBar, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad } from '../ui';
+import { askChoiceText, askText, cap, Avatar, Chip, ErrorBanner, fmt, FilterBar, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad } from '../ui';
 
 type U = { adminRegionKey?: string | null; id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
 type Detail = {
@@ -43,6 +43,8 @@ const ACTIONS: Record<string, string> = {
   'message.removed': 'Message hidden',
   'message.restored': 'Message restored',
 };
+/** What a person's identity status is called on screen (the stored words are for the server). */
+const IDENTITY_WORD: Record<string, string> = { unverified: 'Not verified', pending: 'Waiting', rejected: 'Rejected', expired: 'Expired', reverification_required: 'Re-check needed', verified: 'Verified' };
 const SERIOUS = ['user.suspend', 'user.warn', 'verification.rejected', 'verification.reverification_required', 'message.removed'];
 const actionText = (a: string) => ACTIONS[a] ?? (a.split('.').pop() ?? a).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 /** the readable part of an audit entry's details: its reason or note, never raw data */
@@ -52,7 +54,7 @@ const detailText = (meta: string | null) => {
     const m = JSON.parse(meta) as Record<string, unknown>;
     const text = [m.reason, m.note, m.resolution].find((v) => typeof v === 'string' && v.trim()) as string | undefined;
     const extra = typeof m.days === 'number' ? `${m.days} days` : typeof m.role === 'string' ? 'now ' + roleLabel(m.role) : null;
-    return [text, extra].filter(Boolean).join(' · ') || null;
+    return [cap(text), extra].filter(Boolean).join(' · ') || null;
   } catch {
     return null;
   }
@@ -94,7 +96,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, onShowReports
     if (reason) act.run(() => post(`/v1/admin/users/${u.id}/restore`, { reason }));
   };
   const warn = async (u: U) => {
-    const reason = await askText(`Warn ${label(u)}?`, { label: 'Message (they can read it)', confirm: 'Send' });
+    const reason = await askText(`Warn ${label(u)}?`, { label: 'Message (they can read it). A general warning: it cannot be appealed', confirm: 'Send' });
     if (reason) act.run(() => post(`/v1/admin/users/${u.id}/warn`, { reason }));
   };
   const reverify = async (u: U) => {
@@ -176,7 +178,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, onShowReports
                         <span className="meta">{u.email}</span>
                       </span>
                       <span className="aside">
-                        {u.state === 'suspended' ? <Chip value="Suspended" tone="dark" /> : u.eligibility === 'verified' ? <Chip value="Verified" tone="ok" /> : isGuest(u) ? <Chip value="Guest" tone="plain" /> : <Chip value={u.eligibility} tone="line" />}
+                        {u.state === 'suspended' ? <Chip value="Suspended" tone="dark" /> : u.eligibility === 'verified' ? <Chip value="Verified" tone="ok" /> : isGuest(u) ? <Chip value="Guest" tone="plain" /> : <Chip value={IDENTITY_WORD[u.eligibility] ?? u.eligibility} tone="line" />}
                       </span>
                     </button>
                   </li>
@@ -247,7 +249,7 @@ function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => v
           </span>
           <div className="up-chips">
             {u.state === 'active' ? <Chip value="Active" tone="ok" /> : <Chip value={u.state === 'suspended' && u.suspendedUntil ? `Suspended to ${day(u.suspendedUntil)}` : u.state} tone="dark" />}
-            {u.eligibility === 'verified' ? <Chip value="ID verified" tone="ok" /> : <Chip value={u.eligibility} tone="line" />}
+            {u.eligibility === 'verified' ? <Chip value="ID verified" tone="ok" /> : <Chip value={IDENTITY_WORD[u.eligibility] ?? u.eligibility} tone="line" />}
             {isGuest(u) && <Chip value="Guest" tone="plain" />}
           </div>
         </div>
@@ -342,7 +344,7 @@ function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => v
                       <span className="up-when">{fmt(m.markedAt)}</span>
                       <span className="up-what">Did not attend {m.title}</span>
                       <span className="up-why">
-                        {m.state.replace(/_/g, ' ')}
+                        {cap(m.state.replace(/_/g, ' '))}
                         {m.disputeNote ? ` · their side: ${m.disputeNote}` : ''}
                         {m.decisionNote ? ` · decision: ${m.decisionNote}` : ''}
                       </span>
@@ -390,10 +392,10 @@ function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => v
                 </span>
                 <span className="small muted">{fmt(x.createdAt)}</span>
               </div>
-              <p className="quote">“{x.details || 'No details'}”</p>
+              <p className="quote">“{cap(x.details) || 'No details'}”</p>
               <div className="small muted">
                 {x.targetType === 'user' ? 'About them' : `Their ${x.targetType}${x.targetTitle ? `: ${x.targetTitle}` : ''}`} · by {x.reporterName ?? 'someone'}
-                {x.resolution && ` · ${x.resolution}`}
+                {x.resolution && ` · ${cap(x.resolution)}`}
               </div>
               <div className="row wrap">
                 {can.moderate(me.role) && ['open', 'in_review'].includes(x.status) && (

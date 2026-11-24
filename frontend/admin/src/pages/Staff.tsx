@@ -4,15 +4,13 @@ import { Select, useBackdropClose } from '../controls';
 import { Avatar, Chip, Empty, errMsg, ErrorBanner, FilterBar, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
 
 type Member = { id: string; email: string; displayName: string | null; photoUrl: string | null; role: Role; regionKey: string | null; permissions: Permission[]; state: string; mfaEnabled: boolean; mustChangePassword: boolean; createdAt: string };
-type Place = { key: string; name: string; kind: string };
 const MIN = 10; // the same minimum the server asks for
 
 const ALL_PERMS = PERMISSIONS.map((p) => p.id);
 
-/** Admin only: the console's accounts. Staff look after one area and use only the parts an admin allows. */
+/** Admin only: the console's accounts. Staff use only the parts an admin allows. */
 export function StaffPage({ me }: { me: Session }) {
   const list = useLoad(() => get<{ items: Member[] }>('/v1/admin/staff'), []);
-  const places = useLoad(() => get<{ items: Place[] }>('/v1/admin/regions').catch(() => ({ items: [] as Place[] })), []);
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
@@ -20,8 +18,6 @@ export function StaffPage({ me }: { me: Session }) {
   const [saved, setSaved] = useState<string | null>(null);
   const act = useAction(list.reload);
 
-  const areas = (places.data?.items ?? []).filter((p) => p.kind !== 'global');
-  const placeName = (key: string | null) => (key ? (places.data?.items.find((p) => p.key === key)?.name ?? key) : 'Everywhere');
   const rows = (list.data?.items ?? []).filter((m) => `${m.email} ${m.displayName ?? ''} ${roleLabel(m.role)}`.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
@@ -54,7 +50,6 @@ export function StaffPage({ me }: { me: Session }) {
                 <tr>
                   <th>Person</th>
                   <th>Type</th>
-                  <th>Area</th>
                   <th>Can use</th>
                   <th>Two-step</th>
                   <th />
@@ -78,7 +73,6 @@ export function StaffPage({ me }: { me: Session }) {
                     <td>
                       <Chip value={roleLabel(m.role)} tone={m.role === 'admin' ? 'dark' : 'plain'} />
                     </td>
-                    <td>{m.role === 'admin' ? 'Everywhere' : m.regionKey ? placeName(m.regionKey) : <Chip value="No area" tone="warn" />}</td>
                     <td>
                       {m.role === 'admin' ? (
                         <span className="muted small">Everything</span>
@@ -114,10 +108,9 @@ export function StaffPage({ me }: { me: Session }) {
       )}
       {adding && (
         <StaffDialog
-          areas={areas}
           onClose={() => setAdding(false)}
-          onSave={async ({ name, email, area, perms, password }) => {
-            await post('/v1/admin/staff', { email, displayName: name, regionKey: area, permissions: perms, password });
+          onSave={async ({ name, email, perms, password }) => {
+            await post('/v1/admin/staff', { email, displayName: name, permissions: perms, password });
             setSaved(`${email} was added. They sign in with the password you set.`);
             setAdding(false);
             list.reload();
@@ -137,11 +130,10 @@ export function StaffPage({ me }: { me: Session }) {
       {editing && (
         <StaffDialog
           person={{ name: editing.displayName ?? editing.email, photo: editing.photoUrl }}
-          areas={areas}
-          start={{ area: editing.regionKey ?? '', perms: editing.permissions, email: editing.email }}
+          start={{ perms: editing.permissions, email: editing.email }}
           onClose={() => setEditing(null)}
-          onSave={async ({ area, perms, email, password }) => {
-            await api('PATCH', `/v1/admin/staff/${editing.id}`, { regionKey: area, permissions: perms, ...(email && email !== editing.email && { email }), ...(password && { password }) });
+          onSave={async ({ perms, email, password }) => {
+            await api('PATCH', `/v1/admin/staff/${editing.id}`, { regionKey: null, permissions: perms, ...(email && email !== editing.email && { email }), ...(password && { password }) });
             if (password || (email && email !== editing.email)) setSaved('Saved. Their sign-in details changed and they were signed out everywhere.');
             setEditing(null);
             list.reload();
@@ -152,16 +144,16 @@ export function StaffPage({ me }: { me: Session }) {
   );
 }
 
-type Draft = { name: string; email: string; area: string; perms: Permission[]; password: string };
+type Draft = { name: string; email: string; perms: Permission[]; password: string };
 
-/** Add a staff member (name, email, area, permissions) or change an existing one's area and permissions. */
-function StaffDialog({ areas, start, person, onClose, onSave }: { areas: Place[]; person?: { name: string; photo: string | null }; start?: { area: string; perms: Permission[]; email: string }; onClose: () => void; onSave: (d: Draft) => Promise<void> }) {
+/** Add a staff member (name, email, permissions) or change an existing one's permissions. */
+function StaffDialog({ start, person, onClose, onSave }: { person?: { name: string; photo: string | null }; start?: { perms: Permission[]; email: string }; onClose: () => void; onSave: (d: Draft) => Promise<void> }) {
   const ref = useRef<HTMLDialogElement>(null);
   const editing = !!start;
   const [name, setName] = useState('');
   const [email, setEmail] = useState(start?.email ?? '');
   const [password, setPassword] = useState('');
-  const [area, setArea] = useState(start?.area ?? '');
+
   const [perms, setPerms] = useState<Permission[]>(start?.perms ?? ALL_PERMS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,7 +166,7 @@ function StaffDialog({ areas, start, person, onClose, onSave }: { areas: Place[]
     setBusy(true);
     setError(null);
     try {
-      await onSave({ name, email, area, perms, password });
+      await onSave({ name, email, perms, password });
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -191,7 +183,7 @@ function StaffDialog({ areas, start, person, onClose, onSave }: { areas: Place[]
   };
   const DESC: Record<Permission, string> = { reports: 'Read and decide reports and appeals', verification: 'See identity checks and download lists', users: 'Look people up, warn or suspend them', content: 'See activities and trips, remove them' };
   const shownName = editing ? (person?.name ?? email) : name || 'New staff member';
-  const unchanged = editing && !password && email === start?.email && area === start?.area && perms.length === start?.perms.length && perms.every((x) => start?.perms.includes(x));
+  const unchanged = editing && !password && email === start?.email && perms.length === start?.perms.length && perms.every((x) => start?.perms.includes(x));
   return (
     <dialog ref={ref} className="dialog staff-dlg" onCancel={(e) => (e.preventDefault(), onClose())} aria-labelledby="staff-dlg" {...backdrop}>
       <form onSubmit={submit}>
@@ -200,7 +192,7 @@ function StaffDialog({ areas, start, person, onClose, onSave }: { areas: Place[]
           <div style={{ minWidth: 0 }}>
             <h2 id="staff-dlg">{editing ? 'Edit staff member' : 'Add staff member'}</h2>
             <p className="muted small" style={{ margin: 0 }}>
-              {editing ? `${shownName} · ${start?.email}` : 'Choose their area, what they can use, and the password they sign in with.'}
+              {editing ? `${shownName} · ${start?.email}` : 'Choose what they can use, and the password they sign in with.'}
             </p>
           </div>
         </header>
@@ -232,20 +224,6 @@ function StaffDialog({ areas, start, person, onClose, onSave }: { areas: Place[]
           {editing && password && <p className="small muted">They are signed out everywhere when you save, and use the new password next time.</p>}
         </section>
         <section className="sd-sec">
-          <h3>Area</h3>
-          <Select required value={area} onChange={setArea} aria-label="Area">
-            <option value="" disabled>
-              Choose a city, region or country
-            </option>
-            {areas.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.name} ({p.kind})
-              </option>
-            ))}
-          </Select>
-          {!area && <p className="small muted">They only see reports, people and plans from this area.</p>}
-        </section>
-        <section className="sd-sec">
           <h3>Can use</h3>
           <div className="sd-perms">
             {PERMISSIONS.map((p) => (
@@ -263,7 +241,7 @@ function StaffDialog({ areas, start, person, onClose, onSave }: { areas: Place[]
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" disabled={busy || !area || !!unchanged}>
+          <button className="btn primary" disabled={busy || !!unchanged}>
             {busy ? 'Saving…' : editing ? 'Save changes' : 'Add staff member'}
           </button>
         </div>

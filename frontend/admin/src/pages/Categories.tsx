@@ -30,7 +30,6 @@ export function CategoriesPanel({ kind, limit }: { kind: Kind; limit?: ReactNode
   const { data, error, loading, reload } = useLoad(() => get<{ items: Category[] }>('/v1/admin/categories'), []);
   const act = useAction(reload);
   const [editing, setEditing] = useState<Category | 'new' | null>(null);
-  const [viewing, setViewing] = useState<Category | null>(null);
   const info = KINDS.find((k) => k.id === kind)!;
   const items = (data?.items ?? []).filter((c) => c.kind === kind).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
@@ -85,7 +84,6 @@ export function CategoriesPanel({ kind, limit }: { kind: Kind; limit?: ReactNode
                     </td>
                     <td className="end">
                       <div className="cell-actions">
-                        <button className="btn small" onClick={() => setViewing(c)}>View</button>
                         <button className="btn small" onClick={() => (act.clear(), setEditing(c))}>Edit</button>
                       </div>
                     </td>
@@ -96,7 +94,6 @@ export function CategoriesPanel({ kind, limit }: { kind: Kind; limit?: ReactNode
           </div>
         </div>
       )}
-      {viewing && <CategoryView category={viewing} kind={kind} onClose={() => setViewing(null)} />}
       {editing && (
         <CategoryForm
           kind={kind}
@@ -129,8 +126,7 @@ function CategoryForm({ kind, category, busy, error, onClose, onRemove, onSave }
   useEffect(() => ref.current?.showModal(), []);
   const backdrop = useBackdropClose(ref, onClose);
   const [label, setLabel] = useState(category?.label ?? '');
-  const [emoji, setEmoji] = useState(category?.emoji ?? '');
-  const [on, setOn] = useState(category?.active ?? true);
+  const [emoji] = useState(category?.emoji ?? ''); // not asked any more: an old one is kept as it is
   const [file, setFile] = useState<File | null>(null);
   const [removed, setRemoved] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -154,7 +150,7 @@ function CategoryForm({ kind, category, busy, error, onClose, onRemove, onSave }
   const shown = preview ?? (removed ? null : (category?.imageUrl ?? null));
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    onSave({ label: label.trim(), emoji: emoji.trim(), ...(category && { active: on }) }, file, removed && !file);
+    onSave({ label: label.trim(), emoji: emoji.trim() }, file, removed && !file);
   };
   const word = kind === 'here' ? 'activity' : 'travel';
   return (
@@ -184,16 +180,6 @@ function CategoryForm({ kind, category, busy, error, onClose, onRemove, onSave }
           Name
           <input required minLength={2} maxLength={24} value={label} onChange={(e) => setLabel(e.target.value)} autoFocus />
         </label>
-        <label>
-          Emoji <span className="muted small">(shown only when there is no picture)</span>
-          <input maxLength={8} placeholder="🎲" value={emoji} onChange={(e) => setEmoji(e.target.value)} />
-        </label>
-        {category && (
-          <div className="row" style={{ gap: 12, alignItems: 'center' }}>
-            <Switch on={on} onChange={setOn} label="Turned on" />
-            <span className="muted small">Turned on: people can choose it</span>
-          </div>
-        )}
         <div className="row end">
           {category && onRemove && category.uses === 0 && (
             <button type="button" className="btn danger" style={{ marginRight: 'auto' }} onClick={onRemove} disabled={busy}>
@@ -212,36 +198,3 @@ function CategoryForm({ kind, category, busy, error, onClose, onRemove, onSave }
   );
 }
 
-/** Everything about a category, read only. */
-function CategoryView({ category: c, kind, onClose }: { category: Category; kind: Kind; onClose: () => void }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => ref.current?.showModal(), []);
-  const backdrop = useBackdropClose(ref, onClose);
-  const uses = `${c.uses} ${c.uses === 1 ? (kind === 'here' ? 'activity' : 'trip') : kind === 'here' ? 'activities' : 'trips'}`;
-  return (
-    <dialog ref={ref} className="dialog" aria-labelledby="cat-v" onCancel={(e) => (e.preventDefault(), onClose())} {...backdrop}>
-      <div style={{ display: 'grid', gap: 14 }}>
-        <div className="row" style={{ gap: 16, alignItems: 'center' }}>
-          <Pic src={c.imageUrl} emoji={c.emoji} size={88} />
-          <div>
-            <h2 id="cat-v" style={{ margin: 0 }}>{c.label}</h2>
-            <span className="muted small">{kind === 'here' ? 'Activity' : 'Travel'} category</span>
-          </div>
-        </div>
-        <div className="row" style={{ gap: 24 }}>
-          <div>
-            <span className="label">Status</span>
-            <div><Chip value={c.active ? 'On' : 'Off'} tone={c.active ? 'ok' : 'plain'} /></div>
-          </div>
-          <div>
-            <span className="label">Used by</span>
-            <div>{uses}</div>
-          </div>
-        </div>
-        <div className="row end">
-          <button type="button" className="btn" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </dialog>
-  );
-}

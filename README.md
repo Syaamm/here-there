@@ -89,7 +89,7 @@ pm2 save
 pm2 logs herethere    # read errors, for example push settings
 ```
 
-The API then serves the web app at `/`, the admin console at `/admin/`, the API at `/v1` and live updates at `/v1/live`, all on port 3000 behind nginx. Run one API process only.
+The API then serves the landing page at `/`, the web app at `/app/`, the admin console at `/admin/`, the API at `/v1` and live updates at `/v1/live`, all on port 3000 behind nginx. Run one API process only.
 
 **Tests and docs** (in `backend/api`): `npm test`, `npm run docs`. **Phone builds and over-the-air updates:** `deployment/BUILDS.md` (raise `"version"` in `frontend/mobile/package.json` before every build).
 

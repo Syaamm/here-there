@@ -241,6 +241,15 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     await this.notifications.notify(who, 'report_decision', 'Action taken on a report about you', 'Tap to see the decision. You can ask for a review.', { reportId: report.id, ...(report.product && { product: report.product }) });
   }
 
+  /**
+   * Tells the person who filed the report that it was decided. Only that: no moderator's notes, and no link to a review. A review
+   * of the decision (an appeal) belongs to the person the report is about, and every alert about it goes to them alone.
+   */
+  async tellReporter(report: { id: string; reporterId: string; product?: string | null }, status: 'resolved' | 'dismissed') {
+    const [title, body] = status === 'resolved' ? ['Action was taken on your report', 'Thank you for telling us. A moderator looked at it and took action.'] : ['Your report was looked at', 'A moderator looked at it and no action was needed. Thank you for telling us.'];
+    await this.notifications.notify(report.reporterId, 'report_update', title, body, { reportId: report.id, ...(report.product && { product: report.product }) });
+  }
+
   // ---------------------------------------------------------------- the queue
   /** Who a report is about, as a person: the user, the sender of a message, or the host of a listing. */
   private async targetUsers(reports: { id: string; targetType: string; targetId: string }[]) {
@@ -418,7 +427,10 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
           const pages = Math.max(1, Math.ceil(total / pageSize));
           const page = Math.min(pages, Math.max(1, Math.floor(Number(paging.page)) || 1));
           numbered = { page, pages, total, pageSize };
-          return this.prisma.report.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize, include });
+          // "Action taken" / "No action needed": the one acted on last comes first; any other list: newest filed first
+          const done = status === 'resolved' || status === 'dismissed';
+          const order: Prisma.ReportOrderByWithRelationInput[] = [...(done ? [{ resolvedAt: { sort: 'desc' as const, nulls: 'last' as const } }] : []), { createdAt: 'desc' }, { id: 'desc' }];
+          return this.prisma.report.findMany({ where, orderBy: order, skip: (page - 1) * pageSize, take: pageSize, include });
         })()
       : waiting
       ? await (async () => {
@@ -467,11 +479,19 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     const evidence = await this.reliability.hostAbsenceEvidence(rows.filter((r) => r.category === 'host_no_show'));
     const who = await this.targetUsers(rows);
     const subjects = [...new Set([...who.values()].filter((x): x is string => !!x))];
-    const [flags, people, assignees, msgs] = await Promise.all([
+    const [flags, people, assignees, msgs, acts, trips] = await Promise.all([
       this.offenderFlags(subjects, now),
       this.prisma.user.findMany({ where: { id: { in: subjects } }, select: { id: true, email: true, state: true, profile: { select: { displayName: true } } } }),
       this.prisma.user.findMany({ where: { id: { in: rows.map((r) => r.assignedTo).filter((x): x is string => !!x) } }, select: { id: true, profile: { select: { displayName: true } }, email: true } }),
       this.prisma.message.findMany({ where: { id: { in: rows.filter((r) => r.targetType === 'message').map((r) => r.targetId) } }, select: { id: true, body: true, moderationState: true, conversationId: true } }),
+      // a report about a plan or a trip shows that plan or trip, so staff can see what was reported before they act
+      this.prisma.activity.findMany({ where: { id: { in: rows.filter((r) => r.targetType === 'activity').map((r) => r.targetId) } }, select: { id: true, title: true, description: true, city: true, venueName: true, startsAt: true, status: true, capacity: true, host: { select: { id: true, profile: { select: { displayName: true } } } }, _count: { select: { memberships: true } } } }),
+      this.prisma.trip.findMany({ where: { id: { in: rows.filter((r) => r.targetType === 'trip').map((r) => r.targetId) } }, select: { id: true, title: true, description: true, destination: true, dateStart: true, dateEnd: true, status: true, maxCapacity: true, host: { select: { id: true, profile: { select: { displayName: true } } } }, _count: { select: { memberships: true } } } }),
+    ]);
+    type PlanCard = { type: 'activity' | 'trip'; id: string; title: string; description: string | null; where: string; startsAt: Date; endsAt: Date | null; status: string; capacity: number; members: number; hostId: string; hostName: string | null };
+    const planOf = new Map<string, PlanCard>([
+      ...acts.map((a): [string, PlanCard] => [a.id, { type: 'activity', id: a.id, title: a.title, description: a.description, where: `${a.venueName}, ${a.city}`, startsAt: a.startsAt, endsAt: null, status: a.status, capacity: a.capacity, members: a._count.memberships, hostId: a.host.id, hostName: a.host.profile?.displayName ?? null }]),
+      ...trips.map((t): [string, PlanCard] => [t.id, { type: 'trip', id: t.id, title: t.title, description: t.description, where: t.destination, startsAt: t.dateStart, endsAt: t.dateEnd, status: t.status, capacity: t.maxCapacity, members: t._count.memberships, hostId: t.host.id, hostName: t.host.profile?.displayName ?? null }]),
     ]);
     const person = new Map(people.map((p) => [p.id, p]));
     const assignee = new Map(assignees.map((a) => [a.id, a.profile?.displayName ?? a.email]));
@@ -494,6 +514,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
         assignedName: r.assignedTo ? (assignee.get(r.assignedTo) ?? 'A moderator') : null,
         subject: subject ? { userId: subject, displayName: person.get(subject)?.profile?.displayName ?? null, email: person.get(subject)?.email ?? null, state: person.get(subject)?.state ?? null } : null,
         message: r.targetType === 'message' ? (message.get(r.targetId) ?? null) : null,
+        target: r.targetType === 'activity' || r.targetType === 'trip' ? (planOf.get(r.targetId) ?? null) : null,
         repeatOffender: subject ? (flags.get(subject) ?? null) : null,
       };
     });
@@ -630,7 +651,9 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     const msgScope = !report && dto.messageId ? (await this.prisma.message.findUnique({ where: { id: dto.messageId }, select: { conversation: { select: { scopeType: true } } } }))?.conversation.scopeType : undefined;
     const product = (report?.product as 'here' | 'there' | null | undefined) ?? (about ? (about.type === 'activity' ? 'here' : 'there') : msgScope ? scopeProduct(msgScope) : null);
     const w = await this.prisma.userWarning.create({ data: { userId, reason: dto.reason, reportId: dto.reportId, messageId: dto.messageId, createdById: actor.id, aboutType: about?.type, aboutId: about?.id } });
-    await this.notifications.notify(userId, 'warning', 'A moderator warned you', about ? `${about.title} · Tap to read why.` : 'Tap to read why. You can ask for a review.', { warningId: w.id, reason: dto.reason, ...(about && { aboutType: about.type, aboutId: about.id, aboutTitle: about.title }), ...(product && { product }) });
+    // only a warning given on a report or a message can be appealed; one given from the person's profile is a general warning
+    const appealable = !!(dto.reportId || dto.messageId);
+    await this.notifications.notify(userId, 'warning', 'A moderator warned you', about ? `${about.title} · Tap to read why.` : appealable ? 'Tap to read why. You can ask for a review.' : 'Tap to read why.', { warningId: w.id, reason: dto.reason, appealable,...(about && { aboutType: about.type, aboutId: about.id, aboutTitle: about.title }), ...(product && { product }) });
     await this.audit.log(actor.id, 'user.warned', 'user', userId, { warningId: w.id, reason: dto.reason, reportId: dto.reportId });
     // the warning does not decide its report: a moderator closes the report by hand, with a reason
     const flag = (await this.offenderFlags([userId])).get(userId)!;

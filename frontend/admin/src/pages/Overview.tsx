@@ -3,7 +3,7 @@ import { get } from '../api';
 import { CardHead } from '../charts';
 import { TrendChart } from '../trend';
 import { RangeCalendar } from '../RangeCalendar';
-import { Chip, CountUp, ErrorBanner, Loading, Page, RefreshButton, Segmented, useLoad, useRefresh } from '../ui';
+import { cap, Chip, CountUp, ErrorBanner, Loading, Page, RefreshButton, Segmented, useLoad, useRefresh } from '../ui';
 
 type Overview = {
   users: number;
@@ -39,7 +39,7 @@ type Report = {
 };
 
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
-const words = (s: string) => s.replace(/_/g, ' ');
+const words = (s: string) => cap(s.replace(/_/g, ' '));
 const hrs = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} d`);
 const CATEGORY_ROWS = 5;
 /** The lines on the trend chart, in the console's own greens, forest and grey. */

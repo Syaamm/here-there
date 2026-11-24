@@ -12,3 +12,12 @@
 .rc-day.in { background: var(--ok-bg); }
 .rc-day.edge { background: var(--accent-strong, #12302b); color: #fff; border-radius: 50%; font-weight: 700; }
 .rc-day.today:not(.edge) { font-weight: 700; text-decoration: underline; }
+.rc-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rc-field { display: grid; gap: 2px; padding: 6px 10px; border: 1.5px solid var(--line-2); border-radius: 10px; }
+.rc-field span { font-size: var(--fs-xs); color: var(--muted); }
+.rc-field strong { font-size: var(--fs-sm); font-weight: 700; }
+.rc-field.on { border-color: var(--accent-strong, #12302b); background: var(--ok-bg); }
+.rc-foot { display: flex; justify-content: flex-end; }
+.rc-clear { border: 0; background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--accent-strong, #12302b); cursor: pointer; padding: 4px 8px; border-radius: 8px; }
+.rc-clear:hover:not(:disabled) { background: var(--surface-2); }
+.rc-clear:disabled { color: var(--muted); opacity: 0.5; cursor: default; }

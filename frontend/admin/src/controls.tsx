@@ -60,7 +60,8 @@ function usePlacement(open: boolean, button: RefObject<HTMLElement | null>, pane
     const up = h > below && above > below;
     const room = up ? above : below;
     setPlace({
-      left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)),
+      // as wide as the panel really is: lined up with the button's left edge, or with its right edge when that would run off the window
+      left: Math.max(8, r.left + Math.max(w, panel.current?.offsetWidth ?? 0) > window.innerWidth - 8 ? r.right - Math.max(w, panel.current?.offsetWidth ?? 0) : r.left),
       top: up ? Math.max(8, r.top - Math.min(h, room) - 6) : r.bottom + 6,
       width: w,
       maxHeight: Math.max(160, room),
@@ -147,6 +148,8 @@ export function Select({
   const btn = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const typed = useRef({ text: '', at: 0 });
+  const [query, setQuery] = useState('');
+  const queryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
   const chosen = opts.find((o) => o.value === value);
   const place = usePlacement(open, btn, panel, 170);
@@ -165,39 +168,69 @@ export function Select({
     if (o.value !== value) onChange(o.value);
     btn.current?.focus();
   };
+  // the next option that can be chosen, going round: past the last comes the first, before the first comes the last
   const step = (from: number, dir: 1 | -1) => {
-    for (let i = from + dir; i >= 0 && i < opts.length; i += dir) if (!opts[i].disabled) return i;
+    const n = opts.length;
+    for (let k = 1; k <= n; k++) {
+      const i = (((from + dir * k) % n) + n) % n;
+      if (!opts[i].disabled) return i;
+    }
     return from;
   };
   useEffect(() => {
     if (open) panel.current?.querySelector<HTMLElement>(`[data-i="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [open, active]);
 
+  // Type to find: letters typed one after the other (within a second) jump to the first option that starts with them, then to one with a
+  // word that starts with them, then to one that contains them. Works with the list shut too (it opens on the match), like a country list.
+  const search = (key: string, base: number) => {
+    const now = Date.now();
+    const before = now - typed.current.at < 1000 ? typed.current.text : '';
+    const text = key === 'Backspace' ? before.slice(0, -1) : before + key.toLowerCase();
+    typed.current = { text, at: now };
+    setQuery(text);
+    if (queryTimer.current) clearTimeout(queryTimer.current);
+    queryTimer.current = setTimeout(() => setQuery(''), 1000);
+    if (!text) return;
+    const from = text.length > 1 ? base : base + 1;
+    const order = opts.map((_, k) => (Math.max(from, 0) + k) % opts.length);
+    const low = (i: number) => opts[i].text.toLowerCase();
+    const hit =
+      order.find((i) => !opts[i].disabled && low(i).startsWith(text)) ??
+      order.find((i) => !opts[i].disabled && low(i).split(/[^\p{L}\p{N}]+/u).some((w) => w.startsWith(text))) ??
+      order.find((i) => !opts[i].disabled && low(i).includes(text));
+    if (hit !== undefined) setActive(hit);
+  };
+
   const keys = (e: React.KeyboardEvent) => {
     if (disabled) return;
+    const letter = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    const typing = typed.current.text !== '' && Date.now() - typed.current.at < 1000; // a space inside a word being typed is part of it
     if (!open) {
+      if (letter && e.key !== ' ') {
+        e.preventDefault();
+        const base = opts.findIndex((o) => o.value === value);
+        show();
+        search(e.key, base);
+        return;
+      }
       if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) (e.preventDefault(), show());
       return;
     }
     if (e.key === 'Escape') return (e.preventDefault(), e.stopPropagation(), setOpen(false));
     if (e.key === 'Tab') return setOpen(false);
     if (e.key === 'ArrowDown') return (e.preventDefault(), setActive((a) => step(a, 1)));
-    if (e.key === 'ArrowUp') return (e.preventDefault(), setActive((a) => step(a, -1)));
+    if (e.key === 'ArrowUp') return (e.preventDefault(), setActive((a) => (a < 0 ? step(opts.length, -1) : step(a, -1))));
     if (e.key === 'Home') return (e.preventDefault(), setActive(step(-1, 1)));
     if (e.key === 'End') return (e.preventDefault(), setActive(step(opts.length, -1)));
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === 'Backspace' && typing) return (e.preventDefault(), search('Backspace', active));
+    if (e.key === 'Enter' || (e.key === ' ' && !typing)) {
       e.preventDefault();
       const o = opts[active];
       if (o) pick(o);
       return;
     }
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      const now = Date.now();
-      typed.current = { text: (now - typed.current.at < 700 ? typed.current.text : '') + e.key.toLowerCase(), at: now };
-      const from = typed.current.text.length > 1 ? active : active + 1;
-      const hit = [...opts.keys()].map((_, k) => (from + k) % opts.length).find((i) => !opts[i].disabled && opts[i].text.toLowerCase().startsWith(typed.current.text));
-      if (hit !== undefined) setActive(hit);
-    }
+    if (letter) (e.preventDefault(), search(e.key, active));
   };
 
   return (
@@ -216,7 +249,7 @@ export function Select({
         onClick={() => (open ? setOpen(false) : show())}
         onKeyDown={keys}
       >
-        <span className={!chosen || (chosen.disabled && chosen.value === '') ? 'select-value placeholder' : 'select-value'}>{chosen && !(chosen.value === '' && placeholder) ? chosen.label : (placeholder ?? '')}</span>
+        <span className={!chosen || (chosen.disabled && chosen.value === '') ? 'select-value placeholder' : 'select-value'}><span>{chosen && !(chosen.value === '' && placeholder) ? chosen.label : (placeholder ?? '')}</span>{/* every option's name, unseen, in the same place: the button is as wide as the longest one, so the list opens exactly under it */}{opts.map((o, i) => <span key={i} className="select-size" aria-hidden="true">{o.label}</span>)}</span>
         <Chevron className="select-chevron" />
       </button>
       {/* a hidden field carries `required`, so the form's own "please fill this in" still works */}
@@ -230,7 +263,10 @@ export function Select({
           style={place ? { left: place.left, top: place.top, minWidth: place.width, maxHeight: place.maxHeight } : { visibility: 'hidden' }}
           // inside a <label>, a click on the panel would otherwise "click the label" and reopen the list
           onClick={(e) => e.preventDefault()}
+          // the highlight follows the mouse: when the mouse leaves the list, the last option it touched is no longer lit
+          onMouseLeave={() => setActive(-1)}
         >
+          {query && <div className="select-query" aria-hidden="true">{query}</div>}
           {opts.map((o, i) => (
             <div
               key={o.value + i}

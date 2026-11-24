@@ -70,6 +70,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   userInterfaceStyle: 'light',
   // Browser preview of the same app (npm run mobile, then open http://localhost:8082)
   web: { bundler: 'metro', output: 'single', favicon: './assets/favicon.png' },
+  // the served website (npm run build:web) keeps the app under /app/; the dev preview (npm run mobile) stays at the root
+  ...(process.env.WEB_BASE_URL ? { experiments: { baseUrl: process.env.WEB_BASE_URL } } : {}),
   ios: {
     bundleIdentifier: APP_ID,
     ...(hasIosFirebase ? { googleServicesFile: iosFirebase } : {}),

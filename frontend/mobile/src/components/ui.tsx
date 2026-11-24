@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useIsFocused, useRoute, useRouter } from 'expo-router';
-import { setStatusBarStyle } from 'expo-status-bar';
+import { StatusBar, setStatusBarStyle } from 'expo-status-bar';
 import { Children, createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Modal, type NativeScrollEvent, type NativeSyntheticEvent, PanResponder, Platform, Pressable, RefreshControl, ScrollView, type ScrollViewInstance, StyleSheet, useWindowDimensions, View, type StyleProp, type TextInput as RNTextInputType, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
@@ -70,19 +70,24 @@ export const useHeaderCollapse = () => useContext(HeaderCollapse);
 // Pages that sit on the dark band need light clock and battery. Counted, so whichever page opens or closes first the bar ends right.
 let bandPages = 0;
 /** Light status-bar text while a page with the dark band is in front; dark again when none is. */
-export function useLightStatusBar(on = true, bandDark?: boolean) {
+export function useLightStatusBar(on = true, bandDark?: boolean, lightTop = false) {
   const { c } = useTheme();
   const dark = bandDark ?? c.bandIsDark; // the band follows the mode: dark green in HERE (light clock), sand in THERE (dark clock)
   useFocusEffect(
     useCallback(() => {
-      if (!on) return;
+      if (!on) {
+        // a page with no band sits on a light top (white / pale): dark clock and battery. Without this it kept whatever the
+        // last page left (light, in HERE), and the clock vanished on pale pages. A photo at the top (lightTop false) is left alone.
+        if (lightTop) setStatusBarStyle('dark');
+        return;
+      }
       bandPages += 1;
       setStatusBarStyle(dark ? 'light' : 'dark');
       return () => {
         bandPages -= 1;
         if (bandPages <= 0) setStatusBarStyle('dark');
       };
-    }, [on, dark]),
+    }, [on, dark, lightTop]),
   );
 }
 
@@ -235,7 +240,7 @@ export function Screen({
   const isPlain = plain ?? PLAIN_PAGES.has(routeName);
   const bandHeader = header ?? (bandTitle !== undefined ? (isPlain ? <PlainTitle title={bandTitle} onBack={onBack} right={right} /> : <BandTitle title={bandTitle} onBack={onBack} right={right} />) : undefined);
   const bg = bandHeader && !isPlain ? (headerBg ?? c.band) : undefined; // every static header sits on the mode's band (forest in HERE, sand in THERE)
-  useLightStatusBar(!!bg, bandDark);
+  useLightStatusBar(!!bg, bandDark, !hero && !stickyHero && !fixedHero);
   // never closer to the top than a phone's status bar needs (a browser reports no inset, a real phone does)
   const top = statusTop(insets.top);
   const typing = useKeyboardShown();
@@ -276,6 +281,8 @@ export function Screen({
   const pullFromTop = useRef(false); // the current drag began at the top of a photo page (pull to refresh)
   const savedTop = useRef(0);
   const onScreen = useIsFocused();
+  const noPhotoTop = !hero && !stickyHero && !fixedHero;
+  const statusBarStyle: 'light' | 'dark' | undefined = bg ? ((bandDark ?? c.bandIsDark) ? 'light' : 'dark') : noPhotoTop ? 'dark' : undefined;
   useScrollFieldIntoView(scroller, scrolled, onScreen);
   // the page in front can be scrolled to a field that was missed (see lib/pageScroll)
   useEffect(() => {
@@ -434,6 +441,9 @@ export function Screen({
   );
   return (
     <Animated.View ref={pageBox} onLayout={pageLayout} style={{ flex: 1, backgroundColor: c.bg, paddingBottom: keyboard }}>
+      {/* Android keeps a stack of mounted bars and re-applies the newest on every render, so the imperative calls above lose to the
+          root one there (white clock on pale pages). The focused page mounts its own, which goes on top of the stack. */}
+      {onScreen && statusBarStyle ? <StatusBar style={statusBarStyle} /> : null}
       {bandHeader && !collapsing ? (
         <View style={{ paddingTop: top + headerGap + (bandTall && bg ? BAND_TALL_TOP : 0), paddingBottom: (bg ? SHEET_OVERLAP + 6 : 6) + (bandTall && bg ? BAND_TALL_BOTTOM : 0), paddingHorizontal: gutter + 6, backgroundColor: bg ?? c.bg, zIndex: bg ? 0 : 2 }}>
           {/* the fade ends where the sheet's corners start, so the corner pieces (flat `bg`) sit on exactly the same colour */}

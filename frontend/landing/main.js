@@ -1,14 +1,14 @@
-// Where every "Open the app" button goes. For now the top of this page; put the web app address here once it is live.
-const APP_URL = "#top";
+// Where every "Get the app" button goes: the web version of the app, served at /app/ next to this page.
+const APP_URL = "/app/";
 
 const COPY = {
   en: {
     skip:"Skip to content",
-    "nav.how":"How it works","nav.safety":"Safety","nav.faq":"FAQ","nav.open":"Open the app",
+    "nav.how":"How it works","nav.safety":"Safety","nav.faq":"FAQ","nav.open":"Get the app",
     "hero.eyebrow":"NEARBY. SOON.","hero.title":"Be here.<br>Go there.",
     "hero.subtitle":"Join plans happening near you in the next few hours, or find the people to travel with. Only verified adults, and no money ever changes hands.",
     "phone.tag":"Be here. Go there.","phone.login":"Log in","phone.explore":"Explore","phone.noAccount":"Don’t have an account?","phone.signup":"Sign up",
-    "hero.open":"Open the app","hero.see":"See how it works","hero.floatTitle":"People, not profiles.","hero.floatText":"Meet in real life.","hero.bottom":"A little more together, wherever you are.",
+    "hero.open":"Get the app","hero.see":"See how it works","hero.floatTitle":"People, not profiles.","hero.floatText":"Meet in real life.","hero.bottom":"A little more together, wherever you are.",
     "modes.eyebrow":"ONE APP. TWO WAYS TO CONNECT.","modes.title":"Your next good thing<br>could be just around the corner.","modes.subtitle":"A spontaneous plan today. A shared adventure tomorrow. Choose your kind of together.",
     "modes.here.kicker":"THE NEXT FEW HOURS","modes.here.description":"Make a plan. Find your people. Meet nearby, soon.",
     "modes.here.b1":"Join coffees, runs, aperitivos and more.","modes.here.b2":"Host with approval or let verified people join instantly.","modes.here.b3":"Keep the conversation going in your plan's group chat.","modes.here.foot":"Nearby. Soon.",
@@ -16,7 +16,7 @@ const COPY = {
     "modes.there.b1":"Discover proposed trips and apply with a short intro.","modes.there.b2":"Build the plan with date polls and a shared itinerary.","modes.there.b3":"Match with buddies heading to the same place and dates.","modes.there.foot":"Go there. Together.",
     "modes.disclaimer":"Every trip is a proposal, never a booking. LAMIS never handles money.",
     "cat.coffee":"Coffee","cat.drinks":"Drinks","cat.food":"Food","cat.sports":"Sports","cat.culture":"Culture","cat.adventure":"Adventure","cat.nature":"Nature","cat.beach":"Beach","cat.photo":"Photography",
-    "how.eyebrow":"A SIMPLE WAY TO START","how.title":"Three steps.<br>Then see where it goes.","how.subtitle":"Less planning alone. More doing things together.","how.cta":"Open the app",
+    "how.eyebrow":"A SIMPLE WAY TO START","how.title":"Three steps.<br>Then see where it goes.","how.subtitle":"Less planning alone. More doing things together.","how.cta":"Get the app",
     "how.step1.title":"Sign up and get verified once.","how.step1.text":"One identity check helps keep the community for verified adults.",
     "how.step2.title":"Find a plan or a trip, or start your own.","how.step2.text":"Pick something happening nearby, explore a trip proposal, or host.",
     "how.step3.title":"Meet up, chat in the group, and build your reliability.","how.step3.text":"Show up for each other. Your reliability grows through completed plans.",
@@ -40,11 +40,11 @@ const COPY = {
   },
   it: {
     skip:"Vai al contenuto",
-    "nav.how":"Come funziona","nav.safety":"Sicurezza","nav.faq":"FAQ","nav.open":"Apri l'app",
+    "nav.how":"Come funziona","nav.safety":"Sicurezza","nav.faq":"FAQ","nav.open":"Scarica l'app",
     "hero.eyebrow":"VICINO. PRESTO.","hero.title":"Sii qui.<br>Vai là.",
     "hero.subtitle":"Partecipa a piani vicino a te nelle prossime ore o trova le persone con cui viaggiare. Solo adulti verificati, e il denaro non passa mai da LAMIS.",
     "phone.tag":"Sii qui. Vai là.","phone.login":"Accedi","phone.explore":"Esplora","phone.noAccount":"Non hai un account?","phone.signup":"Registrati",
-    "hero.open":"Apri l'app","hero.see":"Scopri come funziona","hero.floatTitle":"Persone, non profili.","hero.floatText":"Incontratevi dal vivo.","hero.bottom":"Un po' più insieme, ovunque tu sia.",
+    "hero.open":"Scarica l'app","hero.see":"Scopri come funziona","hero.floatTitle":"Persone, non profili.","hero.floatText":"Incontratevi dal vivo.","hero.bottom":"Un po' più insieme, ovunque tu sia.",
     "modes.eyebrow":"UN'APP. DUE MODI PER CONNETTERSI.","modes.title":"La prossima bella esperienza<br>potrebbe essere dietro l'angolo.","modes.subtitle":"Un piano spontaneo oggi. Un'avventura condivisa domani. Scegli il tuo modo di stare insieme.",
     "modes.here.kicker":"NELLE PROSSIME ORE","modes.here.description":"Organizza un piano. Trova le tue persone. Incontratevi qui vicino, presto.",
     "modes.here.b1":"Partecipa a caffè, corse, aperitivi e altro.","modes.here.b2":"Organizza con approvazione o consenti l'accesso immediato alle persone verificate.","modes.here.b3":"Continua a parlare nella chat di gruppo del tuo piano.","modes.here.foot":"Vicino. Presto.",
@@ -52,7 +52,7 @@ const COPY = {
     "modes.there.b1":"Scopri i viaggi proposti e candidati con una breve presentazione.","modes.there.b2":"Organizza il viaggio con sondaggi sulle date e un itinerario condiviso.","modes.there.b3":"Trova persone dirette nello stesso luogo e nelle stesse date.","modes.there.foot":"Vai là. Insieme.",
     "modes.disclaimer":"Ogni viaggio è una proposta, mai una prenotazione. LAMIS non gestisce mai denaro.",
     "cat.coffee":"Caffè","cat.drinks":"Drink","cat.food":"Cibo","cat.sports":"Sport","cat.culture":"Cultura","cat.adventure":"Avventura","cat.nature":"Natura","cat.beach":"Mare","cat.photo":"Fotografia",
-    "how.eyebrow":"UN MODO SEMPLICE PER INIZIARE","how.title":"Tre passi.<br>E poi si vede dove porta.","how.subtitle":"Meno programmi da soli. Più cose da fare insieme.","how.cta":"Apri l'app",
+    "how.eyebrow":"UN MODO SEMPLICE PER INIZIARE","how.title":"Tre passi.<br>E poi si vede dove porta.","how.subtitle":"Meno programmi da soli. Più cose da fare insieme.","how.cta":"Scarica l'app",
     "how.step1.title":"Iscriviti e verifica la tua identità una sola volta.","how.step1.text":"Un controllo dell'identità aiuta a mantenere la community riservata agli adulti verificati.",
     "how.step2.title":"Trova un piano o un viaggio, oppure creane uno.","how.step2.text":"Scegli qualcosa qui vicino, esplora una proposta di viaggio o organizza tu.",
     "how.step3.title":"Incontratevi, chattate nel gruppo e costruite la vostra affidabilità.","how.step3.text":"Ci si presenta gli uni per gli altri. L'affidabilità cresce con i piani completati.",
