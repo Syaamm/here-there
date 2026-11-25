@@ -9,6 +9,7 @@ import { AuthCheck, AuthField } from '@/components/AuthForm';
 import { PillButton } from '@/components/ActivityParts';
 import { ClashNotice, tellWithdrawn, useClashes, type Withdrawn } from '@/components/ClashNotice';
 import { Banner, Btn, ErrorBanner, Screen, Txt, useGo } from '@/components/ui';
+import { GuidelinesLink } from '@/components/GuidelinesLink';
 import { useTheme } from '@/lib/theme';
 import { get, post, type Activity } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -67,7 +68,7 @@ export default function Join() {
         <Text style={{ color: c.text, fontSize: 16, fontWeight: '600', paddingTop: sp(8) }}>{t('Before joining')}</Text>
         <CheckLine ok={adult} text={t('I am at least 18 years old')} />
         <CheckLine ok={verified} text={verified ? t('Identity verified') : t('Identity verification required')} action={!verified ? <Btn title={t('Verify now')} small variant="secondary" onPress={() => go('/verify')} style={{ alignSelf: 'flex-start' }} /> : undefined} />
-        <AuthCheck checked={agree} onChange={setAgree} label={t('I agree to the group guidelines: be respectful, meet in public, and report anything that feels wrong.')} />
+        <AuthCheck checked={agree} onChange={setAgree} label={<>{t('I agree to the')} <GuidelinesLink /></>} />
       </View>
 
       <PillButton title={a.spotsLeft === 0 ? t('Join the waiting list') : instant ? t('Join now') : t('Send request')} onPress={submit} loading={act.busy} disabled={!verified || !adult || !agree || clash.firm.length > 0} />

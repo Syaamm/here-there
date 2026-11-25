@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRef, useState } from 'react';
 import { type TextInput, View } from 'react-native';
 import { appAlert } from '@/components/AppDialog';
+import { PillButton } from '@/components/ActivityParts';
 import { Btn, Card, CheckRow, ErrorBanner, Field, Pill, PillRow, Screen, Txt, useGo } from '@/components/ui';
 import { get, post, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -12,9 +13,10 @@ import { dateSpan, money } from '@/lib/format';
 import { useAction, useLoad } from '@/lib/hooks';
 import { useTheme } from '@/lib/theme';
 import { CheckLine } from '@/components/CheckLine';
+import { GuidelinesLink } from '@/components/GuidelinesLink';
 import { ClashNotice, useClashes } from '@/components/ClashNotice';
 import { useT } from '@/lib/i18n';
-
+
 import { sc, sp } from '@/lib/scale';
 /** THERE · Application. Structured so the organizer can decide; no payment, no documents. */
 export default function Apply() {
@@ -93,21 +95,27 @@ export default function Apply() {
         <Txt variant="h3" style={{ fontSize: 20, paddingTop: sp(8) }}>{t('Before sending')}</Txt>
         <CheckLine ok={adult} text={t('I am at least 18 years old')} />
         <CheckLine ok={verified} text={verified ? t('Identity verified') : t('Identity verification required')} action={!verified ? <Btn title={t('Verify now')} small variant="secondary" onPress={() => go('/verify')} style={{ alignSelf: 'flex-start' }} /> : undefined} />
-        <CheckRow checked={budgetOk} onChange={setBudgetOk}>
-          <Txt variant="h3">{t('My budget is compatible')}</Txt>
-          <Txt variant="small">{t('I understand this is an estimate.')}</Txt>
-        </CheckRow>
-        <CheckRow checked={datesOk} onChange={setDatesOk}>
-          <Txt variant="h3">{t('I can travel within the date window')}</Txt>
-          <Txt variant="small">{t('No booking commitment.')}</Txt>
-        </CheckRow>
-        <CheckRow checked={guidelines} onChange={setGuidelines}>
-          <Txt variant="h3">{t('I agree to the group guidelines')}</Txt>
-        </CheckRow>
+        <View style={{ paddingVertical: sp(12), borderBottomWidth: 1, borderBottomColor: c.line }}>
+          <CheckRow checked={budgetOk} onChange={setBudgetOk}>
+            <Txt variant="h3" style={{ color: '#000' }}>{t('My budget is compatible')}</Txt>
+            <Txt variant="small">{t('I understand this is an estimate.')}</Txt>
+          </CheckRow>
+        </View>
+        <View style={{ paddingVertical: sp(12), borderBottomWidth: 1, borderBottomColor: c.line }}>
+          <CheckRow checked={datesOk} onChange={setDatesOk}>
+            <Txt variant="h3" style={{ color: '#000' }}>{t('I can travel within the date window')}</Txt>
+            <Txt variant="small">{t('No booking commitment.')}</Txt>
+          </CheckRow>
+        </View>
+        <View style={{ paddingVertical: sp(12) }}>
+          <CheckRow checked={guidelines} onChange={setGuidelines}>
+            <Txt variant="h3" style={{ color: '#000' }}>{t('I agree to the')} <GuidelinesLink /></Txt>
+          </CheckRow>
+        </View>
       </Card>
 
-      {/* grey until ready, then green; no list of what is missing and no fine print under it */}
-      <Btn title={t('Send application')} variant={ready ? 'accent' : 'off'} onPress={() => void submit()} loading={act.busy} disabled={!ready} />
+      {/* the same button as Request to join: grey until ready, then the dark green; no list of what is missing and no fine print under it */}
+      <PillButton title={t('Send application')} onPress={() => void submit()} loading={act.busy} disabled={!ready} />
     </Screen>
   );
 }

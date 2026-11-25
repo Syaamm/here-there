@@ -678,8 +678,8 @@ const MIN_CHARS = 3;
 const DELAY_MS = 500; // one search per pause in typing
 
 /**
- * Where an activity meets: its neighbourhood or area ("Brera, Milan"), not a particular shop; the exact spot is agreed in
- * the group chat. A pill search field over the area search, nearby areas first. Picking a result shows it as a card with Change; the typed words
+ * Where an activity meets: any named place on the map (a hotel, shop, cafe, park, or a neighbourhood such as "Brera"), except places
+ * closed to the public (the server leaves those out). A pill search field over the venue search, nearby places first. Picking a result shows it as a card with Change; the typed words
  * stay usable as a plain name when the search finds nothing or is not available, so nobody gets stuck. Same behaviour as
  * the earlier PlaceSearch, in the design's look.
  */
@@ -702,7 +702,7 @@ export function PlacePick({ label, text, onText, place, onPlace, city, near, inp
     setState('searching');
     const timer = setTimeout(async () => {
       try {
-        const r = await get<{ items: Place[] }>(`/v1/places/search?${new URLSearchParams({ q, kind: 'area', ...(near ? { lat: String(near.lat), lng: String(near.lng) } : city.trim() ? { city: city.trim() } : {}) })}`);
+        const r = await get<{ items: Place[] }>(`/v1/places/search?${new URLSearchParams({ q, kind: 'venue', ...(near ? { lat: String(near.lat), lng: String(near.lng) } : city.trim() ? { city: city.trim() } : {}) })}`);
         if (mine !== latest.current) return;
         setFound(r.items);
         setState('done');
@@ -736,7 +736,7 @@ export function PlacePick({ label, text, onText, place, onPlace, city, near, inp
         <Ionicons name="search-outline" size={sc(22)} color={c.text} />
         <TextInput
           accessibilityLabel={label}
-          placeholder={t('Search a neighbourhood or area')}
+          placeholder={t('Search a hotel, shop, cafe or any place')}
           placeholderTextColor={c.placeholder}
           selectionColor={c.forest}
           cursorColor={c.forest}
@@ -753,8 +753,8 @@ export function PlacePick({ label, text, onText, place, onPlace, city, near, inp
         />
       </View>
       {state === 'searching' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('Searching…')}</Text> : null}
-      {state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('Search unavailable. Type the neighbourhood name.')}</Text> : null}
-      {state === 'done' && found && found.length === 0 ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('No neighbourhood found.')}</Text> : null}
+      {state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('Search unavailable. Type the place name.')}</Text> : null}
+      {state === 'done' && found && found.length === 0 ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('No place found.')}</Text> : null}
       {found && found.length > 0 ? (
         <View style={{ borderRadius: sc(24), borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, overflow: 'hidden' }}>
           {found.map((p, i) => (
@@ -774,7 +774,7 @@ export function PlacePick({ label, text, onText, place, onPlace, city, near, inp
           ))}
         </View>
       ) : null}
-      {state === 'done' || state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('Pick the neighbourhood to show it on the map.')}</Text> : null}
+      {state === 'done' || state === 'error' ? <Text style={{ color: c.muted, fontSize: 12, paddingLeft: sph(12) }}>{t('Pick the place to show it on the map.')}</Text> : null}
     </View>
   );
 }

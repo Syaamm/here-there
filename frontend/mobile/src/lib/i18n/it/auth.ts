@@ -148,7 +148,11 @@ export const auth: Record<string, string> = {
   // DRAFT translation, needs review by a person / lawyer before launch
   "Next we'll email you a code to confirm your address. You can browse straight away. Before you join, host or chat you will verify your identity with a specialist provider. We never show your documents to anyone.": 'Ora ti invieremo un codice per email per confermare il tuo indirizzo. Puoi iniziare subito a navigare. Prima di partecipare, organizzare o scrivere in chat verificherai la tua identità con un fornitore specializzato. Non mostriamo mai i tuoi documenti a nessuno.',
   'I confirm that I am 18 or older.': 'Confermo di avere 18 anni o più.',
-  '18+ only · Privacy first · Terms apply': 'Solo maggiorenni · Privacy al primo posto · Si applicano i termini',
+  '18+ only': 'Solo maggiorenni',
+  Terms: 'Termini',
+  'Privacy policy': 'Informativa sulla privacy',
+  'Terms and conditions': 'Termini e condizioni',
+  'By creating an account you agree to:': 'Creando un account accetti:',
   '18+ only · Verified traveler community': 'Solo maggiorenni · Community di viaggiatori verificati',
 
   // shorter texts
