@@ -96,3 +96,32 @@
 .ns-rec { display: grid; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
 .ns-rec:first-child { border-top: 0; padding-top: 8px; }
 .ns-rec:last-child { padding-bottom: 8px; }
+
+/* Attendance: two separate cards, one under the other. The page scrolls; each card keeps its own size and scrolls inside. */
+.page-body.fill > .ns-hosts-box, .page-body.fill > .ns-grid { flex: 0 0 auto; }
+.page-body.fill > .ns-grid { min-height: 0; }
+.ns-hosts-box .ns-host-list { max-height: 360px; overflow-y: auto; }
+.ns-grid > .ns-scroll.ns-box { height: clamp(460px, 72vh, 760px); max-height: none; }
+@media (max-width: 1100px) { .ns-grid > .ns-scroll.ns-box { height: clamp(420px, 70vh, 700px); } }
+
+/* Attendance: two cards side by side (People who did not come on the left, Host did not come on the right); one under the other on a narrower screen */
+.page-body.fill > .ns-cols { flex: 0 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.ns-cols > .ns-grid { order: 1; min-width: 0; }
+.ns-cols > .ns-hosts-box { order: 2; min-width: 0; display: flex; flex-direction: column; height: clamp(460px, 72vh, 760px); }
+.ns-cols > .ns-hosts-box .ns-host-list { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; }
+.ns-cols .ns-host { flex-wrap: wrap; }
+.ns-cols .ns-host > .row { width: 100%; }
+@media (max-width: 1100px) {
+  .page-body.fill > .ns-cols { grid-template-columns: minmax(0, 1fr); }
+  .ns-cols > .ns-grid { order: 2; }
+  .ns-cols > .ns-hosts-box { order: 1; height: auto; }
+  .ns-cols > .ns-hosts-box .ns-host-list { max-height: 360px; }
+}
+
+/* the host card follows the same layout as the records card: its own scroll, a pinned footer */
+.ns-cols > .ns-hosts-box { overflow: hidden; border-radius: 18px !important; }
+.ns-cols > .ns-hosts-box > .ns-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.ns-hosts-box .ns-dot { --k: #a7b0ab; }
+
+/* an empty list: one quiet centred line inside the card, no dashed box */
+.ns-box .ns-list > .empty, .ns-box .ns-list > .state { border: 0; background: none; border-radius: 0; margin: 0; padding: 56px 24px; min-height: 0; text-align: center; color: var(--muted); }

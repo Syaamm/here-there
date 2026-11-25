@@ -21,3 +21,19 @@
 .rc-clear { border: 0; background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--accent-strong, #12302b); cursor: pointer; padding: 4px 8px; border-radius: 8px; }
 .rc-clear:hover:not(:disabled) { background: var(--surface-2); }
 .rc-clear:disabled { color: var(--muted); opacity: 0.5; cursor: default; }
+
+/* a smaller calendar, and its title opens the months and years */
+.rc { width: 264px; padding: 12px; gap: 6px; border-radius: 14px; }
+.rc-nav { width: 28px; height: 28px; }
+.rc-head strong, .rc-title { font-size: var(--fs-md); font-weight: 700; }
+.rc-title { border: 0; background: none; font-family: inherit; color: var(--text); padding: 4px 10px; border-radius: 8px; cursor: pointer; }
+.rc-title:hover { background: var(--surface-2); }
+.rc-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rc-day { height: 30px; }
+.rc-field { padding: 4px 8px; }
+.rc-pick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; min-height: 196px; }
+.rc-opt { min-height: 42px; border: 0; border-radius: 10px; background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--text); cursor: pointer; }
+.rc-opt:hover:not(:disabled):not(.sel) { background: var(--surface-2); }
+.rc-opt.sel { background: var(--accent-strong); color: #fff; }
+.rc-opt:disabled { opacity: 0.28; cursor: default; }
+.rc-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

@@ -1181,3 +1181,8 @@ td.end > .icon-btn.staff-del { margin-left: 8px; }
 
 /* the administrator has no bin: an empty space of the same size keeps every Edit button in one column */
 .staff-del-gap { display: inline-block; vertical-align: middle; width: calc(var(--ctl-sm, 36px) + 8px); height: 1px; }
+
+/* the password box is the same height and text size as the Show / Generate buttons beside it */
+.sd-pass > input, .sd-pass > .btn { height: var(--ctl-sm, 36px); min-height: 0; box-sizing: border-box; }
+.sd-pass > input { padding: 0 12px; font-size: var(--fs-sm); }
+.sd-pass > input::placeholder { font-size: var(--fs-sm); }

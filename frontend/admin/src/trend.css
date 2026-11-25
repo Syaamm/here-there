@@ -158,3 +158,11 @@
 .ov-bottom .card.flat > .card-head { padding: 20px 24px 0; }
 .ov-bottom .card.flat .items { padding: 0 24px 20px; }
 .ov-bottom .card.flat .state { margin: 0 24px 20px; }
+
+/* Verification counts: each column is as wide as its label, labels may wrap, nothing overlaps */
+.ov-cols { grid-template-columns: repeat(3, auto); justify-content: space-between; }
+.ov-cols > span { padding: 0 10px; }
+.ov-cols > span:first-child { padding-left: 0; }
+.ov-cols > span:last-child { padding-right: 0; }
+.ov-cols small { white-space: normal; align-items: flex-start; line-height: 1.25; gap: 6px; }
+.ov-cols em { margin-top: 4px; }

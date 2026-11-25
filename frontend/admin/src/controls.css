@@ -86,3 +86,14 @@
 .cal-opt.sel { background: var(--accent-strong); color: #fff; }
 .cal-opt:disabled { opacity: 0.28; cursor: default; }
 .cal-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* a smaller calendar */
+.cal { gap: 6px; padding: 10px; border-radius: 12px; }
+.cal-head strong, .cal-title { font-size: var(--fs-md); }
+.cal-title { padding: 4px 8px; }
+.cal-nav { width: 28px; height: 28px; border-radius: 8px; }
+.cal-dow { padding: 2px 0; font-size: 0.66rem; }
+.cal-day { min-height: 30px; font-size: var(--fs-sm); border-radius: 8px; }
+.cal-pick { min-height: 168px; gap: 4px; }
+.cal-opt { min-height: 40px; font-size: var(--fs-sm); border-radius: 10px; }
+.cal-foot { padding-top: 6px; font-size: var(--fs-sm); }

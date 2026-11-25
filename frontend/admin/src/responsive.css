@@ -140,3 +140,96 @@ img, video, svg { max-width: 100%; }
   .ct-row { flex-wrap: wrap; }
   .ct-side { width: 100%; grid-template-columns: 1fr 104px 38px; }
 }
+
+/* ------------------------------------------------------------ fluid type: words and body text grow and shrink with the screen */
+:root {
+  --fs-xs: clamp(0.64rem, 0.62rem + 0.06vw, 0.68rem);
+  --fs-sm: clamp(0.72rem, 0.7rem + 0.08vw, 0.76rem);
+  --fs-md: clamp(0.8rem, 0.77rem + 0.1vw, 0.84rem);
+  --fs-lg: clamp(0.92rem, 0.88rem + 0.14vw, 0.98rem);
+  --fs-xl: clamp(1.02rem, 0.96rem + 0.22vw, 1.14rem);
+  --fs-2xl: clamp(1.2rem, 1.06rem + 0.5vw, 1.45rem);
+  --fs-3xl: clamp(1.4rem, 1.16rem + 0.8vw, 1.8rem);
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+/* long words, emails and ids wrap instead of pushing a card wider than the screen */
+.main, .card, .dialog, td, dd, p, h1, h2, h3, .list-item { overflow-wrap: break-word; }
+.nowrap, th, .chip, .pill, .badge, .au-cat, .au-kind, .au-time, button, .btn { overflow-wrap: normal; word-break: normal; }
+.chip, .pill, .au-cat, .au-kind, .ns-count { white-space: nowrap; }
+/* on touch screens, inputs are at least 16px so the phone does not zoom in when one is tapped */
+@media (max-width: 900px) and (pointer: coarse) {
+  input, select, textarea { font-size: 16px; }
+}
+
+/* ------------------------------------------------------------ newer parts on small screens */
+@media (max-width: 700px) {
+  .cal { width: min(320px, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
+  .cal-opt { min-height: 48px; }
+  .ns-day-items { margin: 0 0 12px; padding: 0 16px; border-left: 0; }
+  .ns-facts { grid-template-columns: 1fr 1fr; }
+  .ns-actions { flex-wrap: wrap; }
+  .ns-actions > button { flex: 1 1 140px; }
+  .ov-tiles > .ov-rep, .ov-tiles > .ov-ver { padding: 14px 16px; }
+  .ov-cols > span { padding: 0 8px; }
+  .ov-cols small { white-space: normal; }
+  td.end { white-space: nowrap; }
+  .limit-manual { flex-wrap: wrap; }
+  .row.between { flex-wrap: wrap; }
+  .card-head { flex-wrap: wrap; gap: 8px; }
+  .detail-foot, .detail-decide { height: auto !important; min-height: 72px; flex-wrap: wrap; gap: 8px; }
+}
+@media (max-width: 420px) {
+  .ns-facts { grid-template-columns: 1fr; }
+  .ov-cols { grid-template-columns: 1fr; gap: 8px; }
+  .ov-cols > span { border-left: 0; padding: 0; }
+  .main { padding: 12px; }
+  .dialog { width: calc(100vw - 16px); }
+}
+
+/* ------------------------------------------------------------ a tighter size for cards, rows and tables on every page */
+@media (min-width: 701px) {
+  .card { padding: 16px 20px; }
+  th, td { padding: 12px 16px; }
+  th { padding-top: 12px; padding-bottom: 10px; }
+  .au-row { padding: 8px 20px; min-height: 44px; gap: 12px; }
+  .au-chev { width: 30px; height: 30px; }
+  .au-detail { margin-left: 108px; padding: 10px 14px; }
+  .list-item { padding: 12px 14px; }
+  .page-head { margin-bottom: 12px; }
+  .page-body { gap: 12px; }
+  .nav { min-height: 38px; }
+  .stat { padding: 16px 18px; }
+}
+
+/* ------------------------------------------------------------ laptop sizes (1000 - 1500px): everything keeps its shape as the window shrinks */
+:root { --side-w: clamp(212px, 17.5vw, 244px); }
+@media (min-width: 901px) and (max-width: 1500px) {
+  .main { padding: 24px 28px; }
+  .ov-cols small { white-space: normal; }
+  .toolbar { gap: 10px; }
+  .page-head h1 { font-size: var(--fs-2xl); }
+}
+@media (min-width: 1101px) and (max-width: 1500px) {
+  /* the two Attendance cards stay side by side, with a narrower date column */
+  .ns-cols .ns-card { grid-template-columns: 112px minmax(0, 1fr); }
+  .ns-cols .ns-date { padding-left: 16px; padding-right: 8px; }
+  .ns-cols .ns-day-items { padding: 0 16px; }
+  .ns-cols .ns-facts { grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  .ns-cols .ns-uphold, .ns-cols .ns-overturn { padding: 0 16px; }
+}
+
+/* the dashboard's Reports and Verification tiles are wider on a laptop, and only when they sit beside the chart */
+@media (min-width: 1101px) and (max-width: 1500px) { .ov-top { grid-template-columns: minmax(268px, 0.3fr) minmax(0, 1fr); } }
+/* list rows (reports, people): the status tag only takes the room it needs, and a long title ends in dots */
+@media (max-width: 1500px) {
+  .list-item .aside .chip { min-width: 0; padding: 4px 10px; }
+  .list-item strong, .list-item b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* Content (and the day lists): on a smaller laptop the title gets the room, the side columns get slimmer */
+@media (min-width: 901px) and (max-width: 1280px) {
+  .au-card { grid-template-columns: 124px minmax(0, 1fr); }
+  .ct-row { grid-template-columns: 128px minmax(0, 1fr) auto; gap: 12px; padding: 10px 14px 10px 16px; }
+  .ct-side { grid-template-columns: 70px 100px 32px; gap: 8px; }
+  .ct-going { grid-template-columns: 40px 1fr; gap: 6px; }
+}

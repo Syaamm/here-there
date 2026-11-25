@@ -616,3 +616,10 @@ body.mode-there .faq-plus { color: var(--forest); }
 .step h3 { font-family: var(--font-body); font-weight: 600; letter-spacing: -.01em; }
 .safety-card h3 { font-family: var(--font-body); font-weight: 600; letter-spacing: -.01em; }
 .faq-question { font-family: var(--font-body); font-weight: 500; letter-spacing: -.01em; }
+
+/* fluid body text and a floor for the small print, so nothing is too tiny on a phone */
+body { font-size: clamp(15px, 0.9rem + 0.25vw, 17px); }
+@media (max-width: 700px) {
+  .eyebrow, .location-pill, .category-chip, .step-number, .hero-bottom-note { font-size: 12px; }
+  .benefit-list, .no-booking-note, .desktop-nav { font-size: 14px; }
+}
