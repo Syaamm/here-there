@@ -13,10 +13,15 @@ const WEEK = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
  */
 export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anchor: HTMLElement | null; from: string; to: string; max?: string; onPick: (from: string, to: string) => void; onClose: () => void }) {
   const panel = useRef<HTMLDivElement>(null);
+  const modeRef = useRef<'days' | 'months' | 'years'>('days');
   const [month, setMonth] = useState(() => {
     const d = parse(to) ?? new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
+  // days of a month, months of a year, or a page of years: click the title to go up one level
+  const [mode, setMode] = useState<'days' | 'months' | 'years'>('days');
+  const [yearFrom, setYearFrom] = useState(() => month.getFullYear() - 5);
+  modeRef.current = mode;
   const [start, setStart] = useState<string | null>(null); // the first day, while the last is still to be chosen
   const [hover, setHover] = useState<string | null>(null);
   const [cleared, setCleared] = useState(false); // "Clear" was pressed: the earlier range is no longer drawn, a new one starts
@@ -26,7 +31,7 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
     if (!anchor) return;
     const place = () => {
       const r = anchor.getBoundingClientRect();
-      const w = panel.current?.offsetWidth ?? 308;
+      const w = panel.current?.offsetWidth ?? 264;
       setPos({ top: r.bottom + 8, left: Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) });
     };
     place();
@@ -44,7 +49,11 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
       if (panel.current?.contains(t) || anchor?.contains(t)) return;
       onClose();
     };
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (modeRef.current !== 'days') return setMode('days');
+      onClose();
+    };
     document.addEventListener('mousedown', down);
     document.addEventListener('keydown', key);
     return () => {
@@ -81,19 +90,81 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
 
   return createPortal(
     <div ref={panel} className="rc" style={{ top: pos?.top ?? -999, left: pos?.left ?? -999 }} role="dialog" aria-label="Choose the first and the last day">
-      <div className="rc-head">
-        <button type="button" className="rc-nav" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Previous month">
-          <span style={{ display: 'grid', transform: 'rotate(90deg)' }}>
-            <Icon name="chevron" />
-          </span>
-        </button>
-        <strong>{title}</strong>
-        <button type="button" className="rc-nav" disabled={atMax} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Next month">
-          <span style={{ display: 'grid', transform: 'rotate(-90deg)' }}>
-            <Icon name="chevron" />
-          </span>
-        </button>
-      </div>
+      {mode === 'days' ? (
+        <div className="rc-head">
+          <button type="button" className="rc-nav" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Previous month">
+            <span style={{ display: 'grid', transform: 'rotate(90deg)' }}>
+              <Icon name="chevron" />
+            </span>
+          </button>
+          <button type="button" className="rc-title" aria-label={`${title}: choose a month or year`} onClick={() => setMode('months')}>
+            {title}
+          </button>
+          <button type="button" className="rc-nav" disabled={atMax} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Next month">
+            <span style={{ display: 'grid', transform: 'rotate(-90deg)' }}>
+              <Icon name="chevron" />
+            </span>
+          </button>
+        </div>
+      ) : mode === 'months' ? (
+        <>
+          <div className="rc-head">
+            <button type="button" className="rc-nav" onClick={() => setMonth(new Date(month.getFullYear() - 1, month.getMonth(), 1))} aria-label="Previous year">
+              <span style={{ display: 'grid', transform: 'rotate(90deg)' }}>
+                <Icon name="chevron" />
+              </span>
+            </button>
+            <button type="button" className="rc-title" aria-label={`${month.getFullYear()}: choose a year`} onClick={() => (setYearFrom(month.getFullYear() - 5), setMode('years'))}>
+              {month.getFullYear()}
+            </button>
+            <button type="button" className="rc-nav" disabled={month.getFullYear() >= (max ? Number(max.slice(0, 4)) : 9999)} onClick={() => setMonth(new Date(month.getFullYear() + 1, month.getMonth(), 1))} aria-label="Next year">
+              <span style={{ display: 'grid', transform: 'rotate(-90deg)' }}>
+                <Icon name="chevron" />
+              </span>
+            </button>
+          </div>
+          <div className="rc-pick" role="group" aria-label="Months">
+            {Array.from({ length: 12 }, (_, m) => {
+              const gone = !!max && iso(new Date(month.getFullYear(), m, 1)) > max;
+              return (
+                <button key={m} type="button" disabled={gone} className={`rc-opt${m === month.getMonth() ? ' sel' : ''}`} onClick={() => (setMonth(new Date(month.getFullYear(), m, 1)), setMode('days'))}>
+                  {new Date(2000, m, 1).toLocaleDateString('en-GB', { month: 'short' })}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="rc-head">
+            <button type="button" className="rc-nav" onClick={() => setYearFrom(yearFrom - 12)} aria-label="Earlier years">
+              <span style={{ display: 'grid', transform: 'rotate(90deg)' }}>
+                <Icon name="chevron" />
+              </span>
+            </button>
+            <strong>
+              {yearFrom} – {yearFrom + 11}
+            </strong>
+            <button type="button" className="rc-nav" disabled={yearFrom + 11 >= (max ? Number(max.slice(0, 4)) : 9999)} onClick={() => setYearFrom(yearFrom + 12)} aria-label="Later years">
+              <span style={{ display: 'grid', transform: 'rotate(-90deg)' }}>
+                <Icon name="chevron" />
+              </span>
+            </button>
+          </div>
+          <div className="rc-pick" role="group" aria-label="Years">
+            {Array.from({ length: 12 }, (_, i) => {
+              const y = yearFrom + i;
+              return (
+                <button key={y} type="button" disabled={y > (max ? Number(max.slice(0, 4)) : 9999)} className={`rc-opt${y === month.getFullYear() ? ' sel' : ''}`} onClick={() => (setMonth(new Date(y, month.getMonth(), 1)), setMode('months'))}>
+                  {y}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      {mode === 'days' && (
+      <>
       <div className="rc-fields" role="group" aria-label="Chosen dates">
         <div className={start ? 'rc-field' : 'rc-field on'} aria-current={!start}>
           <span>Start date</span>
@@ -129,6 +200,8 @@ export function RangeCalendar({ anchor, from, to, max, onPick, onClose }: { anch
           ),
         )}
       </div>
+      </>
+      )}
       <div className="rc-foot">
         <button type="button" className="rc-clear" disabled={!hasAny} onClick={clear}>
           Clear

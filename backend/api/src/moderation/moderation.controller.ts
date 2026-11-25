@@ -410,10 +410,19 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
   async queue(status?: string, category?: string, now = new Date(), scope: Scope | null = null, paging: { limit?: string; cursor?: string; q?: string; who?: string; page?: string } = {}) {
     // Waiting reports (status open, in_review, or waiting for both): in queue order, a page at a time (default 50) with a cursor for the next; only the
     // page is filled in. Finished ones: newest first, a page at a time (default 200) with a cursor for the next.
+    // "disputed" is not a status of its own: it is a decided report (action taken) whose person has asked for a review that is still open.
+    // "Action taken" for the host reports leaves those out, so each report shows under one tab only.
+    let appealing: string[] | null = null;
+    const hostList = category === 'host_no_show';
+    if (status === 'disputed' || (hostList && status === 'resolved')) {
+      appealing = (await this.prisma.appeal.findMany({ where: { kind: 'report', state: 'open' }, select: { targetId: true } })).map((a) => a.targetId).filter((x): x is string => !!x);
+    }
+    const disputed = status === 'disputed';
+    if (disputed) status = 'resolved';
     const waiting = status === 'open' || status === 'in_review' || status === 'waiting';
     const size = waiting ? pageLimit(paging.limit, 50, 100) : pageLimit(paging.limit, 200, 200);
     let nextCursor: string | null = null;
-    const where: Prisma.ReportWhereInput = { ...(status === 'waiting' ? { status: { in: ['open', 'in_review'] } } : status ? { status } : {}), category: category ? category : { not: 'host_no_show' } }; // the list of reports leaves out "the host did not come" (Attendance has them) unless asked for
+    const where: Prisma.ReportWhereInput = { ...(status === 'waiting' ? { status: { in: ['open', 'in_review'] } } : status ? { status } : {}), category: category ? category : { not: 'host_no_show' }, ...(appealing ? { id: disputed ? { in: appealing } : { notIn: appealing } } : {}) }; // the list of reports leaves out "the host did not come" (Attendance has them) unless asked for
     // search by person: "against" = reports about them (or their message, activity or trip), "by" = reports they filed
     const needle = paging.q?.trim().slice(0, 80);
     if (needle) where.AND = [await this.personFilter(needle, paging.who === 'by' ? 'by' : paging.who === 'against' ? 'against' : 'both')];

@@ -88,7 +88,7 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
   const [picking, setPicking] = useState(false);
   const [custom, setCustom] = useState(() => rangeDays('today', { from: '', to: '' }));
   const span = rangeDays(range, custom);
-  const { data, error, loading, reload } = useLoad(() => get<Overview>(`/v1/admin/overview?from=${span.from}&to=${span.to}`), [span.from, span.to], 8000);
+  const { data, error, loading, reload } = useLoad(() => get<Overview>(`/v1/admin/overview?from=${span.from}&to=${span.to}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`), [span.from, span.to], 8000);
   // the five at the front of the queue (urgent first), and a small summary: not the whole list of reports
   const reports = useLoad(() => get<{ items: Report[] }>('/v1/admin/reports?status=waiting&limit=5&page=1'), [], 8000);
   const waitingSummary = useLoad(() => get<{ total: number; overdue: number }>('/v1/admin/reports/waiting'), [], 8000);

@@ -345,7 +345,7 @@ export function DateField({
   // what the calendar shows: the days of a month, the months of a year, or a page of years (click the title to go up one level)
   const [mode, setMode] = useState<'days' | 'months' | 'years'>('days');
   const [yearFrom, setYearFrom] = useState(() => focusDay.getFullYear() - 5);
-  const place = usePlacement(open, btn, panel, 296);
+  const place = usePlacement(open, btn, panel, 252);
   const close = useCallback(() => setOpen(false), []);
   useDismiss(open, close, wrap, panel);
 

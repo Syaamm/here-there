@@ -14,6 +14,9 @@ type R = {
   assignedName: string | null;
   resolution: string | null;
   createdAt: string;
+  /** when it passed to a senior member, and when it was decided (set by the server) */
+  escalatedAt?: string | null;
+  resolvedAt?: string | null;
   priority: 'urgent' | 'normal';
   ageHours: number;
   overdue: boolean;
@@ -319,10 +322,10 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
     });
   };
   const escalated = (r.escalationLevel ?? 0) > 0 || r.escalated;
-  const history: { at: string; text: string }[] = [{ at: r.createdAt, text: `Filed by ${byOf(r)}` }];
-  if (escalated && r.answerBy) history.push({ at: r.answerBy, text: 'Passed to a senior team member' });
+  const history: { at: string | null; text: string }[] = [{ at: r.createdAt, text: `Filed by ${byOf(r)}` }];
+  if (escalated) history.push({ at: r.escalatedAt ?? r.answerBy ?? null, text: 'Passed to a senior team member' });
   // a decided report names who decided it (the server records the decider on the report)
-  if (!active) history.push({ at: r.createdAt, text: `${r.status === 'resolved' ? 'Action taken' : 'No action needed'}${r.assignedName ? ` by ${r.assignedName}` : ''}${r.resolution ? `: ${cap(r.resolution)}` : ''}` });
+  if (!active) history.push({ at: r.resolvedAt ?? null, text: `${r.status === 'resolved' ? 'Action taken' : 'No action needed'}${r.assignedName ? ` by ${r.assignedName}` : ''}${r.resolution ? `: ${cap(r.resolution)}` : ''}` });
 
   return (
     <div className="detail-scroll">
@@ -399,7 +402,7 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
         <ul className="timeline">
           {history.map((h, i) => (
             <li key={i}>
-              <span className="muted">{fmt(h.at)}</span>
+              <span className="muted">{h.at ? fmt(h.at) : '–'}</span>
               <span>{h.text}</span>
             </li>
           ))}

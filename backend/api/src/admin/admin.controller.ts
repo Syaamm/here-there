@@ -1,4 +1,5 @@
 import { metrics } from '../common/observability';
+import { safeZone, zonedDay, zonedDayStart } from '../common/zoned-days';
 import { decryptField, maskPhone } from '../common/vault';
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
@@ -124,11 +125,12 @@ export class AdminController {
   // ------------------------------------------------------------ overview
   @Staff(...ALL)
   @Get('overview')
-  async overview(@CurrentUser() actor: User, @Query('from') fromRaw?: string, @Query('to') toRaw?: string, @Headers('x-admin-place') place?: string) {
-    // a range of whole UTC days (default: the last 30, today included, at most five years) and the same length just before it
+  async overview(@CurrentUser() actor: User, @Query('from') fromRaw?: string, @Query('to') toRaw?: string, @Headers('x-admin-place') place?: string, @Query('tz') tzRaw?: string) {
+    // a range of whole calendar days in the viewer's time zone ("tz"; UTC when none is sent) (default: the last 30, today included, at most five years) and the same length just before it
     const DAY = 24 * 3600 * 1000;
     const day = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(+new Date(v + 'T00:00:00.000Z')) ? new Date(v + 'T00:00:00.000Z') : null);
-    const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
+    const tz = safeZone(tzRaw);
+    const today = new Date(zonedDay(new Date(), tz) + 'T00:00:00.000Z');
     let end = day(toRaw) ?? today;
     // the rest of this month may be asked for (This month shows the whole month); any day may be asked for (a wide limit of ten years ahead only protects the server)
     if (+end > +today + 3650 * DAY) end = new Date(+today + 3650 * DAY);
@@ -138,6 +140,11 @@ export class AdminController {
     const length = Math.round((+end - +from) / DAY) + 1;
     const until = new Date(+end + DAY);
     const before = new Date(+from - length * DAY);
+    // the moments those days begin in the viewer's zone: what the database is asked about
+    const at = (d: Date) => zonedDayStart(d.toISOString().slice(0, 10), tz);
+    const fromAt = at(from);
+    const untilAt = at(until);
+    const beforeAt = at(before);
     const now = new Date();
     // with a place chosen (the Switch), every number is for that place only: its people, plans, identity checks and reports
     const scope = await this.regions.scopeOf(actor, place);
@@ -151,7 +158,7 @@ export class AdminController {
     const cityOf = scope ? await this.moderation.cityOfReports(allReports) : null;
     const reportsHere = scope ? allReports.filter((r) => inScope(scope, cityOf!.get(r.id))) : allReports;
     const inRange = (r: { createdAt: Date }, a: Date, b: Date) => +r.createdAt >= +a && +r.createdAt < +b;
-    const reportRows = reportsHere.filter((r) => inRange(r, from, until));
+    const reportRows = reportsHere.filter((r) => inRange(r, fromAt, untilAt));
     const count = (st: string) => reportsHere.filter((r) => r.status === st).length;
     const catCount = new Map<string, number>();
     for (const r of reportRows) catCount.set(r.category, (catCount.get(r.category) ?? 0) + 1);
@@ -170,22 +177,22 @@ export class AdminController {
     const users = scope ? await this.prisma.user.count({ where: members }) : await this.prisma.user.count();
     const created = { createdAt: true } as const;
     const [memberRows, activityRows, tripRows, prevMembers, prevActivities, prevTrips, memberCount, verifiedMembers, decided] = await Promise.all([
-      this.prisma.user.findMany({ where: { AND: [members, { createdAt: { gte: from, lt: until } }] }, select: created }),
-      this.prisma.activity.findMany({ where: actWhere({ startsAt: { gte: from, lt: until } }), select: { startsAt: true } }), // activities count on the day they take place, like the Content page lists them
-      this.prisma.trip.findMany({ where: tripWhere({ createdAt: { gte: from, lt: until } }), select: created }),
-      this.prisma.user.count({ where: { AND: [members, { createdAt: { gte: before, lt: from } }] } }),
-      this.prisma.activity.count({ where: actWhere({ startsAt: { gte: before, lt: from } }) }),
-      this.prisma.trip.count({ where: tripWhere({ createdAt: { gte: before, lt: from } }) }),
+      this.prisma.user.findMany({ where: { AND: [members, { createdAt: { gte: fromAt, lt: untilAt } }] }, select: created }),
+      this.prisma.activity.findMany({ where: actWhere({ startsAt: { gte: fromAt, lt: untilAt } }), select: { startsAt: true } }), // activities count on the day they take place, like the Content page lists them
+      this.prisma.trip.findMany({ where: tripWhere({ dateStart: { gte: fromAt, lt: untilAt } }), select: { dateStart: true } }), // trips count on the day they start, like the Content page lists them
+      this.prisma.user.count({ where: { AND: [members, { createdAt: { gte: beforeAt, lt: fromAt } }] } }),
+      this.prisma.activity.count({ where: actWhere({ startsAt: { gte: beforeAt, lt: fromAt } }) }),
+      this.prisma.trip.count({ where: tripWhere({ dateStart: { gte: beforeAt, lt: fromAt } }) }),
       this.prisma.user.count({ where: members }),
       this.prisma.user.count({ where: { AND: [members, { eligibility: 'verified' }] } }),
       this.prisma.verificationCheck.groupBy({ by: ['eligibility'], where: checkWhere({ eligibility: { in: ['verified', 'rejected'] } }), _count: { _all: true } }),
     ]);
     const reportStatus = ['open', 'in_review', 'resolved', 'dismissed'].map((st) => ({ status: st, _count: { _all: count(st) } }));
     const days = Array.from({ length }, (_, i) => new Date(+from + i * DAY).toISOString().slice(0, 10));
-    const perDay = (rows: ({ createdAt: Date } | { startsAt: Date })[]) => {
+    const perDay = (rows: ({ createdAt: Date } | { startsAt: Date } | { dateStart: Date })[]) => {
       const n = new Map(days.map((d) => [d, 0]));
       for (const r of rows) {
-        const k = ('startsAt' in r ? r.startsAt : r.createdAt).toISOString().slice(0, 10);
+        const k = zonedDay('startsAt' in r ? r.startsAt : 'dateStart' in r ? r.dateStart : r.createdAt, tz);
         n.set(k, (n.get(k) ?? 0) + 1);
       }
       return days.map((d) => n.get(d) ?? 0);
