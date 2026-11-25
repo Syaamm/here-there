@@ -1,6 +1,6 @@
 import { metrics } from '../common/observability';
 import { decryptField, maskPhone } from '../common/vault';
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
@@ -147,7 +147,7 @@ export class AdminController {
     const tripWhere = (extra: Prisma.TripWhereInput = {}): Prisma.TripWhereInput => ({ AND: [scope ? { originKey: { in: cities } } : {}, extra] });
     const checkWhere = (extra: Prisma.VerificationCheckWhereInput): Prisma.VerificationCheckWhereInput => ({ AND: [scope ? { user: { profile: { homeCityKey: { in: cities } } } } : {}, extra] });
     // reports: all of them for the whole service; for a place only the ones about it (read once, light, and counted here)
-    const allReports = await this.prisma.report.findMany({ select: { id: true, status: true, category: true, createdAt: true, targetType: true, targetId: true } });
+    const allReports = await this.prisma.report.findMany({ where: { category: { not: 'host_no_show' } }, select: { id: true, status: true, category: true, createdAt: true, targetType: true, targetId: true } });
     const cityOf = scope ? await this.moderation.cityOfReports(allReports) : null;
     const reportsHere = scope ? allReports.filter((r) => inScope(scope, cityOf!.get(r.id))) : allReports;
     const inRange = (r: { createdAt: Date }, a: Date, b: Date) => +r.createdAt >= +a && +r.createdAt < +b;
@@ -442,9 +442,11 @@ export class AdminController {
     const dto = parse(staffUpdateSchema, body);
     const row = await this.prisma.user.findUnique({ where: { id } });
     if (!row || row.state === 'deleted') throw E.notFound('User');
-    if (row.role !== 'staff') throw E.badRequest('INVALID_TARGET', 'Only staff accounts have an area and permissions');
+    // an administrator may change their own sign-in email here (nothing else: they use everything, and the password has its own page)
+    const self = row.role === 'admin' && row.id === actor.id;
+    if (row.role !== 'staff' && !self) throw E.badRequest('INVALID_TARGET', 'Only staff accounts have an area and permissions');
     if (dto.regionKey && !(await this.regions.exists(dto.regionKey))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
-    const data = { ...(dto.regionKey !== undefined && { adminRegionKey: dto.regionKey }), ...(dto.permissions && { staffPermissions: dto.permissions }) };
+    const data = self ? {} : { ...(dto.regionKey !== undefined && { adminRegionKey: dto.regionKey }), ...(dto.permissions && { staffPermissions: dto.permissions }) };
     // sign-in details: the administrator sets the email and the password of a staff account
     const credentials: Prisma.UserUpdateInput = {};
     if (dto.email && dto.email !== row.email) {
@@ -452,7 +454,7 @@ export class AdminController {
       credentials.email = dto.email;
       credentials.emailVerifiedAt = new Date();
     }
-    if (dto.password) {
+    if (dto.password && !self) {
       credentials.passwordHash = await hashPassword(dto.password);
       credentials.passwordChangedAt = new Date();
       credentials.mustChangePassword = false;
@@ -460,10 +462,30 @@ export class AdminController {
     const changed = Object.keys(credentials).length > 0;
     await this.prisma.user.update({ where: { id }, data: { ...data, ...credentials } });
     // a new password or email ends the person's current sign-ins
-    if (changed) await this.prisma.session.deleteMany({ where: { userId: id } });
+    if (changed && !self) await this.prisma.session.deleteMany({ where: { userId: id } }); // your own sign-in stays
     await this.audit.log(actor.id, 'staff.update', 'user', id, { before: { regionKey: row.adminRegionKey, permissions: row.staffPermissions }, after: data });
     if (changed) await this.audit.log(actor.id, 'staff.credentials', 'user', id, { ...(credentials.email && { emailChanged: true }), ...(credentials.passwordHash && { passwordChanged: true }) });
     return { id, regionKey: dto.regionKey ?? row.adminRegionKey, permissions: dto.permissions ?? row.staffPermissions };
+  }
+
+  /** An administrator removes a staff account: it can no longer sign in, and its name stays on the audit log. Only staff accounts, never your own. */
+  @Staff('admin')
+  @Delete('staff/:id')
+  async deleteStaff(@CurrentUser() actor: User, @Param('id') id: string) {
+    if (id === actor.id) throw E.badRequest('INVALID_TARGET', 'You cannot delete your own account');
+    const row = await this.prisma.user.findUnique({ where: { id } });
+    if (!row || row.state === 'deleted') throw E.notFound('User');
+    if (row.role !== 'staff') throw E.badRequest('INVALID_TARGET', 'Only staff accounts can be deleted here');
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.session.deleteMany({ where: { userId: id } }),
+      this.prisma.user.update({
+        where: { id },
+        data: { email: `deleted-${id}@deleted.invalid`, passwordHash: '!', state: 'deleted', deletedAt: now, passwordChangedAt: now, mfaSecret: null, mfaEnabledAt: null, staffPermissions: [], adminRegionKey: null, mustChangePassword: false },
+      }),
+    ]);
+    await this.audit.log(actor.id, 'staff.delete', 'user', id, { email: row.email });
+    return { ok: true };
   }
 
   @Staff('admin')

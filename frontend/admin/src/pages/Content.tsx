@@ -110,11 +110,6 @@ export function ContentPage({ me }: { me: Session }) {
           </span>
         </button>
         <DateField aria-label="Pick a date" placeholder="Pick a date" value={day} onChange={setDay} compact />
-        {(month !== 0 || day) && (
-          <button type="button" className="btn small ghost" onClick={() => (setDay(''), setMonth(0))}>
-            This month
-          </button>
-        )}
       </div>
       <ErrorBanner message={list.error ?? act.error} onRetry={list.reload} />
       {list.loading && !list.data && <Loading rows={5} />}

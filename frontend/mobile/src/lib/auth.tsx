@@ -132,7 +132,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRefreshToken(r);
         // A phone that has just opened (or woken up) often has no network for a moment. That is not a sign-out: ask again a few times
         // before showing anything, so a good sign-in is never answered with the login page.
-        for (let i = 0; i < 4 && (await load()) === 'offline'; i++) await new Promise((done) => setTimeout(done, 1500 * (i + 1)));
+        // The wait is capped at 8 s: a server that does not answer must never keep the app on the opening screen. The asking carries
+        // on in the background, and the effect below keeps asking until the account loads.
+        await Promise.race([
+          (async () => {
+            for (let i = 0; i < 4 && (await load()) === 'offline'; i++) await new Promise((done) => setTimeout(done, 1500 * (i + 1)));
+          })(),
+          new Promise((done) => setTimeout(done, 8000)),
+        ]);
       }
       setReady(true);
     })();

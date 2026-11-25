@@ -74,3 +74,25 @@
 .ns-hosts-box[open] > summary::after { transform: rotate(180deg); }
 .ns-count { font-size: var(--fs-sm); font-weight: 700; color: var(--text-2); background: #ece7dc; padding: 4px 12px; border-radius: 999px; }
 .ns-hosts-box .ns-host-list { max-height: 260px; overflow-y: auto; }
+
+/* Attendance: the records scroll inside the card; "N records" and the page buttons are a footer pinned to its bottom */
+.ns-scroll.ns-box { display: flex; flex-direction: column; overflow: hidden; }
+.ns-box > .ns-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.ns-box > .table-foot { flex: none; box-sizing: border-box; height: 72px; padding-top: 0; padding-bottom: 0; }
+
+/* "Host did not come": with nothing in it, one quiet line under the heading (no dashed box pressed against the card's edges) */
+.ns-hosts-box > .empty, .ns-hosts-box > .state { border: 0; background: none; border-radius: 0; margin: 0; padding: 0 24px 20px; text-align: left; min-height: 0; color: var(--muted); font-size: var(--fs-md); }
+.ns-hosts-box > .ns-head { border-bottom: 0; }
+.ns-hosts-box { overflow: hidden; }
+
+/* the records card keeps its rounded corners (a general rule had given it the square corners of the page behind it) */
+.ns-scroll.ns-box { border-radius: 18px !important; }
+.ns-box > .table-foot { border-radius: 0 0 18px 18px; }
+
+/* Attendance: one block per day, with all of that day's records under it */
+.ns-card:hover { background: none; }
+.ns-count-note { margin-top: 8px; font-size: var(--fs-sm); color: var(--muted); }
+.ns-day-items { min-width: 0; border-left: 2px solid var(--line); margin: 16px 0; padding: 0 24px; display: grid; }
+.ns-rec { display: grid; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
+.ns-rec:first-child { border-top: 0; padding-top: 8px; }
+.ns-rec:last-child { padding-bottom: 8px; }

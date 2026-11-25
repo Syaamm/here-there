@@ -20,7 +20,7 @@ type Note = {
   host?: Person;
   hostUnusual?: string[] | null;
 };
-type HostRow = { hostId: string; name: string; flag: boolean; reasons: string[]; marks: number; attendees: number; decided: number; overturned: number };
+type HostReport = { id: string; createdAt: string; details: string | null; reporter: { profile?: { displayName: string } | null; email?: string | null }; subject: { displayName: string | null; email?: string | null; userId: string } | null; target?: { title: string; startsAt: string; hostName?: string | null } | null; evidence?: { plan: { title: string; startsAt: string }; attendees: number | unknown[]; reporters: number | unknown[]; hostMessagesDuringPlan: number } | null };
 type View = 'disputed' | 'marked' | 'upheld' | 'overturned';
 
 const STATE: Record<string, { label: string; tone: Tone; dot: string }> = {
@@ -50,14 +50,34 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
   useEffect(() => setPageNo(1), [view, term]);
   const { data, error, loading, reload } = useLoad(() => get<{ items: Note[]; page?: number; pages?: number; total?: number }>(`/v1/admin/no-shows?limit=20&page=${pageNo}&state=${view}${term ? `&q=${encodeURIComponent(term)}` : ''}`), [view, pageNo, term], 10000);
   // older records come a page at a time ("Load more"), not only the first 50
-  // always on: only hosts who mark unusually many people absent (half or more of their guests, or marks that keep being overturned)
-  const [hostsOpen, setHostsOpen] = useState(false);
-  const hosts = useLoad(() => get<{ items: HostRow[] }>('/v1/admin/no-shows/hosts'), [], 30000);
   const act = useAction(() => reload());
   const mod = can.moderate(me.role);
   const items = data?.items ?? [];
-  // hosts who often say people did not come, but whose marks were mostly taken back
-  const flagged = (hosts.data?.items ?? []).filter((h) => h.overturned > 0 && h.decided > 0 && h.overturned / h.decided >= 0.5);
+
+  // guests who say the host did not come: an ordinary report on the server, answered here instead of under Reports
+  const hostLoad = useLoad(() => get<{ items: HostReport[] }>('/v1/admin/reports?status=waiting&category=host_no_show&limit=50'), [], 8000);
+  const hostReports = hostLoad.data?.items ?? [];
+  const decideHost = async (h: HostReport, status: 'resolved' | 'dismissed') => {
+    const note = await askText(status === 'resolved' ? 'Confirm: the host did not come' : 'The host was there', { label: 'Reason (they will be told)', confirm: status === 'resolved' ? 'Confirm' : 'Close' });
+    if (note) act.run(async () => { await post(`/v1/admin/reports/${h.id}/resolve`, { status, resolution: note }); hostLoad.reload(); });
+  };
+
+  // one block per day (the day of the plan), with every record of that day under it
+  const groups = (() => {
+    const out: { key: string; day: Date; rows: Note[]; kinds: string }[] = [];
+    for (const n of items) {
+      const day = new Date(n.plan?.at ?? n.markedAt);
+      const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+      const g = out.find((x) => x.key === key);
+      if (g) g.rows.push(n);
+      else out.push({ key, day, rows: [n], kinds: '' });
+    }
+    for (const g of out) {
+      const k = new Set(g.rows.map((r) => (r.kind === 'trip' ? 'Trip' : 'Activity')));
+      g.kinds = k.size === 1 ? [...k][0] : 'Plans';
+    }
+    return out;
+  })();
 
   const decide = async (n: Note, decision: 'uphold' | 'overturn') => {
     const note = await askText(decision === 'uphold' ? 'Confirm: they did not come' : 'Remove this record', { label: 'Reason (both people will be told)', confirm: decision === 'uphold' ? 'Confirm' : 'Remove record' });
@@ -79,91 +99,105 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
       </FilterBar>
       <ErrorBanner message={error ?? act.error} />
       {loading && !data && <Loading rows={5} />}
-      <details className="ns-hosts-box" open={hostsOpen} onToggle={(e) => setHostsOpen((e.target as HTMLDetailsElement).open)}>
-        <summary>
-          <span>Hosts to look at</span>
-          <span className="ns-count">{flagged.length}</span>
-        </summary>
-        <p className="ns-meta" style={{ padding: '0 20px' }}>Hosts who often say people did not come, but most of it was taken back. Last 90 days.</p>
-        <ErrorBanner message={hosts.error} />
-        {hosts.loading && !hosts.data && <Loading rows={2} />}
-        {hosts.data && flagged.length === 0 && <Empty>No host to look at.</Empty>}
+      <section className="ns-hosts-box" aria-label="The host did not come">
+        <header className="ns-head" style={{ padding: '16px 24px' }}>
+          <h2>Host did not come</h2>
+          <span className="ns-count">{hostReports.length}</span>
+        </header>
+        <ErrorBanner message={hostLoad.error} />
+        {hostLoad.loading && !hostLoad.data && <Loading rows={2} />}
+        {hostLoad.data && hostReports.length === 0 && <Empty>Nobody has said a host did not come.</Empty>}
         <ul className="ns-host-list">
-          {flagged.map((h) => (
-            <li key={h.hostId} className="ns-host">
-              <span style={{ minWidth: 0 }}>
-                <button className="ns-link strong" onClick={() => openUser?.(h.hostId, 'noshows')}>
-                  {h.name}
-                </button>
-                <span className="ns-host-sub">
-                  Said {h.marks} of {h.attendees} guests did not come · {h.overturned} of {h.decided} decided were taken back
+          {hostReports.map((h) => {
+            const host = h.subject?.displayName ?? h.subject?.email ?? 'The host';
+            const num = (v: number | unknown[] | undefined) => (Array.isArray(v) ? v.length : (v ?? 0));
+            const plan = h.evidence?.plan ?? h.target;
+            return (
+              <li key={h.id} className="ns-host">
+                <span style={{ minWidth: 0 }}>
+                  {h.subject ? <button className="ns-link strong" onClick={() => openUser?.(h.subject!.userId, 'noshows')}>{host}</button> : <b>{host}</b>}
+                  <span className="ns-host-sub">
+                    {plan ? `${plan.title} · ${fmt(plan.startsAt)}` : 'A plan'} · said by {h.reporter.profile?.displayName ?? h.reporter.email ?? 'a guest'} · {fmt(h.createdAt)}
+                  </span>
+                  {h.evidence && <span className="ns-host-why">{num(h.evidence.reporters)} of {num(h.evidence.attendees)} guests say so · {h.evidence.hostMessagesDuringPlan} messages from the host during the plan</span>}
+                  {h.details && <span className="ns-host-why">“{h.details}”</span>}
                 </span>
-              </span>
-            </li>
-          ))}
+                {mod && (
+                  <span className="row" style={{ gap: 8, flex: 'none' }}>
+                    <button className="btn small" disabled={act.busy} onClick={() => decideHost(h, 'dismissed')}>The host was there</button>
+                    <button className="btn small primary" disabled={act.busy} onClick={() => decideHost(h, 'resolved')}>Confirm: did not come</button>
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
-      </details>
+      </section>
       <div className="ns-grid">
-        <section className="ns-scroll" aria-label="Missed attendance">
+        <section className="ns-scroll ns-box" aria-label="Missed attendance">
+          <div className="ns-list">
           <header className="ns-head">
             <h2>{`People who did not come · ${VIEWS.find((v) => v.id === view)?.label}`}</h2>
             <span>{items.length}</span>
           </header>
           {data && items.length === 0 && <Empty>{term ? `No records match “${term}”.` : { disputed: 'Nobody has disagreed.', marked: 'Nothing waiting.', upheld: 'Nothing confirmed yet.', overturned: 'Nothing removed yet.' }[view]}</Empty>}
-          {items.map((n) => {
-            const st = STATE[n.state] ?? { label: n.state, tone: 'plain' as Tone, dot: '' };
-            const d = new Date(n.plan?.at ?? n.markedAt);
-            return (
-              <article key={n.id} className="ns-card">
-                <header className="ns-date">
-                  <span className="ns-kind">{n.kind === 'trip' ? 'Trip' : 'Activity'}</span>
-                  <strong className="ns-num">{d.getDate()}</strong>
-                  <span className="ns-mon">{d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
-                  <span className="ns-state">
-                    <Chip value={st.label} tone={st.tone} />
-                  </span>
-                </header>
-                <div className="ns-body">
-                  <div className="ns-title">
-                    <span className={`ns-dot ${st.dot}`} aria-hidden="true" />
-                    <strong>{n.title}</strong>
-                  </div>
-                  <dl className="ns-facts">
-                    <div>
-                      <dt>Did not come</dt>
-                      <dd>{person(n.member)}</dd>
-                    </div>
-                    <div>
-                      <dt>Host</dt>
-                      <dd>{person(n.host)}</dd>
-                    </div>
-                  </dl>
-                  {n.plan && <p className="ns-meta">{[when(n.plan.at), n.plan.place, n.plan.city].filter(Boolean).join(' · ')}</p>}
-                  {n.disputeNote && (
-                    <p className="ns-quote">
-                      <strong>What they say:</strong> {n.disputeNote}
-                    </p>
-                  )}
-                  <ProofImages ids={n.proofs} />
-                  {n.decisionNote && <p className="ns-meta">Our decision: {n.decisionNote}</p>}
-                  {mod && (
-                    <div className="ns-actions">
-                      {n.state !== 'upheld' && (
-                        <button className="ns-uphold" onClick={() => decide(n, 'uphold')} disabled={act.busy}>
-                          Confirm they did not come
-                        </button>
+          {groups.map((g) => (
+            <article key={g.key} className="ns-card">
+              <header className="ns-date">
+                <span className="ns-kind">{g.kinds}</span>
+                <strong className="ns-num">{g.day.getDate()}</strong>
+                <span className="ns-mon">{g.day.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+                <span className="ns-count-note">{g.rows.length} {g.rows.length === 1 ? 'record' : 'records'}</span>
+              </header>
+              <div className="ns-day-items">
+                {g.rows.map((n) => {
+                  const st = STATE[n.state] ?? { label: n.state, tone: 'plain' as Tone, dot: '' };
+                  return (
+                    <div key={n.id} className="ns-rec">
+                      <div className="ns-title">
+                        <span className={`ns-dot ${st.dot}`} aria-hidden="true" />
+                        <strong>{n.title}</strong>
+                        <Chip value={st.label} tone={st.tone} />
+                      </div>
+                      <dl className="ns-facts">
+                        <div>
+                          <dt>Did not come</dt>
+                          <dd>{person(n.member)}</dd>
+                        </div>
+                        <div>
+                          <dt>Host</dt>
+                          <dd>{person(n.host)}</dd>
+                        </div>
+                      </dl>
+                      {n.plan && <p className="ns-meta">{[when(n.plan.at), n.plan.place, n.plan.city].filter(Boolean).join(' · ')}</p>}
+                      {n.disputeNote && (
+                        <p className="ns-quote">
+                          <strong>What they say:</strong> {n.disputeNote}
+                        </p>
                       )}
-                      {n.state !== 'overturned' && (
-                        <button className="ns-overturn" onClick={() => decide(n, 'overturn')} disabled={act.busy}>
-                          Remove this record
-                        </button>
+                      <ProofImages ids={n.proofs} />
+                      {n.decisionNote && <p className="ns-meta">Our decision: {n.decisionNote}</p>}
+                      {mod && (
+                        <div className="ns-actions">
+                          {n.state !== 'upheld' && (
+                            <button className="ns-uphold" onClick={() => decide(n, 'uphold')} disabled={act.busy}>
+                              Confirm they did not come
+                            </button>
+                          )}
+                          {n.state !== 'overturned' && (
+                            <button className="ns-overturn" onClick={() => decide(n, 'overturn')} disabled={act.busy}>
+                              Remove this record
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </article>
-            );
-          })}
+                  );
+                })}
+              </div>
+            </article>
+          ))}
+          </div>
           <PageBar page={data?.page ?? 1} pages={data?.pages ?? 1} total={data?.total ?? items.length} noun={['record', 'records']} onPage={setPageNo} busy={loading} />
         </section>
 

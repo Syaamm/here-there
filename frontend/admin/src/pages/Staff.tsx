@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, get, PERMISSIONS, post, roleLabel, saveSession, setRefreshToken, setToken, type Permission, type Role, type Session } from '../api';
 import { Select, useBackdropClose } from '../controls';
-import { Avatar, Chip, Empty, errMsg, ErrorBanner, FilterBar, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
+import { askConfirm, Avatar, Chip, Empty, errMsg, ErrorBanner, FilterBar, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
 
 type Member = { id: string; email: string; displayName: string | null; photoUrl: string | null; role: Role; regionKey: string | null; permissions: Permission[]; state: string; mfaEnabled: boolean; mustChangePassword: boolean; createdAt: string };
 const MIN = 10; // the same minimum the server asks for
@@ -17,6 +17,9 @@ export function StaffPage({ me }: { me: Session }) {
   const [ownPassword, setOwnPassword] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const act = useAction(list.reload);
+  const remove = async (m: Member) => {
+    if (await askConfirm(`Delete ${m.displayName ?? m.email}?`, 'They are signed out at once and can no longer use the console. This cannot be undone.', 'Delete')) act.run(async () => void (await api('DELETE', `/v1/admin/staff/${m.id}`)));
+  };
 
   const rows = (list.data?.items ?? []).filter((m) => `${m.email} ${m.displayName ?? ''} ${roleLabel(m.role)}`.toLowerCase().includes(q.trim().toLowerCase()));
 
@@ -89,14 +92,22 @@ export function StaffPage({ me }: { me: Session }) {
                     <td>{m.mfaEnabled ? <Chip value="On" tone="ok" /> : <Chip value="Off" tone="line" />}</td>
                     <td className="end">
                       {m.role === 'staff' && (
+                        <>
                         <button className="btn small" onClick={() => setEditing(m)}>
                           Edit
                         </button>
+                        <button className="icon-btn staff-del" aria-label={`Delete ${m.displayName ?? m.email}`} title="Delete" disabled={act.busy} onClick={() => remove(m)}>
+                          <Icon name="trash" />
+                        </button>
+                        </>
                       )}
                       {m.email === me.email && (
-                        <button className="btn small" onClick={() => setOwnPassword(true)}>
-                          Change my password
+                        <>
+                        <button className="btn small" onClick={() => setEditing(m)}>
+                          Edit
                         </button>
+                        <span className="staff-del-gap" aria-hidden="true" />
+                        </>
                       )}
                     </td>
                   </tr>
@@ -129,12 +140,17 @@ export function StaffPage({ me }: { me: Session }) {
       )}
       {editing && (
         <StaffDialog
+          own={editing.role !== 'staff'}
+          onPassword={() => (setEditing(null), setOwnPassword(true))}
           person={{ name: editing.displayName ?? editing.email, photo: editing.photoUrl }}
           start={{ perms: editing.permissions, email: editing.email }}
           onClose={() => setEditing(null)}
           onSave={async ({ perms, email, password }) => {
-            await api('PATCH', `/v1/admin/staff/${editing.id}`, { regionKey: null, permissions: perms, ...(email && email !== editing.email && { email }), ...(password && { password }) });
-            if (password || (email && email !== editing.email)) setSaved('Saved. Their sign-in details changed and they were signed out everywhere.');
+            if (editing.role !== 'staff') await api('PATCH', `/v1/admin/staff/${editing.id}`, { ...(email && email !== editing.email && { email }) });
+            else await api('PATCH', `/v1/admin/staff/${editing.id}`, { regionKey: null, permissions: perms, ...(email && email !== editing.email && { email }), ...(password && { password }) });
+            if (editing.role !== 'staff') {
+              if (email && email !== editing.email) setSaved('Saved. Sign in with the new email next time.');
+            } else if (password || (email && email !== editing.email)) setSaved('Saved. Their sign-in details changed and they were signed out everywhere.');
             setEditing(null);
             list.reload();
           }}
@@ -147,7 +163,7 @@ export function StaffPage({ me }: { me: Session }) {
 type Draft = { name: string; email: string; perms: Permission[]; password: string };
 
 /** Add a staff member (name, email, permissions) or change an existing one's permissions. */
-function StaffDialog({ start, person, onClose, onSave }: { person?: { name: string; photo: string | null }; start?: { perms: Permission[]; email: string }; onClose: () => void; onSave: (d: Draft) => Promise<void> }) {
+function StaffDialog({ start, person, own, onPassword, onClose, onSave }: { own?: boolean; onPassword?: () => void; person?: { name: string; photo: string | null }; start?: { perms: Permission[]; email: string }; onClose: () => void; onSave: (d: Draft) => Promise<void> }) {
   const ref = useRef<HTMLDialogElement>(null);
   const editing = !!start;
   const [name, setName] = useState('');
@@ -190,7 +206,7 @@ function StaffDialog({ start, person, onClose, onSave }: { person?: { name: stri
         <header className="sd-head">
           <Avatar name={shownName} photo={person?.photo ?? null} />
           <div style={{ minWidth: 0 }}>
-            <h2 id="staff-dlg">{editing ? 'Edit staff member' : 'Add staff member'}</h2>
+            <h2 id="staff-dlg">{own ? 'Edit my details' : editing ? 'Edit staff member' : 'Add staff member'}</h2>
             <p className="muted small" style={{ margin: 0 }}>
               {editing ? `${shownName} · ${start?.email}` : 'Choose what they can use, and the password they sign in with.'}
             </p>
@@ -209,6 +225,8 @@ function StaffDialog({ start, person, onClose, onSave }: { person?: { name: stri
             Email
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
           </label>
+          {!own && (
+            <>
           <label>
             {editing ? 'New password' : 'Password'}
             <span className="sd-pass">
@@ -222,7 +240,18 @@ function StaffDialog({ start, person, onClose, onSave }: { person?: { name: stri
             </span>
           </label>
           {editing && password && <p className="small muted">They are signed out everywhere when you save, and use the new password next time.</p>}
+            </>
+          )}
+          {own && (
+            <div className="sd-own">
+              <p className="small muted" style={{ margin: 0 }}>You use everything in the console, so there are no permissions to set.</p>
+              <button type="button" className="btn small" onClick={onPassword}>
+                Change my password
+              </button>
+            </div>
+          )}
         </section>
+        {!own && (
         <section className="sd-sec">
           <h3>Can use</h3>
           <div className="sd-perms">
@@ -237,6 +266,7 @@ function StaffDialog({ start, person, onClose, onSave }: { person?: { name: stri
             ))}
           </div>
         </section>
+        )}
         <div className="row end sd-foot">
           <button type="button" className="btn" onClick={onClose}>
             Cancel

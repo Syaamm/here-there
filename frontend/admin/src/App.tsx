@@ -146,7 +146,7 @@ export default function App() {
       Promise.all([
         api<{ total?: number }>('GET', '/v1/admin/reports/waiting').then((r) => r.total ?? 0, () => 0),
         total('/v1/admin/appeals?state=open&page=1&limit=1'),
-        Promise.all([total('/v1/admin/no-shows?state=marked&page=1&limit=1'), total('/v1/admin/no-shows?state=disputed&page=1&limit=1')]).then(([a, b]) => a + b),
+        Promise.all([total('/v1/admin/no-shows?state=marked&page=1&limit=1'), total('/v1/admin/no-shows?state=disputed&page=1&limit=1'), api<{ items: unknown[] }>('GET', '/v1/admin/reports?status=waiting&category=host_no_show&limit=50').then((r) => r.items.length, () => 0)]).then(([a, b, c]) => a + b + c),
       ]).then(([reports, appeals, attendance]) => live && setWaiting({ reports, appeals, attendance }));
     load();
     const t = setInterval(() => !document.hidden && load(), 6000);
@@ -319,6 +319,17 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
     } else go('reports', kind);
   };
   const backLabel = !back ? null : back.startsWith('report:') ? 'Back to the report' : back === 'appeals' ? 'Back to appeals' : back === 'noshows' ? 'Back to attendance' : null;
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ id: string; state: string }>).detail;
+      setReportId(null);
+      go('reports', 'appeals');
+      setUrlParam('appeal', d.id);
+      setUrlParam('astate', d.state);
+    };
+    window.addEventListener('ht-open-appeal', h);
+    return () => window.removeEventListener('ht-open-appeal', h);
+  });
   const openReport = (id: string) => (go('reports', 'reports'), setReportId(id));
   // every report about one person, in every state: the Reports page opens searched for them, on "Against"
   const showReportsAbout = (term: string) => {
@@ -333,6 +344,8 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
   let body: ReactNode = null;
   const key = `${section.id}/${tab}`;
   const fromDashboard = (p: string) => {
+    setReportId(null); // "All reports" is the list, not the report opened last time
+    setUserId(null);
     if (p === 'verifications' || p === 'verification') return go('verification');
     if (p === 'noshows' || p === 'appeals') return go('reports', p);
     if (p === 'content') return go('content');

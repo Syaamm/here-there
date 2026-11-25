@@ -32,6 +32,7 @@ const ACTIONS: Record<string, string> = {
   'user.role_change': 'Role changed',
   'staff.create': 'Staff account created',
   'staff.update': 'Staff permissions changed',
+  'staff.delete': 'Staff account deleted',
   'mfa.reset_by_admin': 'Two-step sign-in reset',
   'verification.verified': 'Identity approved',
   'verification.rejected': 'Identity rejected',
@@ -224,10 +225,6 @@ function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => v
     ...(trust && u.eligibility === 'rejected' && !['superseded', 'cancelled'].includes(u.lastRejectionReason ?? '') && !(u.lastRejectionReason === 'underage' && !can.admin(me.role)) ? [{ label: 'Approve after review', onSelect: () => p.onOverturn(u) }] : []),
     ...(can.admin(me.role) && u.role !== 'user' && u.email !== me.email ? [{ label: 'Reset two-step sign-in', onSelect: () => p.onResetMfa(u) }] : []),
   ];
-  const decide = async (reportId: string, status: 'resolved' | 'dismissed') => {
-    const resolution = await askText(status === 'resolved' ? 'Resolve report' : 'Dismiss report', { label: 'Decision', confirm: status === 'resolved' ? 'Resolve' : 'Dismiss' });
-    if (resolution) act.run(() => post(`/v1/admin/reports/${reportId}/resolve`, { status, resolution }));
-  };
 
   const checks: { label: string; ok: boolean; note?: string }[] = [
     { label: 'Email confirmed', ok: u.emailVerified },
@@ -377,47 +374,6 @@ function UserPanel(p: { u: U; me: Session; busy: boolean; onSuspend: (u: U) => v
           ))}
         </ul>
       </section>
-
-      {d && d.reports.length > 0 && (
-        <section className="up-section">
-          <h3 className="up-title">
-            Reports <span>{d.reports.length}</span>
-          </h3>
-          {d.reports.map((x) => (
-            <div key={x.id} className={['open', 'in_review'].includes(x.status) ? 'up-report waiting' : 'up-report'}>
-              <div className="row between wrap">
-                <span className="row">
-                  <Chip value={x.category} tone="plain" />
-                  <Chip value={x.status} />
-                </span>
-                <span className="small muted">{fmt(x.createdAt)}</span>
-              </div>
-              <p className="quote">“{cap(x.details) || 'No details'}”</p>
-              <div className="small muted">
-                {x.targetType === 'user' ? 'About them' : `Their ${x.targetType}${x.targetTitle ? `: ${x.targetTitle}` : ''}`} · by {x.reporterName ?? 'someone'}
-                {x.resolution && ` · ${cap(x.resolution)}`}
-              </div>
-              <div className="row wrap">
-                {can.moderate(me.role) && ['open', 'in_review'].includes(x.status) && (
-                  <>
-                    <button className="btn small" onClick={() => decide(x.id, 'dismissed')} disabled={act.busy}>
-                      Dismiss
-                    </button>
-                    <button className="btn small primary" onClick={() => decide(x.id, 'resolved')} disabled={act.busy}>
-                      Resolve
-                    </button>
-                  </>
-                )}
-                {p.openReport && (
-                  <button className="link small" onClick={() => p.openReport!(x.id)}>
-                    Open report
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
 
       {d && d.history.length > 0 && (
         <section className="up-section">

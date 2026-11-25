@@ -58,14 +58,9 @@
   .trend-key { transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease; }
   .trend-key:active { transform: scale(0.97); }
 
-  /* the dashboard loading in: the two counters, the chart, then the lower cards step up one after another */
-  .ov-tiles > *, .ov-top > .card, .ov-bottom > * { animation: mo-rise 0.45s var(--mo-ease) backwards; }
-  .ov-tiles > :nth-child(2) { animation-delay: 60ms; }
-  .ov-top > .card { animation-delay: 110ms; }
-  .ov-bottom > :nth-child(1) { animation-delay: 170ms; }
-  .ov-bottom > :nth-child(2) { animation-delay: 220ms; }
+  /* no stepped entrance for the dashboard cards: the page fades in once as a whole (motion.css), so nothing jumps while it loads */
   /* report category bars grow from the left */
-  .bar > i { transform-origin: left center; animation: mo-grow-x 0.7s var(--mo-ease) 0.3s backwards; }
+  .bar > i { transform-origin: left center; animation: mo-grow-x 0.4s var(--mo-ease) backwards; }
 }
 @media (max-width: 1100px) {
   .ov-top { grid-template-columns: minmax(0, 1fr); }
@@ -107,3 +102,59 @@
 .cat-num small { font-size: var(--fs-sm); color: var(--muted); min-width: 36px; text-align: right; }
 .cat-bar { display: block; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .cat-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent-strong, #12302b); }
+
+/* Dashboard tiles: Reports (dark) and Verification (light, with a share bar) */
+.ov-tiles > .ov-rep, .ov-tiles > .ov-ver { all: unset; font-family: inherit; font-size: var(--fs-md); box-sizing: border-box; cursor: pointer; display: grid; border-radius: 22px; padding: 24px; min-width: 0; }
+.ov-tiles > .ov-rep { background: var(--accent-strong); color: #fff; gap: 8px; align-content: space-between; }
+.ov-tiles > .ov-ver { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); gap: 16px; align-content: space-between; }
+.ov-rep:focus-visible, .ov-ver:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ov-rep-top, .ov-ver-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ov-k { font-size: var(--fs-sm); font-weight: 700; letter-spacing: 0; text-transform: none; }
+.ov-rep .ov-k { color: #cfe0d7; }
+.ov-ver .ov-k, .ov-total { color: var(--muted); }
+.ov-total { font-size: var(--fs-sm); }
+.ov-all { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: var(--fs-sm); }
+.ov-big { font-size: 64px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: #fff; padding: 8px 0 20px; }
+.ov-rep-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid rgba(255, 255, 255, 0.14); padding-top: 16px; font-size: var(--fs-sm); color: #cfe0d7; }
+.ov-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #f9d9c9; color: #8a2d0b; font-weight: 700; }
+.ov-pill svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
+.ov-bar { display: flex; gap: 3px; height: 8px; }
+.ov-bar i { display: block; height: 100%; border-radius: 999px; flex-basis: 0; }
+.ov-bar i.dark, .ov-cols em.dark { background: var(--accent-strong); }
+.ov-bar i.sand, .ov-cols em.sand { background: #c9c3b3; }
+.ov-bar i.rust, .ov-cols em.rust { background: #d92d20; }
+.ov-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ov-cols > span { display: grid; gap: 6px; padding: 0 14px; border-left: 1px solid var(--line); min-width: 0; }
+.ov-cols > span:first-child { padding-left: 0; border-left: 0; }
+.ov-cols b { font-size: var(--fs-2xl); font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ov-cols b.dark { color: var(--accent-strong); } .ov-cols b.sand { color: var(--accent-strong); } .ov-cols b.rust { color: #c0281c; }
+.ov-cols small { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
+.ov-cols em { width: 9px; height: 9px; border-radius: 2px; flex: none; display: inline-block; }
+
+/* Dashboard tiles, smaller (they grew with the redesign) */
+.ov-tiles { gap: 10px; }
+.ov-tiles > .ov-rep, .ov-tiles > .ov-ver { padding: 16px 20px; border-radius: 18px; }
+.ov-tiles > .ov-rep { gap: 4px; }
+.ov-tiles > .ov-ver { gap: 10px; }
+.ov-big { font-size: 40px; padding: 2px 0 10px; }
+.ov-rep-foot { padding-top: 10px; gap: 10px; }
+.ov-pill { padding: 4px 10px; }
+.ov-bar { height: 6px; }
+.ov-cols b { font-size: var(--fs-xl); }
+.ov-cols > span { gap: 4px; }
+
+/* the same lift on hover, press and the soft shadow as the other cards (the redesign had dropped them) */
+@media (prefers-reduced-motion: no-preference) {
+  .ov-tiles > .ov-rep, .ov-tiles > .ov-ver { transition: transform 0.2s var(--mo-ease, ease), box-shadow 0.2s var(--mo-ease, ease); }
+  .ov-tiles > .ov-rep:hover, .ov-tiles > .ov-ver:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(18, 48, 43, 0.09); }
+  .ov-tiles > .ov-rep:hover { box-shadow: 0 10px 24px rgba(18, 48, 43, 0.22); }
+  .ov-tiles > .ov-rep:active, .ov-tiles > .ov-ver:active { transform: scale(0.99); box-shadow: none; }
+}
+.ov-all svg { transition: transform 0.2s ease; }
+.ov-rep:hover .ov-all svg { transform: translateX(3px); }
+
+/* Waiting reports and Reports by category: the two headings sit at the same height and the same distance from the edge */
+.ov-bottom .card-head { min-height: 32px; margin-bottom: 12px; }
+.ov-bottom .card.flat > .card-head { padding: 20px 24px 0; }
+.ov-bottom .card.flat .items { padding: 0 24px 20px; }
+.ov-bottom .card.flat .state { margin: 0 24px 20px; }

@@ -2,10 +2,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './ErrorBoundary';
+import { installFormErrors } from './formErrors';
 import './styles.css';
 import './motion.css';
 import './controls.css'; // the console's own dropdown and date picker
 import './responsive.css'; // last: the small-screen layout and the collapsible sidebar win over the older rules
+
+installFormErrors();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

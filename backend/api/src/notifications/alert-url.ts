@@ -15,6 +15,8 @@ export function alertUrl(type: string, data?: Record<string, unknown> | null): s
   if (type === 'message_removed' && d.messageId) return `/appeal?kind=message&targetId=${q(d.messageId)}${why}`;
   // an answer to a review request, or a moderator's message in it: that decision or request, first in its list
   if (type === 'appeal_decided' || type === 'appeal_reply') return d.reportId ? `/reports-blocked?reportId=${q(d.reportId)}` : d.appealId ? `/reports-blocked?appealId=${q(d.appealId)}` : '/reports-blocked';
+  // your own report was looked at: what you reported and where it stands
+  if (type === 'report_update') return d.reportId ? `/report-update?reportId=${q(d.reportId)}` : '/report-update';
   if (type === 'report_decision' || type === 'host_absence_decided') return d.reportId ? `/reports-blocked?reportId=${q(d.reportId)}` : '/reports-blocked';
   if (d.conversationId) return `/chat/${q(d.conversationId)}`;
   if (type === 'join_request' && d.activityId) return `/host/${q(d.activityId)}`;

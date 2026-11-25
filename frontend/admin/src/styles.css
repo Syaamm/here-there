@@ -1056,7 +1056,7 @@ input[type='search']::-webkit-search-cancel-button { display: none !important; }
 @media (max-width: 700px) { .int-dlg-head, .int-dlg-body { padding-left: 16px; padding-right: 16px; } }
 
 /* One footer for every dialog and card: Cancel, then the main action, always at the bottom right, the same size and gap. */
-.dialog { max-height: calc(100vh - 32px); overflow-y: auto; }
+.dialog { max-height: calc(100vh - 32px); overflow-y: auto; overflow-x: hidden; }
 .dialog.int-dlg { overflow: hidden; }
 .dialog .row.end, .dialog .int-dlg-foot, .dialog .sd-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--surface); }
 .dialog .row.end .btn, .dialog .int-dlg-foot .btn, .dialog .sd-foot .btn { width: auto; min-width: 112px; justify-content: center; }
@@ -1070,7 +1070,7 @@ input[type='search']::-webkit-search-cancel-button { display: none !important; }
 .brand-sub { padding-top: 0; padding-bottom: 1px; line-height: 1; }
 
 /* A star after the name of every field that must be filled in; fields with no star are optional. */
-label:has(:required) { grid-template-columns: max-content 1fr; column-gap: 4px; }
+label:has(:required) { grid-template-columns: minmax(0, max-content) 1fr; column-gap: 4px; }
 label:has(:required)::after { content: '*'; content: '*' / ''; grid-row: 1; grid-column: 2; color: #c0392b; font-weight: 700; line-height: 1; }
 label:has(:required) > :not(.sr) { grid-column: 1 / -1; }
 .req-note { font-size: var(--fs-sm); color: var(--muted); margin: 0; }
@@ -1093,3 +1093,91 @@ label:has(:required) > :not(.sr) { grid-column: 1 / -1; }
 .detail-decide > label { flex: 1 1 auto; min-width: 0; }
 .detail-decide > .btn { flex: none; white-space: nowrap; }
 @media (max-width: 700px) { .detail-decide { flex-wrap: wrap; } .detail-decide > label { flex: 1 1 100%; } .detail-decide > .btn { flex: 1 1 auto; } }
+
+/* Validation message shown under the field (replaces the browser bubble) */
+.field-error { display: block; margin-top: 6px; color: var(--bad, #b42318); font-size: 12.5px; font-weight: 500; line-height: 1.3; }
+[aria-invalid='true'] { border-color: var(--bad, #b42318) !important; }
+
+/* Audit log: the card always fills the page, with the paging bar pinned to the bottom, however few entries there are */
+.page-body.fill > .table-wrap.audit-table { flex: 1 1 auto; min-height: 0; }
+@media (max-width: 700px) { .page-body.fill > .table-wrap.audit-table { flex: none; min-height: 360px; } }
+
+/* Staff password: Show/Hide keeps one width (it changed with its word and pushed the field), and Generate keeps its own */
+.sd-pass { display: flex; align-items: center; gap: 8px; }
+.sd-pass > input { flex: 1 1 auto; min-width: 0; }
+.sd-pass > .btn { flex: none; justify-content: center; white-space: nowrap; }
+.sd-pass > .btn:nth-of-type(1) { width: 68px; }
+
+/* ADMIN sits on the same baseline as the "lamis." wordmark: capitals sit about a quarter of the text height above the bottom of their line box, so the box is lowered by that much */
+.brand { align-items: flex-end; }
+.brand-sub { padding: 0; margin-bottom: -3px; line-height: 1; }
+
+/* No scroll bar on the detail panes (reports, appeals, attendance, people): they still scroll with the wheel, trackpad or touch */
+.detail-scroll, .split-detail { scrollbar-width: none; -ms-overflow-style: none; scrollbar-gutter: auto; }
+.detail-scroll::-webkit-scrollbar, .split-detail::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* Footers: the paging bar on the left and the decision / action bar on the right are the same height, so their top lines meet */
+@media (min-width: 701px) {
+  .scroll-card > .table-foot, .split-list > .table-foot { box-sizing: border-box; height: 72px; padding-top: 0; padding-bottom: 0; }
+  .detail-foot, .detail-decide { box-sizing: border-box; height: 72px; padding-top: 0; padding-bottom: 0; display: flex; align-items: center; border-top: 1px solid var(--line); }
+  .detail-foot { bottom: calc(var(--dpy) * -1); }
+  .detail-foot > .actions-bar { flex: 1 1 auto; margin: 0; padding: 0; border: 0; }
+  .detail-foot > .row, .detail-foot > .actions-bar { width: 100%; }
+}
+
+/* When a detail panel has a bar at its foot (decide / accept / reject), the bar rests on the bottom of the card even when the content is short */
+.detail-scroll:has(> .detail-foot) { display: flex; flex-direction: column; gap: 16px; }
+.detail-scroll:has(> .detail-foot) > .detail-foot { margin-top: auto; flex: none; }
+
+/* No scroll bars anywhere in the console (lists, tables, panels, dialogs, the page itself). Everything still scrolls with the wheel, trackpad, keys or touch. */
+html, body, * { scrollbar-width: none !important; -ms-overflow-style: none !important; scrollbar-gutter: auto !important; }
+*::-webkit-scrollbar, html::-webkit-scrollbar, body::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+
+/* The panel has no padding under its foot bar, so the bar is the full 72px and ends on the card's edge (it was 20px taller) */
+.detail-scroll:has(> .detail-foot) { padding-bottom: 0 !important; }
+.detail-scroll > .detail-foot { bottom: 0 !important; }
+
+/* the "..." button shows it is open (and pressed): filled, with a ring, until the menu closes */
+.menu-wrap > button[aria-expanded='true'], .menu-wrap > button:active { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1.5px var(--line-2); }
+.menu-wrap > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.menu-wrap > .icon-btn { transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
+
+/* Staff: the delete button is a red bin icon */
+.icon-btn.staff-del { color: #d92d20; }
+.icon-btn.staff-del:hover:not(:disabled) { background: #fdecea; color: #b42318; }
+
+/* Staff: Edit and the bin sit side by side on one line, centred in the row (the bin had dropped under Edit) */
+td.end:has(> .staff-del) { white-space: nowrap; }
+td.end > .btn, td.end > .icon-btn.staff-del { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
+td.end > .icon-btn.staff-del { margin-left: 8px; }
+
+/* the validation message is small, normal-case text (it inherited the label's capitals and spacing) */
+.field-error { text-transform: none !important; letter-spacing: 0 !important; font-size: 12px !important; font-weight: 500 !important; }
+
+/* Planning window and Radius: the typed boxes are the same size and their unit words (months, km) sit in one fixed column, so the boxes line up */
+.limit-manual { display: inline-flex; align-items: center; gap: 10px; }
+.limit-manual > input { width: 72px !important; height: 40px; min-height: 0; padding: 0 8px; text-align: center; font-weight: 600; }
+.limit-manual > .muted { display: inline-block; width: 52px; text-align: left; line-height: 1; margin: 0; }
+
+/* the "..." menus are compact: as wide as their words, with smaller rows (the one with only "Remove" was far too big) */
+.menu { min-width: 0; width: max-content; max-width: min(280px, calc(100vw - 16px)); padding: 4px; border-radius: 12px; gap: 0; }
+.menu button, .menu .menu-info { padding: 5px 12px; min-height: 30px; font-size: var(--fs-md); }
+
+/* and short: a row is just its text with a little air (the page's general button height was keeping it tall) */
+.menu { padding: 4px; }
+.menu button, .menu .menu-info { min-height: 0 !important; height: auto; line-height: 1.25; padding: 6px 10px !important; }
+.menu button { font-size: var(--fs-sm); }
+
+/* an empty list inside a card: no dashed box inside the card; the message sits quietly in the middle of the card's own space */
+.scroll-card .list-scroll > .state, .split-list .list-scroll > .state, .split-list > .state, .scroll-card > .state {
+  border: 0 !important; background: none !important; border-radius: 0; box-shadow: none;
+  min-height: 100%; height: 100%; margin: 0; padding: 24px;
+  display: grid; place-content: center; text-align: center; color: var(--muted);
+}
+.scroll-card .list-scroll > .state p, .split-list .list-scroll > .state p { margin: 0; }
+
+/* the administrator's own edit dialog: the note, and the password button under it */
+.sd-own { display: grid; gap: 10px; justify-items: start; }
+
+/* the administrator has no bin: an empty space of the same size keeps every Edit button in one column */
+.staff-del-gap { display: inline-block; vertical-align: middle; width: calc(var(--ctl-sm, 36px) + 8px); height: 1px; }

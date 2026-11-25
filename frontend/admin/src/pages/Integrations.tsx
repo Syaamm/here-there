@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, get, post } from '../api';
 import { Select, useBackdropClose } from '../controls';
-import { Empty, errMsg, ErrorBanner, Icon, Loading, Switch, useAction, useLoad } from '../ui';
+import { askConfirm, Empty, errMsg, ErrorBanner, Icon, Loading, Switch, useAction, useLoad } from '../ui';
 
 type Field = { key: string; label: string; secret?: boolean; optional?: boolean; multiline?: boolean; hidden?: boolean; placeholder?: string; options?: [string, string][]; default?: string };
 type Provider = { id: string; label: string; blurb?: string; fields: Field[] };
@@ -19,8 +19,8 @@ export function IntegrationsPage() {
   const act = useAction(reload);
   const [editing, setEditing] = useState<{ kind: Kind; row?: Integration } | null>(null);
 
-  const remove = (r: Integration) => {
-    if (confirm(`Delete ${r.name}?${r.active ? ' It is switched on right now.' : ''}`)) act.run(async () => void (await api('DELETE', `/v1/admin/integrations/${r.id}`)));
+  const remove = async (r: Integration) => {
+    if (await askConfirm(`Delete ${r.name}?`, r.active ? 'It is switched on right now.' : 'This cannot be undone.', 'Delete')) act.run(async () => void (await api('DELETE', `/v1/admin/integrations/${r.id}`)));
   };
   const toggle = (r: Integration, on: boolean) => act.run(async () => void (await api('PATCH', `/v1/admin/integrations/${r.id}`, { active: on })));
 

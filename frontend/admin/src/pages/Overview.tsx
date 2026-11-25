@@ -3,7 +3,7 @@ import { get } from '../api';
 import { CardHead } from '../charts';
 import { TrendChart } from '../trend';
 import { RangeCalendar } from '../RangeCalendar';
-import { cap, Chip, CountUp, ErrorBanner, Loading, Page, RefreshButton, Segmented, useLoad, useRefresh } from '../ui';
+import { cap, Chip, CountUp, ErrorBanner, Icon, Loading, Page, RefreshButton, Segmented, useLoad, useRefresh } from '../ui';
 
 type Overview = {
   users: number;
@@ -107,6 +107,9 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
   const s = data?.series;
   const members = data?.members ?? 0;
 
+  const VER = [['verified', 'Verified', 'dark'], ['unverified', 'Not verified', 'sand'], ['rejected', 'Rejected', 'rust']] as const;
+  const vCount = (k: 'verified' | 'unverified' | 'rejected') => data?.verification?.[k] ?? 0;
+  const vTotal = vCount('verified') + vCount('unverified') + vCount('rejected');
   const overdueCount = waitingSummary.data?.overdue ?? 0;
   const next = useMemo(() => reports.data?.items ?? [], [reports.data]); // already in queue order
 
@@ -167,24 +170,35 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
         <div className={refresh.busy || changingDays ? 'stack refreshable refreshing' : 'stack refreshable'} aria-busy={refresh.busy || changingDays}>
           <div className="ov-top">
             <div className="ov-tiles">
-              <button className={overdueCount ? 'stat hot' : 'stat'} onClick={() => go('reports')}>
-                <span className="label">Reports</span>
-                <span className="value">
-                  <CountUp value={rep.in_review + rep.open} />
+              <button className="ov-rep" onClick={() => go('reports')}>
+                <span className="ov-rep-top">
+                  <span className="ov-k">Reports</span>
                 </span>
-                <span className="note">
-                  {overdueCount ? `${overdueCount} overdue` : 'Waiting for a decision'}
+                <span className="ov-big"><CountUp value={rep.in_review + rep.open} /></span>
+                <span className="ov-rep-foot">
+                  {overdueCount ? (
+                    <>
+                      <span className="ov-pill"><Icon name="clock" />{overdueCount} Overdue</span>
+                      <span>All reports past due</span>
+                    </>
+                  ) : (
+                    <span>Waiting for a decision</span>
+                  )}
                 </span>
               </button>
-              <button className="stat" onClick={() => go('verifications')}>
-                <span className="label">Verification</span>
-                <span className="ov-three">
-                  {([['verified', 'Verified'], ['unverified', 'Not verified'], ['rejected', 'Rejected']] as const).map(([k, name]) => (
+              <button className="ov-ver" onClick={() => go('verifications')}>
+                <span className="ov-ver-top">
+                  <span className="ov-k">Verification</span>
+                  <span className="ov-total">{vTotal} total</span>
+                </span>
+                <span className="ov-bar" aria-hidden="true">
+                  {VER.map(([k, , tone]) => (vCount(k) ? <i key={k} className={tone} style={{ flexGrow: vCount(k) }} /> : null))}
+                </span>
+                <span className="ov-cols">
+                  {VER.map(([k, name, tone]) => (
                     <span key={k}>
-                      <b>
-                        {data.verification ? <CountUp value={data.verification[k]} /> : '–'}
-                      </b>
-                      <small>{name}</small>
+                      <b className={tone}>{data.verification ? <CountUp value={data.verification[k]} /> : '–'}</b>
+                      <small><em className={tone} />{name}</small>
                     </span>
                   ))}
                 </span>
@@ -213,10 +227,10 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
 
           <div className="ov-bottom">
             <section className="card flat" aria-labelledby="ov-next">
-              <div className="card-head" style={{ padding: '14px 16px 0', marginBottom: 0 }}>
-                <h2 id="ov-next">Up next</h2>
+              <div className="card-head">
+                <h2 id="ov-next">Waiting reports</h2>
                 <button className="link small" onClick={() => go('reports')}>
-                  All reports
+                  View all
                 </button>
               </div>
               {next.length === 0 ? (
@@ -234,7 +248,7 @@ export function OverviewPage({ go, openReport }: { go: (p: string) => void; open
                               {words(r.category)} · {r.subject?.displayName ?? r.targetType}
                             </span>
                           </span>
-                          <span className="aside">{left && <Chip value={left.text} tone={left.late ? 'dark' : r.priority === 'urgent' ? 'line' : 'plain'} />}</span>
+                          <span className="aside">{left?.late && <Chip value={left.text} tone="dark" />}</span>
                         </button>
                       </li>
                     );
