@@ -6,6 +6,7 @@ import { Text } from '@/components/ScaledText';
 import { useTheme } from '@/lib/theme';
 import { AuthBack, AuthButton, AuthCheck, AuthField, AuthHeading, AuthSwitch, type InputHandle } from '@/components/AuthForm';
 import { Banner, Btn, ErrorBanner, Screen, Txt } from '@/components/ui';
+import { LegalLinks } from '@/components/LegalLinks';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
@@ -101,7 +102,7 @@ export default function Register() {
         <AuthCheck checked={adult} onChange={setAdult} label={t('I confirm that I am 18 or older.')} />
         <AuthButton title={t('Create account')} onPress={submit} loading={act.busy} disabled={!valid} />
       </View>
-      <Txt variant="small" style={{ textAlign: 'center' }}>{t("We'll email you a code. We never show your documents to anyone.")}</Txt>
+      <LegalLinks lead={t('By creating an account you agree to:')} color={c.muted} linkColor={c.forest} size={13} />
       <AuthSwitch prompt={t('Already have an account?')} action={t('Log in')} onPress={() => router.replace('/login')} />
     </Screen>
   );

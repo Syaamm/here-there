@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useState, type Ref } from 'react';
+import { useState, type ReactNode, type Ref } from 'react';
 import { Pressable, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useT } from '@/lib/i18n';
@@ -114,7 +114,7 @@ export function AuthSwitch({ prompt, action, onPress }: { prompt: string; action
 }
 
 /** The 18+ tick box: the design's small square, with a full-width tap area. */
-export function AuthCheck({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+export function AuthCheck({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: ReactNode }) {
   const { c, mode } = useTheme();
   return (
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(12), minHeight: sc(44) }}>

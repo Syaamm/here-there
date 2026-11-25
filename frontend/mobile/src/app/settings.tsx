@@ -9,6 +9,7 @@ import { AccountRow, GroupLabel, PillChoice, RoundCard } from '@/components/Prof
 import { Text } from '@/components/ScaledText';
 import { Avatar, Btn, ErrorBanner, Row, Screen, useGo } from '@/components/ui';
 import { post } from '@/lib/api';
+import { openLegal } from '@/lib/legal';
 import { useMe } from '@/lib/auth';
 import { useVerifyGate } from '@/lib/verifyGate';
 import { confirmAsync } from '@/lib/confirm';
@@ -134,6 +135,8 @@ export default function Settings() {
 
       <GroupLabel>{t('About')}</GroupLabel>
       <RoundCard>
+        <AccountRow icon="document-text-outline" title={t('Terms and conditions')} onPress={() => openLegal('terms-and-conditions')} />
+        <AccountRow icon="shield-checkmark-outline" title={t('Privacy policy')} onPress={() => openLegal('privacy-policy')} />
         <AccountRow icon="information-circle-outline" title="Lamis" subtitle={t('Version {v}', { v: Constants.expoConfig?.version ?? '0.1.0' })} last />
       </RoundCard>
 

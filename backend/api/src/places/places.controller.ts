@@ -8,8 +8,8 @@ import { parse } from '../common/validate';
 
 export const searchSchema = z.object({
   q: z.string().trim().min(2).max(100),
-  /** "city": cities, towns and regions (the city picker); "area": neighbourhoods and areas (where an activity meets); "place" (default): anything, a venue or an address */
-  kind: z.enum(['place', 'area', 'city', 'destination']).default('place'),
+  /** "city": cities, towns and regions (the city picker); "area": neighbourhoods and areas; "venue": any named place on the map (hotels, shops, cafes, parks...) except places closed to the public; "place" (default): anything, a venue or an address */
+  kind: z.enum(['place', 'area', 'city', 'destination', 'venue']).default('place'),
   /** where to look first: the chosen city's position. Nearby places rank higher; places elsewhere still show. */
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
@@ -21,13 +21,46 @@ export const reverseSchema = z.object({ lat: z.coerce.number().min(-90).max(90),
 
 /** `label` (destination search only): the name a trip shows, with its country: "Milan, Italy", "Kerala, India", "Italy". */
 export type Place = { id: string; name: string; address: string; lat: number; lng: number; label?: string };
-type Kind = 'place' | 'area' | 'city' | 'destination';
+type Kind = 'place' | 'area' | 'city' | 'destination' | 'venue';
 
 type PhotonFeature = {
   geometry: { coordinates: [number, number] };
-  properties: { osm_type?: string; osm_id?: number; osm_value?: string; type?: string; name?: string; street?: string; housenumber?: string; district?: string; city?: string; county?: string; state?: string; country?: string };
+  properties: { osm_type?: string; osm_id?: number; osm_key?: string; osm_value?: string; type?: string; name?: string; street?: string; housenumber?: string; district?: string; city?: string; county?: string; state?: string; country?: string };
 };
-type NominatimHit = { place_id: number; osm_type?: string; osm_id?: number; name?: string; display_name: string; lat: string; lon: string };
+type NominatimHit = { place_id: number; osm_type?: string; osm_id?: number; name?: string; display_name: string; lat: string; lon: string; category?: string; class?: string; type?: string };
+
+/**
+ * Places a plan cannot be held at: the ones the public cannot walk into (military, government offices, prisons, police and fire
+ * stations, embassies, border posts, power and water works, runways) and the ones that are not for meeting strangers (homes,
+ * schools and nurseries). The map's own tags decide; anything not listed here is allowed, so hotels, shops, cafes, bars,
+ * restaurants, parks, museums and the rest of the map can all be picked.
+ */
+const NO_KEYS = new Set(['military']);
+const NO_VALUES: Record<string, string[]> = {
+  amenity: ['prison', 'police', 'fire_station', 'embassy', 'border_control', 'courthouse', 'ranger_station', 'kindergarten', 'school', 'childcare', 'grave_yard', 'crematorium', 'mortuary'],
+  office: ['government', 'diplomatic', 'administrative', 'police', 'military', 'customs', 'tax', 'intelligence'],
+  landuse: ['military', 'railway', 'industrial', 'quarry', 'landfill', 'residential', 'garages'],
+  building: ['military', 'government', 'public', 'civic', 'prison', 'barracks', 'bunker', 'house', 'residential', 'apartments', 'detached', 'semidetached_house', 'terrace', 'bungalow', 'dormitory', 'farm', 'cabin', 'static_caravan', 'school', 'kindergarten'],
+  barrier: ['border_control', 'gate', 'lift_gate'],
+  power: ['plant', 'substation', 'generator', 'transformer', 'line', 'tower'],
+  man_made: ['surveillance', 'wastewater_plant', 'water_works', 'storage_tank', 'petroleum_well', 'works', 'pipeline', 'embankment', 'antenna', 'mast', 'tower'],
+  aeroway: ['runway', 'taxiway', 'apron', 'hangar', 'navigationaid', 'helipad', 'holding_position'],
+  railway: ['rail', 'yard', 'signal', 'switch', 'light_rail', 'subway', 'tram', 'tram_stop', 'halt', 'stop', 'platform', 'subway_entrance', 'level_crossing'],
+  place: ['house', 'plot', 'farm'],
+  boundary: ['administrative'],
+  government: ['*'],
+  emergency: ['*'],
+  highway: ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'service', 'residential', 'track', 'footway', 'path', 'cycleway', 'steps', 'bus_stop', 'street_lamp'],
+};
+// the map's tags are not always enough (a police headquarters can be tagged only as a building), so the name is checked too, in English and Italian
+const NO_NAMES = /\b(caserma|carabinieri|questura|polizia|prefettura|tribunale|giustizia|ministero|carcere|penitenziari\w*|guardia di finanza|base militare|aeronautica militare|esercito|vigili del fuoco|ambasciata|consolato|military|army|navy|air force|barracks|police|sheriff|courthouse|court house|ministry|prison|jail|embassy|consulate|border (?:control|post)|customs|fire station|nuclear|power plant)\b/i;
+function allowedVenue(key?: string, value?: string, name?: string): boolean {
+  if (name && NO_NAMES.test(name)) return false;
+  if (key && NO_KEYS.has(key)) return false;
+  const bad = key ? NO_VALUES[key] : undefined;
+  if (bad && (bad.includes('*') || (value && bad.includes(value)))) return false;
+  return true;
+}
 
 // Photon: search-as-you-type over OpenStreetMap (finds "Chalakudy" from "Chalak", ranks places near `lat`/`lng` first).
 // Nominatim (same map data, whole words only) answers when Photon cannot.
@@ -145,18 +178,19 @@ export class PlacesController {
 }
 
 async function photon(text: string, kind: Kind, near: { lat: number; lng: number } | null): Promise<Place[]> {
-  const params = new URLSearchParams({ q: text, limit: '8', lang: 'en' });
+  const params = new URLSearchParams({ q: text, limit: kind === 'venue' ? '15' : '8', lang: 'en' });
   if (near && kind !== 'destination') {
     params.set('lat', String(near.lat));
     params.set('lon', String(near.lng));
   }
-  if (kind !== 'place') LAYERS[kind].forEach((l) => params.append('layer', l));
+  if (kind !== 'place' && kind !== 'venue') LAYERS[kind].forEach((l) => params.append('layer', l));
   const res = await fetch(`${PHOTON}/api/?${params}`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(6000) });
   if (!res.ok) throw new Error(String(res.status));
   const features = ((await res.json()) as { features: PhotonFeature[] }).features;
   if (kind === 'city') features.sort((a, b) => size(a.properties.osm_value) - size(b.properties.osm_value)); // stable: ties keep their order
   if (kind === 'destination') features.sort((a, b) => destSize(a.properties.type) - destSize(b.properties.type));
   return features
+    .filter((f) => kind !== 'venue' || (!!f.properties.name?.trim() && allowedVenue(f.properties.osm_key, f.properties.osm_value, f.properties.name)))
     .map((f) => {
       const place = fromPhoton(f, kind === 'destination');
       if (place && f.properties.state) stateOf.set(place, f.properties.state);
@@ -166,11 +200,13 @@ async function photon(text: string, kind: Kind, near: { lat: number; lng: number
 }
 
 async function nominatim(text: string, kind: Kind): Promise<Place[]> {
-  const params = new URLSearchParams({ q: text, format: 'jsonv2', limit: '6', addressdetails: '0', 'accept-language': 'en' });
+  const params = new URLSearchParams({ q: text, format: 'jsonv2', limit: kind === 'venue' ? '12' : '6', addressdetails: '0', 'accept-language': 'en' });
   if (kind === 'city') params.set('featureType', 'settlement');
   const res = await fetch(`${NOMINATIM}/search?${params}`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(6000) });
   if (!res.ok) throw new Error(String(res.status));
-  return ((await res.json()) as NominatimHit[]).map((h) => fromNominatim(h, kind === 'destination'));
+  return ((await res.json()) as NominatimHit[])
+    .filter((h) => kind !== 'venue' || (!!h.name?.trim() && allowedVenue(h.category ?? h.class, h.type, h.name)))
+    .map((h) => fromNominatim(h, kind === 'destination'));
 }
 
 const round = (n: number) => Math.round(n * 1e5) / 1e5;

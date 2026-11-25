@@ -7,6 +7,7 @@ import { Text } from '@/components/ScaledText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LamisWordmark } from '@/components/LamisWordmark';
 import { ErrorBanner } from '@/components/ui';
+import { LegalLinks } from '@/components/LegalLinks';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { tap } from '@/lib/haptics';
@@ -77,8 +78,6 @@ const LOOK = {
   },
 };
 
-const FOOTER = '18+ only · Privacy first · Terms apply';
-
 /** The coloured half of a welcome page: the photo, the page colour and the name. Both are always mounted; switching only cross-fades their opacity. The white sheet below is not part of it. */
 function Page({ mode, sheetH }: { mode: Mode; sheetH: number }) {
   const { t } = useT();
@@ -132,14 +131,14 @@ function Sheet({ onLogin, onSignUp, onExplore, busy, error, onHeight }: { onLogi
           </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), marginTop: sp(37) }}>
             <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
-            <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12 }}>{t("Don't have an account?")}</Text>
-            <Pressable accessibilityRole="link" hitSlop={12} onPress={() => { tap('Light'); onSignUp(); }} style={{ minHeight: sc(32), justifyContent: 'center' }}>
-              <Text style={{ color: FOREST, fontSize: 12, fontWeight: '500' }}>{t('Sign up')}</Text>
+            <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 13 }}>{t("Don't have an account?")}</Text>
+            <Pressable accessibilityRole="link" hitSlop={12} onPress={() => { tap('Light'); onSignUp(); }} style={{ minHeight: sc(40), justifyContent: 'center' }}>
+              <Text style={{ color: FOREST, fontSize: 16, fontWeight: '600' }}>{t('Sign up')}</Text>
             </Pressable>
             <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.09)' }} />
           </View>
           <View style={{ flex: 1 }} />
-          <Text style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12, textAlign: 'center', marginTop: sp(24) }}>{t(FOOTER)}</Text>
+          <LegalLinks lead={t('18+ only')} color="rgba(0,0,0,0.6)" linkColor="rgba(0,0,0,0.88)" style={{ marginTop: sp(24) }} />
         </View>
       </View>
     </View>

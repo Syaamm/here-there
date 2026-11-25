@@ -147,6 +147,7 @@ function Gate() {
           <Stack.Screen name="trip-plan/[id]" options={banded} />
           <Stack.Screen name="appeal" options={banded} />
           <Stack.Screen name="report-update" options={banded} />
+          <Stack.Screen name="guidelines" options={banded} />
           <Stack.Screen name="favourites" options={banded} />
           <Stack.Screen name="connections" options={banded} />
           {/* a chat is its own screen above the tabs, like a chat in any messaging app: the iPhone's own swipe-back shows the inbox underneath as you drag */}

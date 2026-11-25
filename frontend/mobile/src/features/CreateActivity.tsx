@@ -559,7 +559,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       <View ref={placeBox} collapsable={false}>
       <PlacePick
         invalid={bad(2) && !placeOk}
-        label={t('Neighborhood')}
+        label={t('Place')}
         text={f.venueName}
         onText={(v) => set('venueName', v)}
         place={f.place}
@@ -574,11 +574,11 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       <PlaceMapPreview at={f.place ? { lat: f.place.lat, lng: f.place.lng } : centre ? { lat: centre[0], lng: centre[1] } : null} picked={!!f.place} />
       {/* only a neighbourhood picked from the list, in or near the city, lets the step go on: say why when it cannot */}
       {placeFar && f.place ? (
-        <Banner tone="bad">{t('{place} is about {km} km from {city}. Pick a neighbourhood in or near {city} (within {limit} km), or change the city above.', { place: f.place.name, km: Math.round(placeKm!), city, limit: getAreaKm() })}</Banner>
+        <Banner tone="bad">{t('{place} is about {km} km from {city}. Pick a place in or near {city} (within {limit} km), or change the city above.', { place: f.place.name, km: Math.round(placeKm!), city, limit: getAreaKm() })}</Banner>
       ) : !f.place && f.venueName.trim().length >= 2 ? (
-        <Text style={{ color: bad(2) ? c.danger : c.muted, fontSize: 12, lineHeight: 17 }}>{t('Pick a neighbourhood from the list to continue.')}</Text>
+        <Text style={{ color: bad(2) ? c.danger : c.muted, fontSize: 12, lineHeight: 17 }}>{t('Pick a place from the list to continue.')}</Text>
       ) : !f.place && bad(2) ? (
-        <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 17 }}>{t('Search for a neighbourhood and pick it from the list.')}</Text>
+        <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 12, lineHeight: 17 }}>{t('Search for a place and pick it from the list.')}</Text>
       ) : null}
       {/* the city is the app's city: shown here, not chosen (change it on Home or the map); the neighbourhood is searched inside it */}
       <View accessible accessibilityLabel={t('City: {city}', { city })} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10), minHeight: sc(54), borderRadius: sc(32), backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, paddingHorizontal: sph(20) }}>
