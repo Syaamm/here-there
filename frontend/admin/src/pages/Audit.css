@@ -53,3 +53,11 @@
 .au-facts dd { margin: 0; font-size: var(--fs-md); color: var(--text); overflow-wrap: anywhere; }
 .au-detail-row td { padding: 0 24px 16px; }
 .au-detail-row .au-detail { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; }
+
+/* the opened details box: air above it (it touched the row's line), on the card's own white, with its tinted box inside */
+.au-detail-row td { padding: 14px 24px 20px !important; background: var(--surface) !important; }
+.au-detail-row .au-detail { background: var(--surface-2); }
+
+/* a record opens and closes by a click anywhere on it */
+.au-click { cursor: pointer; }
+.au-click button, .au-click a { cursor: pointer; }

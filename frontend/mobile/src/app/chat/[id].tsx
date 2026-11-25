@@ -297,7 +297,7 @@ function Chat({ id }: { id: string }) {
   const shown = settled ? [...older, ...(msgs.data?.items ?? [])] : [];
 
   const [text, setText] = useState('');
-  const boxRef = useRef<{ focus?: () => void } | null>(null);
+  const boxRef = useRef<{ focus?: () => void; clear?: () => void } | null>(null);
   const [boxKey, setBoxKey] = useState(0); // a new value starts the writing box again, one line tall (after a long message was sent)
   const [composerFocused, setComposerFocused] = useState(false);
   const typing = useKeyboardShown();
@@ -546,20 +546,25 @@ function Chat({ id }: { id: string }) {
     refreshUnread();
   }, [focused, readyToRead, id, info.data?.scope]);
 
+  const sending = useRef(false);
   const submit = async () => {
     const body = text.trim();
-    if (!body) return;
+    if (!body || sending.current) return; // a second tap before the screen redraws must not send it twice
+    sending.current = true;
     stick.current = true;
-    const r = await send.run(() => post(`/v1/conversations/${id}/messages`, { body }));
-    if (r) {
-      const tall = body.includes('\n') || body.length > 36;
-      setText('');
-      if (tall) {
-        // the phone's field does not always shrink back by itself: a fresh one is one line tall, and takes the cursor at once
-        setBoxKey((k) => k + 1);
-        setTimeout(() => boxRef.current?.focus?.(), 30);
-      }
-    } // on failure the text stays so nothing is lost
+    // clear the box at once, on the phone's side too: if it waits for the server, letters typed meanwhile (or the keyboard's own
+    // last word fix) land after the clear and the sent text comes back in the field
+    const tall = body.includes('\n') || body.length > 36;
+    setText('');
+    boxRef.current?.clear?.();
+    if (tall) setBoxKey((k) => k + 1);
+    try {
+      const r = await send.run(() => post(`/v1/conversations/${id}/messages`, { body }));
+      if (!r) setText((cur) => (cur.trim() ? cur : body)); // on failure the text comes back so nothing is lost
+    } finally {
+      sending.current = false;
+      if (tall) setTimeout(() => boxRef.current?.focus?.(), 30);
+    }
   };
 
   const leave = async () => {

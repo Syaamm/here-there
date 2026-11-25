@@ -55,6 +55,8 @@ export function alertRoute(n: Pick<Notif, 'type' | 'data'>): string | null {
   // a review request's answer or a moderator's message: the list, with that exact request first and marked
   if (n.type === 'appeal_decided' || n.type === 'appeal_reply') return ids?.reportId ? `/reports-blocked?reportId=${ids.reportId}` : ids?.appealId ? `/reports-blocked?appealId=${ids.appealId}` : '/reports-blocked';
   // a decision about you: the list, with that exact decision first and marked
+  // your own report was looked at: a page that says what you reported and where it stands
+  if (n.type === 'report_update') return ids?.reportId ? `/report-update?reportId=${ids.reportId}` : '/report-update';
   if (n.type === 'report_decision' || n.type === 'host_absence_decided') return ids?.reportId ? `/reports-blocked?reportId=${ids.reportId}` : '/reports-blocked';
   if (d?.conversationId) return `/chat/${d.conversationId}`;
   if (n.type === 'join_request' && d?.activityId) return `/host/${d.activityId}`;

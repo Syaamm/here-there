@@ -402,8 +402,8 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
 
   /** How many reports wait, how many are urgent or overdue, and the ids of the open ones (the console's badge and overview read this, not the whole queue). */
   async waitingSummary(scope: Scope | null, now = new Date()) {
-    const light = await this.waitingLight({ status: { in: ['open', 'in_review'] } }, now, scope);
-    const total = scope ? light.length : await this.prisma.report.count({ where: { status: { in: ['open', 'in_review'] } } });
+    const light = await this.waitingLight({ status: { in: ['open', 'in_review'] }, category: { not: 'host_no_show' } }, now, scope); // "the host did not come" reports are answered under Attendance
+    const total = scope ? light.length : await this.prisma.report.count({ where: { status: { in: ['open', 'in_review'] }, category: { not: 'host_no_show' } } });
     return { total, open: light.filter((x) => x.status === 'open').length, inReview: light.filter((x) => x.status === 'in_review').length, urgent: light.filter((x) => x.priority === 'urgent').length, overdue: light.filter((x) => x.overdue).length, openIds: light.filter((x) => x.status === 'open').map((x) => x.id) };
   }
 
@@ -413,7 +413,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     const waiting = status === 'open' || status === 'in_review' || status === 'waiting';
     const size = waiting ? pageLimit(paging.limit, 50, 100) : pageLimit(paging.limit, 200, 200);
     let nextCursor: string | null = null;
-    const where: Prisma.ReportWhereInput = { ...(status === 'waiting' ? { status: { in: ['open', 'in_review'] } } : status ? { status } : {}), ...(category && { category }) };
+    const where: Prisma.ReportWhereInput = { ...(status === 'waiting' ? { status: { in: ['open', 'in_review'] } } : status ? { status } : {}), category: category ? category : { not: 'host_no_show' } }; // the list of reports leaves out "the host did not come" (Attendance has them) unless asked for
     // search by person: "against" = reports about them (or their message, activity or trip), "by" = reports they filed
     const needle = paging.q?.trim().slice(0, 80);
     if (needle) where.AND = [await this.personFilter(needle, paging.who === 'by' ? 'by' : paging.who === 'against' ? 'against' : 'both')];

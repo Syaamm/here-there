@@ -21,7 +21,7 @@ const kms = (n: number) => `${n} km`;
 const KM_CHOICES = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100];
 
 /** One common value (the same for everyone, no city or region has its own): a dropdown with Save / Cancel. */
-function OneLimit({ title, text, label, which, current, choices, show, editable, data, onSaved }: {
+function OneLimit({ title, text, label, which, current, choices, show, editable, data, onSaved, manual, range, unit }: {
   title: string;
   text: string;
   label: string;
@@ -32,18 +32,25 @@ function OneLimit({ title, text, label, which, current, choices, show, editable,
   editable: boolean;
   data: Reply;
   onSaved: () => void;
+  /** typed in by hand (a whole number within the range) instead of picked from a list */
+  manual?: boolean;
+  range?: Range;
+  unit?: string;
 }) {
   const act = useAction(onSaved);
   const [draft, setDraft] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const root = data.items.find((p) => p.kind === 'global') ?? null;
   const value = draft ?? String(current);
+  const typed = Number(value);
+  const bad = !!manual && (value.trim() === '' || !Number.isInteger(typed) || (range ? typed < range.min || typed > range.max : typed < 1));
+  const problem = manual && draft !== null && bad ? (range ? `Enter a whole number from ${range.min} to ${range.max}.` : 'Enter a whole number.') : null;
   const dirty = draft !== null && draft !== String(current);
   const options = [...new Set([...choices, current])].sort((a, b) => a - b);
 
   const save = () =>
     act.run(async () => {
-      if (!root) return;
+      if (!root || bad) return;
       // under the hood it is the value on the top place; a city that still had its own value would override it, so those are cleared
       await api('PATCH', `/v1/admin/regions/${root.key}`, { [which]: Number(value) });
       const own = data.items.filter((p) => p.kind !== 'global' && p[which] !== null);
@@ -58,10 +65,15 @@ function OneLimit({ title, text, label, which, current, choices, show, editable,
       <div className="set-limit-text">
         <strong>{title}</strong>
         <span className="muted small">{text}</span>
-        {act.error && <span className="small" style={{ color: 'var(--bad-fg)' }}>{act.error}</span>}
+        {(act.error || problem) && <span className="small" style={{ color: 'var(--bad-fg)' }}>{act.error ?? problem}</span>}
       </div>
       <div className="set-limit-set">
-        {editable ? (
+        {editable && manual ? (
+          <span className="limit-manual">
+            <input type="text" inputMode="numeric" aria-label={label} aria-invalid={problem ? true : undefined} value={value} disabled={act.busy} onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))} onKeyDown={(e) => e.key === 'Enter' && dirty && !bad && save()} style={{ width: 72 }} />
+            <span className="muted small">{unit ?? ''}</span>
+          </span>
+        ) : editable ? (
           <Select compact aria-label={label} value={value} onChange={setDraft} disabled={act.busy}>
             {options.map((n) => (
               <option key={n} value={n}>
@@ -77,7 +89,7 @@ function OneLimit({ title, text, label, which, current, choices, show, editable,
             <button className="btn small" onClick={() => setDraft(null)} disabled={act.busy}>
               Cancel
             </button>
-            <button className="btn small primary" onClick={save} disabled={act.busy}>
+            <button className="btn small primary" onClick={save} disabled={act.busy || bad}>
               {act.busy ? 'Saving…' : 'Save'}
             </button>
           </div>
@@ -117,6 +129,9 @@ export function LimitCard({ me, side }: { me: Session; side: 'here' | 'there' })
             which={side === 'here' ? 'hereMonths' : 'thereMonths'}
             current={side === 'here' ? root.effective.here : root.effective.there}
             choices={monthChoices}
+            manual
+            range={range}
+            unit="months"
             show={months}
             editable={editable}
             data={data}
@@ -130,6 +145,9 @@ export function LimitCard({ me, side }: { me: Session; side: 'here' | 'there' })
               which="areaKm"
               current={root.effective.area}
               choices={kmChoices}
+              manual
+              range={kmRange}
+              unit="km"
               show={kms}
               editable={editable}
               data={data}

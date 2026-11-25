@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, cap, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, Icon, Loading, Page, PageBar, ProofImages, Search, Segmented, useAction, useLoad, type Tone } from '../ui';
+import { askText, cap, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, Icon, Loading, Page, PageBar, ProofImages, Search, Segmented, setUrlParam, urlParam, useAction, useLoad, type Tone } from '../ui';
 
 type Appeal = {
   id: string;
@@ -64,7 +64,8 @@ function lines(a: Appeal): [string, string][] {
 }
 
 export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: string, from?: string) => void }) {
-  const [view, setView] = useState<View>('open');
+  const [view, setView] = useState<View>(() => (['open', 'upheld', 'rejected'].includes(urlParam('astate') ?? '') ? (urlParam('astate') as View) : 'open'));
+  const want = useRef<string | null>(urlParam('appeal')); // opened from a report's "View appeal"
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
   useEffect(() => {
@@ -76,8 +77,10 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
   const [pane, setPane] = useState<'list' | 'detail'>('list');
   useEffect(() => {
     setPageNo(1);
-    setSel(null);
-    setPane('list');
+    setSel(want.current);
+    setPane(want.current ? 'detail' : 'list');
+    if (want.current) (setUrlParam('appeal', null), setUrlParam('astate', null));
+    want.current = null;
   }, [view, term]);
   const first = useLoad(() => get<{ items: Appeal[]; page?: number; pages?: number; total?: number }>(`/v1/admin/appeals?page=${pageNo}&limit=20&state=${view}${term ? `&q=${encodeURIComponent(term)}` : ''}`), [view, pageNo, term], 6000);
   const act = useAction(first.reload);
@@ -219,7 +222,7 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
                 )}
 
                 {selected.state === 'open' && canDecide(selected) && (
-                  <div className="actions-bar detail-foot" style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+                  <div className="actions-bar detail-foot">
                     <button className="btn" onClick={() => reply(selected)} disabled={act.busy}>
                       Reply
                     </button>

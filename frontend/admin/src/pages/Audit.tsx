@@ -123,6 +123,7 @@ export function say(e: E, names: Record<string, string>): Said {
       add('Area', name(m?.regionKey, ''));
       add('Can use', list(m?.permissions));
       return byWho(['added ', obj, ' as staff']);
+    case 'staff.delete': return byWho(['deleted the staff account of ', obj]);
     case 'staff.update': {
       const before = (m?.before ?? {}) as Record<string, unknown>;
       const after = (m?.after ?? {}) as Record<string, unknown>;
@@ -154,6 +155,7 @@ export function say(e: E, names: Record<string, string>): Said {
       facts.push(m?.days ? `For ${m.days} ${m.days === 1 ? 'day' : 'days'}` : 'Until restored');
       return byWho(['suspended ', obj]);
     case 'user.restore': add('Reason', reason); return byWho(['restored ', obj]);
+    case 'attendance.marked': return byWho(['said ', { b: name(m?.userId) }, ` did not come to the ${e.objectType === 'trip' ? 'trip' : 'activity'} `, obj]);
     case 'attendance.host_flagged':
       if (Array.isArray(m?.reasons)) facts.push(...(m.reasons as string[]).map((r) => cap(r)));
       return s(obj, ' was flagged for marking many people as no-shows');
@@ -314,6 +316,14 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  // a click anywhere on a record opens or closes its details; a click on a button or link inside it, or the end of selecting some text, does not
+  const toggleRow = (ev: { target: EventTarget | null }, id: string) => {
+    const el = ev.target as HTMLElement | null;
+    if (el?.closest('button, a, input, select, textarea')) return;
+    if (window.getSelection()?.toString()) return;
+    setOpen((cur) => (cur === id ? null : id));
+  };
+
   return (
     <Page
       fill
@@ -363,11 +373,6 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
             }}
           />
         )}
-        {filtered && (
-          <button type="button" className="btn small ghost" onClick={() => (setQ(''), setKind(''), setWho(''), setRange('7d'), setFromDay(''), setToDay(''))}>
-            Reset
-          </button>
-        )}
       
         <Select aria-label="Category" value={kind} onChange={(v) => setKind(v as '' | Kind)}>
           {FILTERS.map((f) => (
@@ -402,7 +407,7 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
                   const report = e.objectType === 'report' && openReport;
                   return (
                     <Fragment key={e.id}>
-                      <tr>
+                      <tr className="au-click" onClick={(ev) => toggleRow(ev, e.id)}>
                         <td>
                           <span className="strong">{t.day}</span>
                           <span className="muted small" style={{ display: 'block' }}>
@@ -425,13 +430,13 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
                           </span>
                         </td>
                         <td className="end">
-                          <button type="button" className={isOpen ? 'au-chev open' : 'au-chev'} aria-expanded={isOpen} aria-label={isOpen ? 'Hide details' : 'Show details'} onClick={() => setOpen(isOpen ? null : e.id)}>
+                          <button type="button" className={isOpen ? 'au-chev open' : 'au-chev'} aria-expanded={isOpen} aria-label={isOpen ? 'Hide details' : 'Show details'} onClick={(ev) => (ev.stopPropagation(), setOpen(isOpen ? null : e.id))}>
                             <Icon name="chevron" />
                           </button>
                         </td>
                       </tr>
                       {isOpen && (
-                        <tr className="au-detail-row">
+                        <tr className="au-detail-row au-click" onClick={(ev) => toggleRow(ev, e.id)}>
                           <td colSpan={5}>
                             <div className="au-detail" style={{ margin: 0 }}>
                               <dl className="au-facts">

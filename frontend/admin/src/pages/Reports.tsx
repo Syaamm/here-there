@@ -41,7 +41,7 @@ type Evidence = {
 };
 
 const NO_SHOW = 'host_no_show';
-const CATEGORIES = [NO_SHOW, 'immediate_danger', 'harassment', 'fraud', 'inappropriate_content', 'underage', 'physical_safety', 'spam', 'financial_solicitation'];
+const CATEGORIES = ['immediate_danger', 'harassment', 'fraud', 'inappropriate_content', 'underage', 'physical_safety', 'spam', 'financial_solicitation'];
 const WORDS: Record<string, string> = {
   host_no_show: 'Host did not show up',
   immediate_danger: 'Someone is in danger',
@@ -436,64 +436,18 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
 
 type ReportAppealRow = { id: string; state: 'open' | 'upheld' | 'rejected'; message: string; decision: string | null; createdAt: string; decidedAt: string | null; proofs?: string[]; thread?: { id: string; fromStaff: boolean; body: string; createdAt: string }[]; user: { displayName: string | null; email: string } };
 
-/** The appeal of a decided report, when the person asked for one: "View appeal", then Accept or Reject while it waits. */
-function ReportAppeal({ reportId, me }: { reportId: string; me: Session }) {
-  const [open, setOpen] = useState(false);
+/** The appeal of a decided report, when the person asked for one: View appeal only. It is answered under Appeals. */
+function ReportAppeal({ reportId }: { reportId: string; me?: Session }) {
   const list = useLoad(() => get<{ items: ReportAppealRow[] }>(`/v1/admin/appeals?reportId=${encodeURIComponent(reportId)}&limit=1`), [reportId], 8000);
-  const act = useAction(list.reload);
   const a = list.data?.items[0];
   if (!a) return null;
-  const decide = async (decision: 'uphold' | 'reject') => {
-    const note = await askText(decision === 'uphold' ? 'Accept appeal' : 'Reject appeal', { label: 'Note (shown to the person)', confirm: decision === 'uphold' ? 'Accept' : 'Reject' });
-    if (note) act.run(() => post(`/v1/admin/appeals/${a.id}/decision`, { decision, note }));
-  };
   return (
-    <div className="stack" style={{ gap: 12, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
-      <div className="row wrap" style={{ gap: 8 }}>
+    <div className="detail-foot detail-decide" style={{ gap: 8 }}>
         <h3 style={{ margin: 0, flex: 1 }}>Appeal</h3>
         <Chip value={a.state === 'open' ? 'Waiting' : a.state === 'upheld' ? 'Accepted' : 'Rejected'} tone={a.state === 'upheld' ? 'ok' : a.state === 'open' ? 'line' : 'plain'} />
-        <button className="btn small" onClick={() => setOpen((v) => !v)}>
-          {open ? 'Hide appeal' : 'View appeal'}
+        <button className="btn small" onClick={() => window.dispatchEvent(new CustomEvent('ht-open-appeal', { detail: { id: a.id, state: a.state } }))}>
+          View appeal
         </button>
-      </div>
-      {open && (
-        <>
-          <ErrorBanner message={act.error} />
-          <div className="box">
-            <span className="label">What {a.user.displayName ?? a.user.email} says · {fmt(a.createdAt)}</span>
-            <p className="quote">{cap(a.message)}</p>
-          </div>
-          {(a.thread?.length ?? 0) > 0 && (
-            <ul className="timeline">
-              {a.thread!.map((m) => (
-                <li key={m.id}>
-                  <span className="muted">{fmt(m.createdAt)}</span>
-                  <span>
-                    <b>{m.fromStaff ? 'You' : (a.user.displayName ?? 'They')}:</b> {cap(m.body)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {a.decision && (
-            <div className="box">
-              <span className="label">Our decision{a.decidedAt ? ` · ${fmt(a.decidedAt)}` : ''}</span>
-              <p>{cap(a.decision)}</p>
-            </div>
-          )}
-        </>
-      )}
-      {a.state === 'open' && can.moderate(me.role) && (
-        <div className="actions-bar">
-          <span style={{ flex: 1 }} />
-          <button className="btn primary" disabled={act.busy} onClick={() => decide('uphold')}>
-            Accept appeal
-          </button>
-          <button className="btn" disabled={act.busy} onClick={() => decide('reject')}>
-            Reject appeal
-          </button>
-        </div>
-      )}
     </div>
   );
 }

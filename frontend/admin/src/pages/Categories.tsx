@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, BASE, get, post } from '../api';
 import { useBackdropClose } from '../controls';
-import { Chip, Empty, ErrorBanner, Icon, Loading, Switch, useAction, useLoad } from '../ui';
+import { askConfirm, Chip, Empty, ErrorBanner, Icon, Loading, Switch, useAction, useLoad } from '../ui';
 
 type Kind = 'here' | 'there';
 type Category = { id: string; kind: Kind; key: string; label: string; emoji: string; color: string; imageUrl: string | null; position: number; active: boolean; uses: number };
@@ -11,16 +11,20 @@ const KINDS: { id: Kind; label: string; noun: string; use: string }[] = [
   { id: 'there', label: 'Travel', noun: 'travel', use: 'trips' },
 ];
 
-/** The picture of a category as the app shows it (a round crop), or its emoji when it has none. */
-function Pic({ src, emoji, size = 40 }: { src?: string | null; emoji?: string; size?: number }) {
+/** The picture of a category as the app shows it (a round crop). With none, a plain stand-in: a person for HERE (like a profile with no photo), a plane for THERE. */
+function Pic({ src, kind, size = 40 }: { src?: string | null; kind: Kind; size?: number }) {
   if (src) {
     // an address from the server is relative to it; a picture just chosen is already a full address
     const full = /^(blob:|https?:)/.test(src) ? src : BASE + src;
     return <img src={full} alt="" width={size} height={size} style={{ borderRadius: '50%', objectFit: 'cover', flex: 'none' }} />;
   }
   return (
-    <span aria-hidden style={{ width: size, height: size, borderRadius: '50%', background: '#e9e5da', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.5, flex: 'none' }}>
-      {emoji || '•'}
+    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', background: '#e4e1d8', color: '#a9a595', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flex: 'none', verticalAlign: 'middle' }}>
+      {kind === 'there' ? (
+        <svg viewBox="0 0 24 24" width={size * 0.5} height={size * 0.5} fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z" /></svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={{ overflow: 'hidden' }}><circle cx="12" cy="9.2" r="4.1" /><path d="M-4 30c0-9.5 6-14 16-14s16 4.5 16 14z" /></svg>
+      )}
     </span>
   );
 }
@@ -33,8 +37,8 @@ export function CategoriesPanel({ kind, limit }: { kind: Kind; limit?: ReactNode
   const info = KINDS.find((k) => k.id === kind)!;
   const items = (data?.items ?? []).filter((c) => c.kind === kind).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
-  const remove = (c: Category) => {
-    if (confirm(`Remove ${c.label}?`)) act.run(async () => (await api('DELETE', `/v1/admin/categories/${c.id}`), setEditing(null)));
+  const remove = async (c: Category) => {
+    if (await askConfirm(`Remove ${c.label}?`, 'People will no longer be able to choose it.', 'Remove')) act.run(async () => (await api('DELETE', `/v1/admin/categories/${c.id}`), setEditing(null)));
   };
 
   const title = kind === 'here' ? 'Here' : 'There';
@@ -74,8 +78,8 @@ export function CategoriesPanel({ kind, limit }: { kind: Kind; limit?: ReactNode
                 {items.map((c) => (
                   <tr key={c.id} style={c.active ? undefined : { opacity: 0.6 }}>
                     <td>
-                      <div className="row">
-                        <Pic src={c.imageUrl} emoji={c.emoji} size={32} />
+                      <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'nowrap' }}>
+                        <Pic src={c.imageUrl} kind={c.kind} size={32} />
                         <span className="strong">{c.label}</span>
                       </div>
                     </td>
@@ -162,7 +166,7 @@ function CategoryForm({ kind, category, busy, error, onClose, onRemove, onSave }
         </p>
         <ErrorBanner message={error ?? problem} />
         <div className="row" style={{ gap: 16, alignItems: 'center' }}>
-          <Pic src={shown} emoji={emoji} size={88} />
+          <Pic src={shown} kind={kind} size={88} />
           <div style={{ display: 'grid', gap: 8, justifyItems: 'start' }}>
             <input ref={picker} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => (choose(e.target.files?.[0]), (e.target.value = ''))} />
             <button type="button" className="btn small" onClick={() => picker.current?.click()} disabled={busy}>

@@ -62,11 +62,11 @@ export class NotificationsController {
    * with them get it here from the warning or the message itself (two small reads for the whole page, only when needed).
    */
   private async withReasons<T extends { type: string; data: Record<string, unknown> | null }>(items: T[]): Promise<T[]> {
-    const warnIds = items.filter((n) => n.type === 'warning' && n.data?.warningId && (!n.data.reason || !n.data.aboutId)).map((n) => String(n.data!.warningId));
+    const warnIds = items.filter((n) => n.type === 'warning' && n.data?.warningId && (!n.data.reason || !n.data.aboutId || n.data.appealable === undefined)).map((n) => String(n.data!.warningId));
     const msgIds = items.filter((n) => n.type === 'message_removed' && n.data?.messageId && !n.data.reason).map((n) => String(n.data!.messageId));
     if (warnIds.length === 0 && msgIds.length === 0) return items;
     const [warns, msgs] = await Promise.all([
-      warnIds.length ? this.prisma.userWarning.findMany({ where: { id: { in: warnIds } }, select: { id: true, reason: true, aboutType: true, aboutId: true } }) : [],
+      warnIds.length ? this.prisma.userWarning.findMany({ where: { id: { in: warnIds } }, select: { id: true, reason: true, aboutType: true, aboutId: true, reportId: true, messageId: true } }) : [],
       msgIds.length ? this.prisma.message.findMany({ where: { id: { in: msgIds } }, select: { id: true, removedReason: true } }) : [],
     ]);
     const reasonOf = new Map<string, string | null>([...warns.map((w) => [w.id, w.reason] as const), ...msgs.map((m) => [m.id, m.removedReason] as const)]);
@@ -78,7 +78,12 @@ export class NotificationsController {
     ]);
     const titleOf = new Map<string, string>([...acts, ...trips].map((p) => [p.id, p.title] as const));
     const aboutOf = new Map(plans.filter((w) => titleOf.has(w.aboutId!)).map((w) => [w.id, { aboutType: w.aboutType!, aboutId: w.aboutId!, aboutTitle: titleOf.get(w.aboutId!)! }] as const));
+    // older warnings carry no "appealable": one given from the person's profile (no report, no message) cannot be appealed
+    const appealableOf = new Map(warns.map((w) => [w.id, !!(w.reportId || w.messageId)] as const));
     return items.map((n) => {
+      if (n.type === 'warning' && n.data?.warningId && n.data.appealable === undefined && appealableOf.get(String(n.data.warningId)) === false) {
+        n = { ...n, data: { ...n.data, appealable: false }, ...('body' in n && /ask for a review/.test(String((n as { body?: string }).body)) ? { body: 'Tap to read why.' } : {}) } as T;
+      }
       const key = n.type === 'warning' ? n.data?.warningId : n.type === 'message_removed' ? n.data?.messageId : undefined;
       const reason = key ? reasonOf.get(String(key)) : undefined;
       const about = n.type === 'warning' && key && !n.data?.aboutId ? aboutOf.get(String(key)) : undefined;

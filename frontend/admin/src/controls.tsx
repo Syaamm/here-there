@@ -342,18 +342,22 @@ export function DateField({
   const today = new Date();
   const clamp = (d: Date) => (lo && d < lo ? lo : hi && d > hi ? hi : d);
   const [focusDay, setFocusDay] = useState<Date>(() => clamp(sel ?? today));
+  // what the calendar shows: the days of a month, the months of a year, or a page of years (click the title to go up one level)
+  const [mode, setMode] = useState<'days' | 'months' | 'years'>('days');
+  const [yearFrom, setYearFrom] = useState(() => focusDay.getFullYear() - 5);
   const place = usePlacement(open, btn, panel, 296);
   const close = useCallback(() => setOpen(false), []);
   useDismiss(open, close, wrap, panel);
 
   const show = () => {
     setFocusDay(clamp(sel ?? today));
+    setMode('days');
     setOpen(true);
   };
   // the keyboard focus goes into the calendar when it opens, and follows the chosen day as it moves
   useEffect(() => {
-    if (open && place) panel.current?.querySelector<HTMLButtonElement>('button[data-day][tabindex="0"]')?.focus({ preventScroll: true });
-  }, [open, focusDay, !!place]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (open && place && mode === 'days') panel.current?.querySelector<HTMLButtonElement>('button[data-day][tabindex="0"]')?.focus({ preventScroll: true });
+  }, [open, focusDay, !!place, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const off = (d: Date) => !!((lo && d < lo) || (hi && d > hi));
   const pickDay = (d: Date) => {
     if (off(d)) return;
@@ -369,6 +373,11 @@ export function DateField({
 
   const move = (e: React.KeyboardEvent) => {
     const go = (d: Date) => (e.preventDefault(), setFocusDay(clamp(d)));
+    // in the month and year views Escape goes back to the days; the other keys work with the buttons
+    if (mode !== 'days') {
+      if (e.key === 'Escape') return (e.preventDefault(), e.stopPropagation(), setMode('days'));
+      return;
+    }
     if (e.key === 'Escape') return (e.preventDefault(), e.stopPropagation(), setOpen(false), btn.current?.focus());
     if (e.key === 'Tab') return setOpen(false);
     if (e.key === 'ArrowLeft') return go(addDays(focusDay, -1));
@@ -414,15 +423,71 @@ export function DateField({
           onKeyDown={move}
           onClick={(e) => e.preventDefault()}
         >
-          <div className="cal-head">
-            <button type="button" className="cal-nav" aria-label="Previous month" disabled={!prevOk} onClick={() => setFocusDay(clamp(addMonths(focusDay, -1)))}>
-              <Chevron className="cal-prev" />
-            </button>
-            <strong aria-live="polite">{monthName}</strong>
-            <button type="button" className="cal-nav" aria-label="Next month" disabled={!nextOk} onClick={() => setFocusDay(clamp(addMonths(focusDay, 1)))}>
-              <Chevron className="cal-next" />
-            </button>
-          </div>
+          {mode === 'days' ? (
+            <div className="cal-head">
+              <button type="button" className="cal-nav" aria-label="Previous month" disabled={!prevOk} onClick={() => setFocusDay(clamp(addMonths(focusDay, -1)))}>
+                <Chevron className="cal-prev" />
+              </button>
+              <button type="button" className="cal-title" aria-live="polite" aria-label={`${monthName}: choose a month or year`} onClick={() => setMode('months')}>
+                {monthName}
+              </button>
+              <button type="button" className="cal-nav" aria-label="Next month" disabled={!nextOk} onClick={() => setFocusDay(clamp(addMonths(focusDay, 1)))}>
+                <Chevron className="cal-next" />
+              </button>
+            </div>
+          ) : mode === 'months' ? (
+            <>
+              <div className="cal-head">
+                <button type="button" className="cal-nav" aria-label="Previous year" disabled={!!lo && focusDay.getFullYear() <= lo.getFullYear()} onClick={() => setFocusDay(clamp(addMonths(focusDay, -12)))}>
+                  <Chevron className="cal-prev" />
+                </button>
+                <button type="button" className="cal-title" aria-label={`${focusDay.getFullYear()}: choose a year`} onClick={() => (setYearFrom(focusDay.getFullYear() - 5), setMode('years'))}>
+                  {focusDay.getFullYear()}
+                </button>
+                <button type="button" className="cal-nav" aria-label="Next year" disabled={!!hi && focusDay.getFullYear() >= hi.getFullYear()} onClick={() => setFocusDay(clamp(addMonths(focusDay, 12)))}>
+                  <Chevron className="cal-next" />
+                </button>
+              </div>
+              <div className="cal-pick" role="group" aria-label="Months">
+                {Array.from({ length: 12 }, (_, m) => {
+                  const d = new Date(focusDay.getFullYear(), m, 1);
+                  const gone = (!!hi && d > hi) || (!!lo && new Date(focusDay.getFullYear(), m + 1, 0) < lo);
+                  const here = m === today.getMonth() && focusDay.getFullYear() === today.getFullYear();
+                  return (
+                    <button key={m} type="button" disabled={gone} className={`cal-opt${m === focusDay.getMonth() ? ' sel' : ''}${here ? ' today' : ''}`} onClick={() => (setFocusDay(clamp(new Date(focusDay.getFullYear(), m, Math.min(focusDay.getDate(), 28)))), setMode('days'))}>
+                      {d.toLocaleDateString('en-GB', { month: 'short' })}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="cal-head">
+                <button type="button" className="cal-nav" aria-label="Earlier years" disabled={!!lo && yearFrom <= lo.getFullYear()} onClick={() => setYearFrom(yearFrom - 12)}>
+                  <Chevron className="cal-prev" />
+                </button>
+                <strong>
+                  {yearFrom} – {yearFrom + 11}
+                </strong>
+                <button type="button" className="cal-nav" aria-label="Later years" disabled={!!hi && yearFrom + 11 >= hi.getFullYear()} onClick={() => setYearFrom(yearFrom + 12)}>
+                  <Chevron className="cal-next" />
+                </button>
+              </div>
+              <div className="cal-pick" role="group" aria-label="Years">
+                {Array.from({ length: 12 }, (_, i) => {
+                  const y = yearFrom + i;
+                  const gone = (!!lo && y < lo.getFullYear()) || (!!hi && y > hi.getFullYear());
+                  return (
+                    <button key={y} type="button" disabled={gone} className={`cal-opt${y === focusDay.getFullYear() ? ' sel' : ''}${y === today.getFullYear() ? ' today' : ''}`} onClick={() => (setFocusDay(clamp(new Date(y, focusDay.getMonth(), Math.min(focusDay.getDate(), 28)))), setMode('months'))}>
+                      {y}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {mode === 'days' && (
           <div className="cal-grid" role="grid" aria-label={monthName}>
             {WEEKDAYS.map((w) => (
               <span key={w} className="cal-dow" role="columnheader">
@@ -452,6 +517,7 @@ export function DateField({
               );
             })}
           </div>
+          )}
           <div className="cal-foot">
             <button type="button" className="link small" disabled={off(today)} onClick={() => pickDay(today)}>
               Today

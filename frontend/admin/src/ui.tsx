@@ -563,6 +563,7 @@ const ICONS = {
   arrow: 'M5 12h14M13 6l6 6-6 6',
   back: 'M19 12H5M11 6l-6 6 6 6',
   panelLeft: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 5v14',
+  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   copy: 'M9 9h11v11H9zM5 15V5a1 1 0 0 1 1-1h10',
   plane: 'M21 3L3 10.5l7 3 3 7zM10 13.5L21 3',
