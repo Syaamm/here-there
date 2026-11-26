@@ -17,6 +17,25 @@ export function useKeyboardShown() {
 }
 
 /**
+ * True from the moment the keyboard starts to open until it has FINISHED closing (not when it starts to close). A page that swaps
+ * a button between "at the end of the page" and "pinned" uses it, so the button rides down with the page while the keyboard goes
+ * and is only swapped for the pinned one once everything has stopped moving.
+ */
+export function useKeyboardUp() {
+  const [up, setUp] = useState(false);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setUp(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setUp(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return up;
+}
+
+/**
  * How much of THIS screen's bottom the on-screen keyboard covers, as an animated number that follows the keyboard's own
  * movement. Put `inset` as the bottom padding of a screen that ends at the bottom edge (a chat, a form, a sheet), `box`
  * as that view's ref and `onLayout` as its onLayout: the input then sits exactly on top of the keyboard.

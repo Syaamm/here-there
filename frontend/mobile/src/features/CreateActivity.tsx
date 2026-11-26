@@ -29,7 +29,7 @@ import { useAction, useLoad } from '@/lib/hooks';
 import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
 import { success, tap } from '@/lib/haptics';
-import { closeKeyboard } from '@/lib/keyboard';
+import { closeKeyboard, useKeyboardUp } from '@/lib/keyboard';
 import { scrollToField } from '@/lib/pageScroll';
 import { localeTag, useT } from '@/lib/i18n';
 import { sc, sp, sph } from '@/lib/scale';
@@ -319,6 +319,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const clock = (d: Date) => timeText(d, WALL); // the app's one time format (lib/format)
 
   const [step, setStep] = useState(0);
+  const typing = useKeyboardUp(); // keyboard open: Continue is part of the page (at its end) instead of pinned, so the page can be scrolled without closing the keyboard
   const [barH, setBarH] = useState(0); // the height of the pinned Continue bar, so the page can scroll clear of it
   // a Continue that found something missing: that field is shown to the person (scrolled to, marked red), no message
   const [tried, setTried] = useState(false);
@@ -565,7 +566,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
         place={f.place}
         onPlace={(p) => setF((prev) => ({ ...prev, place: p, venueName: p ? p.name : prev.venueName }))}
         city={city}
-        near={cityPos}
+        near={cityPos ?? (centre ? { lat: centre[0], lng: centre[1] } : null)}
         inputRef={placeRef}
         onSubmit={reviewing ? () => Keyboard.dismiss() : nextFromKeyboard}
       />
@@ -644,6 +645,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const venue = f.place ? f.place.name : f.venueName.trim();
   const live = { f, startsAt, endsAt, venue, city: city.trim(), stepOk, busy, placeOk, valid };
   const view = pop && frozen.current ? frozen.current : live;
+  const continueButton = <AuthButton compact title={step < 3 ? t('Continue') : t('Review')} disabled={step === 2 && placeFar && !!f.place} onPress={next} />;
   return (
     <View style={{ flex: 1 }}>
       {reviewing ? (
@@ -702,7 +704,7 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
       ) : null}
       {/* the steps stay mounted under the review page, so going back to edit keeps everything (and a draft opened meanwhile still loads) */}
       <View style={reviewing ? { display: 'none' } : { flex: 1 }}>
-      <Screen tabBar plain bottomRoom={barH} header={
+      <Screen tabBar plain bottomRoom={typing ? 0 : barH} header={
     <WizardTop
       step={step}
       title={stepTitles[step]}
@@ -747,11 +749,11 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
 
         {/* on every step: saving a draft (a draft opened from My drafts loads whichever step is showing) */}
         <DraftBar kind="activity" data={f} onLoad={loadDraft} beforeLoad={stashNow} showMyDrafts={step === 0} named={f.title.trim().length > 0} />
+        {/* the last thing on the page: Continue (pinned instead while the keyboard is down) */}
+        {typing ? continueButton : null}
       </Screen>
       {/* Continue stays at the bottom of the screen, whatever the step is long */}
-      <BottomBar onHeight={setBarH}>
-        <AuthButton compact title={step < 3 ? t('Continue') : t('Review')} disabled={step === 2 && placeFar && !!f.place} onPress={next} />
-      </BottomBar>
+      {!typing ? <BottomBar onHeight={setBarH}>{continueButton}</BottomBar> : null}
       </View>
     </View>
   );

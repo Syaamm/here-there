@@ -1,6 +1,6 @@
 {
   "name": "@here-there/mobile",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "main": "expo-router/entry",
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
@@ -9,9 +9,11 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-firebase/app": "27.1.0",
     "@react-native-firebase/messaging": "27.1.0",
+    "@react-native-google-signin/google-signin": "^17.0.0",
     "@types/leaflet": "^1.9.22",
     "expo": "~58.0.23",
     "expo-alternate-app-icons": "^8.0.0",
+    "expo-apple-authentication": "~58.0.3",
     "expo-build-properties": "~58.0.12",
     "expo-constants": "~58.0.13",
     "expo-dev-client": "~58.0.18",

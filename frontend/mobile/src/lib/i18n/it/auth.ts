@@ -223,4 +223,9 @@ export const auth: Record<string, string> = {
   'A small group (3–5 people)': 'Un piccolo gruppo (3–5 persone)',
   'A larger group (6+ people)': 'Un gruppo più grande (6+ persone)',
   "I'm open to anything": 'Sono aperto a tutto',
+  // Continue with Apple / Google
+  'or': 'oppure',
+  'Continue with Google': 'Continua con Google',
+  'To create an account you must be 18 or older. Are you?': 'Per creare un account devi avere almeno 18 anni. Li hai?',
+  'I am 18 or older': 'Ho almeno 18 anni',
 };

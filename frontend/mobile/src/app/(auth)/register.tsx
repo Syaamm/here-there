@@ -5,6 +5,7 @@ import { CityField } from '@/components/OnboardingParts';
 import { Text } from '@/components/ScaledText';
 import { useTheme } from '@/lib/theme';
 import { AuthBack, AuthButton, AuthCheck, AuthField, AuthHeading, AuthSwitch, type InputHandle } from '@/components/AuthForm';
+import { SocialButtons } from '@/components/SocialButtons';
 import { Banner, Btn, ErrorBanner, Screen, Txt } from '@/components/ui';
 import { LegalLinks } from '@/components/LegalLinks';
 import { post } from '@/lib/api';
@@ -101,6 +102,7 @@ export default function Register() {
         </View>
         <AuthCheck checked={adult} onChange={setAdult} label={t('I confirm that I am 18 or older.')} />
         <AuthButton title={t('Create account')} onPress={submit} loading={act.busy} disabled={!valid} />
+        <SocialButtons adultConfirmed={adult} />
       </View>
       <LegalLinks lead={t('By creating an account you agree to:')} color={c.muted} linkColor={c.forest} size={13} />
       <AuthSwitch prompt={t('Already have an account?')} action={t('Log in')} onPress={() => router.replace('/login')} />

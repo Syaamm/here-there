@@ -12,6 +12,7 @@ import { Avatar, Banner, ErrorBanner, Row, Screen, Txt } from '@/components/ui';
 import { del, patch, uploadPhoto } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { HERE_INTERESTS, LANGUAGES, THERE_INTERESTS } from '@/lib/constants';
+import { useCity } from '@/lib/city';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
@@ -35,10 +36,14 @@ export default function EditProfile() {
     languages: p?.languages ?? [],
     interests: p?.interests ?? [],
   });
+  const [, , pickCity] = useCity(); // the home city is also the city the app shows (home, map, search) once it is saved
+  const cityAt = useRef<{ lat: number; lng: number } | null>(null);
   const photo = useAction(() => void reload());
   const saved = useRef(false); // once saved, leaving needs no question
   const save = useAction(() => {
     saved.current = true;
+    const next = f.homeCity.trim();
+    if (next && next !== (p?.homeCity ?? '')) pickCity(next, cityAt.current);
     void reload();
     router.canGoBack() ? router.back() : router.replace('/profile');
   });
@@ -117,7 +122,7 @@ export default function EditProfile() {
         <AuthField label={t('About you')} hint={`${f.bio.length}/${BIO_MAX}`} placeholder={t('A few words about you')} multiline value={f.bio} onChangeText={(v) => setF((x) => ({ ...x, bio: v.slice(0, BIO_MAX) }))} maxLength={BIO_MAX} style={{ minHeight: sc(96), borderRadius: sc(28), textAlignVertical: 'top', paddingTop: sp(14) }} />
         <View style={{ gap: sp(14) }}>
           <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '600', paddingLeft: 2 }}>{t('Home city (city only)')}</Text>
-          <CityField value={f.homeCity} onPick={(name) => setF((x) => ({ ...x, homeCity: name }))} />
+          <CityField value={f.homeCity} onPick={(name, at) => { cityAt.current = at ?? null; setF((x) => ({ ...x, homeCity: name })); }} />
         </View>
         <View style={{ gap: sp(14) }}>
           <Text accessibilityRole="header" style={{ color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '600', paddingLeft: 2 }}>{t('Languages')}</Text>

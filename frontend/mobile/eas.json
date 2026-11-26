@@ -23,7 +23,7 @@
       "channel": "production",
       "distribution": "store",
       "autoIncrement": true,
-      "android": { "buildType": "apk" },
+      "android": { "buildType": "app-bundle" },
       "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site" }
     },
     "development-testflight": { "extends": "development", "distribution": "store", "autoIncrement": true },

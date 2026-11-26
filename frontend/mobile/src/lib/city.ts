@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import tzlookup from 'tz-lookup';
-import { get } from './api';
+import { get, patch } from './api';
 import { setViewZone } from './format';
 import { useMe } from './auth';
 import { setLiveCity } from './live';
@@ -114,7 +114,7 @@ function useOwner() {
 
 /** The city the user is browsing. Chosen manually, so location permission is never required to use the app. */
 export function useCity() {
-  const { me } = useMe();
+  const { me, reload } = useMe();
   useOwner();
   useEffect(load, []);
   const chosen = useSyncExternalStore(subscribe, () => city);
@@ -122,7 +122,19 @@ export function useCity() {
   const shown = chosen || me?.profile?.homeCity || 'Milan';
   useEffect(() => setLiveCity(shown), [shown]);
   useEffect(() => watchArea(shown), [shown]);
-  return [shown, pickCity] as const;
+  // Picking a city on a screen (home, map) also makes it the home city in the profile, so the two always agree. The third value
+  // changes only the app's city ("Near me", or a screen that saves the profile itself).
+  const pickAndSave = useCallback(
+    (next: string, at?: Near | null) => {
+      pickCity(next, at);
+      const name = next.trim();
+      if (name.length >= 2 && me && name.toLowerCase() !== (me.profile?.homeCity ?? '').trim().toLowerCase()) {
+        patch('/v1/me/profile', { homeCity: name }).then(() => reload()).catch(() => {});
+      }
+    },
+    [me, reload],
+  );
+  return [shown, pickAndSave, pickCity] as const;
 }
 
 /**

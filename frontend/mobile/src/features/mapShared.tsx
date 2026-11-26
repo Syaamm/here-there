@@ -102,7 +102,7 @@ export function useCityCenter(city: string, picked: { lat: number; lng: number }
 /** Everything both map screens share: the data, "Near me", and which pin is selected. Venues only, never people. */
 export function useMapData() {
   const { t } = useT();
-  const [city, setCity] = useCity();
+  const [city, setCity, setCityOnly] = useCity();
   const cityPos = useCityPos();
   const [near, setNear] = useNear(); // kept across screens and app restarts until the person picks a city or taps "Whole city"
   const [cat, setCat] = useState(''); // '' = every category
@@ -341,7 +341,7 @@ export function useMapData() {
         if (cityCenterRef.current) setTarget({ lat: cityCenterRef.current[0], lng: cityCenterRef.current[1], zoom: 'city' });
         return;
       }
-      setCity(here.name, { lat: here.lat, lng: here.lng });
+      setCityOnly(here.name, { lat: here.lat, lng: here.lng }); // "Near me" while travelling must not rewrite the profile's home city
       setTarget({ lat: here.lat, lng: here.lng, zoom: 'city' });
       setGeoMsg(t('Now showing {city}, where you are.', { city: here.name }));
     } finally {

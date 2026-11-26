@@ -122,6 +122,15 @@ npm start -w @here-there/api
 
 `npm run deploy` builds everything (the database client, the API, and the website: the web app and the admin console), creates the database tables, and adds the first admin and sample data only if the database is empty. The API serves the website itself: the app at `/`, the admin console at `/admin/`, the API at `/v1`. Point your web server at the API's port and it is all live at the server's own address, on any domain, with no files to copy. A real launch needs more (keys, real providers): `deployment/FOR_DEPLOYMENT.md`.
 
+## Place search (where an activity happens)
+
+When someone hosts an activity they search for the place by name. Any named place on the map is allowed (hotels, shops, cafes, parks, museums), except places closed to the public or not for meeting strangers: military, government offices, police and fire stations, courts, prisons, embassies, schools, homes and the like. The search stays inside the chosen city (about 30 km around its centre), so a place with the same name in another country never shows. The server does it (`backend/api/src/places/places.controller.ts`, `kind=venue`):
+
+- **Google Places first**, when `GOOGLE_PLACES_API_KEY` is set in `backend/api/.env` (a key with *Places API (New)* only; it lives on the server and never reaches a phone). This finds the places Apple and Google Maps show.
+- **OpenStreetMap otherwise** (Photon, then Nominatim). It is free, but volunteers fill it in, so smaller restaurants are often missing. It is also the fallback when Google has no key, fails or finds nothing.
+
+The city comes from the app: a city picked on the home page or map is saved as the profile's home city, and a city saved in Edit profile becomes the app's city. "Near me" changes only what is on screen, not the profile.
+
 ## Tests
 
 ```
@@ -162,4 +171,4 @@ Some of these files are kept private and are listed in `.gitignore`.
 
 It is a solid prototype for a pilot (one district, hundreds of people). Load tests (`docs/LOAD_TEST.md`): chat with 2,000 simulated phones passed (2 Nov 2026); the full app at 5,000 phones on one laptop slowed down (3 Nov 2026), so launch needs several API processes. Before thousands of users it needs Postgres, a shared store such as Redis for live connections and rate limits, more than one API server, cloud storage for photos, real push notifications and a real identity provider. The order of that work is in `deployment/FOR_DEPLOYMENT.md`.
 
-Outside services that are still simulated in development: email and SMS sending, the identity provider (Persona works in its sandbox, iDenfy is built but untried with real keys), map keys, phone push (built on Firebase, not yet proven on a real phone), and Apple and Google sign-in.
+Outside services that are still simulated in development: email and SMS sending, the identity provider (Persona works in its sandbox, iDenfy is built but untried with real keys), map keys (the Android map key is an EAS variable; Google Places for place search is a server `.env` line), phone push (built on Firebase, not yet proven on a real phone), and Apple and Google sign-in.
