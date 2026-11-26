@@ -6,7 +6,7 @@ import { del, post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-
+
 import { sc, sp } from '@/lib/scale';
 /**
  * Optional mobile-number confirmation by SMS code (spec 3.1 step 2). Nothing in the app depends on it:
@@ -34,10 +34,10 @@ export function PhoneVerifyCard({ compact }: { compact?: boolean }) {
     return (
       <AcctCard style={{ gap: sp(8) }}>
         <Between>
-          <Txt variant="h3">{t('📱 Mobile number')}</Txt>
+          <Txt variant="h3">{t('Mobile number')}</Txt>
           <Btn title={t('Remove')} variant="ghost" small loading={remove.busy} onPress={() => remove.run(() => del('/v1/me/phone'))} />
         </Between>
-        <Banner tone="ok">{t('✓ Confirmed ({phone})', { phone: me.phone ?? '' })}</Banner>
+        <Banner tone="ok">{t('Confirmed ({phone})', { phone: me.phone ?? '' })}</Banner>
       </AcctCard>
     );
 
@@ -60,7 +60,7 @@ export function PhoneVerifyCard({ compact }: { compact?: boolean }) {
 
   return (
     <AcctCard style={{ gap: sp(14) }}>
-      <Txt variant="h3">{t('📱 Add your mobile number')} {compact ? t('(optional)') : ''}</Txt>
+      <Txt variant="h3">{t('Add your mobile number')} {compact ? t('(optional)') : ''}</Txt>
       <ErrorBanner message={send.error ?? verify.error} />
       <AuthField label={t('Mobile number')} placeholder="+39 333 123 4567" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" editable={!sent} />
       {!sent ? (

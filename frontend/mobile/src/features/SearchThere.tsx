@@ -9,7 +9,7 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { ThereFiltersSheet, useThereFilters } from './ThereFilters';
-
+
 import { sc, sp, sph } from '@/lib/scale';
 /** THERE · Search: date windows are compared for overlap; near-misses are labelled "approximate". */
 export function SearchThere() {
@@ -38,7 +38,7 @@ export function SearchThere() {
           inline
           value={destination}
           onChangeText={setDestination}
-          placeholder={t('Where next? For example, Japan')}
+          placeholder={t('Where next?')}
           onSubmit={() => search()}
           onClear={() => {
             setDestination('');

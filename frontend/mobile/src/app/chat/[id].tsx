@@ -17,7 +17,7 @@ import { ApiError, get, post, type ConversationRef, type GroupInfo, type Notif, 
 import { useMe } from '@/lib/auth';
 import { confirmAsync } from '@/lib/confirm';
 import { dateSpan, dayLabel, hhmm, isoDay, parseDay } from '@/lib/format';
-import { useKeyboardOverlap, useKeyboardShown, keyboardTaps } from '@/lib/keyboard';
+import { keyboardGap, useKeyboardOverlap, keyboardTaps } from '@/lib/keyboard';
 import { cursorDeps, errMsg, isOutage, patchCache, useAction, useLoad } from '@/lib/hooks';
 import { showToast } from '@/lib/toast';
 import { BackArrow } from '@/components/TabHeader';
@@ -300,10 +300,9 @@ function Chat({ id }: { id: string }) {
   const boxRef = useRef<{ focus?: () => void; clear?: () => void } | null>(null);
   const [boxKey, setBoxKey] = useState(0); // a new value starts the writing box again, one line tall (after a long message was sent)
   const [composerFocused, setComposerFocused] = useState(false);
-  const typing = useKeyboardShown();
   const z = useSmallPhoneShrink(); // narrow phones: the box and the buttons are drawn smaller, as the writing is
-  const bottomGap = typing ? 0 : Math.max(insets.bottom, 10); // no dock here: the chat fills the screen, down to the home bar
   const { inset: keyboard, box: chatBox, onLayout: chatLayout } = useKeyboardOverlap();
+  const bottomGap = keyboardGap(keyboard, Math.max(insets.bottom, 10), 0); // no dock here: the chat fills the screen, down to the home bar; the gap slides away with the keyboard
   // leaving by the swipe-back (or the arrow): the keyboard goes down while the screen goes sideways
   const navigation = useNavigation();
   useEffect(() => navigation.addListener('transitionStart' as never, ((e: { data?: { closing?: boolean } }) => e?.data?.closing && Keyboard.dismiss()) as never), [navigation]); // the chat ends at the bottom edge, so the keyboard simply pushes it up by its own height
@@ -689,7 +688,7 @@ function Chat({ id }: { id: string }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(8), borderRadius: sc(999), backgroundColor: c.accentSoft, paddingLeft: sph(12), paddingRight: sph(4), paddingVertical: sp(4) }}>
               <Ionicons name="calendar-outline" size={sc(14)} color={c.forest} />
               <Text numberOfLines={2} style={{ flex: 1, color: c.text, fontSize: 12, lineHeight: 16 }}>
-                <Text style={{ fontWeight: '800' }}>{t('Final dates {dates}', { dates: dateSpan(trip.data.dateStart, trip.data.dateEnd) })}</Text> · {t('{done} of {total} confirmed', { done: trip.data.datesConfirmedCount ?? 0, total: trip.data.members })}{trip.data.myDatesConfirmed ? ' ✓' : ''}
+                <Text style={{ fontWeight: '800' }}>{t('Final dates {dates}', { dates: dateSpan(trip.data.dateStart, trip.data.dateEnd) })}</Text> · {t('{done} of {total} confirmed', { done: trip.data.datesConfirmedCount ?? 0, total: trip.data.members })}{trip.data.myDatesConfirmed ? <Ionicons name="checkmark-circle" size={sc(13)} color={c.green} /> : null}
               </Text>
               {trip.data.isMember && !trip.data.myDatesConfirmed ? (
                 <Pressable accessibilityRole="button" accessibilityLabel={t('Confirm you can travel on these dates')} disabled={plan.busy} onPress={confirmDates} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }} style={({ pressed }) => [{ height: sc(28), paddingHorizontal: sph(12), borderRadius: sc(999), backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.85 }]}>
@@ -753,7 +752,7 @@ function Chat({ id }: { id: string }) {
               </View>
             ) : null}
             {((msgs.loading && !msgs.data) || !settled) && <SkeletonChat />}
-            {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>{t('No messages yet. Say hi 👋')}</Txt>}
+            {msgs.data?.items.length === 0 && <Txt variant="muted" style={{ textAlign: 'center' }}>{t('No messages yet. Say hi')}</Txt>}
           </View>
         }
         renderItem={({ item: m, index: i }) => {
@@ -796,11 +795,11 @@ function Chat({ id }: { id: string }) {
         <ErrorBanner message={send.error ?? safety.error ?? confirmAct.error ?? (msgs.error && !locked ? msgs.error.message : null)} />
       </View>
       {msgs.data && !msgs.data.writable ? (
-        <View style={{ padding: sp(16), paddingBottom: bottomGap + 16 }}>
+        <Animated.View style={{ padding: sp(16), paddingBottom: Animated.add(bottomGap, 16) }}>
           <Banner>{closedText}</Banner>
-        </View>
+        </Animated.View>
       ) : (
-        <View style={{ flexDirection: 'row', gap: Math.round(12 * z), alignItems: 'flex-end', paddingHorizontal: Math.round(16 * z), paddingTop: sp(6), paddingBottom: bottomGap + 8 }}>
+        <Animated.View style={{ flexDirection: 'row', gap: Math.round(12 * z), alignItems: 'flex-end', paddingHorizontal: Math.round(16 * z), paddingTop: sp(6), paddingBottom: Animated.add(bottomGap, 8) }}>
           {amHost && conv?.scope === 'trip' ? (
             <Pressable accessibilityRole="button" accessibilityLabel={t('Add a date poll')} hitSlop={4} onPress={openPoll} style={({ pressed }) => [{ width: Math.max(40, Math.round(44 * z)), height: Math.max(40, Math.round(44 * z)), marginBottom: sp(4), borderRadius: sc(22), borderWidth: 1.5, borderColor: c.forest, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.8 }]}>
               <Ionicons name="add" size={sc(22)} color={c.forest} />
@@ -839,7 +838,7 @@ function Chat({ id }: { id: string }) {
             {/* the paper plane's weight sits to the left, so it is nudged to look centred in the circle */}
             <Ionicons name="send" size={sc(20)} color="#fff" style={{ marginLeft: sc(3), marginBottom: 1 }} />
           </Pressable>
-        </View>
+        </Animated.View>
       )}
       <ReportSheet target={reportMsg ? { type: 'message', id: reportMsg.id, category: reportMsg.category } : null} onClose={() => setReportMsg(null)} />
       <Sheet visible={adding === 'poll'} title={t('Date poll')} onClose={() => { setAdding(null); setPollPick(null); }}>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { PillButton, VerifiedTick } from '@/components/ActivityParts';
 import { Text } from '@/components/ScaledText';
 import { TripThumb } from '@/components/Cards';
@@ -18,7 +18,7 @@ import { useLiveEvents } from '@/lib/live';
 import { useT } from '@/lib/i18n';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { meetsThere } from '@/lib/travelStyle';
-
+
 import { sc, sp, sph } from '@/lib/scale';
 type App = {
   id: string;
@@ -120,6 +120,7 @@ export default function ReviewTrip() {
       {items.map(shown).map((a) => (
         <View key={a.id} style={cardStyle}>
           <Between style={{ alignItems: 'flex-start' }}>
+            <Pressable accessibilityRole="link" accessibilityLabel={t('{name}. Open profile', { name: a.applicant.displayName ?? t('Traveler') })} onPress={() => go(`/user/${a.applicant.id}`)} style={{ flex: 1 }}>
             <Row style={{ gap: sp(14), flex: 1 }}>
               <Avatar name={a.applicant.displayName} uri={a.applicant.photoUrl} size={44} />
               <View style={{ flex: 1, gap: sc(3) }}>
@@ -129,8 +130,6 @@ export default function ReviewTrip() {
                 </Row>
                 <Text style={{ color: c.muted, fontSize: 16, lineHeight: 21 }}>
                   {a.applicant.verifiedAdult ? t('Verified adult') : t('Not verified')}
-                  {a.experience ? ` · ${t(a.experience)}` : ''}
-                  {a.applicant.languages.length ? ` · ${a.applicant.languages.join(', ')}` : ''}
                 </Text>
                 {a.applicant.reliability ? (
                   <View style={{ marginTop: 2, alignSelf: 'flex-start' }}>
@@ -139,6 +138,7 @@ export default function ReviewTrip() {
                 ) : null}
               </View>
             </Row>
+            </Pressable>
             <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(a.createdAt)}</Text>
           </Between>
           {a.applicant.interests.length > 0 && (

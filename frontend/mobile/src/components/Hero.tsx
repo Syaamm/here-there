@@ -59,9 +59,9 @@ export function FloatingButton({ icon, label, onPress, round, color = '#102F29',
 
 /**
  * The picture area at the top of a detail screen: a coloured block (a stand-in until real photos exist) with a floating
- * back button, an optional action on the right (the ⋯ menu), and an optional emoji. Full-bleed on phones.
+ * back button, an optional action on the right (the ⋯ menu), and an optional icon. Full-bleed on phones.
  */
-export function Hero({ color, emoji, category, right, height = 220, rounded, plain, round, image }: { /** a picture of its own (a bundled asset), used when there is no category photo */ image?: number | { uri: string } | { uri: string }; /** round (circle) floating buttons */ round?: boolean; color: string; /** the page has its own header bar above, so no floating back / menu buttons and no extra top space */ plain?: boolean; emoji?: string; /** show this category's photo instead of the plain block */ category?: string; right?: ReactNode; height?: number; rounded?: boolean }) {
+export function Hero({ color, icon, category, right, height = 220, rounded, plain, round, image }: { /** a picture of its own (a bundled asset), used when there is no category photo */ image?: number | { uri: string } | { uri: string }; /** round (circle) floating buttons */ round?: boolean; color: string; /** the page has its own header bar above, so no floating back / menu buttons and no extra top space */ plain?: boolean; /** an icon drawn faintly in the middle of the block (no photo) */ icon?: React.ComponentProps<typeof Ionicons>['name']; /** show this category's photo instead of the plain block */ category?: string; right?: ReactNode; height?: number; rounded?: boolean }) {
   const { t } = useT();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -70,11 +70,7 @@ export function Hero({ color, emoji, category, right, height = 220, rounded, pla
     <View style={{ height: height + (rounded || plain ? 0 : statusTop(insets.top)), backgroundColor: color, borderRadius: rounded ? sc(24) : 0, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
       {image ? <Image source={image} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : null}
       {category && CAT_IMAGES[category] ? <Image source={CAT_IMAGES[category]} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : null}
-      {emoji && !image && !(category && CAT_IMAGES[category]) ? (
-        <Text style={{ fontSize: 72, opacity: 0.45 }} accessibilityElementsHidden>
-          {emoji}
-        </Text>
-      ) : null}
+      {icon && !image && !(category && CAT_IMAGES[category]) ? <Ionicons name={icon} size={sc(72)} color="#102F29" style={{ opacity: 0.35 }} accessibilityElementsHidden /> : null}
       {round && (image || (category && CAT_IMAGES[category])) ? (
         // a soft dark wash, darkest at the top where the buttons sit
         <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.28)']} locations={[0, 0.55, 1]} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} />

@@ -366,7 +366,7 @@ export function MapThere() {
                   setTyped(false);
                 }}
                 onBlur={() => setTimeout(() => setFocus(false), 200)}
-                placeholder={listMode ? t('Search these trips') : t('Where next? For example, Japan')}
+                placeholder={listMode ? t('Search these trips') : t('Where next?')}
                 placeholderTextColor={c.placeholder}
                 returnKeyType="search"
                 autoCorrect={false}

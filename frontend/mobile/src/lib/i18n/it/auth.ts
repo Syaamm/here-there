@@ -228,4 +228,12 @@ export const auth: Record<string, string> = {
   'Continue with Google': 'Continua con Google',
   'To create an account you must be 18 or older. Are you?': 'Per creare un account devi avere almeno 18 anni. Li hai?',
   'I am 18 or older': 'Ho almeno 18 anni',
+  '{n} or more characters': '{n} o più caratteri',
+  'No messages yet. Say hi': 'Ancora nessun messaggio. Saluta',
+  'Welcome, {name}': 'Benvenuto, {name}',
+  'You confirmed these dates': 'Hai confermato queste date',
+  'Email confirmed ({email})': 'Email confermata ({email})',
+  'Confirmed ({phone})': 'Confermato ({phone})',
+  'Add your mobile number': 'Aggiungi il tuo numero di cellulare',
+  'Very reliable': 'Molto affidabile',
 };

@@ -13,7 +13,7 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { keyboardTaps } from '@/lib/keyboard';
 import { StepTransition } from '@/components/StepMotion';
-
+
 import { sc, sp, sph } from '@/lib/scale';
 type Step = 'email' | 'wishlist' | 'window' | 'companions' | 'interests' | 'city' | 'languages';
 
@@ -114,7 +114,7 @@ export default function Onboarding() {
   if (step === 'email')
     return (
       <Screen maxWidth={600}>
-        <Txt variant="h1">{t('Welcome, {name} 👋', { name: me?.profile?.displayName ?? t('there') })}</Txt>
+        <Txt variant="h1">{t('Welcome, {name}', { name: me?.profile?.displayName ?? t('there') })}</Txt>
         <EmailVerifyCard onVerified={() => setStep(first)} />
         <Btn title={t('Skip for now')} variant="ghost" onPress={() => setStep(first)} />
       </Screen>

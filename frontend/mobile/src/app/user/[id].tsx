@@ -16,7 +16,7 @@ import { useT } from '@/lib/i18n';
 import { StatsCard } from '@/components/StatsCard';
 import { useTheme } from '@/lib/theme';
 import { SampleTag } from '@/components/SampleTag';
-
+
 import { sc, sp } from '@/lib/scale';
 type PublicProfile = {
   id: string;
@@ -93,7 +93,7 @@ export default function UserProfile() {
         <Txt variant="muted">{p.homeCity ?? t('City not set')} · {p.verifiedAdult ? t('Verified adult') : t('Identity not verified')}</Txt>
         <Row style={{ gap: sp(8), flexWrap: 'wrap', justifyContent: 'center' }}>
           {/* you follow each other: friends */}
-          {!mine && relation?.buddy ? <Chip label={`${t('Friends')} ✓`} tone="ok" /> : null}
+          {!mine && relation?.buddy ? <Chip label={t("Friends")} tone="ok" /> : null}
           {p.sample ? <SampleTag /> : null}
           <ReliabilityChip r={p.reliability} />
         </Row>
@@ -119,7 +119,7 @@ export default function UserProfile() {
       {mine ? <Btn title={gate.isGuest ? gate.title('edit') : t('Edit my profile')} variant="secondary" onPress={() => (gate.isGuest ? void gate.ask('edit') : go('/edit-profile'))} /> : null}
       {!mine && relation ? (
         <>
-          <Btn title={relation.buddy ? t('Friends ✓') : relation.following ? t('Following ✓') : relation.followsYou ? t('Follow back') : t('Follow')} variant={relation.following ? 'secondary' : 'primary'} onPress={toggleFollow} />
+          <Btn title={relation.buddy ? t("Friends") : relation.following ? t("Following") : relation.followsYou ? t('Follow back') : t('Follow')} variant={relation.following ? 'secondary' : 'primary'} onPress={toggleFollow} />
           {!relation.buddy && relation.followsYou && !relation.following ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('{name} follows you.', { name: p.displayName })}</Txt> : null}
         </>
       ) : null}

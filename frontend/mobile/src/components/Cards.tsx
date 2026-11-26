@@ -307,7 +307,7 @@ function TripFeatureCardBase({ t, width }: { t: Trip; width?: number }) {
       style={{ width, padding: 0, gap: 0, borderRadius: sc(16), overflow: 'hidden' }}
     >
       <View style={{ height: sc(84), backgroundColor: tripColor(t), alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontSize: 32, opacity: 0.5 }} accessibilityElementsHidden>✈️</Text>
+        <Ionicons name="airplane-outline" size={sc(32)} color="#102F29" style={{ opacity: 0.35 }} accessibilityElementsHidden />
         <Pill text={`${dateSpan(t.dateStart, t.dateEnd).replace(/ \d{4}$/, '')}${t.dateFlexibility !== 'exact' ? tr(' · flexible') : ''}`} />
         <AgeBadge age={t.ageGroup ?? 'all'} top />
       </View>
@@ -334,7 +334,7 @@ function TripCardBase({ t }: { t: Trip }) {
     <Card onPress={() => go(`/trip/${t.id}`)} accessibilityLabel={tripLine(t)} style={{ gap: sp(6), borderRadius: sc(20) }}>
       <Row style={{ justifyContent: 'space-between' }}>
         <Row style={{ gap: sp(6), flexWrap: 'wrap', flex: 1 }}>
-          <Chip label={tr('✈ Trip proposal')} tone="neutral" />
+          <Chip label={tr('Trip proposal')} tone="neutral" />
           <TravelStyleBadge trip={t} small />
           <Chip label={tr(ageGroupLabel(t.ageGroup))} tone="neutral" />
           {t.host?.sample ? <SampleTag /> : null}
@@ -362,7 +362,7 @@ function TripCardBase({ t }: { t: Trip }) {
         ))}
       </Row>
       {circleLine(t.buddiesGoing, t.followingGoing) ? <Txt variant="small" bold color={c.green}>{circleLine(t.buddiesGoing, t.followingGoing)}</Txt> : null}
-      <Txt variant="small">{tr('Organizer: {name}', { name: t.host.displayName })}{t.host.verifiedAdult ? ' ✓' : ''}</Txt>
+      <Txt variant="small">{tr('Organizer: {name}', { name: t.host.displayName })}{t.host.verifiedAdult ? <Ionicons name="checkmark-circle" size={sc(13)} color={c.green} /> : null}</Txt>
     </Card>
   );
 }

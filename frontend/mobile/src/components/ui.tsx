@@ -17,7 +17,7 @@ import { PageTransition } from './PageTransition';
 import { SkeletonRows } from './Skeleton';
 import { onTabSwitch, setDockScrollHidden, useDockSpace } from '@/lib/dock';
 import { setScrollPage } from '@/lib/pageScroll';
-import { formatDay, useKeyboardOverlap, useKeyboardShown, useScrollFieldIntoView, keyboardTaps } from '@/lib/keyboard';
+import { formatDay, keyboardGap, useKeyboardOverlap, useKeyboardShown, useScrollFieldIntoView, keyboardTaps } from '@/lib/keyboard';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { PAGE_TITLES, PLAIN_PAGES } from '@/lib/pageTitles';
@@ -826,7 +826,7 @@ export function CheckRow({ checked, onChange, children, disabled }: { checked: b
   return (
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', gap: sp(12), alignItems: 'center', opacity: disabled ? 0.6 : 1 }}>
       {/* the box is centred on its text (one line or several), so it always sits level with what it confirms */}
-      <View style={[s.check, { borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : 'transparent' }]}>{checked ? <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>✓</Text> : null}</View>
+      <View style={[s.check, { borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : 'transparent' }]}>{checked ? <Ionicons name="checkmark" size={sc(16)} color="#fff" /> : null}</View>
       <View style={{ flex: 1 }}>{children}</View>
     </Pressable>
   );
@@ -940,7 +940,6 @@ export function Sheet({ visible, title, onClose, children, bg, onClosed }: { /**
   const { height } = useWindowDimensions();
   // like a page: the sheet ends where the keyboard begins, and the field being typed in scrolls into view above it
   const { inset: keyboard, box: sheetBox, onLayout: sheetLayout } = useKeyboardOverlap(0); // the sheet sits right on the keyboard (it pads its own bottom while typing)
-  const typing = useKeyboardShown();
   const body = useRef<ScrollViewInstance>(null);
   const bodyY = useRef(0);
   useScrollFieldIntoView(body, bodyY, visible, true);
@@ -1014,7 +1013,7 @@ export function Sheet({ visible, title, onClose, children, bg, onClosed }: { /**
           accessibilityViewIsModal
           style={[
             s.sheet,
-            { backgroundColor: bg ?? c.surface, paddingBottom: typing ? sp(16) : insets.bottom + 16, transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
+            { backgroundColor: bg ?? c.surface, paddingBottom: keyboardGap(keyboard, insets.bottom + 16, sp(16)), transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
             isTablet && { alignSelf: 'center', width: sc(560), maxWidth: '92%', borderRadius: sc(22), paddingBottom: sp(18), opacity: slide },
           ]}
         >

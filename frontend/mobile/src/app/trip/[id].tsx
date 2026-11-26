@@ -63,13 +63,13 @@ export default function TripDetail() {
 
   if (loading && !trip)
     return (
-      <Screen hero={<Hero plain color={HERO} emoji="✈️" />}>
+      <Screen hero={<Hero plain color={HERO} icon="airplane-outline" />}>
         <SkeletonDetail />
       </Screen>
     );
   if (error || !trip)
     return (
-      <Screen hero={<Hero plain color={HERO} emoji="✈️" />}>
+      <Screen hero={<Hero plain color={HERO} icon="airplane-outline" />}>
         <Empty title={t('Trip not found')}>{t('It may have been cancelled or is no longer available.')}</Empty>
       </Screen>
     );
@@ -155,7 +155,7 @@ export default function TripDetail() {
         onRefresh={onRefresh}
         refreshing={refreshing}
         bottomRoom={primary ? barH : undefined}
-        fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} /> }}
+        fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={HERO} icon="airplane-outline" image={photo} /> }}
       >
         <Stack.Screen options={{ headerShown: false }} />
 
@@ -223,7 +223,7 @@ export default function TripDetail() {
                 <Txt variant="small">{p.datesConfirmed ? t('Confirmed') : t('Waiting')}</Txt>
               </Row>
             ))}
-            {trip.isMember && !trip.myDatesConfirmed ? <Btn title={t('I can travel on these dates')} small loading={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/confirm-dates`))} /> : trip.myDatesConfirmed ? <Txt variant="small" bold color={c.green}>{t('You confirmed these dates ✓')}</Txt> : null}
+            {trip.isMember && !trip.myDatesConfirmed ? <Btn title={t('I can travel on these dates')} small loading={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/confirm-dates`))} /> : trip.myDatesConfirmed ? <Txt variant="small" bold color={c.green}>{t('You confirmed these dates')}</Txt> : null}
           </View>
         ) : null}
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SkeletonDetail } from '@/components/Skeleton';
 import { CatPhoto } from '@/components/CatPhoto';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Text } from '@/components/ScaledText';
 import { ReliabilityChip } from '@/components/ReliabilityChip';
 import { PillButton, VerifiedTick } from '@/components/ActivityParts';
@@ -105,6 +105,7 @@ export default function HostReview() {
       {items.map(shown).map((r) => (
         <View key={r.id} style={cardStyle}>
           <Between style={{ alignItems: 'flex-start' }}>
+            <Pressable accessibilityRole="link" accessibilityLabel={t('{name}. Open profile', { name: r.applicant.displayName ?? t('Member') })} onPress={() => go(`/user/${r.applicant.id}`)} style={{ flex: 1 }}>
             <Row style={{ gap: sp(14), flex: 1 }}>
               <Avatar name={r.applicant.displayName} uri={r.applicant.photoUrl} size={44} />
               <View style={{ flex: 1, gap: sc(3) }}>
@@ -114,7 +115,6 @@ export default function HostReview() {
                 </Row>
                 <Text style={{ color: c.muted, fontSize: 16, lineHeight: 21 }}>
                   {r.applicant.verifiedAdult ? t('Verified adult') : t('Not verified')}
-                  {r.applicant.languages.length ? ` · ${r.applicant.languages.join(', ')}` : ''}
                 </Text>
                 {r.applicant.reliability ? (
                   <View style={{ marginTop: 2, alignSelf: 'flex-start' }}>
@@ -123,6 +123,7 @@ export default function HostReview() {
                 ) : null}
               </View>
             </Row>
+            </Pressable>
             <Text style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{ago(r.createdAt)}</Text>
           </Between>
           {r.applicant.interests.length > 0 && (

@@ -119,7 +119,7 @@ export function AuthCheck({ checked, onChange, label }: { checked: boolean; onCh
   return (
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onChange(!checked)} style={{ flexDirection: 'row', alignItems: 'center', gap: sp(12), minHeight: sc(44) }}>
       <View style={{ width: sc(20), height: sc(20), borderRadius: sc(4), borderWidth: 1, borderColor: checked ? c.forest : c.muted, backgroundColor: checked ? c.forest : mode === 'there' ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-        {checked ? <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>✓</Text> : null}
+        {checked ? <Ionicons name="checkmark" size={sc(14)} color="#fff" /> : null}
       </View>
       <Text style={{ flex: 1, color: c.text, fontSize: 16, lineHeight: 23 }}>{label}</Text>
     </Pressable>
