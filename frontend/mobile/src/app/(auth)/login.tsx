@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { AuthBack, AuthButton, AuthField, AuthHeading, AuthSwitch, type InputHandle } from '@/components/AuthForm';
+import { SocialButtons } from '@/components/SocialButtons';
 import { Banner, Btn, ErrorBanner, Screen } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -67,6 +68,7 @@ export default function Login() {
           <AuthField label={t('Password')} placeholder={t('Enter your password')} value={password} onChangeText={(v) => { setPassword(v); if (fades) clearNotice(); }} secureTextEntry autoComplete="current-password" textContentType="password" returnKeyType="go" inputRef={pwRef} onSubmitEditing={submit} />
           <Btn title={t('Forgot password?')} variant="ghost" small onPress={() => router.push('/forgot-password')} style={{ alignSelf: 'flex-end', marginTop: -sc(10) }} />
           <AuthButton title={t('Log in')} onPress={submit} loading={act.busy} disabled={!email || !password} />
+          <SocialButtons />
         </View>
       )}
       {act.error && /suspended/i.test(act.error) ? <Btn title={t('Appeal this suspension')} variant="secondary" onPress={() => router.push('/appeal-suspension')} /> : null}

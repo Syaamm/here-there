@@ -37,9 +37,9 @@ type NominatimHit = { place_id: number; osm_type?: string; osm_id?: number; name
  */
 const NO_KEYS = new Set(['military']);
 const NO_VALUES: Record<string, string[]> = {
-  amenity: ['prison', 'police', 'fire_station', 'embassy', 'border_control', 'courthouse', 'ranger_station', 'kindergarten', 'school', 'childcare', 'grave_yard', 'crematorium', 'mortuary'],
+  amenity: ['parking', 'bicycle_parking', 'parking_entrance', 'parking_space', 'motorcycle_parking', 'bench', 'waste_basket', 'toilets', 'prison', 'police', 'fire_station', 'embassy', 'border_control', 'courthouse', 'ranger_station', 'kindergarten', 'school', 'childcare', 'grave_yard', 'crematorium', 'mortuary'],
   office: ['government', 'diplomatic', 'administrative', 'police', 'military', 'customs', 'tax', 'intelligence'],
-  landuse: ['military', 'railway', 'industrial', 'quarry', 'landfill', 'residential', 'garages'],
+  landuse: ['greenfield', 'construction', 'brownfield', 'military', 'railway', 'industrial', 'quarry', 'landfill', 'residential', 'garages'],
   building: ['military', 'government', 'public', 'civic', 'prison', 'barracks', 'bunker', 'house', 'residential', 'apartments', 'detached', 'semidetached_house', 'terrace', 'bungalow', 'dormitory', 'farm', 'cabin', 'static_caravan', 'school', 'kindergarten'],
   barrier: ['border_control', 'gate', 'lift_gate'],
   power: ['plant', 'substation', 'generator', 'transformer', 'line', 'tower'],
@@ -50,7 +50,7 @@ const NO_VALUES: Record<string, string[]> = {
   boundary: ['administrative'],
   government: ['*'],
   emergency: ['*'],
-  highway: ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'service', 'residential', 'track', 'footway', 'path', 'cycleway', 'steps', 'bus_stop', 'street_lamp'],
+  highway: ['elevator', 'crossing', 'traffic_signals', 'platform', 'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'service', 'residential', 'track', 'footway', 'path', 'cycleway', 'steps', 'bus_stop', 'street_lamp'],
 };
 // the map's tags are not always enough (a police headquarters can be tagged only as a building), so the name is checked too, in English and Italian
 const NO_NAMES = /\b(caserma|carabinieri|questura|polizia|prefettura|tribunale|giustizia|ministero|carcere|penitenziari\w*|guardia di finanza|base militare|aeronautica militare|esercito|vigili del fuoco|ambasciata|consolato|military|army|navy|air force|barracks|police|sheriff|courthouse|court house|ministry|prison|jail|embassy|consulate|border (?:control|post)|customs|fire station|nuclear|power plant)\b/i;
@@ -106,7 +106,9 @@ export class PlacesController {
     const s = parse(searchSchema, query);
     if (!me && s.kind !== 'city') throw E.unauthorized();
     this.limiter.hit(me ? `places:${me.id}` : `places:ip:${ip}`, me ? 60 : 30, 60_000);
-    const near = s.lat !== undefined && s.lng !== undefined ? { lat: Math.round(s.lat * 100) / 100, lng: Math.round(s.lng * 100) / 100 } : null;
+    let near = s.lat !== undefined && s.lng !== undefined ? { lat: Math.round(s.lat * 100) / 100, lng: Math.round(s.lng * 100) / 100 } : null;
+    // a venue search for a city given only by name: find the city's centre first, so the search stays inside it
+    if (!near && s.kind === 'venue' && s.city) near = await this.queued(() => this.cityCentre(s.city as string)).catch(() => null);
     const text = !near && s.city && s.kind !== 'city' ? `${s.q}, ${s.city}` : s.q;
     const key = `${s.kind}|${text}|${near ? `${near.lat},${near.lng}` : ''}`.toLowerCase();
     const hit = this.cache.get(key);
@@ -147,16 +149,31 @@ export class PlacesController {
     return items[0] ?? null;
   }
 
+  private centres = new Map<string, { lat: number; lng: number } | null>();
+  private async cityCentre(name: string): Promise<{ lat: number; lng: number } | null> {
+    const key = name.trim().toLowerCase();
+    if (this.centres.has(key)) return this.centres.get(key) ?? null;
+    const hit = (await photon(name, 'city', null))[0];
+    const at = hit ? { lat: Math.round(hit.lat * 100) / 100, lng: Math.round(hit.lng * 100) / 100 } : null;
+    if (at) this.centres.set(key, at);
+    return at;
+  }
+
   private async lookup(text: string, kind: Kind, near: { lat: number; lng: number } | null): Promise<Place[]> {
+    // venue search with a key set in .env (GOOGLE_PLACES_API_KEY): Google Places first, inside the city; the map search below when there is no key, Google fails or finds nothing
+    if (kind === 'venue' && near) {
+      const g = await googlePlaces(text, near);
+      if (g?.length) return g;
+    }
     try {
       return named(dedupe(await photon(text, kind, near)));
     } catch {
-      return named(dedupe(await nominatim(text, kind)));
+      return named(dedupe(await nominatim(text, kind, near)));
     }
   }
 
   /** One request at a time, a moment apart. */
-  private queued(fn: () => Promise<Place[]>): Promise<Place[]> {
+  private queued<T>(fn: () => Promise<T>): Promise<T> {
     if (this.waiting >= MAX_WAITING) throw new ApiError(429, 'RATE_LIMITED', 'Too many searches at once, try again in a moment');
     this.waiting++;
     const run = async () => {
@@ -177,11 +194,45 @@ export class PlacesController {
   }
 }
 
+/** Google Places (the places Google and Apple Maps show). The key lives only on the server, in .env; phones never see it. */
+const GOOGLE_NO_TYPES = new Set([
+  'local_government_office', 'city_hall', 'courthouse', 'police', 'fire_station', 'embassy', 'school', 'primary_school', 'secondary_school',
+  'preschool', 'cemetery', 'funeral_home', 'parking', 'electric_vehicle_charging_station', 'locality', 'political', 'country',
+  'administrative_area_level_1', 'administrative_area_level_2', 'postal_code', 'street_address', 'route', 'premise', 'subpremise',
+]);
+type GPlace = { id: string; displayName?: { text?: string }; formattedAddress?: string; location?: { latitude: number; longitude: number }; types?: string[]; businessStatus?: string };
+async function googlePlaces(text: string, near: { lat: number; lng: number }): Promise<Place[] | null> {
+  const key = (process.env.GOOGLE_PLACES_API_KEY ?? '').trim();
+  if (!key) return null;
+  try {
+    const [w, s, e, n] = cityBox(near);
+    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.businessStatus' },
+      body: JSON.stringify({ textQuery: text, languageCode: 'en', pageSize: 10, locationRestriction: { rectangle: { low: { latitude: s, longitude: w }, high: { latitude: n, longitude: e } } } }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const out: Place[] = [];
+    for (const p of ((await res.json()) as { places?: GPlace[] }).places ?? []) {
+      const name = p.displayName?.text?.trim();
+      if (!name || !p.location || p.businessStatus === 'CLOSED_PERMANENTLY') continue;
+      if (NO_NAMES.test(name) || (p.types ?? []).some((t) => GOOGLE_NO_TYPES.has(t))) continue;
+      out.push({ id: `g:${p.id}`, name, address: (p.formattedAddress ?? '').replace(/,s*(Italy|Italia|India)$/i, '').replace(`${name}, `, ''), lat: round(p.location.latitude), lng: round(p.location.longitude) });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 async function photon(text: string, kind: Kind, near: { lat: number; lng: number } | null): Promise<Place[]> {
   const params = new URLSearchParams({ q: text, limit: kind === 'venue' ? '15' : '8', lang: 'en' });
   if (near && kind !== 'destination') {
     params.set('lat', String(near.lat));
     params.set('lon', String(near.lng));
+    // venue search: only inside the city's box (about 30 km around its centre); a bias alone let far-away namesakes win ("hotel" found French town halls)
+    if (kind === 'venue') params.set('bbox', cityBox(near).join(','));
   }
   if (kind !== 'place' && kind !== 'venue') LAYERS[kind].forEach((l) => params.append('layer', l));
   const res = await fetch(`${PHOTON}/api/?${params}`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(6000) });
@@ -189,7 +240,7 @@ async function photon(text: string, kind: Kind, near: { lat: number; lng: number
   const features = ((await res.json()) as { features: PhotonFeature[] }).features;
   if (kind === 'city') features.sort((a, b) => size(a.properties.osm_value) - size(b.properties.osm_value)); // stable: ties keep their order
   if (kind === 'destination') features.sort((a, b) => destSize(a.properties.type) - destSize(b.properties.type));
-  return features
+  const list = features
     .filter((f) => kind !== 'venue' || (!!f.properties.name?.trim() && allowedVenue(f.properties.osm_key, f.properties.osm_value, f.properties.name)))
     .map((f) => {
       const place = fromPhoton(f, kind === 'destination');
@@ -197,16 +248,34 @@ async function photon(text: string, kind: Kind, near: { lat: number; lng: number
       return place;
     })
     .filter((p): p is Place => !!p);
+  return onCity(list, kind, near);
 }
 
-async function nominatim(text: string, kind: Kind): Promise<Place[]> {
+/** Venue search with a city chosen: only places in or around that city (about 30 km). */
+const CITY_KM = 30;
+const cityBox = (n: { lat: number; lng: number }) => {
+  const dLat = CITY_KM / 111;
+  const dLng = CITY_KM / (111 * Math.max(0.2, Math.cos((n.lat * Math.PI) / 180)));
+  return [n.lng - dLng, n.lat - dLat, n.lng + dLng, n.lat + dLat].map((x) => Math.round(x * 1e4) / 1e4);
+};
+function onCity(list: Place[], kind: Kind, near: { lat: number; lng: number } | null): Place[] {
+  if (kind !== 'venue' || !near) return list;
+  const km = (p: Place) => Math.hypot((p.lat - near.lat) * 111, (p.lng - near.lng) * 111 * Math.cos((near.lat * Math.PI) / 180));
+  const inside = list.filter((p) => km(p) <= CITY_KM);
+  return inside;
+}
+
+async function nominatim(text: string, kind: Kind, near: { lat: number; lng: number } | null = null): Promise<Place[]> {
   const params = new URLSearchParams({ q: text, format: 'jsonv2', limit: kind === 'venue' ? '12' : '6', addressdetails: '0', 'accept-language': 'en' });
   if (kind === 'city') params.set('featureType', 'settlement');
+  if (kind === 'venue' && near) params.set('viewbox', (([w, so, e, n]) => [w, n, e, so].join(','))(cityBox(near)));
+  if (kind === 'venue' && near) params.set('bounded', '1');
   const res = await fetch(`${NOMINATIM}/search?${params}`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(6000) });
   if (!res.ok) throw new Error(String(res.status));
-  return ((await res.json()) as NominatimHit[])
+  const list = ((await res.json()) as NominatimHit[])
     .filter((h) => kind !== 'venue' || (!!h.name?.trim() && allowedVenue(h.category ?? h.class, h.type, h.name)))
     .map((h) => fromNominatim(h, kind === 'destination'));
+  return onCity(list, kind, near);
 }
 
 const round = (n: number) => Math.round(n * 1e5) / 1e5;

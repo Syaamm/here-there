@@ -2139,7 +2139,7 @@ Request body (JSON)
 
 Responses
 
-- **200**: { token, user } (or { mfaRequired, mfaToken } is never returned: staff cannot use this). The ID token is checked against the provider's keys. A new account needs adultConfirmed: true.
+- **200**: { token, refreshToken, user, created? } (created: true only when this call made a new account, so the app starts onboarding) (or { mfaRequired, mfaToken } is never returned: staff cannot use this). The ID token is checked against the provider's keys. A new account needs adultConfirmed: true.
 - **400**: The request is not acceptable. Codes: `ADULT_CONFIRMATION_REQUIRED`, `EMAIL_REQUIRED`, `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_SOCIAL_TOKEN`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `REGISTRATION_BLOCKED`, `SOCIAL_NOT_FOR_STAFF`

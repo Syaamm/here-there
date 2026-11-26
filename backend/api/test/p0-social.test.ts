@@ -3,6 +3,7 @@
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = require('./test-db').testDatabaseUrl('p0-social');
 process.env.VERIFICATION_MODE = 'manual';
+process.env.APPLE_CLIENT_IDS = ''; // a developer's own .env must not switch Apple on in a test
 process.env.REGISTER_LIMIT_PER_HOUR = '10000';
 process.env.BCRYPT_ROUNDS = '4';
 process.env.ARGON2_MEMORY_KIB = '8';
@@ -183,6 +184,7 @@ describe('sign in with Google or Apple, and the document-only identity check', (
     assert.equal(await prisma.user.count({ where: { email: 'social-new@example.com' } }), 0, 'nothing is created before they confirm');
     const made = await social(t, { adultConfirmed: true });
     assert.equal(made.status, 201, JSON.stringify(made.body));
+    assert.equal(made.body.created, true, 'a new account says so, so the app can start onboarding');
     assert.equal(made.body.user.email, 'social-new@example.com');
     assert.equal(made.body.user.emailVerified, true, 'the provider has confirmed the address');
     assert.equal(made.body.user.profile.displayName, 'Sam Social');
@@ -194,6 +196,7 @@ describe('sign in with Google or Apple, and the document-only identity check', (
     const again = await social(await makeToken({ sub: 'g-new', email: 'social-new@example.com' }));
     assert.equal(again.status, 201);
     assert.equal(again.body.user.id, made.body.user.id);
+    assert.equal(again.body.created, undefined, 'a returning person is not new');
   });
 
   it('refuses a token that is forged, expired, for another app, from another issuer, or unsigned', async () => {

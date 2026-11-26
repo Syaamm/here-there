@@ -26,6 +26,11 @@ const mapKeys = {
 };
 const hasMapKeys = Object.values(mapKeys).some(Boolean);
 
+// "Continue with Google": the iPhone needs the iOS OAuth client's reversed id as a URL scheme (com.googleusercontent.apps.<number>), from
+// Google Cloud console > Credentials. Not a secret. Without it the plugin is left out and the button stays hidden on iPhone.
+// The client ids themselves are read by the app from EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID / EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID (see src/lib/social.ts).
+const GOOGLE_IOS_URL_SCHEME = process.env.GOOGLE_IOS_URL_SCHEME?.trim();
+
 // Phone push goes through Firebase (FCM) on both iPhone and Android. Each platform needs the file Firebase gives for the app
 // (Firebase console > Project settings > Your apps). Put them next to this file, or point GOOGLE_SERVICES_JSON /
 // GOOGLE_SERVICES_PLIST at them (on EAS: a file secret). Without a file that platform is built without Firebase, as before.
@@ -58,7 +63,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: (require('./package.json') as { version: string }).version,
   // Raise runtimeVersion whenever native code changes (new library, permission, icon, push setup). A code-only change is sent as an
   // update (OTA) to builds with the same runtimeVersion. The app asks first (see components/UpdatePrompt), so checkAutomatically is off.
-  runtimeVersion: '5', // 5: Google Maps key for Android (4: LAMIS launch screen (3: LAMIS app icons and the Android notification icon)
+  runtimeVersion: '6', // 6: Sign in with Apple and Google, and the photo-library permission text (5: Google Maps key for Android (4: LAMIS launch screen (3: LAMIS app icons and the Android notification icon)
   updates: {
     url: `https://u.expo.dev/${process.env.EAS_PROJECT_ID ?? '4005c1f6-33e1-4757-b262-cfa7643b5b9b'}`,
     checkAutomatically: 'NEVER',
@@ -76,6 +81,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: APP_ID,
     ...(hasIosFirebase ? { googleServicesFile: iosFirebase } : {}),
     supportsTablet: true, // runs natively on iPad (not as a stretched iPhone app)
+    usesAppleSignIn: true, // "Continue with Apple" (the Sign in with Apple capability)
     ...(SHARE_DOMAIN ? { associatedDomains: [`applinks:${SHARE_DOMAIN}`] } : {}),
     config: { usesNonExemptEncryption: false },
     infoPlist: {
@@ -115,6 +121,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     'expo-router',
     'expo-secure-store',
+    // The photo library: the sentence the iPhone shows when the app asks (profile picture, proof photos). The app only picks existing
+    // photos, so the camera and microphone permissions are left out of the build.
+    ['expo-image-picker', { photosPermission: 'LAMIS uses your photos so you can choose a profile picture and add photos to your plans.', cameraPermission: false, microphonePermission: false }],
+    // Sign in with Apple (the capability itself is ios.usesAppleSignIn above) and Google
+    'expo-apple-authentication',
+    ...(GOOGLE_IOS_URL_SCHEME ? ([['@react-native-google-signin/google-signin', { iosUrlScheme: GOOGLE_IOS_URL_SCHEME }]] as NonNullable<ExpoConfig['plugins']>) : []),
     // The launch screen: the LAMIS mark on the app's deep green, the same as the icon. Without this plugin Android keeps the
     // template's default picture (circles and lines). Android 12+ draws it from the icon; older phones use the picture and colour.
     ['expo-splash-screen', { image: './assets/splash-icon.png', backgroundColor: '#0B322A', imageWidth: 200, resizeMode: 'contain' }],

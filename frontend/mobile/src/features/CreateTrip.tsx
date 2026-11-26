@@ -11,7 +11,8 @@ import { ClashNotice, planDays, tellWithdrawn, useClashes, type Withdrawn } from
 import { Text, TextInput, type InputHandle } from '@/components/ScaledText';
 import { StepTransition } from '@/components/StepMotion';
 import { DestinationResults, TRIP_WHITE, TripAmount, TripCard, TripField, TripHeading, TripInput, TripLabel, TripPill, TripTop, TripValue, TravelStyleChoice, type TravelStyle } from '@/components/TripCreateParts';
-import { Banner, CheckRow, Chip, ErrorBanner, Screen, Txt, useGo } from '@/components/ui';
+import { useKeyboardUp } from '@/lib/keyboard';
+import { Banner, BottomBar, CheckRow, Chip, ErrorBanner, Screen, Txt, useGo } from '@/components/ui';
 import { TripThumb } from '@/components/Cards';
 import { get, post, type Trip } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -145,6 +146,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const router = useRouter();
   const gate = useVerifyGate();
   const [step, setStep] = useState(0);
+  const typing = useKeyboardUp(); // keyboard open: Continue is part of the page (at its end) instead of pinned, so the page can be scrolled without closing the keyboard
+  const [barH, setBarH] = useState(0); // the height of the pinned Continue bar, so the page can scroll clear of it
   useEffect(() => Keyboard.dismiss(), [step]); // a new step starts with the keyboard down
   const destRef = useRef<InputHandle>(null);
   const maxRef = useRef<InputHandle>(null);
@@ -507,9 +510,18 @@ function TripForm({ onReset }: { onReset: () => void }) {
     />
   );
 
+  const continueButton = (
+    <AuthButton
+      compact
+      title={step < STEPS - 1 ? t('Continue') : gate.verified ? t('Publish trip') : gate.title('publish')}
+      loading={step === STEPS - 1 && act.busy}
+      onPress={() => (step < STEPS - 1 ? next() : void publish())}
+    />
+  );
+
   return (
     <View style={{ flex: 1 }}>
-      <Screen tabBar plain header={
+      <Screen tabBar plain bottomRoom={typing ? 0 : barH} header={
     <TripTop
       step={step}
       title={stepNames[step]}
@@ -668,17 +680,14 @@ function TripForm({ onReset }: { onReset: () => void }) {
         {step === STEPS - 1 && reviewTried && (routeProblems.length > 0 || budgetProblems.length > 0 || busy) ? <Banner tone="bad">{t('Some details are missing. Fix the parts marked in red, then publish.')}</Banner> : null}
         {step === STEPS - 1 ? <ClashNotice firm={clash.firm} pending={clash.pending} now={clash.now} mode="create" creating="trip" onChanged={() => void clash.reload()} /> : null}
 
-        <AuthButton
-          compact
-          title={step < STEPS - 1 ? t('Continue') : gate.verified ? t('Publish trip') : gate.title('publish')}
-          loading={step === STEPS - 1 && act.busy}
-          onPress={() => (step < STEPS - 1 ? next() : void publish())}
-          style={{ marginTop: sp(10) }}
-        />
         {step === STEPS - 1 ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{t('Your trip goes live in the feed. Nobody is charged and nothing is booked.')}</Text> : null}
         {/* on every step: saving a draft (a draft opened from My drafts loads whichever step is showing) */}
         <DraftBar kind="trip" data={f} onLoad={loadDraft} beforeLoad={stashNow} showMyDrafts={step === 0} named={f.destination.trim().length > 0} />
+        {/* the last thing on the page: Continue (pinned instead while the keyboard is down) */}
+        {typing ? continueButton : null}
       </Screen>
+      {/* Continue stays at the bottom of the screen, whatever the step is long (the same bar as when hosting an activity) */}
+      {!typing ? <BottomBar onHeight={setBarH}>{continueButton}</BottomBar> : null}
       {/* the calendar sits just above the dock, outside the scrolling page (inside the pop-up while one is open: the page below would be hidden by it) */}
       {!pop ? calendarSheet : null}
       {pop ? (

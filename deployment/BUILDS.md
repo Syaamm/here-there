@@ -57,6 +57,28 @@ Later, when the app is in the stores: `APP_STORE_URL`, `PLAY_STORE_URL`, `ANDROI
 
 **Maps:** iPhone uses Apple Maps, no key. Android needs `GOOGLE_MAPS_ANDROID_KEY` set for the Android build; without it the Android app crashes when the map page opens ("API key not found", seen 2026-11-06). The key must come from the company's Google Cloud project (see "Move Firebase and Maps to the company" below).
 
+## Sign in with Apple and Google
+The app shows "Continue with Apple" / "Continue with Google" on the log in and sign up pages. A button appears only when the API has that provider switched on (`GET /v1/auth/social/providers`) and the phone can do it. Both are native libraries: development and store builds only, never Expo Go or the browser preview. Apple's rule: where Google is offered on iPhone, Apple must be offered too, so on iPhone Google shows only together with Apple.
+
+The IDs are set once, at deployment, in two places that must list the same IDs (they are public app identifiers, not secrets):
+- the **API server**, `backend/api/.env`: `APPLE_CLIENT_IDS` and `GOOGLE_CLIENT_IDS` (restart the API with pm2 after changing);
+- the **phone build**, EAS environment variables.
+
+1. **Apple** (Apple Developer > Identifiers > `io.herethere.app`): tick **Sign in with Apple**. EAS adds the capability itself (`ios.usesAppleSignIn`). Server: `APPLE_CLIENT_IDS=io.herethere.app`. No key file and no build variable are needed.
+2. **Google** (Google Cloud console > APIs & Services > Credentials, in the company project; set up the OAuth consent screen first and publish it). Create three OAuth client ids:
+   - **Web**: the identity token is made for this one.
+   - **iOS**: bundle id `io.herethere.app`; note its "iOS URL scheme" (`com.googleusercontent.apps.<number>`).
+   - **Android**: package `io.herethere.app` and the signing SHA-1 (the EAS keystore SHA-1 in step 5 above). Once the app is in Google Play, also add a second Android client with the Play app-signing SHA-1 (Play Console > App signing).
+3. **Server**: `GOOGLE_CLIENT_IDS=<web>,<ios>,<android>`.
+4. **EAS** (expo.dev > project > Environment variables; set each for development, preview and production; plain text):
+   - `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` = the Web client id
+   - `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` = the iOS client id
+   - `GOOGLE_IOS_URL_SCHEME` = the iOS URL scheme from step 2
+5. Make an `action = build` for both platforms (a native change: `runtimeVersion` is 6). An over-the-air update does not carry it. For local development with Metro, the two `EXPO_PUBLIC_*` values can also go in `frontend/mobile/.env`.
+6. Test on a real iPhone (TestFlight or development build) and an Android phone with a build signed by the registered SHA-1. A wrong SHA-1 shows as `DEVELOPER_ERROR` on Android. Check: first sign-up, returning sign-in, an existing verified-email account being linked, Apple "Hide my email", closing the sheet, deleting the account and signing in again.
+
+A social sign-in only proves who owns the email. The identity check (adult verification) is still needed before joining, hosting or chatting. Staff accounts cannot use it.
+
 ## Development build, step by step
 The development build is a dev client with the same id as production: code loads from the PC. Profiles: Android `development`, iPhone `development-testflight`. Build on EAS cloud with `$env:EAS_NO_VCS = "1"` (uploads the whole folder, so uncommitted files are included; a git build would only send committed files).
 1. Credentials: already set (see step 5 above); iPhone with the App Store Connect API key variables (see the iOS memory/guide).

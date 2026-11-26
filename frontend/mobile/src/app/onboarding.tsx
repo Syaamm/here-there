@@ -79,7 +79,7 @@ export default function Onboarding() {
   const [step, setStep] = useState<Step>(me?.emailVerified ? first : 'email');
   const [interests, setInterests] = useState<string[]>(me?.profile?.interests ?? []);
   const [city, setCity] = useState(me?.profile?.homeCity ?? '');
-  const [, pickCity] = useCity(); // the city picked here is also the app's city (with its place on the map) for this account
+  const [, , pickCity] = useCity(); // the city picked here is also the app's city (with its place on the map) for this account
   const [wishlist, setWishlist] = useState<string[]>(me?.profile?.travelWishlist ?? []);
   const [window, setWindow] = useState<string | null>(me?.profile?.travelWindow ?? null);
   const [companions, setCompanions] = useState<string | null>(me?.profile?.travelCompanions ?? null);
