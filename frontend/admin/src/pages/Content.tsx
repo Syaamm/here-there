@@ -114,7 +114,7 @@ export function ContentPage({ me }: { me: Session }) {
           ))}
         </Select>
       </FilterBar>
-      <div className="toolbar" role="group" aria-label="Month">
+      <div className="toolbar month-bar" role="group" aria-label="Month">
         <button type="button" className="btn small" onClick={() => (setDay(''), setMonth((m) => m - 1))} aria-label="Previous month">
           <span style={{ display: 'grid', transform: 'rotate(90deg)' }}>
             <Icon name="chevron" />

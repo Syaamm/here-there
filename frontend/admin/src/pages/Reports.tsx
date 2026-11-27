@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, can, get, post, type Session } from '../api';
 import { Select } from '../controls';
-import { askChecksText, askChoiceText, askText, cap, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, urlParam, setUrlParam, Icon, Loading, Page, PageBar, Search, Segmented, useAction, useUrlParam, useLoad } from '../ui';
+import { askChecksText, askChoiceText, askText, cap, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, urlParam, setUrlParam, Icon, Loading, Page, PageBar, Search, Segmented, useAction, usePaneHistory, useUrlParam, useLoad } from '../ui';
 
 type R = {
   id: string;
@@ -189,6 +189,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   // On a phone or small tablet the list and the report are one pane each (responsive.css reads data-pane): tapping a report opens
   // it, "All reports" comes back. A report you were on when the page was reloaded (or opened from the audit log) opens at once.
   const [pane, setPane] = useState<'list' | 'detail'>(() => (focusId || urlParam('report') ? 'detail' : 'list'));
+  usePaneHistory(pane, setPane, true, () => setSel(null)); // the phone's Back returns to the list
   useEffect(() => {
     // the report on screen is no longer in the list (it was just resolved): back to the list, not to some other report
     if (pane === 'detail' && ready && sel && !items.some((r) => r.id === sel)) (setPane('list'), setSel(null));
@@ -274,10 +275,6 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
             {!focusId && <PageBar page={data?.page ?? 1} pages={data?.pages ?? 1} total={data?.total ?? items.length} noun={['report', 'reports']} onPage={setPageNo} busy={loading} />}
           </section>
           <section className="split-detail" aria-label="Report">
-            <button type="button" className="btn small split-back" onClick={() => (setPane('list'), setSel(null))}>
-              <Icon name="back" />
-              All reports
-            </button>
             {selected &&<Detail key={selected.id} r={selected} mod={mod} busy={act.busy} openUser={openUser} from={`report:${selected.id}:${status}`} canSeePeople={me.role === 'admin' || !!me.permissions?.includes('users')} me={me} onResolve={resolve} onRestore={restore} />}
           </section>
         </div>

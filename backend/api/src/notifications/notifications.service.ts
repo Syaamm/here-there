@@ -59,7 +59,10 @@ export class NotificationsService {
     const n = await this.prisma.notification.create({
       data: { userId, type, title, body, data: data ? JSON.stringify(data) : null, product },
     });
-    this.live.send(userId, { type: 'notification', notification: { id: n.id, type, title, body, data: data ?? null, createdAt: n.createdAt } });
+    // `push`: whether this alert may show as a banner (the person's alert settings and quiet hours, the same rule a push follows): an open app that
+    // cannot count on the phone's push to draw it shows the banner itself, but only when this is true
+    const push = type !== 'chat_message' && (await this.push.allows(userId, type, data));
+    this.live.send(userId, { type: 'notification', notification: { id: n.id, type, title, body, data: data ?? null, createdAt: n.createdAt, push } });
     if (type !== 'chat_message') this.push.queue(userId, { title, body, url, alert: { type, data }, ...(opts.group ? { group: opts.group.marker } : {}) });
   }
 

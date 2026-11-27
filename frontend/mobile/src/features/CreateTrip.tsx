@@ -27,7 +27,7 @@ import { useFormDraft } from '@/lib/formDraft';
 import { useDroppedPin } from '@/lib/dropPin';
 import { success, tap } from '@/lib/haptics';
 import { closeKeyboard } from '@/lib/keyboard';
-import { scrollToField } from '@/lib/pageScroll';
+import { scrollPageToTop, scrollToField } from '@/lib/pageScroll';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { backFromMain } from '@/lib/nav';
@@ -146,6 +146,13 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const router = useRouter();
   const gate = useVerifyGate();
   const [step, setStep] = useState(0);
+  // every step opens from the top, whether it was reached by Continue, a step bar, a swipe or Back (the first showing needs nothing)
+  const stepSeen = useRef(step);
+  useEffect(() => {
+    if (stepSeen.current === step) return;
+    stepSeen.current = step;
+    scrollPageToTop();
+  }, [step]);
   const typing = useKeyboardUp(); // keyboard open: Continue is part of the page (at its end) instead of pinned, so the page can be scrolled without closing the keyboard
   const [barH, setBarH] = useState(0); // the height of the pinned Continue bar, so the page can scroll clear of it
   useEffect(() => Keyboard.dismiss(), [step]); // a new step starts with the keyboard down

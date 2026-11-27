@@ -32,6 +32,7 @@ export const PAGE_TITLES: Record<string, string> = {
   appeal: 'Ask for a review',
   'report-update': 'Your report',
   guidelines: 'Group guidelines',
+  'how-it-works': 'How it works',
   favourites: 'Favourites',
   connections: 'Friends',
   verify: 'Verify your identity',
@@ -41,6 +42,6 @@ export const PAGE_TITLES: Record<string, string> = {
 export const PLAIN_PAGES = new Set<string>([
   'join/[id]', 'activities', 'apply/[id]', 'trips',
   'search-results', 'settings', 'safety', 'edit-profile', 'change-password', 'change-email', 'delete-account', 'my-data', 'retention', 'reliability',
-  'notification-settings', 'reports-blocked', 'travel-match', 'appeal', 'report-update', 'guidelines', 'verify',
+  'notification-settings', 'reports-blocked', 'travel-match', 'appeal', 'report-update', 'guidelines', 'how-it-works', 'verify',
   'host/[id]', 'review/[id]', 'user/[id]', 'my-activities', 'my-trips', 'drafts', 'trip-plan/[id]', 'favourites', 'connections', 'no-shows/[kind]/[id]',
 ]);

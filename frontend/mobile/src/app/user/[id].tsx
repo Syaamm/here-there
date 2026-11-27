@@ -16,6 +16,7 @@ import { useT } from '@/lib/i18n';
 import { StatsCard } from '@/components/StatsCard';
 import { useTheme } from '@/lib/theme';
 import { SampleTag } from '@/components/SampleTag';
+import { FirstTimeHint } from '@/components/FirstTimeHint';
 
 import { sc, sp } from '@/lib/scale';
 type PublicProfile = {
@@ -92,12 +93,21 @@ export default function UserProfile() {
         <Txt variant="h2" style={{ fontSize: 22 }}>{p.displayName} {p.verifiedAdult ? <Ionicons name="checkmark" size={sc(18)} color={c.green} /> : null}</Txt>
         <Txt variant="muted">{p.homeCity ?? t('City not set')} · {p.verifiedAdult ? t('Verified adult') : t('Identity not verified')}</Txt>
         <Row style={{ gap: sp(8), flexWrap: 'wrap', justifyContent: 'center' }}>
-          {/* you follow each other: friends */}
-          {!mine && relation?.buddy ? <Chip label={t("Friends")} tone="ok" /> : null}
+          {/* how you and this person are connected: friends (you follow each other), you follow them, or they follow you */}
+          {!mine && relation?.buddy ? <Chip label={t('Friends')} tone="ok" /> : null}
+          {!mine && relation && !relation.buddy && relation.following ? <Chip label={t('Following')} tone="neutral" /> : null}
+          {!mine && relation && !relation.buddy && !relation.following && relation.followsYou ? <Chip label={t('Follows you')} tone="neutral" /> : null}
           {p.sample ? <SampleTag /> : null}
           <ReliabilityChip r={p.reliability} />
         </Row>
+        {/* the same in words, right under the pills */}
+        {!mine && relation && (relation.buddy || relation.following || relation.followsYou) ? (
+          <Txt variant="small" style={{ textAlign: 'center' }}>
+            {relation.buddy ? t('You and {name} follow each other.', { name: p.displayName }) : relation.following ? t('You follow {name}.', { name: p.displayName }) : t('{name} follows you.', { name: p.displayName })}
+          </Txt>
+        ) : null}
       </View>
+      {!mine && relation?.buddy ? <FirstTimeHint id="friends" title={t('You are Friends')} text={t('When you follow each other you are Friends. Friends are your travel buddies: you see when they go to a plan or a trip, and plans with friends come first in your feed.')} /> : null}
 
       <StatsCard hosted={p.stats.activitiesHosted} joined={p.stats.activitiesJoined} trips={p.stats.tripsDone} />
 
@@ -120,7 +130,6 @@ export default function UserProfile() {
       {!mine && relation ? (
         <>
           <Btn title={relation.buddy ? t("Friends") : relation.following ? t("Following") : relation.followsYou ? t('Follow back') : t('Follow')} variant={relation.following ? 'secondary' : 'primary'} onPress={toggleFollow} />
-          {!relation.buddy && relation.followsYou && !relation.following ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('{name} follows you.', { name: p.displayName })}</Txt> : null}
         </>
       ) : null}
       {!p.verifiedAdult && <Banner tone="warn">{t('This person has not completed identity verification.')}</Banner>}

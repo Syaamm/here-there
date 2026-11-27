@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image, type ImageSource } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Keyboard, Linking, Pressable, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Keyboard, Linking, Pressable, View } from 'react-native';
 import { approximateFix } from '@/features/mapShared';
 import { get } from '@/lib/api';
 import type { Near } from '@/lib/city';
@@ -13,52 +13,15 @@ import { AuthBack } from './AuthForm';
 import { RoundPhoto } from './CreateParts';
 import { Text, TextInput } from './ScaledText';
 import type { Place } from './PlaceSearch';
+import { TogglePill } from './ProfileParts';
 import { Reveal } from './Reveal';
+import { StepBars } from './StepMotion';
 import { pressed } from './ui';
 
 /** The sign-up questions (Figma "onboarding 1 to 3"): back and Skip, a progress bar, a question, the choices, Next. */
 
-/** True once the phone is known to ask for reduced motion: the little motions below then simply do not play. */
-function useReducedMotion() {
-  const reduce = useRef(false);
-  useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then((r) => (reduce.current = r), () => undefined);
-  }, []);
-  return reduce;
-}
-
-/** A choice that has just been picked gives a small pop (grows a little, settles back). Not on first showing, and not when un-picked. */
-function useSelectPop(selected: boolean) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const first = useRef(true);
-  const reduce = useReducedMotion();
-  useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    if (!selected || reduce.current) return;
-    Animated.sequence([
-      Animated.timing(scale, { toValue: 1.045, duration: 110, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(scale, { toValue: 1, friction: 5, tension: 170, useNativeDriver: true }),
-    ]).start();
-  }, [selected, scale, reduce]);
-  return scale;
-}
-
-/** The dot inside a round marker: it springs in when picked and shrinks away when not. */
-function MarkerDot({ selected, color }: { selected: boolean; color: string }) {
-  const v = useRef(new Animated.Value(selected ? 1 : 0)).current;
-  const reduce = useReducedMotion();
-  useEffect(() => {
-    if (reduce.current) v.setValue(selected ? 1 : 0);
-    else Animated.spring(v, { toValue: selected ? 1 : 0, friction: 6, tension: 190, useNativeDriver: true }).start();
-  }, [selected, v, reduce]);
-  return <Animated.View style={{ width: sc(14), height: sc(14), borderRadius: sc(7), backgroundColor: color, opacity: v, transform: [{ scale: v }] }} />;
-}
-
 /** Back button on the left, Skip on the right, and the progress bar under them. `back` is left out on the first question. */
-export function OnboardingTop({ progress, onBack, onSkip }: { progress: number; onBack?: () => void; /** left out where the question cannot be skipped */ onSkip?: () => void }) {
+export function OnboardingTop({ progress, onBack, onSkip, steps }: { progress: number; onBack?: () => void; /** left out where the question cannot be skipped */ onSkip?: () => void; /** the questions as steps: tap a bar to go to it (where `canPick` allows), like the steps of creating an activity */ steps?: { at: number; count: number; onPick: (i: number) => void; canPick: (i: number) => boolean } }) {
   const { t } = useT();
   const { c, mode } = useTheme();
   // the bar fills to its new place instead of jumping (it also fills in once when the first question opens)
@@ -78,9 +41,13 @@ export function OnboardingTop({ progress, onBack, onSkip }: { progress: number; 
           <View />
         )}
       </View>
+      {steps ? (
+        <StepBars step={steps.at} count={steps.count} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} onPick={steps.onPick} canPick={steps.canPick} />
+      ) : (
       <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }} style={{ height: sc(6), borderRadius: sc(65), backgroundColor: mode === 'there' ? '#fff' : c.sand, justifyContent: 'center' }}>
         <Animated.View style={{ width: fill.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }), height: sc(4), marginLeft: 0, borderRadius: sc(65), backgroundColor: c.forest }} />
       </View>
+      )}
     </View>
   );
 }
@@ -96,13 +63,22 @@ export function OnboardingHeading({ title, subtitle }: { title: string; subtitle
   );
 }
 
-/** A rounded choice with a round photo on the left. Dark and filled when picked. */
+/**
+ * A rounded choice with a round photo on the left. Picking one fades it to dark (fill, border and label together, about a fifth of a
+ * second, no bounce) and fades a small check in at the right edge. The tile never grows or moves, so it stays inside its padding.
+ */
 export function InterestTile({ label, photo, selected, onPress, index = 0 }: { label: string; photo?: ImageSource | number; selected: boolean; onPress: () => void; /** its place in the list: the tiles ease in one after another */ index?: number }) {
   const { c, mode } = useTheme();
-  const pop = useSelectPop(selected);
+  // 0 = not picked, 1 = picked: one value drives everything that changes, so it all moves as one
+  const v = useRef(new Animated.Value(selected ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(v, { toValue: selected ? 1 : 0, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+  }, [selected, v]);
+  const rest = mode === 'there' ? '#fff' : c.surface;
+  const fill = v.interpolate({ inputRange: [0, 1], outputRange: [rest, c.forest] });
+  const edge = v.interpolate({ inputRange: [0, 1], outputRange: ['rgba(0,0,0,0.08)', c.forest] });
   return (
     <Reveal index={index + 1} style={{ flexBasis: '48%', flexGrow: 1 }}>
-    <Animated.View style={{ transform: [{ scale: pop }] }}>
     <Pressable
       accessibilityRole="checkbox"
       accessibilityLabel={label}
@@ -111,30 +87,41 @@ export function InterestTile({ label, photo, selected, onPress, index = 0 }: { l
         tap('Light');
         onPress();
       }}
-      style={({ pressed: p }) => [{ minHeight: sc(62), borderRadius: sc(999), borderWidth: 1, borderColor: 'rgba(0,0,0,0.08)', backgroundColor: selected ? c.forest : mode === 'there' ? '#fff' : c.surface, flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingVertical: photo ? sp(4) : 0, paddingLeft: photo ? sph(4) : sph(22), paddingRight: sph(12) }, pressed(p)]}
+      style={({ pressed: p }) => [{ minHeight: sc(62), borderRadius: sc(999), flexDirection: 'row', alignItems: 'center', gap: sp(10), paddingVertical: photo ? sp(4) : 0, paddingLeft: photo ? sph(4) : sph(22), paddingRight: sph(12) }, pressed(p)]}
     >
+      {/* the fill and the edge sit behind the content and fade between the two looks */}
+      <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, borderRadius: sc(999), borderWidth: 1, backgroundColor: fill, borderColor: edge }} />
       {photo ? <RoundPhoto source={photo} size={sc(54)} ring={selected} /> : null}
-      <Text numberOfLines={2} style={{ flex: 1, color: selected ? '#fff' : c.forest, fontSize: mode === 'there' ? 12 : 12 }}>{label}</Text>
+      {/* two copies of the label, one dark and one white, cross-fade: a text colour cannot be animated smoothly on its own */}
+      <View style={{ flex: 1 }}>
+        <Animated.View style={{ opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
+          <Text numberOfLines={2} style={{ color: c.forest, fontSize: 12 }}>{label}</Text>
+        </Animated.View>
+        <Animated.View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: 'absolute', left: 0, right: 0, top: 0, opacity: v }}>
+          <Text numberOfLines={2} style={{ color: '#fff', fontSize: 12 }}>{label}</Text>
+        </Animated.View>
+      </View>
+      {/* the check: always takes its space, so the label never shifts; it only fades in */}
+      <Animated.View style={{ width: sc(24), height: sc(24), borderRadius: sc(12), backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', opacity: v, transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1] }) }] }}>
+        <Ionicons name="checkmark" size={sc(16)} color={c.forest} />
+      </Animated.View>
     </Pressable>
-    </Animated.View>
     </Reveal>
   );
 }
 
-/** A line with a round marker on the left: a dot inside when picked. Several can be picked, so it speaks as a checkbox. */
+/** One of several answers (languages): the same pill as in Edit profile, filled deep forest when picked. No growing, no sliding. */
 export function ChoiceRow({ label, selected, onPress, index = 0 }: { label: string; selected: boolean; onPress: () => void; index?: number }) {
-  const { c, mode } = useTheme();
   return (
     <Reveal index={index + 1}>
-    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected }} onPress={() => {
-      tap('Light');
-      onPress();
-    }} style={({ pressed: p }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(14), minHeight: sc(44) }, pressed(p)]}>
-      <View style={{ width: sc(20), height: sc(20), borderRadius: sc(10), borderWidth: 1, borderColor: c.forest, backgroundColor: mode === 'there' ? '#fff' : undefined, alignItems: 'center', justifyContent: 'center' }}>
-        <MarkerDot selected={selected} color={c.forest} />
-      </View>
-      <Text style={{ color: c.forest, fontSize: 16 }}>{label}</Text>
-    </Pressable>
+      <TogglePill
+        label={label}
+        on={selected}
+        onPress={() => {
+          tap('Light');
+          onPress();
+        }}
+      />
     </Reveal>
   );
 }
@@ -148,8 +135,9 @@ export function RadioRow({ label, selected, onPress, index = 0 }: { label: strin
       tap('Light');
       onPress();
     }} style={({ pressed: p }) => [{ flexDirection: 'row', alignItems: 'center', gap: sp(14), minHeight: sc(44) }, pressed(p)]}>
-      <View style={{ width: sc(20), height: sc(20), borderRadius: sc(10), borderWidth: selected ? 1 : 0, borderColor: c.forest, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-        <MarkerDot selected={selected} color={c.forest} />
+      {/* the same ring whether picked or not (so nothing shifts), with the dot centred in it */}
+      <View style={{ width: sc(22), height: sc(22), borderRadius: sc(11), borderWidth: 1.5, borderColor: selected ? c.forest : c.line, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        {selected ? <View style={{ width: sc(12), height: sc(12), borderRadius: sc(6), backgroundColor: c.forest }} /> : null}
       </View>
       <Text style={{ color: c.forest, fontSize: 16 }}>{label}</Text>
     </Pressable>

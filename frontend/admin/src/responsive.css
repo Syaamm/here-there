@@ -48,7 +48,7 @@
 @media (max-width: 900px) {
   .main { padding: 16px 16px 16px; }
   .page-head { margin-bottom: 12px; }
-  .page-head > .row { width: 100%; justify-content: flex-start; }
+  .page-head > .row { width: 100%; justify-content: flex-end; } /* the page's action buttons (Download spreadsheet, Add staff...) sit on the right under the title, as they do on a wide screen */
 }
 
 /* ------------------------------------------------------------ list and detail: one pane at a time on small screens */
@@ -265,9 +265,13 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   .table-foot { padding: 10px 16px; }
   .scroll-card > .table-foot, .split-list > .table-foot, .ns-box > .table-foot { height: auto; min-height: 56px; padding-top: 10px; padding-bottom: 10px; }
 }
-@media (max-width: 380px) {
-  .table-foot > :first-child { flex: 1 1 100%; }
-  .table-foot > .row { flex: 1 1 100%; }
+/* on a phone the footer stays on ONE line, however narrow: the count on the left, Previous / Page / Next on the right (smaller buttons so it all fits) */
+@media (max-width: 700px) {
+  .table-foot { flex-wrap: nowrap; gap: 8px; }
+  .table-foot > :first-child { flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+  .table-foot > .row { flex: none; flex-wrap: nowrap; gap: 6px; }
+  .table-foot > .row .btn { min-height: 36px; padding: 0 12px; font-size: 13px; }
+  .table-foot > .row .small { white-space: nowrap; font-size: 13px; }
 }
 
 /* 3. Verification: each row wraps on a narrow screen (name, date, status and buttons used to run into each other and off the card) */
@@ -332,3 +336,61 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 /* 7. Dialogs of every kind never taller than the window; they scroll inside themselves */
 .dialog { max-height: calc(100dvh - 32px); }
+
+/* phones: the tabs of a short row (Pending / Disputed / Confirmed / Removed) get smaller as the screen gets narrower, so they all fit without scrolling
+   sideways. (A filter bar has its own, more specific, padding for its tabs, so it is named here too.) A row that is still too long scrolls, open tab in view. */
+@media (max-width: 700px) {
+  .segmented, .toolbar.filterbar .segmented { gap: 2px; padding: 3px; }
+  .seg, .toolbar.filterbar .seg { padding: 8px clamp(4px, 1.7vw, 10px); font-size: clamp(12px, 3.3vw, 15px); gap: 6px; }
+  .toolbar.filterbar .seg { padding-top: 0; padding-bottom: 0; }
+}
+
+/* the footer of a card keeps the card's own rounded bottom corners (it takes the card's radius instead of a number of its own), and the card clips what is
+   inside it to that shape: a sticky header with a blur, or a scrolling list, can otherwise paint over a rounded corner and leave it looking square */
+.table-foot { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
+.scroll-card, .split-list, .ns-box { overflow: hidden; isolation: isolate; }
+.ns-scroll.ns-box { border-radius: var(--radius) !important; }
+.ns-box > .table-foot { border-radius: 0 0 var(--radius) var(--radius); }
+
+/* Staff on a phone: no sideways scrolling. Each account is a small card: the person and the Edit / Delete buttons on top, then its type and two-step
+   status, then what it can use. (The columns of the wide table become these three rows.) */
+@media (max-width: 700px) {
+  .page-body > .table-wrap > .table-scroll > table.staff-table { min-width: 0; width: 100%; display: block; }
+  .staff-table thead { display: none; }
+  .staff-table tbody { display: block; }
+  .staff-table tr { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 10px 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .staff-table tr:last-child { border-bottom: 0; }
+  .staff-table td { display: block; padding: 0; border: 0; min-width: 0; text-align: left; }
+  .staff-table td:nth-child(1) { grid-column: 1 / 4; grid-row: 1; }
+  .staff-table td:nth-child(5) { grid-column: 4; grid-row: 1; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+  .staff-table td:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .staff-table td:nth-child(4) { grid-column: 2; grid-row: 2; display: flex; align-items: center; gap: 6px; }
+  .staff-table td:nth-child(4)::before { content: 'Two-step'; color: var(--muted); font-size: var(--fs-sm); }
+  .staff-table td:nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+}
+
+/* Audit log on a phone: no sideways scrolling. Each entry is a small card: the time and the open / close arrow on top, then who, then what happened, then
+   its category. An opened entry shows its details in a box as wide as the card (it used to be as wide as the whole 760px table, so it ran off the screen). */
+@media (max-width: 700px) {
+  .audit-table .table-scroll table.audit-t { min-width: 0; width: 100%; display: block; }
+  .audit-t thead { display: none; }
+  .audit-t tbody { display: block; }
+  .audit-t tr.au-click:not(.au-detail-row) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .audit-t tr.au-click:not(.au-detail-row) > td { display: block; padding: 0; border: 0; min-width: 0; text-align: left; width: auto; }
+  .audit-t tr.au-click:not(.au-detail-row) > td:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .audit-t tr.au-click:not(.au-detail-row) > td:nth-child(5) { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
+  .audit-t tr.au-click:not(.au-detail-row) > td:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .audit-t tr.au-click:not(.au-detail-row) > td:nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+  .audit-t tr.au-click:not(.au-detail-row) > td:nth-child(4) { grid-column: 1 / -1; grid-row: 4; }
+  .audit-t tr.au-detail-row { display: block; border-bottom: 1px solid var(--line); }
+  .audit-t tr.au-detail-row > td { display: block; width: auto; padding: 14px 16px !important; } /* the same air above and below the box: 14px */
+  .audit-t .au-detail { margin: 0; }
+  .audit-t .au-facts { grid-template-columns: 1fr; }
+}
+
+/* card rows on a phone (Staff, Audit log): the soft hover / tap tint is painted on the whole card, not on each cell (the cells have gaps between them, so each
+   one showed as its own faint bar) */
+@media (max-width: 700px) {
+  .audit-t tr:hover > td, .staff-table tr:hover > td { background: transparent; }
+  .audit-t tr.au-click:not(.au-detail-row):hover, .staff-table tr:hover { background: rgba(18, 48, 43, 0.025); }
+}

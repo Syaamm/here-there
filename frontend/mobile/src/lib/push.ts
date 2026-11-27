@@ -3,9 +3,10 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
+import { AppState, NativeModules, Platform, TurboModuleRegistry } from 'react-native';
 import { API_URL, api } from './api';
-import { currentOpenChat } from './live';
+import { alertRoute } from './alerts';
+import { currentOpenChat, useLiveEvents } from './live';
 import { t } from './i18n';
 
 type NotificationsModule = typeof import('expo-notifications');
@@ -234,12 +235,14 @@ const ASKED_KEY = 'ht_push_asked';
 const isOpenChat = (url: unknown) => typeof url === 'string' && !!currentOpenChat() && url === `/chat/${currentOpenChat()}`;
 
 // The same message can reach the app twice while it is open (iPhone hands it to the notification handler and to Firebase): one
-// banner each, remembered for a few seconds by its words.
+// banner each, remembered for a few seconds by its words (15 s: the live alert below comes first, the phone's push a little later).
 const shownAt = new Map<string, number>();
+// Android: 15 s (the live alert below comes first, the push a little later). iPhone: 5 s, as it always was.
+const SHOWN_MS = Platform.OS === 'android' ? 15000 : 5000;
 function alreadyShown(title: string, body: string, mark = true) {
   const key = `${title}\n${body}`;
   const now = Date.now();
-  for (const [k, at] of shownAt) if (now - at > 5000) shownAt.delete(k);
+  for (const [k, at] of shownAt) if (now - at > SHOWN_MS) shownAt.delete(k);
   if (shownAt.has(key)) return true;
   if (mark) shownAt.set(key, now);
   return false;
@@ -267,6 +270,23 @@ const openedMessages = new Set<string>();
 /** On phones: banners with the app open, and tapping a notification opens the chat or activity it is about. */
 export function usePushTaps() {
   const router = useRouter();
+  // With the app open, the server also tells it about each new alert over the live connection. If the phone's push did not draw a banner for it (on Android
+  // the app has to draw it itself), draw it here (Android only): only while the app is in front, only when the server says the alert may show (the person's alert settings
+  // and quiet hours: `push`), and never for the chat on screen. A banner the push path also makes is shown once: both go through the same check of the words.
+  useLiveEvents((e) => {
+    // Android only: the iPhone already shows its banners through the phone's own handler, and stays exactly as it was
+    if (e.type !== 'notification' || Platform.OS !== 'android' || AppState.currentState !== 'active') return;
+    const n = e.notification;
+    if (n.push !== true || n.type === 'chat_message' || (!n.title && !n.body)) return;
+    const Notifications = loadNotifications();
+    if (!Notifications) return;
+    const url = alertRoute({ type: n.type, data: (n.data ?? null) as never });
+    if (isOpenChat(url) || alreadyShown(n.title, n.body, false)) return;
+    void Notifications.scheduleNotificationAsync({
+      content: { title: n.title, body: n.body, data: { url }, sound: true },
+      trigger: Platform.OS === 'android' ? { channelId: 'alerts' } : null,
+    }).catch(() => undefined);
+  });
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const Notifications = loadNotifications();

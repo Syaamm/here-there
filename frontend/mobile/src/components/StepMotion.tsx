@@ -21,7 +21,7 @@ const ease = Easing.out(Easing.cubic);
  * The four bars. Each fill is a full-width bar scaled from its left edge: it grows when its step is reached and drains going back.
  * With `onPick` each bar also jumps to its step, where `canPick` allows it.
  */
-export function StepBars({ step, count = 4, track, fill, onPick, canPick }: { step: number; count?: number; track: string; /** the filled part's colour (default forest; the wizards' dark band passes white) */ fill?: string; onPick?: (i: number) => void; canPick?: (i: number) => boolean }) {
+export function StepBars({ step, count = 4, track, fill, onPick, canPick, rootRef }: { /** lets the first-time cue point at the bars */ rootRef?: (node: unknown) => void; step: number; count?: number; track: string; /** the filled part's colour (default forest; the wizards' dark band passes white) */ fill?: string; onPick?: (i: number) => void; canPick?: (i: number) => boolean }) {
   const { t } = useT();
   const { c } = useTheme();
   const fills = useRef(Array.from({ length: count }, (_, i) => new Animated.Value(i <= step ? 1 : 0))).current;
@@ -47,7 +47,7 @@ export function StepBars({ step, count = 4, track, fill, onPick, canPick }: { st
   if (onPick)
     // each bar is a button to its step; a 5 px bar is too thin to hit, so the button is taller than it looks
     return (
-      <View style={{ flexDirection: 'row', gap: sp(7), marginVertical: -sc(8) }}>
+      <View ref={rootRef} collapsable={false} style={{ flexDirection: 'row', gap: sp(7), marginVertical: -sc(8) }}>
         {fills.map((v, i) => {
           const ok = i !== step && (canPick?.(i) ?? true);
           return (

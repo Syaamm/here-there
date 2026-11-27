@@ -41,7 +41,7 @@ Run: GitHub > Actions > Mobile build > Run workflow (action, platform, profile).
 
 After the first iOS build: App Store Connect > TestFlight > add testers (Internal, then External with a public link).
 
-## Live site: push, maps, shared links (live site `https://here-there.susmitha.site`)
+## Live site: push, maps, shared links (live site `https://here-there.achu.site`)
 The production build already points at the live site (`eas.json` > `production` > `env`: `EXPO_PUBLIC_API_URL`, `SHARE_DOMAIN`, `EXPO_PUBLIC_SHARE_URL`).
 
 **Server settings to add** to `backend/api/.env` (the owner approves these; they go beyond the original five lines). Never paste the key itself into a chat:
@@ -51,7 +51,7 @@ APPLE_TEAM_ID=N7X7Q2H8V8                                                    # sh
 ```
 Later, when the app is in the stores: `APP_STORE_URL`, `PLAY_STORE_URL`, `ANDROID_CERT_SHA256`. Restart the API (pm2) after changing `.env`.
 
-**Order matters:** put the server settings live first, then install the build (Apple reads `/.well-known/apple-app-site-association` when the app is installed). Check it: `https://here-there.susmitha.site/.well-known/apple-app-site-association` shows JSON, no redirect.
+**Order matters:** put the server settings live first, then install the build (Apple reads `/.well-known/apple-app-site-association` when the app is installed). Check it: `https://here-there.achu.site/.well-known/apple-app-site-association` shows JSON, no redirect.
 
 **Push also needs** the Apple push key (.p8, APNs) uploaded in Firebase for the iOS app. No rebuild needed after adding it.
 
@@ -83,7 +83,7 @@ A social sign-in only proves who owns the email. The identity check (adult verif
 The development build is a dev client with the same id as production: code loads from the PC. Profiles: Android `development`, iPhone `development-testflight`. Build on EAS cloud with `$env:EAS_NO_VCS = "1"` (uploads the whole folder, so uncommitted files are included; a git build would only send committed files).
 1. Credentials: already set (see step 5 above); iPhone with the App Store Connect API key variables (see the iOS memory/guide).
 2. Build: `npx eas build -p android --profile development` and `npx eas build -p ios --profile development-testflight`, then `npx eas submit -p ios --profile development-testflight`. iPhone now needs the ONE app's Apple ID in `eas.json` > `submit` (the `ascAppId` there was made for the old `.dev` app: replace it with the Apple ID of the `io.herethere.app` app).
-3. Run against the live site: `$env:EXPO_PUBLIC_API_URL = "https://here-there.susmitha.site"` then `npx expo start --dev-client --tunnel` (a dev client reads this from the PC, not from the cloud build).
+3. Run against the live site: `$env:EXPO_PUBLIC_API_URL = "https://here-there.achu.site"` then `npx expo start --dev-client --tunnel` (a dev client reads this from the PC, not from the cloud build).
 4. Push needs: Apple APNs key (.p8, different from the App Store Connect API key) in Firebase > Cloud Messaging for both iOS apps with team id N7X7Q2H8V8; Firebase service-account key of `mobile-app-build-513904` on the server with `FIREBASE_SERVICE_ACCOUNT_FILE`. Android needs nothing more. Android maps need `GOOGLE_MAPS_ANDROID_KEY`.
 
 ## Move Firebase and Maps to the company (do once, before real users)

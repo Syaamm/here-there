@@ -6,7 +6,7 @@ import { API_URL, freshToken } from './api';
 export type LiveEvent =
   | { type: 'ready' }
   | { type: 'message'; conversationId: string; message: { id: string; body: string; kind?: string; createdAt: string; sender: { id: string; displayName: string; photoUrl: string | null } } }
-  | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: string } }
+  | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: string; /** may it show as a banner (the person's alert settings and quiet hours)? */ push?: boolean } }
   | { type: 'alerts-changed' }
   | { type: 'feed-changed' }
   // the members, dates, place, plan or a poll of one group changed (carries only which group)

@@ -9,6 +9,7 @@ import { Between, Btn, Chip, Empty, ErrorBanner, Grid, Row, RowLink, Screen, Spi
 import { type Activity } from '@/lib/api';
 import { useRefresh } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { capCount } from '@/lib/format';
 import { PagedTail, useCursorList } from '@/lib/paged';
 import { useLiveEvents } from '@/lib/live';
 import { myActivityItems } from '@/lib/myActivities';
@@ -53,7 +54,7 @@ export default function MyActivities() {
       <View accessibilityRole="tablist" style={{ flexDirection: 'row', gap: sp(8) }}>
         {TABS.map((x) => {
           const on = tab === x.id;
-          const label = `${t(x.label)} (${count(x.id)})`;
+          const label = `${t(x.label)} (${capCount(count(x.id))})`;
           return (
             <Pressable key={x.id} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={label} onPress={() => setTab(x.id)} style={({ pressed }) => [{ flex: 1, minHeight: sc(BTN.pill), borderRadius: BTN.radiusPill, borderWidth: 1, paddingHorizontal: sph(6), alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.forest : c.surface, borderColor: on ? c.forest : c.line }, pressed && { opacity: 0.88 }]}>
               <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ color: on ? '#fff' : c.text, fontSize: 14, fontWeight: '500' }}>{label}</Text>

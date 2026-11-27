@@ -10,6 +10,7 @@ import { DialogHost } from '@/components/AppDialog';
 import { Toast } from '@/components/Toast';
 import { UpdatePrompt } from '@/components/UpdatePrompt';
 import { AuthProvider, useMe } from '@/lib/auth';
+import { CoachProvider } from '@/lib/coach';
 import { useAppFonts } from '@/lib/fonts';
 import { PhoneFrame } from '@/components/PhoneFrame';
 import { LangProvider, useT } from '@/lib/i18n';
@@ -29,7 +30,9 @@ export default function RootLayout() {
         <LangProvider>
           <ThemeProvider>
             <AuthProvider>
-              <Gate />
+              <CoachProvider>
+                <Gate />
+              </CoachProvider>
             </AuthProvider>
           </ThemeProvider>
         </LangProvider>
@@ -148,6 +151,7 @@ function Gate() {
           <Stack.Screen name="appeal" options={banded} />
           <Stack.Screen name="report-update" options={banded} />
           <Stack.Screen name="guidelines" options={banded} />
+          <Stack.Screen name="how-it-works" options={banded} />
           <Stack.Screen name="favourites" options={banded} />
           <Stack.Screen name="connections" options={banded} />
           {/* a chat is its own screen above the tabs, like a chat in any messaging app: the iPhone's own swipe-back shows the inbox underneath as you drag */}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { can, get, post, roleLabel, type Role, type Session } from '../api';
 import './UserPanel.css';
 import { actionLabel, say, type E } from './Audit';
-import { askChoiceText, askText, cap, Avatar, Chip, ErrorBanner, fmt, FilterBar, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad } from '../ui';
+import { askChoiceText, askText, cap, Avatar, Chip, ErrorBanner, fmt, FilterBar, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, usePaneHistory, useUrlParam, useLoad } from '../ui';
 
 type U = { id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
 type Detail = {
@@ -86,6 +86,7 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, onShowReports
   const selected = rows.find((u) => u.id === selectedId) ?? null;
   // on a phone or small tablet: the list, then the person opened from it with a way back (responsive.css reads data-pane)
   const [pane, setPane] = useState<'list' | 'detail'>(() => (focusId || urlParam('user') ? 'detail' : 'list'));
+  usePaneHistory(pane, setPane, !focusId, () => setOpen(null)); // the phone's Back returns to the list (a person opened from a report has its own way back)
   const label = (u: U) => u.displayName ?? u.email;
 
   const suspend = async (u: U) => {
@@ -190,13 +191,6 @@ export function UsersPage({ me, focusId, onClearFocus, openReport, onShowReports
             <PageBar page={users.data.page ?? 1} pages={users.data.pages ?? 1} total={users.data.total ?? rows.length} noun={['person', 'people']} onPage={setPageNo} busy={users.loading} />
           </section>
           <section className="split-detail" aria-label="Person">
-            {/* a person opened from a report has its own way back in the page's top bar */}
-            {!focusId && (
-              <button type="button" className="btn small split-back" onClick={() => (setPane('list'), setOpen(null))}>
-                <Icon name="back" />
-                All people
-              </button>
-            )}
             {selected ? (
               <UserPanel key={selected.id} u={selected} me={me} busy={act.busy} onSuspend={suspend} onRestore={restore} onWarn={warn} onReverify={reverify} onReset={reset} onOverturn={overturn} onResetMfa={resetMfa} openReport={openReport} onShowReports={onShowReports} />
             ) : (

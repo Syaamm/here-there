@@ -138,3 +138,13 @@ export const circleLine = (buddies?: number, following?: number) => {
   const f = following ?? 0;
   return b > 0 ? tn(b, '{n} friend going', '{n} friends going') : f > 0 ? tn(f, '{n} person you follow is going', '{n} people you follow are going') : null;
 };
+
+/** A count for a tab or a "more" button: the exact number up to 10 (6, 7, 8 ...), then just "10+" (the full number is not needed there). */
+export const capCount = (n: number, max = 10) => (n > max ? `${max}+` : String(n));
+
+/** A big count in few characters: 0 to 9999 as they are, then 12.3k, 120k, 1.2M (a count in a narrow column must never be cut off). */
+export const compactCount = (n: number) => {
+  if (n < 10_000) return String(n);
+  if (n < 1_000_000) return `${n < 100_000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') : Math.round(n / 1000)}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+};

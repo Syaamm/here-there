@@ -48,7 +48,7 @@ export function StaffPage({ me }: { me: Session }) {
       {rows.length > 0 && (
         <div className="table-wrap">
           <div className="table-scroll">
-            <table>
+            <table className="staff-table">
               <thead>
                 <tr>
                   <th>Person</th>
