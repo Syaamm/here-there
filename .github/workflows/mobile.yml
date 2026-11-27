@@ -3,7 +3,7 @@ name: Mobile build
 on:
   workflow_dispatch:
     inputs:
-      action:   { type: choice, options: [build, ota-update], default: build, required: true }
+      action:   { type: choice, options: [build, build-gradle, ota-update], default: build, required: true }
       platform: { type: choice, options: [all, android, ios], default: all, required: true }
       profile:  { type: choice, options: [production, preview, development], default: production, required: true }
 
@@ -69,6 +69,39 @@ jobs:
           files: frontend/mobile/build/app.apk
           make_latest: true
           overwrite_files: true
+
+  # Android build without EAS (no EXPO_TOKEN, no credits): expo prebuild + Gradle. Signed with the default debug key,
+  # so uninstall an EAS-signed copy of the app before installing it. Needs the GitHub secret GOOGLE_MAPS_ANDROID_KEY and the
+  # variables EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID / EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID.
+  android-gradle:
+    if: inputs.action == 'build-gradle'
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: ${{ inputs.profile }}
+      EXPO_PUBLIC_API_URL: https://here-there.susmitha.site
+      EXPO_PUBLIC_SHARE_URL: https://here-there.susmitha.site
+      SHARE_DOMAIN: here-there.susmitha.site
+      EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ vars.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ vars.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID }}
+      GOOGLE_IOS_URL_SCHEME: ${{ vars.GOOGLE_IOS_URL_SCHEME }}
+      GOOGLE_MAPS_ANDROID_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_KEY }}
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - run: npm ci
+        working-directory: .
+      - run: npx expo prebuild -p android --no-install --clean
+      - run: ./gradlew assembleRelease --no-daemon
+        working-directory: frontend/mobile/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ inputs.profile }}-gradle-apk
+          path: frontend/mobile/android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
 
   ios:
     if: inputs.action == 'build' && (inputs.platform == 'all' || inputs.platform == 'ios')
