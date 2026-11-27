@@ -8,6 +8,7 @@ import { ChoiceRow, CityField, InterestTile, OnboardingHeading, OnboardingTop, R
 import { Btn, ErrorBanner, Screen, Txt } from '@/components/ui';
 import { patch } from '@/lib/api';
 import { useMe } from '@/lib/auth';
+import { useCoach } from '@/lib/coach';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
@@ -70,6 +71,7 @@ const ORDER_THERE: Step[] = ['wishlist', 'window', 'companions', 'interests', 'c
  */
 export default function Onboarding() {
   const { me, reload, finishOnboarding } = useMe();
+  const { requestTour } = useCoach();
   const { t } = useT();
   const router = useRouter();
   const there = useTheme().mode === 'there';
@@ -88,6 +90,8 @@ export default function Onboarding() {
 
   const done = () => {
     finishOnboarding();
+    // the first time in the app: home, and the tour of its screens starts there
+    requestTour();
     router.replace('/' as never);
   };
   const toggle = (list: string[], set: (v: string[]) => void, v: string) => set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
@@ -129,7 +133,7 @@ export default function Onboarding() {
 
   return (
     <Screen scroll={false} maxWidth={600}>
-      <OnboardingTop progress={progress} onBack={at > 0 ? () => setStep(order[at - 1]) : !me?.emailVerified ? () => setStep('email') : router.canGoBack() ? () => router.back() : undefined} onSkip={step === 'city' ? undefined : next} />
+      <OnboardingTop progress={progress} steps={{ at, count: order.length, onPick: (i) => setStep(order[i]), canPick: (i) => i < at || (i === at + 1 && ready) }} onBack={at > 0 ? () => setStep(order[at - 1]) : !me?.emailVerified ? () => setStep('email') : router.canGoBack() ? () => router.back() : undefined} onSkip={step === 'city' ? undefined : next} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: sp(24), paddingBottom: sp(12) }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps}>
         {/* swipe left for the next question (once this one is answered), right for the one before: the same as the steps of creating an activity */}
         <StepTransition step={at} style={{ gap: sp(24) }} swipe={{ canNext: !last && ready, canBack: at > 0, onNext: () => setStep(order[at + 1]), onBack: () => setStep(order[at - 1]) }}>
@@ -183,7 +187,7 @@ export default function Onboarding() {
         {step === 'languages' && (
           <>
             <OnboardingHeading title={t('Which languages are you comfortable communicating in?')} />
-            <View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp(8) }}>
               {LANGS.map((l, i) => (
                 <ChoiceRow index={i} key={l} label={t(l)} selected={languages.includes(l)} onPress={() => toggle(languages, setLanguages, l)} />
               ))}

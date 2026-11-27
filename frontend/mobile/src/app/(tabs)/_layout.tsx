@@ -153,7 +153,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: t('Home'), tabBarAccessibilityLabel: t('Home'), tabBarIcon: svgTabIcon(HomeIcon) }} />
       {/* the map is not frozen when you leave it: freezing a page with a native map in it makes Android rebuild the map on return (a flash) */}
-      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? t('Map') : t('Explore'), tabBarAccessibilityLabel: mode === 'here' ? t('Map') : t('Explore'), tabBarIcon: svgTabIcon(SearchIcon), freezeOnBlur: false }} />
+      <Tabs.Screen name="discover" options={{ title: mode === 'here' ? t('Map') : t('Explore'), tabBarAccessibilityLabel: mode === 'here' ? t('Map') : t('Explore'), tabBarIcon: svgTabIcon(SearchIcon), tabBarButton: (p) => <DockButton {...p} glass={!isWide} coachId="tab-discover" />, freezeOnBlur: false }} />
       <Tabs.Screen
         name="create"
         options={{
@@ -164,8 +164,8 @@ export default function TabsLayout() {
           tabBarButton: (p) => (isWide ? <DockButton {...p} glass={false} /> : <CreateButton onPress={p.onPress as (...args: any[]) => void} />),
         }}
       />
-      <Tabs.Screen name="inbox" options={{ title: t('Message'), tabBarAccessibilityLabel: t('Messages'), tabBarIcon: svgTabIcon(MessageIcon), tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
-      <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarAccessibilityLabel: t('Profile'), tabBarIcon: ({ focused }) => <ProfileGlyph focused={focused} /> }} />
+      <Tabs.Screen name="inbox" options={{ title: t('Message'), tabBarAccessibilityLabel: t('Messages'), tabBarIcon: svgTabIcon(MessageIcon), tabBarButton: (p) => <DockButton {...p} glass={!isWide} coachId="tab-inbox" />, tabBarBadge: unread > 0 ? (unread > 9 ? '9+' : unread) : undefined }} />
+      <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarAccessibilityLabel: t('Profile'), tabBarIcon: ({ focused }) => <ProfileGlyph focused={focused} />, tabBarButton: (p) => <DockButton {...p} glass={!isWide} coachId="tab-profile" /> }} />
     </Tabs>
     </View>
     </DockSpace.Provider>

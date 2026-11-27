@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n';
 import { type Mode, useTheme } from '@/lib/theme';
 import { Text } from './ScaledText';
 import { BandTitle, useLightStatusBar } from './ui';
+import { useCoachRef } from '@/lib/coach';
 import { LamisWordmark } from './LamisWordmark';
 
 import { sc, sp, sph } from '@/lib/scale';
@@ -22,6 +23,7 @@ export function ModeTabs() {
   const { t } = useT();
   const router = useRouter();
   const path = usePathname();
+  const coachRef = useCoachRef('mode'); // the first-time tour points at this switch
   const flip = (m: Mode) => {
     if (m === mode) return;
     // from a page inside HERE or THERE, land on the other product's Home once the switch has covered the screen
@@ -32,7 +34,7 @@ export function ModeTabs() {
   // THERE is an off-white bar whose open side is a deep green pill with white letters. A soft shadow on both, one word per side.
   const hereLook = mode === 'here';
   return (
-    <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: sc(40), backgroundColor: hereLook ? '#FFFFFF' : '#F6F4EF', padding: sp(8), gap: sp(4), shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+    <View ref={coachRef} collapsable={false} accessibilityRole="tablist" style={{ flexDirection: 'row', borderRadius: sc(40), backgroundColor: hereLook ? '#FFFFFF' : '#F6F4EF', padding: sp(8), gap: sp(4), shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
       {opts.map(([m, label]) => {
         const on = mode === m;
         return (

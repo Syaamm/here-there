@@ -16,6 +16,7 @@ import { useLiveEvents } from '@/lib/live';
 import { REQUEST_ALERTS } from '@/lib/requestAlerts';
 import { tap } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
+import { capCount, compactCount } from '@/lib/format';
 import { useTheme } from '@/lib/theme';
 import { useVerifyGate } from '@/lib/verifyGate';
 import { backFromMain } from '@/lib/nav';
@@ -83,7 +84,15 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
   const buddiesRow = (
           <Pressable accessibilityRole="button" accessibilityLabel={t('Friends and followers: {buddies} Friends, {following} following, {followers} followers', { buddies: conns.data?.counts.buddies ?? 0, following: conns.data?.counts.following ?? 0, followers: conns.data?.counts.followers ?? 0 })} onPress={() => go('/connections')} style={[rowCard, soft]}>
             <Ionicons name="people-outline" size={sc(22)} color={c.forest} />
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ flex: 1, color: c.forest, fontSize: 16, lineHeight: 22, fontWeight: '500' }}>{conns.data ? t('{buddies} Friends · {following} following · {followers} followers', { buddies: conns.data.counts.buddies, following: conns.data.counts.following, followers: conns.data.counts.followers }) : t('Buddies and followers')}</Text>
+            {/* three equal columns, the number over its word: nothing to cut off, in any language or at any width */}
+            <View style={{ flex: 1, flexDirection: 'row' }}>
+              {([['buddies', 'Friends'], ['following', 'Following'], ['followers', 'Followers']] as const).map(([k, word]) => (
+                <View key={k} style={{ flex: 1, alignItems: 'center' }}>
+                  <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ color: c.forest, fontSize: 18, lineHeight: 22, fontWeight: '700' }}>{conns.data ? compactCount(conns.data.counts[k]) : '–'}</Text>
+                  <Text numberOfLines={1} style={{ color: c.muted, fontSize: 12, lineHeight: 16 }}>{t(word)}</Text>
+                </View>
+              ))}
+            </View>
             <Ionicons name="chevron-forward" size={sc(18)} color={c.text} />
           </Pressable>
   );
@@ -213,7 +222,7 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
             ))}
           </Grid>
           {/* the My activities / Pending / Rejected filters live on that page, not here */}
-          {actsTotal > 0 && <Btn title={actsTotal > SHOWN ? t('View all activities ({n} more)  ›', { n: actsTotal - SHOWN }) : t('View all activities  ›')} variant="secondary" onPress={() => go('/my-activities')} />}
+          {actsTotal > 0 && <Btn title={actsTotal > SHOWN ? t('View all activities ({n} more)  ›', { n: capCount(actsTotal - SHOWN) }) : t('View all activities  ›')} variant="secondary" onPress={() => go('/my-activities')} />}
         </>
       )}
 
@@ -239,7 +248,7 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
             )}
           </Grid>
           {/* like "View all activities": always there when there is anything; the My trips / Pending / Rejected tabs live on that page */}
-          {tripsTotal > 0 && <Btn title={tripsTotal > Math.min(tripItems.length, TRIPS_SHOWN) ? t('View all trips ({n} more)  ›', { n: tripsTotal - Math.min(tripItems.length, TRIPS_SHOWN) }) : t('View all trips  ›')} variant="secondary" onPress={() => go('/my-trips')} />}
+          {tripsTotal > 0 && <Btn title={tripsTotal > Math.min(tripItems.length, TRIPS_SHOWN) ? t('View all trips ({n} more)  ›', { n: capCount(tripsTotal - Math.min(tripItems.length, TRIPS_SHOWN)) }) : t('View all trips  ›')} variant="secondary" onPress={() => go('/my-trips')} />}
         </>
       )}
 
@@ -258,7 +267,7 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
             ))}
           </Grid>
           {favTotal + favTripTotal > Math.min(favItems.length, SHOWN) + Math.min(favTripItems.length, SHOWN) && (
-            <Btn title={t('More favourites ({n} more)  ›', { n: favTotal + favTripTotal - Math.min(favItems.length, SHOWN) - Math.min(favTripItems.length, SHOWN) })} variant="secondary" onPress={() => go('/favourites')} />
+            <Btn title={t('More favourites ({n} more)  ›', { n: capCount(favTotal + favTripTotal - Math.min(favItems.length, SHOWN) - Math.min(favTripItems.length, SHOWN)) })} variant="secondary" onPress={() => go('/favourites')} />
           )}
         </>
       )}

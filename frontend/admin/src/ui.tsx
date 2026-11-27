@@ -632,6 +632,13 @@ export function FilterBar({ search, children }: { search?: ReactNode; children?:
 /** A row of buttons that acts like tabs, e.g. All / Active / Suspended. */
 export function Segmented<T extends string>({ options, value, onChange, label }: { options: { id: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void; label: string }) {
   const ref = useRef<HTMLDivElement>(null);
+  // a row too long for a small screen scrolls sideways: the open tab is always brought into view (centred), never left half cut off
+  useEffect(() => {
+    const box = ref.current;
+    const open = box?.querySelector<HTMLElement>('.seg.active');
+    if (!box || !open || box.scrollWidth <= box.clientWidth + 1) return;
+    box.scrollTo({ left: Math.max(0, open.offsetLeft - (box.clientWidth - open.offsetWidth) / 2), behavior: 'smooth' });
+  }, [value]);
   // the green pill slides to the chosen option (measured, so it fits any label and wraps with the row)
   const [pill, setPill] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [moves, setMoves] = useState(false); // no slide on the very first show
@@ -800,4 +807,43 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
       <span className="muted small" style={{ width: 24 }}>{on ? 'On' : 'Off'}</span>
     </span>
   );
+}
+
+/**
+ * On a phone or small tablet (up to 1000px, where responsive.css shows one pane at a time) the list and the opened person, report or
+ * appeal are two panes. Opening one adds a step to the browser history, so the phone's Back gesture or the browser's Back button
+ * returns to the list: there is no "All people" button to tap. On a wide screen both panes show together and nothing is added.
+ */
+export function usePaneHistory(pane: 'list' | 'detail', setPane: (p: 'list' | 'detail') => void, enabled = true, onBack?: () => void) {
+  const pushed = useRef(false);
+  const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1000px)').matches;
+  useEffect(() => {
+    if (!enabled) return;
+    if (pane === 'detail' && !pushed.current && narrow()) {
+      try {
+        window.history.pushState({ ...(window.history.state ?? {}), htPane: true }, '');
+        pushed.current = true;
+      } catch {
+        /* history unavailable: the pane just stays until another item is chosen */
+      }
+    } else if (pane === 'list' && pushed.current) {
+      // the list came back some other way (an item removed, a filter): drop the extra history step
+      pushed.current = false;
+      try {
+        if (window.history.state?.htPane) window.history.back();
+      } catch {
+        /* nothing to undo */
+      }
+    }
+  }, [pane, enabled]);
+  useEffect(() => {
+    const back = () => {
+      if (!pushed.current) return;
+      pushed.current = false;
+      setPane('list');
+      onBack?.(); // the opened item is let go (and with it its address)
+    };
+    window.addEventListener('popstate', back);
+    return () => window.removeEventListener('popstate', back);
+  }, [setPane, onBack]);
 }

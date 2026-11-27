@@ -927,7 +927,7 @@ input[type='search']::-webkit-search-cancel-button { display: none !important; }
 
 /* ---- the filter row (FilterBar in ui.tsx): same place, same height (44px), same corners on every page */
 .toolbar.filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; }
-.filterbar .fb-search { flex: 1 1 280px; min-width: 0; max-width: 460px; }
+.filterbar .fb-search { flex: 1 1 280px; min-width: 0; } /* grows to the free width, so when the filters wrap under it the two rows end at the same edge */
 .filterbar .fb-search .search { width: 100%; }
 .filterbar .fb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .filterbar .fb-filters { margin-left: auto; }
@@ -1079,7 +1079,7 @@ input[type='search']::-webkit-search-cancel-button { display: none !important; }
 .brand-sub { padding-top: 0; padding-bottom: 1px; line-height: 1; }
 
 /* A star after the name of every field that must be filled in; fields with no star are optional. */
-label:has(:required) { grid-template-columns: minmax(0, max-content) 1fr; column-gap: 4px; }
+label:has(:required) { grid-template-columns: fit-content(calc(100% - 16px)) 1fr; column-gap: 4px; } /* the words take at most the width minus the star, so the star stays next to them (a long label used to push it to the far edge) */
 label:has(:required)::after { content: '*'; content: '*' / ''; grid-row: 1; grid-column: 2; color: #c0392b; font-weight: 700; line-height: 1; }
 label:has(:required) > :not(.sr) { grid-column: 1 / -1; }
 .req-note { font-size: var(--fs-sm); color: var(--muted); margin: 0; }
@@ -1105,7 +1105,7 @@ label:has(:required) > :not(.sr) { grid-column: 1 / -1; }
 /* the decision bar on a report: the reason box keeps a readable width (at least ~240px); when the pane is too narrow for it and both buttons
    on one line, the reason takes a full row and the buttons go below it, on the right, instead of the box shrinking until its text is cut off */
 .detail-decide { flex-wrap: wrap; row-gap: 8px; }
-.detail-decide > label { flex: 1 1 240px; min-width: 0; }
+.detail-decide > label { flex: 1 1 100%; min-width: 0; } /* the reason has its own row; both buttons sit together under it, on the right */
 .detail-decide > .btn:first-of-type { margin-left: auto; }
 @media (min-width: 701px) { .detail-foot.detail-decide { height: auto; min-height: 72px; padding-top: 10px; padding-bottom: 10px; } }
 
@@ -1205,3 +1205,13 @@ td.end > .icon-btn.staff-del { margin-left: 8px; }
 /* a placeholder that is still too long for its box ends in "…" instead of being cut mid-word */
 input::placeholder, textarea::placeholder { text-overflow: ellipsis; }
 input, textarea { text-overflow: ellipsis; }
+
+/* Content: the month switch is  <  November 2026  >  on one line, with the date picker under it on a phone and beside it on a wider screen */
+.toolbar.month-bar { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
+.toolbar.month-bar > .btn { flex: none; width: 44px; min-width: 0; padding: 0; justify-content: center; }
+.toolbar.month-bar > strong { min-width: 0 !important; }
+.toolbar.month-bar > :last-child { grid-column: 1 / -1; }
+@media (min-width: 701px) {
+  .toolbar.month-bar { display: flex; flex-wrap: wrap; }
+  .toolbar.month-bar > :last-child { grid-column: auto; }
+}

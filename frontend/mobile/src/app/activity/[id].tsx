@@ -26,6 +26,7 @@ import { statusTop, useLayout } from '@/lib/layout';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { t, tn, useT } from '@/lib/i18n';
 import { ReadMore } from '@/components/ReadMore';
+import { FirstTimeHint } from '@/components/FirstTimeHint';
 
 
 import { sc, sp } from '@/lib/scale';
@@ -241,9 +242,10 @@ export default function ActivityDetail() {
         {over ? (
           // finished: only who took part, for everyone (the host included). No requests, chat, join or leave.
           <View style={{ gap: sp(10) }}>
+            {a.isMember && a.status !== 'cancelled' ? <><FirstTimeHint id="attendance" title={t('How attendance works')} text={t('One tap says whether you went, and it cannot be changed. The group sees your answer, and we never track your location. The host can also note who did not come: you are told, and you can dispute it.')} /></> : null}
             {a.isMember && a.status !== 'cancelled' ? (
               <View style={{ backgroundColor: c.accentSoft, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
-                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{a.myAttendance === 'attended' ? t("You said you were there") : a.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{a.myAttendance === 'attended' ? t("You said you were there") : a.myAttendance === 'no_show' ? t("You said you weren't there") : t('Did you go?')}</Txt>
                 {/* one answer, final: once given, the buttons go and only the answer stays */}
                 {a.myAttendance === 'attended' || a.myAttendance === 'no_show' ? (
                   <Txt variant="small">{t('Thanks. Your answer is saved and cannot be changed. The group sees whether you went.')}</Txt>
@@ -271,7 +273,8 @@ export default function ActivityDetail() {
               </View>
             ) : null}
             {a.isHost && a.status !== 'cancelled' ? <Btn title={t('Who came?')} variant="secondary" onPress={() => go(`/no-shows/activity/${id}`)} /> : null}
-            {a.isMember && !a.isHost && a.status !== 'cancelled' && hostNoShowOpen(a.startsAt, a.endsAt) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
+            {/* only someone who said "Yes, I went" is asked about the host; "No" puts them straight into the Did not attend list */}
+            {a.isMember && !a.isHost && a.status !== 'cancelled' && a.myAttendance === 'attended' && hostNoShowOpen(a.startsAt, a.endsAt) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
             {/* who went, in three groups: the host and everyone who said yes, those who said no, and those who have not answered yet */}
             {(
               [

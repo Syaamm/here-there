@@ -16,7 +16,7 @@ export const tripCities = (t: { originCity: string; destination: string }) => [t
 /** What the server tells a connected app. */
 export type LiveEvent =
   | { type: 'message'; conversationId: string; message: { id: string; body: string; kind: string; createdAt: Date; sender: { id: string; displayName: string; photoUrl: string | null } } }
-  | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: Date } }
+  | { type: 'notification'; notification: { id: string; type: string; title: string; body: string; data: unknown; createdAt: Date; /** may it show as a banner (alert settings, quiet hours)? */ push?: boolean } }
   // some alerts were taken away (their request was settled): lists and the badge should be asked again
   | { type: 'alerts-changed' }
   // an activity or trip was created, changed, filled or cancelled: open feeds should ask again (carries no data at all)

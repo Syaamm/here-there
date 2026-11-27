@@ -28,8 +28,8 @@ jobs:
         working-directory: .
       - env:
           APP_ENV: production
-          EXPO_PUBLIC_API_URL: https://here-there.susmitha.site
-          EXPO_PUBLIC_SHARE_URL: https://here-there.susmitha.site
+          EXPO_PUBLIC_API_URL: https://here-there.achu.site
+          EXPO_PUBLIC_SHARE_URL: https://here-there.achu.site
         run: npx eas update --channel production --message "v$(node -p "require('./package.json').version")" --non-interactive
 
   android:
@@ -78,9 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       APP_ENV: ${{ inputs.profile }}
-      EXPO_PUBLIC_API_URL: https://here-there.susmitha.site
-      EXPO_PUBLIC_SHARE_URL: https://here-there.susmitha.site
-      SHARE_DOMAIN: here-there.susmitha.site
+      EXPO_PUBLIC_API_URL: https://here-there.achu.site
+      EXPO_PUBLIC_SHARE_URL: https://here-there.achu.site
+      SHARE_DOMAIN: here-there.achu.site
       EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ vars.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
       EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ vars.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID }}
       GOOGLE_IOS_URL_SCHEME: ${{ vars.GOOGLE_IOS_URL_SCHEME }}

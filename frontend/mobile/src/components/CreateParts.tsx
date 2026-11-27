@@ -13,6 +13,7 @@ import { useTheme } from '@/lib/theme';
 import { Text, TextInput, type InputHandle } from './ScaledText';
 import type { Place } from './PlaceSearch';
 import { StepBars, StepLabel } from './StepMotion';
+import { useStepsCue } from '@/lib/coach';
 import { PlainTitle, pressed } from './ui';
 import { dateLang } from '@/lib/format';
 import { fontOf } from '@/lib/fonts';
@@ -23,6 +24,7 @@ import { fontOf } from '@/lib/fonts';
 export function WizardTop({ step, title, onBack, right, onStep, canStep }: { step: number; title: string; onBack: () => void; right?: ReactNode; /** tapping a step bar jumps to it, where canStep allows */ onStep?: (i: number) => void; canStep?: (i: number) => boolean }) {
   const { t } = useT();
   const { c, mode } = useTheme();
+  const stepsRef = useStepsCue(); // the first time: a cue on how to move between the steps
   return (
     <View style={{ gap: sp(10) }}>
       <PlainTitle
@@ -38,7 +40,7 @@ export function WizardTop({ step, title, onBack, right, onStep, canStep }: { ste
         <StepLabel step={step} style={{ color: c.muted, fontSize: 12, lineHeight: 15 }} />
         {right}
       </View>
-      <StepBars step={step} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} onPick={onStep} canPick={canStep} />
+      <StepBars step={step} track={mode === 'there' ? '#fff' : c.sand} fill={c.forest} onPick={onStep} canPick={canStep} rootRef={stepsRef} />
     </View>
   );
 }

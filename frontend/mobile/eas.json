@@ -9,14 +9,14 @@
       "developmentClient": true,
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "APP_ENV": "development", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site" }
+      "env": { "APP_ENV": "development", "EXPO_PUBLIC_API_URL": "https://here-there.achu.site", "SHARE_DOMAIN": "here-there.achu.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.achu.site" }
     },
     "preview": {
       "environment": "preview",
       "channel": "preview",
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "APP_ENV": "preview", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site" }
+      "env": { "APP_ENV": "preview", "EXPO_PUBLIC_API_URL": "https://here-there.achu.site", "SHARE_DOMAIN": "here-there.achu.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.achu.site" }
     },
     "production": {
       "environment": "production",
@@ -24,7 +24,7 @@
       "distribution": "store",
       "autoIncrement": true,
       "android": { "buildType": "app-bundle" },
-      "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://here-there.susmitha.site", "SHARE_DOMAIN": "here-there.susmitha.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.susmitha.site" }
+      "env": { "APP_ENV": "production", "EXPO_PUBLIC_API_URL": "https://here-there.achu.site", "SHARE_DOMAIN": "here-there.achu.site", "EXPO_PUBLIC_SHARE_URL": "https://here-there.achu.site" }
     },
     "development-testflight": { "extends": "development", "distribution": "store", "autoIncrement": true },
     "production-testflight": { "extends": "production" },

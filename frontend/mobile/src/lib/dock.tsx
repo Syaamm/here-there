@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '@/lib/layout';
 import { scBase, sc } from '@/lib/scale';
 import { useT } from '@/lib/i18n';
+import { useCoachRef } from '@/lib/coach';
 import { useTheme } from '@/lib/theme';
 
 /**
@@ -184,7 +185,8 @@ export const DockFillContext = createContext<Animated.Value | null>(null);
 const pressListeners = new Set<(from: object) => void>();
 
 export const DockButton = memo(function DockButton(props: any) {
-  const { children, onPress, onLongPress, style, accessibilityLabel, accessibilityState, testID, glass } = props;
+  const { children, onPress, onLongPress, style, accessibilityLabel, accessibilityState, testID, glass, coachId } = props;
+  const coachRef = useCoachRef(coachId); // the first-time tour can point at this button
   const { c } = useTheme();
   // this navigator reports the open tab as `aria-selected` (older ones used accessibilityState)
   const selected = !!(props['aria-selected'] ?? accessibilityState?.selected);
@@ -254,6 +256,7 @@ export const DockButton = memo(function DockButton(props: any) {
   };
   return (
     <Pressable
+      ref={coachRef}
       accessibilityRole="tab"
       accessibilityLabel={props['aria-label'] ?? accessibilityLabel}
       accessibilityState={{ ...accessibilityState, selected }}
@@ -310,6 +313,7 @@ const BIG_K = OPEN + 0.08; // headroom above the largest size it reaches (OPEN p
 export const CreateButton = memo(function CreateButton({ onPress }: { onPress?: (...args: any[]) => void }) {
   const { c } = useTheme();
   const { t } = useT();
+  const coachRef = useCoachRef('create'); // the first-time tour points at the round + button
   // the open tab, read from the address (the tab bar does not hand this button its selected state reliably)
   const selected = usePathname() === '/create';
   const grow = useAnim(selected ? 1 : 0); // 0 resting, 1 selected
@@ -350,7 +354,7 @@ export const CreateButton = memo(function CreateButton({ onPress }: { onPress?: 
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={t('Create')} accessibilityState={{ selected }} onPress={land} onPressIn={() => setDown(true)} onPressOut={() => setDown(false)} style={{ flex: 1, alignItems: 'center' }}>
       {/* the slot keeps the button's layout size; the big face inside is centred on it and shrunk by `sharp` */}
-      <View style={{ marginTop: -DOCK.raise, width: DOCK.plus, height: DOCK.plus }}>
+      <View ref={coachRef} collapsable={false} style={{ marginTop: -DOCK.raise, width: DOCK.plus, height: DOCK.plus }}>
         {/* a soft wave that leaves the button when it lands (a plain fading disc, drawn behind the face) */}
         <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, width: DOCK.plus, height: DOCK.plus, borderRadius: DOCK.plus / 2, backgroundColor: c.forest, opacity: pulse.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0, 0.3, 0] }), transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.9] }) }] }} />
         <Animated.View style={{ position: 'absolute', left: -(big - DOCK.plus) / 2, top: -(big - DOCK.plus) / 2, width: big, height: big, borderRadius: big / 2, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', transform: [{ scale: sharp }] }}>

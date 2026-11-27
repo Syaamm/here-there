@@ -148,6 +148,15 @@ export class PushService implements OnModuleInit {
     if (failed.length && p.round < 2) await this.jobs.enqueue('push.send', { ...p, only: failed, round: p.round + 1 }, { delayMs: 30_000 * 2 ** p.round, maxAttempts: 3 });
   }
 
+  /** May this alert show as a banner for this person right now (their alert settings and quiet hours)? The same answer a push would get; false if it cannot be told. */
+  async allows(userId: string, type: string, data?: Record<string, unknown> | null): Promise<boolean> {
+    try {
+      return await this.prefs.allowsPush(userId, type, data);
+    } catch {
+      return false;
+    }
+  }
+
   /** Send to every device of this person right now, unless they are looking at the app (best effort; used by tests and tools). */
   async send(userId: string, msg: PushMessage) {
     try {

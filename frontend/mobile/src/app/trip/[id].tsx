@@ -29,6 +29,7 @@ import { useT } from '@/lib/i18n';
 import { ReadMore } from '@/components/ReadMore';
 import { meetsThere } from '@/lib/travelStyle';
 import { TravelStyleBadge } from '@/components/TravelStyleBadge';
+import { FirstTimeHint } from '@/components/FirstTimeHint';
 
 
 import { sc, sp } from '@/lib/scale';
@@ -201,9 +202,10 @@ export default function TripDetail() {
         {over && trip.status !== 'cancelled' ? (
           // finished: the same as an activity. Each traveller says once whether they went, the group sees who did.
           <View style={{ gap: sp(10), marginTop: sp(14) }}>
+            {trip.isMember && !trip.isHost ? <><FirstTimeHint id="attendance" title={t('How attendance works')} text={t('One tap says whether you went, and it cannot be changed. The group sees your answer, and we never track your location. The host can also note who did not come: you are told, and you can dispute it.')} /></> : null}
             {trip.isMember && !trip.isHost ? (
               <View style={{ backgroundColor: c.accentSoft, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
-                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{trip.myAttendance === 'attended' ? t('You said you were there') : trip.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{trip.myAttendance === 'attended' ? t('You said you were there') : trip.myAttendance === 'no_show' ? t("You said you weren't there") : t('Did you go?')}</Txt>
                 {trip.myAttendance === 'attended' || trip.myAttendance === 'no_show' ? (
                   <Txt variant="small">{t('Thanks. Your answer is saved and cannot be changed. The group sees whether you went.')}</Txt>
                 ) : (
@@ -302,7 +304,8 @@ export default function TripDetail() {
         ) : trip.isMember ? (
           <View style={{ gap: sp(10) }}>
             <Btn title={t('Trip plan')} variant="secondary" onPress={() => go(`/trip-plan/${id}`)} />
-            {trip.isMember && !trip.isHost && trip.status !== 'cancelled' && hostNoShowOpen(trip.dateStart, trip.dateEnd) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
+            {/* once the trip is over, only someone who said "Yes, I went" is asked about the organizer; "No" puts them straight into the Did not attend list */}
+            {trip.isMember && !trip.isHost && trip.status !== 'cancelled' && (!over || trip.myAttendance === 'attended') && hostNoShowOpen(trip.dateStart, trip.dateEnd) ? (noShow === 'sent' || noShow === 'confirm' ? <Txt variant="small" style={{ textAlign: 'center' }}>{t('You told us the host did not show up')}</Txt> : <Btn title={t('Host did not show up')} variant="secondary" onPress={() => setNoShow('open')} />) : null}
             {canLeave ? <Btn title={t('Leave trip')} variant="secondary" loading={act.busy} onPress={async () => (await confirmAsync(t('Leave this trip?'), undefined, t('Leave'))) && void act.run(() => post(`/v1/trips/${id}/leave`))} /> : null}
           </View>
         ) : app && app.state === 'pending' ? (

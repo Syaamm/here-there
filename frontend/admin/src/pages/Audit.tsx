@@ -382,7 +382,7 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
       {items.length > 0 && (
         <div className="table-wrap audit-table">
           <div className="table-scroll">
-            <table>
+            <table className="audit-t">
               <thead>
                 <tr>
                   <th style={{ width: 170 }}>Time</th>

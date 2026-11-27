@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { can, get, post, type Session } from '../api';
-import { askText, cap, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, Icon, Loading, Page, PageBar, ProofImages, Search, Segmented, setUrlParam, urlParam, useAction, useLoad, type Tone } from '../ui';
+import { askText, cap, Avatar, Chip, Empty, ErrorBanner, FilterBar, fmt, Icon, Loading, Page, PageBar, ProofImages, Search, Segmented, setUrlParam, urlParam, useAction, useLoad, usePaneHistory, type Tone } from '../ui';
 
 type Appeal = {
   id: string;
@@ -75,6 +75,7 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
   const [pageNo, setPageNo] = useState(1);
   const [sel, setSel] = useState<string | null>(null);
   const [pane, setPane] = useState<'list' | 'detail'>('list');
+  usePaneHistory(pane, setPane, true, () => setSel(null)); // the phone's Back returns to the list
   useEffect(() => {
     setPageNo(1);
     setSel(want.current);
@@ -149,10 +150,6 @@ export function AppealsPage({ me, openUser }: { me: Session; openUser?: (id: str
             <PageBar page={first.data?.page ?? 1} pages={first.data?.pages ?? 1} total={first.data?.total ?? items.length} noun={['appeal', 'appeals']} onPage={setPageNo} busy={first.loading} />
           </section>
           <section className="split-detail" aria-label="Appeal">
-            <button type="button" className="btn small split-back" onClick={() => (setPane('list'), setSel(null))}>
-              <Icon name="back" />
-              All appeals
-            </button>
             {selected && (
               <div className="detail-scroll" key={selected.id}>
                 <div className="stack" style={{ gap: 8 }}>

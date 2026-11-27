@@ -287,7 +287,7 @@ export function Screen({
   // the page in front can be scrolled to a field that was missed (see lib/pageScroll)
   useEffect(() => {
     if (!onScreen) return;
-    setScrollPage({ scrollTo: (y) => scroller.current?.scrollTo({ y, animated: true }), offset: () => scrolled.current, measureTop: (cb) => (scroller.current ? scroller.current.measureInWindow((_x, y) => cb(y)) : undefined) });
+    setScrollPage({ scrollTo: (y, animated = true) => scroller.current?.scrollTo({ y, animated }), offset: () => scrolled.current, measureTop: (cb) => (scroller.current ? scroller.current.measureInWindow((_x, y) => cb(y)) : undefined) });
     return () => setScrollPage(null);
   }, [onScreen]);
   useEffect(() => {
@@ -686,7 +686,12 @@ export function Field({ label, hint, error, icon, style, inputRef, ...rest }: Te
           style={[s.input, { minHeight: sc(42) }, { backgroundColor: c.surface, borderColor: error ? c.danger : c.line, color: c.text }, icon ? { paddingRight: sph(44) } : null, rest.multiline && { minHeight: sc(92), textAlignVertical: 'top' }, style]}
         />
         {/* a small icon on the right edge of the field (clock, people, pin…) */}
-        {icon ? <Ionicons name={icon} size={sc(22)} color={c.muted} style={{ position: 'absolute', right: sc(14), top: sc(13) }} pointerEvents="none" /> : null}
+        {/* (centred against the field itself, whatever its height; a tall multi-line box keeps its icon near the top) */}
+        {icon ? (
+          <View pointerEvents="none" style={rest.multiline ? { position: 'absolute', right: sc(14), top: sc(13) } : { position: 'absolute', right: sc(14), top: 0, bottom: 0, justifyContent: 'center' }}>
+            <Ionicons name={icon} size={sc(22)} color={c.muted} />
+          </View>
+        ) : null}
       </View>
       {hint && !error ? <Txt variant="small">{hint}</Txt> : null}
       {error ? <Txt variant="small" color={c.danger}>{error}</Txt> : null}
@@ -799,9 +804,10 @@ export function Pill({ label, active, onPress, icon }: { label: string; active?:
   const { c } = useTheme();
   const fit = useContext(FitPills);
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} hitSlop={6} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, fit ? { flexShrink: 1, flexGrow: 1, flexBasis: 0, paddingHorizontal: sph(8) } : null, { minHeight: sc(BTN.pill), borderRadius: BTN.radiusPill, borderWidth: 1, paddingHorizontal: sph(16), backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: !!active }} hitSlop={6} onPress={onPress} style={({ pressed: isPressed }) => [s.pill, fit ? { flexShrink: 1, flexGrow: Math.max(6, label.length), flexBasis: 0, minWidth: 0, paddingHorizontal: sph(4) } /* tabs share the row in proportion to their words: the longest label gets the widest pill, so every label is the same size and none is cut off */ : null, { minHeight: sc(BTN.pill), borderRadius: BTN.radiusPill, borderWidth: 1, paddingHorizontal: sph(16), backgroundColor: active ? c.forest : c.surface, borderColor: active ? c.forest : c.line }, pressed(isPressed)]}>
       {icon ? <Ionicons name={icon} size={sc(15)} color={active ? '#fff' : c.text} style={{ marginRight: sph(6) }} /> : null}
-      <Text {...(fit ? { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.75 } : null)} style={{ color: active ? '#fff' : c.text, ...BTN.text }}>{label}</Text>
+      {/* tabs that share a row (My activities / My trips / Favourites) all use the same text size: a long label used to be shrunk to fit and came out smaller than its neighbours */}
+      <Text {...(fit ? { numberOfLines: 1, ellipsizeMode: 'tail' as const } : null)} style={{ color: active ? '#fff' : c.text, ...BTN.text, ...(fit ? { fontSize: 13 } : null) }}>{label}</Text>
     </Pressable>
   );
 }
@@ -1009,12 +1015,20 @@ export function Sheet({ visible, title, onClose, children, bg, onClosed }: { /**
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={tr('Close')} />
         </Animated.View>
         {/* a bottom sheet on phones; a centred dialog on tablets and desktops */}
+        {/* two boxes, one inside the other: the slide, the pull and the fade run on the native driver, but the bottom padding that follows the keyboard cannot
+            (React Native refuses both on one box: "Style property 'paddingBottom' is not supported by native animated module"), so it is on the inner one */}
+        <Animated.View
+          style={[
+            { maxHeight: '88%', transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
+            isTablet && { alignSelf: 'center', width: sc(560), maxWidth: '92%', opacity: slide },
+          ]}
+        >
         <Animated.View
           accessibilityViewIsModal
           style={[
             s.sheet,
-            { backgroundColor: bg ?? c.surface, paddingBottom: keyboardGap(keyboard, insets.bottom + 16, sp(16)), transform: [{ translateY: isTablet ? rise : Animated.add(rise, drag) }] },
-            isTablet && { alignSelf: 'center', width: sc(560), maxWidth: '92%', borderRadius: sc(22), paddingBottom: sp(18), opacity: slide },
+            { flexShrink: 1, maxHeight: '100%', backgroundColor: bg ?? c.surface, paddingBottom: keyboardGap(keyboard, insets.bottom + 16, sp(16)) },
+            isTablet && { borderRadius: sc(22), paddingBottom: sp(18) },
           ]}
         >
           {isTablet ? (
@@ -1027,6 +1041,7 @@ export function Sheet({ visible, title, onClose, children, bg, onClosed }: { /**
             </View>
           )}
           <ScrollView ref={body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} scrollEventThrottle={16} onScroll={(e) => (bodyY.current = e.nativeEvent.contentOffset.y)} contentContainerStyle={{ gap: sp(12) }}>{shown.current.children}</ScrollView>
+        </Animated.View>
         </Animated.View>
       </Animated.View>
     </Modal>

@@ -15,6 +15,8 @@ import { useVerifyGate } from '@/lib/verifyGate';
 import { confirmAsync } from '@/lib/confirm';
 import { useAction } from '@/lib/hooks';
 import { LANGS, useLang, useT } from '@/lib/i18n';
+import { useCoach } from '@/lib/coach';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { enablePush, pushState, type PushState } from '@/lib/push';
 import { TEXT_SIZES, sc, useTextSize, sp, sph } from '@/lib/scale';
 import { BTN } from '@/lib/buttons';
@@ -26,6 +28,7 @@ export default function Settings() {
   const { me, logout } = useMe();
   const { c } = useTheme();
   const go = useGo();
+  const { requestTour } = useCoach();
   const [push, setPush] = useState<PushState>('unsupported');
   const act = useAction();
   const { size, setSize } = useTextSize();
@@ -126,6 +129,12 @@ export default function Settings() {
 
       <GroupLabel>{t('Text size')}</GroupLabel>
       <PillChoice options={TEXT_SIZES.map(([k, l]) => [k, t(l)] as [string, string])} value={size as string} onChange={(x) => setSize(x as typeof size)} label={t('Text size')} labelFor={(l) => t('{label} text', { label: l })} />
+
+      <GroupLabel>{t('Help')}</GroupLabel>
+      <RoundCard>
+        <AccountRow icon="help-circle-outline" title={t('How it works')} subtitle={t('Plans, friends, attendance and your reliability level')} onPress={() => go('/how-it-works')} />
+        <AccountRow icon="play-circle-outline" title={t('Show the tour again')} subtitle={t('A quick walk through the main screens')} onPress={() => { requestTour(); void AsyncStorage.multiRemove(['ht_map_hint_here', 'ht_map_hint_here_off', 'ht_map_hint_there', 'ht_map_hint_there_off', 'ht_cue_chat', 'ht_cue_steps_here', 'ht_cue_steps_there']).catch(() => undefined); go('/'); }} last />
+      </RoundCard>
 
       <GroupLabel>{t('Safety & privacy')}</GroupLabel>
       <RoundCard>

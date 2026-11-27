@@ -25,6 +25,8 @@ import { statusTop } from '@/lib/layout';
 import { clearOpenChat, setOpenChat, useLiveEvents } from '@/lib/live';
 import { refreshUnread } from '@/lib/unread';
 import { t, useT } from '@/lib/i18n';
+import { useCoach, useCoachRef } from '@/lib/coach';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEnterMode, useTheme } from '@/lib/theme';
 import { ScaleScope, useSmallPhoneShrink, sc, sp, sph } from '@/lib/scale';
 
@@ -489,6 +491,20 @@ function Chat({ id }: { id: string }) {
   }, []);
 
   const conv = info.data ?? undefined; // the chat's own details (title, whether it is a trip or an activity, and which)
+  // the first time a chat opens, a cue points at its top section: that is where the group info is (once per phone; Settings > Show the tour again brings it back)
+  const coach = useCoach();
+  const topRef = useCoachRef('chat-top');
+  const cued = useRef(false);
+  const scopeNow = conv?.scope;
+  useEffect(() => {
+    if (!scopeNow || cued.current) return;
+    cued.current = true;
+    AsyncStorage.getItem('ht_cue_chat').then((seen) => {
+      if (seen === '1') return;
+      AsyncStorage.setItem('ht_cue_chat', '1').catch(() => undefined);
+      setTimeout(() => coach.begin([{ id: 'chat-top', title: scopeNow === 'match' ? t('Their profile') : t('Group info'), text: scopeNow === 'match' ? t('Tap the name at the top to see their profile.') : t('Tap the title or the faces at the top to see who is in the group and the details of the plan, and to leave the group.') }]), 900);
+    }, () => undefined);
+  }, [scopeNow]); // eslint-disable-line react-hooks/exhaustive-deps
   const count = msgs.data?.items.length ?? 0;
   const locked = msgs.error instanceof ApiError && msgs.error.code === 'NOT_A_MEMBER';
 
@@ -655,8 +671,12 @@ function Chat({ id }: { id: string }) {
           <View style={{ width: sc(44), minHeight: sc(44), justifyContent: 'center' }}>
             <BackArrow />
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('{title}. Open group info', { title: conv?.title ?? t('Group') })} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, alignItems: 'center', gap: sp(6), minHeight: sc(44), paddingTop: sp(4) }}>
-            <Text numberOfLines={1} style={{ color: c.text, fontWeight: '500', fontSize: 20, lineHeight: 27 }}>{conv?.title ?? t('Group chat')}</Text>
+          <Pressable ref={topRef} collapsable={false} accessibilityRole="button" accessibilityLabel={t('{title}. Open group info', { title: conv?.title ?? t('Group') })} onPress={() => (conv?.scope === 'match' && them ? go(`/user/${them.id}`) : go(`/group/${id}`))} style={{ flex: 1, alignItems: 'center', gap: sp(6), minHeight: sc(44), paddingTop: sp(4) }}>
+            {/* the whole top section opens the group info (or the person, in a travel match): the little arrow says it is a button */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(2), maxWidth: '100%' }}>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: c.text, fontWeight: '500', fontSize: 20, lineHeight: 27 }}>{conv?.title ?? t('Group chat')}</Text>
+              <Ionicons name="chevron-forward" size={sc(18)} color={c.muted} />
+            </View>
             {info.data && conv?.scope !== 'match' && info.data.members.length > 0 ? (
               <View accessibilityLabel={tn(info.data.members.length, '{n} person', '{n} people')} style={{ flexDirection: 'row', alignItems: 'center' }}>
                 {info.data.members.slice(0, 4).map((mb, k) => (

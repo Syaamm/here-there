@@ -30,7 +30,7 @@ import { dropDraft } from '@/lib/drafts';
 import { useFormDraft } from '@/lib/formDraft';
 import { success, tap } from '@/lib/haptics';
 import { closeKeyboard, useKeyboardUp } from '@/lib/keyboard';
-import { scrollToField } from '@/lib/pageScroll';
+import { scrollPageToTop, scrollToField } from '@/lib/pageScroll';
 import { localeTag, useT } from '@/lib/i18n';
 import { sc, sp, sph } from '@/lib/scale';
 import { useTheme } from '@/lib/theme';
@@ -319,6 +319,13 @@ function ActivityForm({ onReset }: { onReset: () => void }) {
   const clock = (d: Date) => timeText(d, WALL); // the app's one time format (lib/format)
 
   const [step, setStep] = useState(0);
+  // every step opens from the top, whether it was reached by Continue, a step bar, a swipe or Back (the first showing needs nothing)
+  const stepSeen = useRef(step);
+  useEffect(() => {
+    if (stepSeen.current === step) return;
+    stepSeen.current = step;
+    scrollPageToTop();
+  }, [step]);
   const typing = useKeyboardUp(); // keyboard open: Continue is part of the page (at its end) instead of pinned, so the page can be scrolled without closing the keyboard
   const [barH, setBarH] = useState(0); // the height of the pinned Continue bar, so the page can scroll clear of it
   // a Continue that found something missing: that field is shown to the person (scrolled to, marked red), no message
