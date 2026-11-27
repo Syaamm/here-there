@@ -39,8 +39,10 @@ jobs:
       ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a   # 64-bit phones only: faster, less disk
     steps:
       - name: Free disk space
+        working-directory: .
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
       - name: Build on the large disk
+        working-directory: .
         run: |
           sudo mkdir -p /mnt/eas && sudo chown "$USER" /mnt/eas
           echo "EAS_LOCAL_BUILD_WORKINGDIR=/mnt/eas/work" >> "$GITHUB_ENV"
