@@ -18,6 +18,12 @@ export function ContentPage({ me }: { me: Session }) {
   const [tab, setTab] = useState<'activities' | 'trips'>('activities');
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
+  // the search goes to the server (it covers every page, not only the one on screen), a moment after typing stops
+  const [qNow, setQNow] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQNow(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
   // which calendar month: 0 = this month, -1 = last month, 1 = next month...
   const [month, setMonth] = useState(0);
   const now = new Date();
@@ -28,13 +34,12 @@ export function ContentPage({ me }: { me: Session }) {
   const from = dayStart ?? new Date(Date.UTC(now.getFullYear(), now.getMonth() + month, 1));
   const to = dayStart ? new Date(+dayStart + 86400000) : new Date(Date.UTC(now.getFullYear(), now.getMonth() + month + 1, 1));
   const monthName = dayStart ? dayStart.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : from.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-  // activities sit on the day they take place, trips on the day they were added: the days the dashboard counts them on
-  const by = tab === 'trips' ? 'created' : 'when';
+  // activities sit on the day they take place, trips on the day they start (their travel date), not on the day they were added
   const [pageNo, setPageNo] = useState(1);
-  useEffect(() => setPageNo(1), [tab, status, month, by, day]);
-  const qs = new URLSearchParams({ limit: '50', page: String(pageNo), ...(status && { status }), ...(by === 'created' && { by }), from: from.toISOString(), to: to.toISOString() }).toString();
+  useEffect(() => setPageNo(1), [tab, status, month, day, qNow]);
+  const qs = new URLSearchParams({ limit: '50', page: String(pageNo), ...(status && { status }), ...(qNow && { q: qNow }), from: from.toISOString(), to: to.toISOString() }).toString();
   const base = `/v1/admin/${tab}?${qs}`;
-  const list = useLoad(() => get<{ items: (A | T)[]; page?: number; pages?: number; total?: number }>(base), [tab, status, month, pageNo, by, day]);
+  const list = useLoad(() => get<{ items: (A | T)[]; page?: number; pages?: number; total?: number }>(base), [tab, status, month, pageNo, day, qNow]);
   const act = useAction(() => list.reload());
   const mod = can.moderate(me.role);
   const isAct = tab === 'activities';
@@ -44,9 +49,8 @@ export function ContentPage({ me }: { me: Session }) {
     if (reason) act.run(() => post(`/v1/admin/${tab}/${id}/remove`, { reason }));
   };
 
-  const at = (x: A | T) => (by === 'created' && x.createdAt ? x.createdAt : isAct ? (x as A).startsAt : (x as T).dateStart);
-  const needle = q.trim().toLowerCase();
-  const items = (list.data?.items ?? []).filter((x) => !needle || [x.title, (x as A).venueName, (x as A).city, (x as T).destination, x.host.displayName].some((f) => f?.toLowerCase().includes(needle)));
+  const at = (x: A | T) => (isAct ? (x as A).startsAt : (x as T).dateStart);
+  const items = list.data?.items ?? [];
   const days = useMemo(() => {
     const sorted = [...items].sort((a, b) => +new Date(at(a)) - +new Date(at(b)));
     const out: { key: string; at: string; items: (A | T)[] }[] = [];
@@ -57,21 +61,34 @@ export function ContentPage({ me }: { me: Session }) {
       else out.push({ key: k, at: at(x), items: [x] });
     }
     return out;
-  }, [items, isAct, by]);
+  }, [items, isAct]);
 
   // this month opens at today (or the next day with something on): earlier days are a scroll up
   const scrolled = useRef('');
   useEffect(() => {
     const key = `${tab}|${status}|${month}`;
-    // only activities jump to today; trips always start at the 1st of the month
-    if (day || tab !== 'activities' || month !== 0 || days.length === 0 || scrolled.current === key) return;
-    scrolled.current = key;
+    // this month opens at today (activities and trips alike); only once this tab's own list has arrived, and only once per tab / filter / month
+    if (day || month !== 0 || list.loading || days.length === 0 || scrolled.current === key) return;
     const today = dayKey(new Date().toISOString());
-    const target = days.find((d) => d.key >= today);
-    const el = target && document.querySelector<HTMLElement>(`.au-card[data-day="${target.key}"]`);
-    const box = el?.closest<HTMLElement>('.au-scroll');
-    if (el && box) box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - 62;
-  }, [days, month, tab, status]);
+    // today, else the next day with something on, else (everything is earlier this month) the latest day
+    const target = days.find((d) => d.key >= today) ?? days[days.length - 1];
+    let tries = 0;
+    let frame = 0;
+    const place = () => {
+      const el = document.querySelector<HTMLElement>(`.au-card[data-day="${target.key}"]`);
+      if (!el) {
+        // the cards are not on screen yet: look again on the next frame (a few times)
+        if (++tries < 20) frame = requestAnimationFrame(place);
+        return;
+      }
+      scrolled.current = key;
+      // scroll whatever holds the list (the list card, or the page itself on a small screen) so today's card is first, just under the day header
+      el.style.scrollMarginTop = '62px';
+      el.scrollIntoView({ block: 'start', inline: 'nearest' });
+    };
+    frame = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(frame);
+  }, [days, month, tab, status, day, list.loading]);
 
   return (
     <Page
@@ -115,7 +132,7 @@ export function ContentPage({ me }: { me: Session }) {
       {list.loading && !list.data && <Loading rows={5} />}
       {list.data && days.length === 0 && <Empty>Nothing in {monthName}.</Empty>}
       {days.length > 0 && (
-        <DayLog key={`${tab}|${status}|${month}|${by}|${day}`} label={isAct ? 'Activities' : 'Trips'} title={isAct ? 'Activities' : 'Trips'} count={`${list.data?.total ?? items.length}`} footer={<PageBar page={list.data?.page ?? 1} pages={list.data?.pages ?? 1} total={list.data?.total ?? items.length} noun={isAct ? ['activity', 'activities'] : ['trip', 'trips']} onPage={setPageNo} busy={list.loading} />}>
+        <DayLog key={`${tab}|${status}|${month}|${day}`} label={isAct ? 'Activities' : 'Trips'} title={isAct ? 'Activities' : 'Trips'} count={`${list.data?.total ?? items.length}`} footer={<PageBar page={list.data?.page ?? 1} pages={list.data?.pages ?? 1} total={list.data?.total ?? items.length} noun={isAct ? ['activity', 'activities'] : ['trip', 'trips']} onPage={setPageNo} busy={list.loading} />}>
           {days.map((d) => (
             <DayCard
               key={d.key}
@@ -142,14 +159,14 @@ export function ContentPage({ me }: { me: Session }) {
                         <span className="ct-going">
                           {isAct ? (
                             <>
-                              <span className="bar" style={{ width: 56 }}>
+                              <span className="bar">
                                 <i style={{ width: `${Math.min(100, (a.going / Math.max(1, a.capacity)) * 100)}%` }} />
                               </span>
                               {a.going}/{a.capacity}
                             </>
                           ) : (
                             <>
-                              <span className="bar" style={{ width: 56 }}>
+                              <span className="bar">
                                 <i style={{ width: `${Math.min(100, (a.members / Math.max(1, a.maxCapacity)) * 100)}%` }} />
                               </span>
                               {a.members}/{a.maxCapacity}

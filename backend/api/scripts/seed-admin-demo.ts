@@ -189,9 +189,9 @@ async function main() {
   await region('it-rome', 'Rome', 'city', 'it-lazio', 'rome', null, 12);
   await region('fr', 'France', 'country', 'global', null, 1, 6);
   await region('fr-paris', 'Paris', 'city', 'fr', 'paris', null, null);
-  // staff always look after one area: Rome for Chiara, Milan for the others
-  for (const [name, area] of [['Giulia Rossi', 'it-milan'], ['Luca Bianchi', 'it-milan'], ['Chiara Conti', 'it-rome'], ['Paolo Neri', 'it-milan']] as const)
-    await prisma.user.update({ where: { id: by(name) }, data: { adminRegionKey: area, staffPermissions: name === 'Luca Bianchi' ? ['users', 'content'] : ['reports', 'verification', 'users', 'content'] } });
+  // what each staff member may use
+  for (const name of ['Giulia Rossi', 'Luca Bianchi', 'Chiara Conti', 'Paolo Neri'] as const)
+    await prisma.user.update({ where: { id: by(name) }, data: { staffPermissions: name === 'Luca Bianchi' ? ['users', 'content'] : ['reports', 'verification', 'users', 'content'] } });
 
   // audit entries: what the staff did, spread over the last days
   const log = (actor: string, action: string, objectType: string, objectId: string, meta: Record<string, unknown>, h: number) =>

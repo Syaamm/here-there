@@ -8,6 +8,7 @@ export function alertUrl(type: string, data?: Record<string, unknown> | null): s
   const q = (v?: string) => encodeURIComponent(v ?? '');
   // "Did you go to ...?": the activity, where the answer is given. The host's note about you, and what became of it, carry the plan they are about and open it.
   if (type === 'attendance_prompt' && d.activityId) return `/activity/${q(d.activityId)}`;
+  if (type === 'attendance_prompt' && d.tripId) return `/trip/${q(d.tripId)}`;
   // a moderator's warning or removed message: what they wrote, with the way to ask for a review under it
   const why = d.reason ? `&reason=${q(d.reason)}` : '';
   const about = d.aboutId ? `&aboutType=${q(d.aboutType)}&aboutId=${q(d.aboutId)}&aboutTitle=${q(d.aboutTitle)}` : '';

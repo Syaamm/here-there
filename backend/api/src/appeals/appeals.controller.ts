@@ -4,9 +4,7 @@ import { checkPassword } from '../common/password';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { afterKeyset, beforeKeyset, decodeKeyset, pageLimit, sliceKeyset, pageOf } from '../common/paging';
-import { CurrentUser, Perm, Public, RegionalOk, Staff } from '../common/auth';
-import { RegionsService } from '../regions/regions.service';
-import { inScope } from '../regions/regions';
+import { CurrentUser, Perm, Public, Staff } from '../common/auth';
 import { EmailService } from '../common/email.service';
 import { E } from '../common/errors';
 import { liftBans } from '../common/identity';
@@ -53,18 +51,16 @@ export class AppealsService {
     private readonly verification: VerificationService,
     private readonly email: EmailService,
     private readonly limiter: RateLimiter,
-    private readonly regions: RegionsService,
     private readonly proofs: ProofsService,
   ) {}
 
-  /** A new appeal: every admin is told, and the staff who look after the person's home city and work on reports. */
-  private async tell(userId: string, kind: string) {
-    const home = (await this.prisma.profile.findUnique({ where: { userId }, select: { homeCityKey: true } }))?.homeCityKey ?? null;
-    const people = await this.prisma.user.findMany({ where: { role: { in: ['admin', 'staff'] }, state: 'active' }, select: { id: true, role: true, adminRegionKey: true, staffPermissions: true } });
+  /** A new appeal: every admin is told, and the staff who work on reports. */
+  private async tell(_userId: string, kind: string) {
+    const people = await this.prisma.user.findMany({ where: { role: { in: ['admin', 'staff'] }, state: 'active' }, select: { id: true, role: true, staffPermissions: true } });
     const to: string[] = [];
     for (const p of people) {
       if (p.role === 'admin') to.push(p.id);
-      else if (kind !== 'verification' && p.adminRegionKey && p.staffPermissions.includes('reports') && inScope(await this.regions.scopeOf(p), home)) to.push(p.id);
+      else if (kind !== 'verification' && p.staffPermissions.includes('reports')) to.push(p.id);
     }
     await this.notifications.notifyMany(to, 'appeal_new', 'A new appeal', `Someone asked for a ${WORDS[kind] ?? kind} to be looked at again.`, {}).catch(() => undefined);
   }
@@ -178,8 +174,6 @@ export class AppealsService {
     if (a.state !== 'open') throw E.conflict('APPEAL_DECIDED', 'This appeal was already decided');
     if (a.userId === actor.id) throw E.forbidden('OWN_APPEAL', 'You cannot answer your own appeal');
     if (a.kind === 'verification' && actor.role !== 'admin') throw E.forbidden('FORBIDDEN', 'Identity appeals are handled by an admin');
-    if (a.kind === 'suspension') await this.regions.assertPersonHome(actor, a.userId);
-    else await this.regions.assertPersonLocal(actor, a.userId);
     const m = await this.prisma.appealMessage.create({ data: { appealId: id, fromStaff: true, authorId: actor.id, body: message } });
     await this.audit.log(actor.id, 'appeal.reply', 'appeal', id, { kind: a.kind, userId: a.userId });
     const title = 'A moderator replied to your appeal';
@@ -199,7 +193,6 @@ export class AppealsService {
 
   // ---------------------------------------------------------------- staff
   async queue(actor: User, state: string, limitRaw?: string, cursorRaw?: string, pageRaw?: string, qRaw?: string, reportId?: string) {
-    const scope = await this.regions.scopeOf(actor);
     const size = pageLimit(limitRaw, 100, 200);
     const include = { thread: { orderBy: { createdAt: 'asc' as const } }, user: { select: { id: true, email: true, state: true, eligibility: true, profile: { select: { displayName: true } } } } };
     // a search: the person's name, email or id, or what they wrote in the appeal
@@ -207,7 +200,6 @@ export class AppealsService {
     // one report's appeal (the report page shows it under the decision): whatever state it is in
     const where: Prisma.AppealWhereInput = {
       ...(reportId ? { kind: 'report', targetId: reportId } : { state }),
-      ...(scope && { user: this.regions.peopleWhere(scope) }),
       ...(needle && { AND: [{ OR: [{ user: { OR: [{ email: { contains: needle, mode: 'insensitive' } }, { profile: { displayName: { contains: needle, mode: 'insensitive' } } }, { id: needle }] } }, { message: { contains: needle, mode: 'insensitive' } }] }] }),
     };
     // numbered pages ("Page 1 / 10"): newest first
@@ -277,9 +269,6 @@ export class AppealsService {
     if (a.state !== 'open') throw E.conflict('APPEAL_DECIDED', 'This appeal was already decided');
     if (a.userId === actor.id) throw E.forbidden('OWN_APPEAL', 'You cannot decide your own appeal');
     if (a.kind === 'verification' && actor.role !== 'admin') throw E.forbidden('FORBIDDEN', 'Identity appeals are decided by an admin');
-    // staff decide appeals from people of their area (a suspension: only the staff of the person's home city); admins any
-    if (a.kind === 'suspension') await this.regions.assertPersonHome(actor, a.userId);
-    else await this.regions.assertPersonLocal(actor, a.userId);
     // a second pair of eyes: the person who made the decision does not review the appeal of it (an administrator may)
     const earlier =
       a.kind === 'report' ? (await this.prisma.report.findUnique({ where: { id: a.targetId ?? '' }, select: { assignedTo: true } }))?.assignedTo
@@ -359,7 +348,6 @@ export class AppealsController {
   }
 
   @Staff(...STAFF)
-  @RegionalOk()
   @Perm('reports')
   @Get('admin/appeals')
   queue(@CurrentUser() actor: User, @Query('state') state = 'open', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string, @Query('q') q?: string, @Query('reportId') reportId?: string) {
@@ -367,7 +355,6 @@ export class AppealsController {
   }
 
   @Staff(...STAFF)
-  @RegionalOk()
   @Perm('reports')
   @Post('admin/appeals/:id/reply')
   staffReply(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
@@ -375,7 +362,6 @@ export class AppealsController {
   }
 
   @Staff(...STAFF)
-  @RegionalOk()
   @Perm('reports')
   @Post('admin/appeals/:id/decision')
   decide(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {

@@ -65,7 +65,7 @@ function OneLimit({ title, text, label, which, current, choices, show, editable,
       <div className="set-limit-text">
         <strong>{title}</strong>
         <span className="muted small">{text}</span>
-        {(act.error || problem) && <span className="small" style={{ color: 'var(--bad-fg)' }}>{act.error ?? problem}</span>}
+        {(act.error || problem) && <span className="small" role="alert" style={{ color: '#b42318', fontWeight: 500 }}>{act.error ?? problem}</span>}
       </div>
       <div className="set-limit-set">
         {editable && manual ? (

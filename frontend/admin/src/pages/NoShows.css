@@ -125,3 +125,16 @@
 
 /* an empty list: one quiet centred line inside the card, no dashed box */
 .ns-box .ns-list > .empty, .ns-box .ns-list > .state { border: 0; background: none; border-radius: 0; margin: 0; padding: 56px 24px; min-height: 0; text-align: center; color: var(--muted); }
+
+/* tablet and phone: one list at a time (People / Hosts switch), each with a comfortable height, its own scroll and its own pager */
+.ns-switch { display: none; }
+@media (max-width: 1100px) {
+  .ns-switch { display: block; flex: none; }
+  .ns-switch .segmented { width: 100%; }
+  .ns-switch .segmented > * { flex: 1 1 0; justify-content: center; }
+  .ns-cols[data-pane='people'] > .ns-hosts-box { display: none; }
+  .ns-cols[data-pane='hosts'] > .ns-grid { display: none; }
+  .ns-cols > .ns-grid, .ns-cols > .ns-hosts-box { order: 1; }
+  .ns-cols > .ns-hosts-box { height: clamp(420px, 70vh, 700px); }
+  .ns-cols > .ns-hosts-box .ns-host-list { max-height: none; }
+}

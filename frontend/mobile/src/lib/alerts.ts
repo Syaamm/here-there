@@ -41,6 +41,7 @@ export function alertRoute(n: Pick<Notif, 'type' | 'data'>): string | null {
   const d = n.data;
   // "Did you go to …?": the activity itself, where the answer is given; the host's notes about you: Your reliability
   if (n.type === 'attendance_prompt' && d?.activityId) return `/activity/${d.activityId}`;
+  if (n.type === 'attendance_prompt' && d?.tripId) return `/trip/${d.tripId}`;
   // the host's note about you, or what became of it: its alert carries the plan it is about, so it opens that plan (below); there the note and the way to dispute it are shown
   const ids = d as { reportId?: string; appealId?: string } | null;
   // a moderator's warning or removed message: the page shows what the moderator wrote, with the way to ask for a review under it

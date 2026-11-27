@@ -90,7 +90,7 @@ describe('alerts about a report go to the app it came from', () => {
 });
 
 describe('giving a report to someone', () => {
-  it('lets an admin give a report to any staff member of its area, and staff only take reports themselves', async () => {
+  it('lets an admin give a report to any staff member who works on reports, and staff only take reports themselves', async () => {
     const milan = await h.staff('MilanStaff');
     const rome = await h.staff('RomeStaff', { city: 'Rome' });
     const noReports = await h.staff('NoReportsStaff', { permissions: ['users'] });
@@ -108,8 +108,8 @@ describe('giving a report to someone', () => {
     const audit = await h.prisma.auditEvent.findFirst({ where: { action: 'report.assign', objectId: id }, orderBy: { createdAt: 'desc' } });
     assert.equal(JSON.parse(audit.metadata).assignedTo, milan.id);
 
-    // not to someone of another area, nor to staff who do not work on reports
-    assert.equal((await h.post(`/v1/admin/reports/${id}/assign`, h.adminToken, { userId: rome.id })).body.code, 'INVALID_TARGET');
+    // staff have no area, so any staff member who works on reports will do; not staff who do not
+    assert.equal((await h.post(`/v1/admin/reports/${id}/assign`, h.adminToken, { userId: rome.id })).status, 201);
     assert.equal((await h.post(`/v1/admin/reports/${id}/assign`, h.adminToken, { userId: noReports.id })).body.code, 'INVALID_TARGET');
     assert.equal((await h.post(`/v1/admin/reports/${id}/assign`, h.adminToken, { userId: target.id })).body.code, 'INVALID_TARGET');
 
@@ -122,8 +122,8 @@ describe('giving a report to someone', () => {
   });
 });
 
-describe('appeals go to the staff of the area and always to the admins', () => {
-  it('tells admins and the area staff, keeps a staff member off an appeal of their own decision, and lets an admin decide it', async () => {
+describe('appeals go to the staff who work on reports and always to the admins', () => {
+  it('tells admins and the staff who work on reports, keeps a staff member off an appeal of their own decision, and lets an admin decide it', async () => {
     const warner = await h.staff('WarnerStaff');
     const second = await h.staff('SecondStaff');
     const romeStaff = await h.staff('RomeOnly', { city: 'Rome' });
@@ -135,13 +135,12 @@ describe('appeals go to the staff of the area and always to the admins', () => {
     const made = await h.post('/v1/me/appeals', person.token, { kind: 'warning', targetId: warning.id, message: 'I was only joking with a friend.' });
     assert.equal(made.status, 201, JSON.stringify(made.body));
     assert.equal((await alerts(h.adminToken, 'appeal_new')).length, before + 1, 'the admin is told');
-    assert.ok((await alerts(second.token, 'appeal_new')).length >= 1, 'the staff of the area are told');
-    assert.equal((await alerts(romeStaff.token, 'appeal_new')).length, 0, 'staff of another area are not');
+    assert.ok((await alerts(second.token, 'appeal_new')).length >= 1, 'the staff are told');
+    assert.ok((await alerts(romeStaff.token, 'appeal_new')).length >= 1, 'whatever city they were set up for: there are no areas');
 
-    // the area staff see it; another area does not
+    // every staff member who works on reports sees it
     assert.ok((await h.get('/v1/admin/appeals', second.token)).body.items.some((a: { id: string }) => a.id === made.body.id));
-    assert.ok(!(await h.get('/v1/admin/appeals', romeStaff.token)).body.items.some((a: { id: string }) => a.id === made.body.id));
-    assert.equal((await h.post(`/v1/admin/appeals/${made.body.id}/decision`, romeStaff.token, { decision: 'uphold', note: 'Looks fine to me.' })).body.code, 'OUT_OF_SCOPE');
+    assert.ok((await h.get('/v1/admin/appeals', romeStaff.token)).body.items.some((a: { id: string }) => a.id === made.body.id));
 
     // the staff member who warned cannot review the appeal of it; another one can
     assert.equal((await h.post(`/v1/admin/appeals/${made.body.id}/decision`, warner.token, { decision: 'reject', note: 'The warning stands.' })).body.code, 'SECOND_REVIEWER');

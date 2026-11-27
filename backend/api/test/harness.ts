@@ -73,13 +73,13 @@ export async function startHarness(name: string, opts: { queueWrites?: boolean }
     return r.body.key as string;
   }
   /**
-   * A verified person made staff for one city (Milan unless said), with every permission unless some are given. Staff always
-   * look after an area: there is no staff account for the whole service (that is an admin).
+   * A verified person made staff, with every permission unless some are given. Staff have no area: they work for the whole
+   * service. `city` only makes sure that city's place exists (some tests change its planning limit) and comes back as `regionKey`.
    */
   async function staff(who: string, opts: { city?: string; permissions?: string[] } = {}) {
     const u = await verified(who);
     const regionKey = await cityArea(opts.city ?? 'Milan');
-    const r = await post(`/v1/admin/users/${u.id}/role`, adminToken, { role: 'staff', regionKey, ...(opts.permissions && { permissions: opts.permissions }) });
+    const r = await post(`/v1/admin/users/${u.id}/role`, adminToken, { role: 'staff', ...(opts.permissions && { permissions: opts.permissions }) });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     return { ...u, regionKey };
   }

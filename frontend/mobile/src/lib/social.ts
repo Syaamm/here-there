@@ -79,6 +79,9 @@ export async function googleToken(): Promise<SocialToken | null> {
   m.GoogleSignin.configure({ webClientId: googleWeb, ...(googleIos ? { iosClientId: googleIos } : {}) });
   try {
     if (Platform.OS === 'android') await m.GoogleSignin.hasPlayServices();
+    // Forget the last Google account on this phone first, so the account picker shows every time (switch or choose another account)
+    // instead of signing straight back in with the same one.
+    await m.GoogleSignin.signOut().catch(() => {});
     const r = await m.GoogleSignin.signIn();
     if (r.type !== 'success' || !r.data.idToken) return null;
     return { idToken: r.data.idToken };

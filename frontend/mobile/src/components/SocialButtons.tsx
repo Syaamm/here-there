@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { appAlert } from '@/components/AppDialog';
@@ -32,6 +33,7 @@ export function SocialButtons({ adultConfirmed }: { adultConfirmed?: boolean }) 
   const { t } = useT();
   const { c } = useTheme();
   const { signIn } = useMe();
+  const router = useRouter();
   const act = useAction();
   const [on, setOn] = useState<Record<SocialProvider, boolean> | null>(null);
   const [Apple, setApple] = useState<typeof import('expo-apple-authentication') | null>(null);
@@ -65,12 +67,18 @@ export function SocialButtons({ adultConfirmed }: { adultConfirmed?: boolean }) 
       let adult = adultConfirmed === true;
       for (;;) {
         try {
-          const r = await post<{ token: string; refreshToken?: string; created?: boolean }>('/v1/auth/social', {
+          const r = await post<{ token?: string; refreshToken?: string; created?: boolean; pending?: boolean; email?: string; ticket?: string; devCode?: string }>('/v1/auth/social', {
             provider,
             idToken: got.idToken,
             ...(adult ? { adultConfirmed: true } : {}),
             ...(got.name ? { displayName: got.name } : {}),
           });
+          if (r.pending && r.email && r.ticket) {
+            // a new account: the API mailed a code, the person enters it on the code page before getting in
+            router.push({ pathname: '/verify-email', params: { email: r.email, ticket: r.ticket, ...(r.devCode ? { devCode: r.devCode } : {}) } });
+            return;
+          }
+          if (!r.token) return;
           await signIn({ token: r.token, refreshToken: r.refreshToken }, { fresh: r.created === true }); // a new account goes through onboarding once
           return;
         } catch (e) {

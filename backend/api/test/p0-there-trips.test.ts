@@ -237,6 +237,22 @@ describe('THERE: trips, applications, approval, chat', () => {
     const next = await get('/v1/me/trips/page?upcoming=1&limit=1', guest.token);
     assert.equal(next.body.items[0].trip.id, t2.id, 'a pending application counts as upcoming');
     assert.equal((await get('/v1/me/trips/page?cursor=junk', org.token)).status, 400);
+
+    // the tabs, like My activities: a finished trip stays under "mine" (after the live and coming ones), requests are in pending / rejected
+    await prisma.trip.update({ where: { id: t1.id }, data: { dateStart: new Date(Date.now() - 6 * day), dateEnd: new Date(Date.now() - 3 * day) } });
+    const mine = await get('/v1/me/trips/page?tab=mine', org.token);
+    assert.deepEqual(mine.body.items.map((x: { id: string }) => x.id), [t2.id, t1.id], 'coming up first, the finished one after');
+    assert.equal(mine.body.items[1].status, 'completed');
+    assert.deepEqual([mine.body.counts.mine, mine.body.counts.pending, mine.body.counts.rejected], [2, 0, 0]);
+    const m1 = await get('/v1/me/trips/page?tab=mine&limit=1', org.token);
+    const m2 = await get(`/v1/me/trips/page?tab=mine&limit=1&cursor=${m1.body.nextCursor}`, org.token);
+    assert.deepEqual([m1.body.items[0].id, m2.body.items[0].id, m2.body.nextCursor], [t2.id, t1.id, null]);
+    assert.equal((await get('/v1/me/trips/page?tab=mine&cursor=junk', org.token)).status, 400);
+    const pend = await get('/v1/me/trips/page?tab=pending', guest.token);
+    assert.deepEqual(pend.body.items.map((x: { trip: { id: string } }) => x.trip.id), [t2.id]);
+    assert.equal(pend.body.counts.pending, 1);
+    assert.equal((await get('/v1/me/trips/page?tab=rejected', guest.token)).body.items.length, 0);
+    assert.equal((await get('/v1/me/trips/page?tab=mine', guest.token)).body.items.length, 0);
   });
 
   it('ranks trips by the circle: friends going first, then people you follow, then your followers, then everyone else', async () => {

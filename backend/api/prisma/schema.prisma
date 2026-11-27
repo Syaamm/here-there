@@ -24,7 +24,7 @@ model User {
   mustChangePassword Boolean   @default(false)
   role               String    @default("user") // user | guest | staff | admin
   // Staff only: the account works only inside this region and everything under it (a city, a region or a whole country). Empty = the whole service.
-  adminRegionKey     String?
+  adminRegionKey     String? // no longer used (staff have no area: they work for the whole service); kept only so a deploy never has to drop a column
   staffPermissions   String[]  @default([]) // staff only: which parts of the console they may use (reports, verification, users, content); admins have all
   state              String    @default("active") // active | suspended | deleted (a bare tombstone: nothing personal is kept)
   deletedAt          DateTime?
@@ -352,6 +352,7 @@ model TripMembership {
   role           String    @default("member") // organizer | member
   state          String    @default("approved") // approved | left | removed
   datesConfirmed Boolean   @default(false) // said yes to the final dates
+  attendance     String    @default("unknown") // unknown | attended | no_show (only ever set by the member themselves, as for activities)
   leftAt         DateTime? // when the member left themselves
   createdAt      DateTime  @default(now())
 

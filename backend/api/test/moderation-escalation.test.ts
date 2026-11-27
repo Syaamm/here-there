@@ -124,8 +124,8 @@ describe('when nobody answers: escalation, in steps, each once', () => {
     assert.equal((await h.prisma.report.findUnique({ where: { id: r.id } })).escalationLevel, 1);
     assert.equal((await svc.escalateOverdue()), 0, 'level 1 happens once');
     const level1 = mails().slice(before);
-    assert.ok(level1.some((m) => m.to === lead.email && /unanswered/i.test(m.subject)), 'the staff of the city are emailed');
-    assert.ok(!level1.some((m) => m.to === romeStaff.email), 'staff of another city are not');
+    assert.ok(level1.some((m) => m.to === lead.email && /unanswered/i.test(m.subject)), 'the staff who work on reports are emailed');
+    assert.ok(level1.some((m) => m.to === romeStaff.email), 'staff have no area: every one who works on reports is emailed');
     assert.ok(level1.some((m) => m.to === 'admin@example.com'));
     assert.ok(level1.every((m) => !/details/.test(m.text)), 'a page never carries what the report says');
     assert.ok((await alerts(lead, 'report_escalated')).length >= 1);
@@ -184,7 +184,7 @@ describe('when nobody answers: escalation, in steps, each once', () => {
 });
 
 describe('when an urgent report arrives', () => {
-  it('alerts and emails the admins and the staff of that city who work on reports, never with what the report says', async () => {
+  it('alerts and emails the admins and the staff who work on reports, never with what the report says', async () => {
     const mod = await staff('ArrivalMod');
     const lead = await staff('ArrivalLead');
     const rome = await staff('ArrivalRome', { city: 'Rome' });
@@ -195,9 +195,9 @@ describe('when an urgent report arrives', () => {
     assert.ok(sent.some((m) => m.to === lead.email));
     assert.ok(sent.some((m) => m.to === 'admin@example.com'));
     assert.ok(sent.some((m) => m.to === mod.email));
-    assert.ok(!sent.some((m) => m.to === rome.email), 'staff of another city are not told');
+    assert.ok(sent.some((m) => m.to === rome.email), 'staff have no area: every one who works on reports is told');
     assert.ok(!sent.some((m) => m.to === noReports.email), 'nor staff who do not work on reports');
-    assert.equal((await alerts(rome, 'report_urgent')).length, 0);
+    assert.ok((await alerts(rome, 'report_urgent')).length >= 1);
     assert.ok(sent.every((m) => !m.text.includes('details')));
     assert.ok((await alerts(mod, 'report_urgent')).length >= 1);
     assert.ok(await h.prisma.auditEvent.findFirst({ where: { action: 'report.urgent_alerted', objectId: r.id } }));
