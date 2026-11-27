@@ -6,7 +6,6 @@ import { CurrentUser } from '../common/auth';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
-import { RegionsService } from '../regions/regions.service';
 
 const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
 const LONG_SIDE = 1280; // long enough to read chat text in a screenshot, small enough to stay around 100-300 KB
@@ -26,7 +25,6 @@ const MAX_WAITING = 6;
 export class ProofsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly regions: RegionsService,
   ) {}
 
   /** The photos the person sent with these ids and has not used yet: all of them or an error (nothing is half attached). */
@@ -61,11 +59,6 @@ export class ProofsService {
     if (p.userId === actor.id) return p;
     const staff = actor.role === 'admin' || (actor.role === 'staff' && actor.staffPermissions.includes('reports'));
     if (!staff) throw E.notFound('Photo'); // not shown to anyone else, not even that it exists
-    // staff of one area see only the photos of people in it
-    if (actor.role === 'staff' && actor.adminRegionKey && p.appealId) {
-      const scope = await this.regions.scopeOf(actor);
-      if (scope && !(await this.prisma.user.findFirst({ where: { id: p.userId, ...this.regions.peopleWhere(scope) }, select: { id: true } }))) throw E.notFound('Photo');
-    }
     return p;
   }
 }

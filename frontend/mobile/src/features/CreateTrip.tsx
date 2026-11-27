@@ -158,7 +158,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const [agree, setAgree] = useState(false);
   const [tried, setTried] = useState(false);
   // the review page: the card being edited in a pop-up that grows out of it and folds back into it on Done (as in HERE)
-  const [pop, setPop] = useState<null | { card: 'route' | 'budget' | 'group' | 'about'; from: Origin }>(null);
+  const [pop, setPop] = useState<null | { card: 'route' | 'dates' | 'budget' | 'group' | 'about'; from: Origin }>(null);
   const [closing, setClosing] = useState(false);
   // Done was tapped in a pop-up whose fields are not right: they are marked red, as on their step, and it stays open
   const [popTried, setPopTried] = useState(false);
@@ -167,7 +167,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
   // What the review page shows while a pop-up is open: the values as they were when it opened. The pop-up edits the form itself, but the page
   // behind must not change until Done; closing it any other way (tapping outside, Back) puts the form back as it was (as in HERE).
   const frozen = useRef<null | { f: Draft; routeProblems: string[]; budgetProblems: string[]; busy: boolean }>(null);
-  const openPop = (card: 'route' | 'budget' | 'group' | 'about', from: Origin) => {
+  const openPop = (card: 'route' | 'dates' | 'budget' | 'group' | 'about', from: Origin) => {
     Keyboard.dismiss();
     frozen.current = { f, routeProblems, budgetProblems, busy };
     setClosing(false);
@@ -330,7 +330,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
   const groupLabel = t('{n} people', { n: f.capacity });
   const dayText = (d: Date | null) => (d ? `${shortDay(d)}, ${d.getFullYear()}` : '');
   /** a step's fields show what is wrong: after Continue on that step, or after Done in a review pop-up that opened them */
-  const bad = (i: number) => (tried && step === i) || (popTried && !!pop && ((i === 0 && pop.card === 'route') || (i === 1 && pop.card === 'budget')));
+  const bad = (i: number) => (tried && step === i) || (popTried && !!pop && ((i === 0 && (pop.card === 'route' || pop.card === 'dates')) || (i === 1 && pop.card === 'budget')));
   const budgetBad = (k: 'min' | 'max') => bad(1) && (!f[k] || (k === 'max' && !!f.min && max <= min));
 
   const dateField = (k: 'start' | 'end') => {
@@ -476,7 +476,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
     setClosing(true);
   };
   const donePop = () => {
-    const wrong = pop?.card === 'route' ? routeProblems.length > 0 || busy : pop?.card === 'budget' ? budgetProblems.length > 0 : false;
+    const wrong = pop?.card === 'route' ? originBad || destBad : pop?.card === 'dates' ? startBad || endBad || busy : pop?.card === 'budget' ? budgetProblems.length > 0 : false;
     if (wrong) {
       closeKeyboard();
       tap('Medium');
@@ -596,6 +596,10 @@ function TripForm({ onReset }: { onReset: () => void }) {
           const routeProblems = rv.routeProblems;
           const budgetProblems = rv.budgetProblems;
           const busy = rv.busy;
+          // the problems of the "Your trip" card (where from, where to) and of the "Travel dates" card (the days), each shown on its own card
+          const isPlace = (x: string) => x === t('where you leave from, picked from the list') || x === t('a destination picked from the list');
+          const placeProblems = routeProblems.filter(isPlace);
+          const dateProblems = routeProblems.filter((x) => !isPlace(x));
           const start = parseDay(f.start);
           const end = parseDay(f.end);
           const min = Number(f.min);
@@ -610,8 +614,8 @@ function TripForm({ onReset }: { onReset: () => void }) {
             {!gate.verified && <Banner onPress={() => void gate.ask('publish')}>{gate.isGuest ? t("You're exploring as a guest. To publish, create a free account and verify your identity ›") : t('Verify your identity to publish. Everything you entered stays here ›')}</Banner>}
             <ErrorBanner message={act.error} />
             {/* every part can be changed from here: Edit opens its fields in a pop-up that grows out of the card, Done folds it back */}
-            {/* the trip at a glance: its picture, the route, how long, how many people (Edit opens the route and dates) */}
-            <ReviewCard title={t('Your trip')} onEdit={(from) => openPop('route', from)} missing={(routeProblems.length > 0 || busy) && t('Missing or not right: {what}. Tap Edit.', { what: busy ? t('you already have a plan on these days') : routeProblems.join(', ') })}>
+            {/* the trip at a glance: its picture, the route, how long, how many people (Edit opens only the route: where from and where to) */}
+            <ReviewCard title={t('Your trip')} onEdit={(from) => openPop('route', from)} missing={placeProblems.length > 0 && t('Missing or not right: {what}. Tap Edit.', { what: placeProblems.join(', ') })}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(14) }}>
                 <TripThumb t={{ tags: f.tags } as unknown as Trip} size={26} style={{ width: sc(96), height: sc(76), borderRadius: sc(20) }} />
                 <View style={{ flex: 1, gap: sp(5) }}>
@@ -631,7 +635,7 @@ function TripForm({ onReset }: { onReset: () => void }) {
             </ReviewCard>
 
             {/* the dates, as two boxes side by side with a round mark between them */}
-            <ReviewCard title={t('Travel dates')} onEdit={(from) => openPop('route', from)}>
+            <ReviewCard title={t('Travel dates')} onEdit={(from) => openPop('dates', from)} missing={(dateProblems.length > 0 || busy) && t('Missing or not right: {what}. Tap Edit.', { what: busy ? t('you already have a plan on these days') : dateProblems.join(', ') })}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(8) }}>
                 {([[t('Departure date'), start], [t('Return date'), end]] as const).map(([label, day], i) => (
                   <Fragment key={label}>
@@ -704,8 +708,9 @@ function TripForm({ onReset }: { onReset: () => void }) {
           overlay={calendarSheet}
         >
           {pop.card === 'route' ? (
+            routeFields
+          ) : pop.card === 'dates' ? (
             <>
-              {routeFields}
               {dateFields}
               {flexFields}
             </>

@@ -156,9 +156,58 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
   /** Once an hour, trips that have ended are recorded as completed (the app already shows them as such). */
   onModuleInit() {
     this.jobs.every('trips.complete-finished', 3600_000, () => this.completeFinished());
+    this.jobs.every('trips.attendance-prompt', 60_000, () => this.sendAttendancePrompts());
   }
 
   onModuleDestroy() {}
+
+  /**
+   * As for activities: once a trip is over (its last day counts in full), each traveller who has not said whether they went is asked
+   * once ("Did you go on ...?", an alert and a push). Trips that ended in the last 6 hours are looked at; who was already asked is
+   * read from their alerts, so two runs never send it twice.
+   */
+  async sendAttendancePrompts(now = new Date()) {
+    const DAY_MS = 24 * 3600 * 1000;
+    const ended = await this.prisma.trip.findMany({
+      where: { status: { notIn: ['cancelled', 'draft'] }, dateEnd: { lte: new Date(+now - DAY_MS), gt: new Date(+now - DAY_MS - 6 * 3600 * 1000) } },
+      select: { id: true, title: true },
+    });
+    let sent = 0;
+    for (const t of ended) {
+      const members = await this.prisma.tripMembership.findMany({ where: { tripId: t.id, state: 'approved', role: { not: 'organizer' }, attendance: 'unknown' }, select: { userId: true } });
+      if (members.length === 0) continue;
+      const asked = new Set((await this.prisma.notification.findMany({ where: { type: 'attendance_prompt', userId: { in: members.map((m) => m.userId) }, data: { contains: `"tripId":"${t.id}"` } }, select: { userId: true } })).map((n) => n.userId));
+      for (const m of members) {
+        if (asked.has(m.userId)) continue;
+        await this.notifications.notify(m.userId, 'attendance_prompt', `Did you go on ${t.title}?`, 'Tap to answer.', { tripId: t.id });
+        sent++;
+      }
+    }
+    return sent;
+  }
+
+  /**
+   * Voluntary and the same as for activities: after the trip is over, each traveller may say whether they went, once (it cannot
+   * be changed after). The group sees the answer. No location tracking, nobody can set it for someone else. Open for a week.
+   */
+  async confirmAttendance(me: User, id: string, body: unknown) {
+    const { attended } = parse(z.object({ attended: z.boolean() }), body);
+    const t = await this.prisma.trip.findUnique({ where: { id } });
+    if (!t) throw E.notFound('Trip');
+    if (t.status === 'cancelled') throw E.conflict('TRIP_CANCELLED', 'This trip was cancelled');
+    const over = +t.dateEnd + 24 * 3600 * 1000;
+    const now = Date.now();
+    if (now < over) throw E.conflict('NOT_FINISHED', 'You can say whether you went once the trip is over');
+    if (now > over + 7 * 24 * 3600 * 1000) throw E.conflict('ATTENDANCE_CLOSED', 'This is too long ago to confirm');
+    const m = await this.prisma.tripMembership.findUnique({ where: { tripId_userId: { tripId: id, userId: me.id } } });
+    if (!m || m.state !== 'approved') throw E.notFound('Membership');
+    const answer = attended ? 'attended' : 'no_show';
+    if (m.attendance === answer) return { ok: true, attendance: answer };
+    if (m.attendance === 'attended' || m.attendance === 'no_show') throw E.conflict('ATTENDANCE_SET', 'You already said whether you went');
+    await this.prisma.tripMembership.update({ where: { id: m.id }, data: { attendance: answer } });
+    await this.notifications.markDone(me.id, 'attendance_prompt', `"tripId":"${id}"`);
+    return { ok: true, attendance: answer };
+  }
 
   /** The last day counts in full: a trip ending on the 10th is completed from the start of the 11th. Returns how many changed. */
   async completeFinished(now = new Date()) {
@@ -449,10 +498,19 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       isMember ? this.prisma.conversation.findUnique({ where: { tripId: id } }) : null,
       this.prisma.tripFavorite.findUnique({ where: { userId_tripId: { userId: me.id, tripId: id } } }),
     ]);
+    // After the trip is over (as for activities): the host's note that a traveller did not come (unless a moderator overturned it)
+    // is what the group sees, whatever the traveller answered; the viewer's own note comes with the way to dispute it
+    const ended = Date.now() >= +t.dateEnd + 24 * 3600 * 1000;
+    const myMark = isMember && ended ? await this.prisma.attendanceMark.findUnique({ where: { kind_targetId_userId: { kind: 'trip', targetId: id, userId: me.id } }, select: { id: true, state: true } }) : null;
+    const notedAbsent = new Set(
+      ended ? (await this.prisma.attendanceMark.findMany({ where: { kind: 'trip', targetId: id, state: { in: ['marked', 'disputed', 'upheld'] } }, select: { userId: true } })).map((x) => x.userId) : [],
+    );
     return this.dto(t, members.length, {
       favorited: !!fav,
       isHost: t.hostId === me.id,
       isMember,
+      myAttendance: isMember ? (m?.attendance ?? 'unknown') : undefined,
+      myNote: myMark ? { id: myMark.id, state: myMark.state } : undefined,
       canAppealRemoval: t.hostId === me.id && t.status === 'cancelled' && !t.cancelledAt && !(await this.prisma.appeal.findFirst({ where: { userId: me.id, kind: 'removal', targetId: id }, select: { id: true } })),
       myApplication: app && {
         id: app.id,
@@ -479,6 +537,8 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
         role: x.role,
         // while final dates wait for everyone: who has said yes (the organizer proposed them, so counts as yes)
         datesConfirmed: t.datesState === 'proposed' ? x.datesConfirmed : undefined,
+        answered: ended ? x.attendance === 'attended' || x.attendance === 'no_show' || notedAbsent.has(x.user.id) : undefined,
+        attendance: ended ? (notedAbsent.has(x.user.id) ? 'no_show' : x.attendance) : undefined,
       })),
     });
   }
@@ -916,8 +976,9 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
    * (not cancelled or over, and no declined applications): what the THERE home shows as your next trip.
    * `counts` is the number of each kind, for the profile figures.
    */
-  async minePage(me: User, limitRaw?: string, cursorRaw?: string, upcoming?: string) {
+  async minePage(me: User, limitRaw?: string, cursorRaw?: string, upcoming?: string, tabRaw?: string) {
     const limit = pageLimit(limitRaw, 20);
+    if (tabRaw === 'mine' || tabRaw === 'pending' || tabRaw === 'rejected') return this.minePageByTab(me, tabRaw, limit, cursorRaw);
     const cur = decodeKeyset(cursorRaw);
     const ahead = upcoming === '1' || upcoming === 'true';
     const tripWhere = ahead ? { status: { notIn: ['cancelled', 'completed'] }, dateEnd: { gt: new Date() } } : {};
@@ -945,6 +1006,66 @@ export class TripsService implements OnModuleInit, OnModuleDestroy {
       ),
       nextCursor: page.nextCursor,
       counts: { joined, applications },
+    };
+  }
+
+  /**
+   * The same three tabs as "My activities" in HERE. `mine`: every trip you organise or are in, the one under way first, then the
+   * soonest coming up, then the ones that are over (completed, ended or cancelled), latest first. `pending`: trips you asked to
+   * join and are waiting for (or on the waitlist). `rejected`: trips you were not approved for.
+   */
+  private async minePageByTab(me: User, tab: 'mine' | 'pending' | 'rejected', limit: number, cursorRaw?: string) {
+    const memberWhere = { userId: me.id, state: 'approved' } as const;
+    const appWhere = (states: string[]) => ({ applicantId: me.id, state: { in: states } });
+    const [mine, pending, rejected, joined, applications] = await Promise.all([
+      this.prisma.tripMembership.count({ where: memberWhere }),
+      this.prisma.tripApplication.count({ where: appWhere(['pending', 'waitlisted']) }),
+      this.prisma.tripApplication.count({ where: appWhere(['declined']) }),
+      this.prisma.tripMembership.count({ where: memberWhere }),
+      this.prisma.tripApplication.count({ where: appWhere(['pending', 'declined', 'waitlisted']) }),
+    ]);
+    const counts = { joined, applications, mine, pending, rejected };
+
+    if (tab === 'mine') {
+      const now = new Date();
+      const rows = await this.prisma.tripMembership.findMany({ where: memberWhere, select: { id: true, trip: { select: { dateStart: true, dateEnd: true, status: true } } } });
+      const over = (r: (typeof rows)[number]) => r.trip.status === 'cancelled' || effectiveTripStatus(r.trip, now) === 'completed';
+      const group = (r: (typeof rows)[number]) => (over(r) ? 2 : +r.trip.dateStart <= +now ? 0 : 1);
+      const byId = (x: { id: string }, y: { id: string }) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+      rows.sort((x, y) => {
+        const gx = group(x);
+        const gy = group(y);
+        if (gx !== gy) return gx - gy;
+        if (gx === 0) return +x.trip.dateEnd - +y.trip.dateEnd || byId(x, y); // under way: the one that ends first
+        if (gx === 1) return +x.trip.dateStart - +y.trip.dateStart || byId(x, y); // coming up: the soonest
+        return +y.trip.dateStart - +x.trip.dateStart || byId(y, x); // over: the latest
+      });
+      const m = cursorRaw ? /^o:(\d+)$/.exec(cursorRaw) : null;
+      if (cursorRaw && !m) throw E.badRequest('INVALID_CURSOR', 'Invalid cursor');
+      const from = m ? Number(m[1]) : 0;
+      const ids = rows.slice(from, from + limit).map((r) => r.id);
+      const full = await this.prisma.tripMembership.findMany({ where: { id: { in: ids } }, include: { trip: { include: this.hostInclude } } });
+      const inOrder = ids.map((id) => full.find((x) => x.id === id)).filter((x): x is (typeof full)[number] => !!x);
+      return {
+        items: await this.withMembers(inOrder, (x) => x.tripId, (x, n) => ({ ...this.dto(x.trip, n, { role: x.role }), row: 'joined' as const })),
+        nextCursor: from + limit < rows.length ? `o:${from + limit}` : null,
+        counts,
+      };
+    }
+
+    const cur = decodeKeyset(cursorRaw);
+    const after = cur ? { OR: [{ trip: { dateStart: { lt: cur.at } } }, { trip: { dateStart: cur.at }, id: { lt: cur.id } }] } : {};
+    const found = await this.prisma.tripApplication.findMany({
+      where: { ...appWhere(tab === 'pending' ? ['pending', 'waitlisted'] : ['declined']), ...after },
+      include: { trip: { include: this.hostInclude } },
+      orderBy: [{ trip: { dateStart: 'desc' } }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    const page = sliceKeyset(found, limit, (a) => a.trip.dateStart);
+    return {
+      items: await this.withMembers(page.items, (a) => a.tripId, (a, n) => ({ row: 'application' as const, applicationId: a.id, state: a.state, trip: this.dto(a.trip, n) })),
+      nextCursor: page.nextCursor,
+      counts,
     };
   }
 }

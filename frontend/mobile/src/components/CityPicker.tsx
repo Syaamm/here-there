@@ -7,9 +7,9 @@ import { useTheme } from '@/lib/theme';
 import { type Near, useCityPos } from '@/lib/city';
 import { CitySearch } from './CitySearch';
 import { Sheet } from './ui';
-
+
 import { sc, sp, sph } from '@/lib/scale';
-/** "📍 Milan · Around you ▾". Picking a city manually means location permission is never needed to browse. */
+/** "Milan · Around you" with a pin and a chevron. Picking a city manually means location permission is never needed to browse. */
 export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: string; onPick: (c: string, at?: Near) => void; /** drawn as a bordered pill: pin, "Milan · Around you", chevron (home header) */ pill?: boolean; /** when given, the trigger is drawn as a pin with the city in bold and this line under it (map header) */ subtitle?: string; /** a pill for a dark header: a tinted glass pill, green pin and the city in white */ onDark?: boolean }) {
   const { t } = useT();
   const { c, mode } = useTheme();
@@ -39,7 +39,7 @@ export function CityPicker({ city, onPick, subtitle, pill, onDark }: { city: str
             </View>
           </View>
         ) : (
-          <Text style={{ color: c.green, fontWeight: '700' }}>📍 {city} · {t('Around you')} ▾</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(4) }}><Ionicons name="location-outline" size={sc(16)} color={c.green} /><Text style={{ color: c.green, fontWeight: '700' }}>{city} · {t('Around you')}</Text><Ionicons name="chevron-down" size={sc(14)} color={c.green} /></View>
         )}
       </Pressable>
       <Sheet visible={open} title={t('Choose your city')} onClose={() => setOpen(false)}>

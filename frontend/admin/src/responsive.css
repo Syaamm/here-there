@@ -230,6 +230,105 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 @media (min-width: 901px) and (max-width: 1280px) {
   .au-card { grid-template-columns: 124px minmax(0, 1fr); }
   .ct-row { grid-template-columns: 128px minmax(0, 1fr) auto; gap: 12px; padding: 10px 14px 10px 16px; }
-  .ct-side { grid-template-columns: 70px 100px 32px; gap: 8px; }
-  .ct-going { grid-template-columns: 40px 1fr; gap: 6px; }
+  /* four columns, as in the base rule (waiting, going, status, menu): with three, the menu wrapped under the row and the status chip ran off the card */
+  .ct-side { grid-template-columns: 76px 84px 100px 32px; gap: 8px; }
+  .ct-going { grid-template-columns: 36px 1fr; gap: 6px; }
+  .ct-going .bar { width: 36px; }
 }
+
+/* ======================================================================================================================
+ * Scrolling and fit on every screen size (the last word; added in one block so it is easy to find)
+ * ==================================================================================================================== */
+
+/* 1. Every page body scrolls when its content is taller than the window. Above this, `fill` pages used to be `overflow: hidden`
+ *    below 1100px, so Verification, Settings, Audit, Content, Attendance and Staff could not be scrolled on a small window. The
+ *    cards inside still take the room that is left and scroll by themselves; they only stop shrinking at a sensible height, and
+ *    the page itself scrolls from there. */
+.page-body.fill { overflow-y: auto; }
+.page-body.fill > .scroll-card,
+.page-body.fill > .au-scroll,
+.page-body.fill > .table-wrap.audit-table,
+.page-body.fill > .split { min-height: 320px; }
+/* a list card (Verification) fills what is left of the window at every size, so its Previous / Next bar stays pinned at the bottom
+ * of the card and the rows scroll above it (it used to grow to its full height below 1100px, taking the bar away with it) */
+.page-body.fill > .scroll-card { flex: 1 1 auto; }
+.scroll-card > .list-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* 2. The paging bar (.table-foot, drawn by PageBar and usePages in ui.tsx; used by Verification, Reports, Appeals, Attendance, Users,
+ *    Staff, Audit and Content): the count on the left, Previous + page + Next grouped on the right, at every width. On a very narrow
+ *    screen the group drops under the count and stays on the right. It stays at the bottom of its card (flex: none). */
+.table-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-width: 0; }
+.table-foot > :first-child { margin-right: auto; min-width: 0; }
+.table-foot > .row { margin-left: auto; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.table-foot > .row .btn { flex: none; }
+@media (max-width: 700px) {
+  .table-foot { padding: 10px 16px; }
+  .scroll-card > .table-foot, .split-list > .table-foot, .ns-box > .table-foot { height: auto; min-height: 56px; padding-top: 10px; padding-bottom: 10px; }
+}
+@media (max-width: 380px) {
+  .table-foot > :first-child { flex: 1 1 100%; }
+  .table-foot > .row { flex: 1 1 100%; }
+}
+
+/* 3. Verification: each row wraps on a narrow screen (name, date, status and buttons used to run into each other and off the card) */
+.rows > li { flex-wrap: wrap; row-gap: 8px; min-width: 0; }
+.rows > li > .grow { flex: 1 1 180px; min-width: 0; }
+.rows .person { min-width: 0; }
+.rows .person .sub { max-width: 100%; }
+.rows > li > .row { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .rows > li { padding: 12px 16px; }
+  /* what wraps onto the second line starts under the name, not under the picture */
+  .rows > li > .grow + * { margin-left: 52px; }
+  .rows > li > .nowrap { white-space: normal; }
+}
+
+/* 4. Content (and the day lists): on a phone a row stacks (time, then title and place, then the status and menu) instead of
+ *    four fixed columns that ran past the edge of the card */
+@media (max-width: 700px) {
+  .ct-row { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 12px 16px; min-height: 0; }
+  .ct-title, .ct-meta { white-space: normal; overflow: visible; text-overflow: clip; }
+  .ct-side { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+  .ct-side > span:empty { display: none; }
+  .ct-side .chip { width: auto; padding: 4px 10px; }
+  .ct-side > :last-child { margin-left: auto; }
+  .au-head { padding: 12px 16px; min-height: 0; flex-wrap: wrap; }
+  .au-head-right { margin-left: auto; }
+  .au-more { padding: 10px 12px 12px; }
+}
+
+/* 5. Attendance: heading, count, empty state and footer fit a small card; long titles wrap instead of pushing the card wide */
+.ns-head h2, .ns-title, .ns-host > div { min-width: 0; overflow-wrap: anywhere; }
+.ns-head > span { flex: none; }
+@media (max-width: 700px) {
+  .ns-head { padding: 12px 16px; flex-wrap: wrap; }
+  .ns-head h2 { flex: 1 1 160px; }
+  .ns-box .ns-list > .empty, .ns-box .ns-list > .state { padding: 28px 16px; }
+  .ns-host { padding: 12px 16px; }
+  .ns-title { gap: 8px; font-size: var(--fs-md); }
+  .ns-hosts-box > summary { padding: 14px 16px; }
+  .ns-cols > .ns-hosts-box, .page-body.fill > .ns-cols { gap: 12px; }
+}
+
+/* 6. Staff: the table keeps its natural width and scrolls sideways inside its card on a small screen (columns were cut off);
+ *    the add / edit dialog is a properly sized, centred card whose body scrolls under a footer that stays in view */
+@media (max-width: 900px) {
+  .page-body > .table-wrap:not(.audit-table) > .table-scroll > table { min-width: max-content; }
+  .page-body > .table-wrap > .table-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+}
+.dialog.staff-dlg { width: min(560px, calc(100vw - 32px)); max-width: 560px; max-height: calc(100dvh - 32px); padding: 20px 24px 0; }
+.staff-dlg form { gap: 16px; }
+.staff-dlg .sd-foot { position: sticky; bottom: 0; z-index: 2; margin: 0 -24px; padding: 14px 24px; background: var(--surface); border-top: 1px solid var(--line); justify-content: flex-end; flex-wrap: wrap; }
+.sd-head { min-width: 0; }
+.sd-head > div { min-width: 0; overflow-wrap: anywhere; }
+.sd-pass { flex-wrap: wrap; }
+.sd-pass input { flex: 1 1 160px; }
+@media (max-width: 700px) {
+  .dialog.staff-dlg { width: min(560px, calc(100vw - 24px)); padding: 16px 16px 0; }
+  .staff-dlg .sd-foot { margin: 0 -16px; padding: 12px 16px; }
+  .staff-dlg .sd-foot .btn { flex: 1 1 120px; }
+}
+@media (max-height: 560px) { .dialog.staff-dlg { padding-top: 12px; } }
+
+/* 7. Dialogs of every kind never taller than the window; they scroll inside themselves */
+.dialog { max-height: calc(100dvh - 32px); }

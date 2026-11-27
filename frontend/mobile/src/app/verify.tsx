@@ -238,7 +238,7 @@ export default function Verify() {
           ))}
 
           <AcctCard style={{ gap: sp(8) }}>
-            <Txt variant="h3">{t('🔒 Your data')}</Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(8) }}><Ionicons name="lock-closed-outline" size={sc(18)} color={c.forest} /><Txt variant="h3">{t('Your data')}</Txt></View>
             <Txt variant="small">{t('• We keep only the result (verified or not), a reference number and the time you agreed. We never store or show your ID photo, selfie, name or birth date.')}</Txt>
             <Txt variant="small">{method === 'face' ? t('• Matching your face to your ID is biometric data. It is used only for this check, and only with your consent.') : t('• This check uses your ID document only: no selfie and no face matching, so nothing biometric.')}</Txt>
           </AcctCard>

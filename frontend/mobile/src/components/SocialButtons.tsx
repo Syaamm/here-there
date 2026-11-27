@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { appAlert } from '@/components/AppDialog';
@@ -32,16 +33,23 @@ export function SocialButtons({ adultConfirmed }: { adultConfirmed?: boolean }) 
   const { t } = useT();
   const { c } = useTheme();
   const { signIn } = useMe();
+  const router = useRouter();
   const act = useAction();
   const [on, setOn] = useState<Record<SocialProvider, boolean> | null>(null);
   const [Apple, setApple] = useState<typeof import('expo-apple-authentication') | null>(null);
 
   useEffect(() => {
     let live = true;
-    availableProviders().then((p) => {
+    // TEMPORARY layout preview (remove before a build): EXPO_PUBLIC_PREVIEW_SOCIAL=1 forces both buttons on
+    const preview = process.env.EXPO_PUBLIC_PREVIEW_SOCIAL === '1' && Platform.OS !== 'web';
+    (preview ? Promise.resolve({ apple: Platform.OS === 'ios', google: true }) : availableProviders()).then((p) => {
       if (!live) return;
       setOn(p);
-      if (p.apple) setApple(require('expo-apple-authentication') as typeof import('expo-apple-authentication'));
+      if (p.apple) {
+        try {
+          setApple(require('expo-apple-authentication') as typeof import('expo-apple-authentication'));
+        } catch {}
+      }
     });
     return () => {
       live = false;
@@ -50,17 +58,27 @@ export function SocialButtons({ adultConfirmed }: { adultConfirmed?: boolean }) 
 
   const go = (provider: SocialProvider) =>
     act.run(async () => {
+      if (process.env.EXPO_PUBLIC_PREVIEW_SOCIAL === '1') {
+        appAlert('Preview only', 'Layout preview. Signing in needs the new build.');
+        return;
+      }
       const got: SocialToken | null = provider === 'apple' ? await appleToken() : await googleToken();
       if (!got) return; // the person closed the sheet: not an error
       let adult = adultConfirmed === true;
       for (;;) {
         try {
-          const r = await post<{ token: string; refreshToken?: string; created?: boolean }>('/v1/auth/social', {
+          const r = await post<{ token?: string; refreshToken?: string; created?: boolean; pending?: boolean; email?: string; ticket?: string; devCode?: string }>('/v1/auth/social', {
             provider,
             idToken: got.idToken,
             ...(adult ? { adultConfirmed: true } : {}),
             ...(got.name ? { displayName: got.name } : {}),
           });
+          if (r.pending && r.email && r.ticket) {
+            // a new account: the API mailed a code, the person enters it on the code page before getting in
+            router.push({ pathname: '/verify-email', params: { email: r.email, ticket: r.ticket, ...(r.devCode ? { devCode: r.devCode } : {}) } });
+            return;
+          }
+          if (!r.token) return;
           await signIn({ token: r.token, refreshToken: r.refreshToken }, { fresh: r.created === true }); // a new account goes through onboarding once
           return;
         } catch (e) {
@@ -84,12 +102,12 @@ export function SocialButtons({ adultConfirmed }: { adultConfirmed?: boolean }) 
       </View>
       <ErrorBanner message={act.error} />
       {on.apple && Apple && Platform.OS === 'ios' ? (
-        // Apple's own button: its guidelines require the official look
+        // Apple's own button: its guidelines require the official look (its text size follows the button height and can't be set)
         <Apple.AppleAuthenticationButton
           buttonType={Apple.AppleAuthenticationButtonType.CONTINUE}
           buttonStyle={Apple.AppleAuthenticationButtonStyle.BLACK}
-          cornerRadius={BTN.radiusLarge}
-          style={{ height: sc(BTN.large), width: '100%', opacity: act.busy ? 0.5 : 1 }}
+          cornerRadius={BTN.radiusSmall}
+          style={{ height: sc(BTN.small), width: '100%', opacity: act.busy ? 0.5 : 1 }}
           onPress={() => {
             if (!act.busy) go('apple');
           }}
@@ -105,9 +123,9 @@ export function SocialButtons({ adultConfirmed }: { adultConfirmed?: boolean }) 
             tap('Medium');
             go('google');
           }}
-          style={({ pressed: p }) => [{ minHeight: sc(BTN.large), borderRadius: BTN.radiusLarge, borderWidth: 1, borderColor: c.line, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(10), paddingHorizontal: sph(20), opacity: act.busy ? 0.5 : 1 }, !act.busy && pressed(p)]}
+          style={({ pressed: p }) => [{ minHeight: sc(BTN.small), borderRadius: BTN.radiusSmall, borderWidth: 1, borderColor: c.line, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: sp(10), paddingHorizontal: sph(20), opacity: act.busy ? 0.5 : 1 }, !act.busy && pressed(p)]}
         >
-          <Ionicons name="logo-google" size={sc(20)} color="#1F1F1F" />
+          <Ionicons name="logo-google" size={sc(17)} color="#1F1F1F" />
           <Text numberOfLines={1} style={{ color: '#1F1F1F', ...BTN.text }}>{t('Continue with Google')}</Text>
         </Pressable>
       ) : null}

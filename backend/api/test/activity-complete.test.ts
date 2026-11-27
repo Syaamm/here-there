@@ -102,6 +102,57 @@ describe('attendance after an activity', () => {
   });
 });
 
+describe('attendance after a trip (the same as for activities)', () => {
+  it('asks each traveller once when it is over, takes one answer that cannot be changed, and shows the group who went', async () => {
+    const host = await h.verified('TripAttHost');
+    const member = await h.verified('TripAttMember');
+    const other = await h.verified('TripAttOther');
+    const day = 24 * 3600e3;
+    const made = await h.post('/v1/trips', host.token, {
+      title: 'Attendance trip', destination: 'Porto, Portugal', originCity: 'Milan',
+      dateStart: new Date(Date.now() + 40 * day).toISOString(), dateEnd: new Date(Date.now() + 44 * day).toISOString(),
+      dateFlexibility: 'exact', budgetMin: 500, budgetMax: 900, budgetIncludesTransport: true, tags: ['food'], groupSize: '2-3',
+    });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    const id = made.body.id as string;
+    for (const u of [member, other]) {
+      const ap = await h.post(`/v1/trips/${id}/applications`, u.token, { intro: 'I travel light and plan well.', confirmBudget: true, confirmDates: true, confirmGuidelines: true });
+      assert.equal((await h.post(`/v1/trips/${id}/applications/${ap.body.id}/decision`, host.token, { decision: 'approve' })).status, 201);
+    }
+
+    // not over yet: no answer, no prompt
+    assert.equal((await h.post(`/v1/trips/${id}/attendance`, member.token, { attended: true })).body.code, 'NOT_FINISHED');
+
+    // it ended a few hours ago (its last day has now passed)
+    await h.prisma.trip.update({ where: { id }, data: { dateStart: new Date(Date.now() - 6 * day), dateEnd: new Date(Date.now() - day - 2 * 3600e3) } });
+    const svc = h.app.get((await import('../src/trips/trips.service')).TripsService);
+    const prompts = (userId: string) => h.prisma.notification.count({ where: { userId, type: 'attendance_prompt', data: { contains: `"tripId":"${id}"` } } });
+    await svc.sendAttendancePrompts();
+    assert.deepEqual([await prompts(member.id), await prompts(other.id), await prompts(host.id)], [1, 1, 0], 'both travellers are asked, not the organizer');
+    await svc.sendAttendancePrompts();
+    assert.deepEqual([await prompts(member.id), await prompts(other.id)], [1, 1], 'and only once');
+
+    assert.equal((await h.post(`/v1/trips/${id}/attendance`, (await h.verified('TripAttStranger')).token, { attended: true })).status, 404, 'only someone in the trip can answer');
+    assert.equal((await h.post(`/v1/trips/${id}/attendance`, member.token, { attended: true })).status, 201);
+    assert.equal((await h.post(`/v1/trips/${id}/attendance`, member.token, { attended: true })).status, 201, 'the same answer again is fine');
+    const change = await h.post(`/v1/trips/${id}/attendance`, member.token, { attended: false });
+    assert.equal(change.status, 409);
+    assert.equal(change.body.code, 'ATTENDANCE_SET');
+
+    const seen = await h.get(`/v1/trips/${id}`, other.token);
+    assert.equal(seen.body.myAttendance, 'unknown');
+    const people = seen.body.participants as { id: string; answered?: boolean; attendance?: string }[];
+    assert.equal(people.find((p) => p.id === member.id)?.attendance, 'attended', 'the group sees who went');
+    assert.equal(people.find((p) => p.id === other.id)?.answered, false);
+
+    // the organizer's note that someone did not come is what the group sees, and the traveller sees it as theirs
+    assert.equal((await h.post(`/v1/trips/${id}/no-shows`, host.token, { userId: member.id })).status, 201);
+    const after = await h.get(`/v1/trips/${id}`, member.token);
+    assert.equal(after.body.myNote?.state, 'marked');
+    assert.equal((after.body.participants as { id: string; attendance?: string }[]).find((p) => p.id === member.id)?.attendance, 'no_show');
+  });
+});
+
 describe('drafts need a name', () => {
   it('refuses an empty draft, and keeps one with just the name', async () => {
     const me = await h.verified('DraftNamer');

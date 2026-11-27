@@ -111,7 +111,7 @@ export function ExploreThere() {
 
       <ModeTabs />
 
-      <ThereSearchField value={q} onChangeText={setQ} placeholder={t('Where next? For example, Japan')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || f.active} />
+      <ThereSearchField value={q} onChangeText={setQ} onClear={() => (f.clearAll(), setWhen('any'), setApplied(''))} placeholder={t('Where next?')} onFilter={() => setFilterOpen(true)} filterActive={when !== 'any' || f.active} />
       <TripStyleChips value={style} onChange={setStyle} />
 
       <ErrorBanner message={feed.error?.message} />
@@ -216,6 +216,11 @@ export function ExploreThere() {
         visible={filterOpen}
         onClose={() => setFilterOpen(false)}
         searching={feed.loading && !feed.data}
+        // "Clear all": every choice in the sheet back to how it starts (including "Show"), and the list no longer filtered by them
+        onClearAll={() => {
+          setWhen('any');
+          setApplied('');
+        }}
         // the destination is already the search field (filtered on the device), so only the other choices go to the server
         onSearch={() => setApplied(f.active ? `&${new URLSearchParams(f.build('')).toString()}` : '')}
         extra={

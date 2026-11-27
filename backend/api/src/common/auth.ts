@@ -16,7 +16,6 @@ import type { StaffPermission } from './constants';
 
 const IS_PUBLIC = 'isPublic';
 const STAFF = 'staffRoles';
-const REGIONAL_OK = 'regionalOk';
 const PERMISSION = 'staffPermission';
 
 /** What the person sees when they are locked out: for how long, if it is timed. */
@@ -45,12 +44,6 @@ export const staffMfaRequired = () => process.env.STAFF_MFA_REQUIRED === 'true' 
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 /** Restrict a route to staff roles (admin console). */
 export const Staff = (...roles: string[]) => SetMetadata(STAFF, roles);
-/**
- * Staff whose account is limited to a region (a city, a region or a country) may use ONLY the routes marked with this; every
- * other staff route is for staff of the whole service. Marked routes must check that what they touch is inside the region
- * (see regions/regions.service.ts). Forgetting the mark is safe: the route stays closed to regional staff.
- */
-export const RegionalOk = () => SetMetadata(REGIONAL_OK, true);
 /** The part of the console a route belongs to. Staff reach it only when an admin has given them that permission; admins always do. */
 export const Perm = (permission: StaffPermission) => SetMetadata(PERMISSION, permission);
 export const CurrentUser = createParamDecorator((_: unknown, ctx: ExecutionContext): User => {
@@ -119,14 +112,11 @@ export class AuthGuard implements CanActivate {
     const user = await this.verification.expireIfDue(row);
 
     if (staff && !staff.includes(user.role)) throw E.forbidden('FORBIDDEN', 'Insufficient role');
-    // staff always look after one area (an account without one reaches nothing), and only the parts an admin allowed
+    // staff work for the whole service, and reach only the parts an admin allowed
     if (staff && user.role === 'staff') {
-      if (!user.adminRegionKey) throw E.forbidden('NO_AREA', 'An admin has not given your account an area yet.');
       const need = this.reflector.getAllAndOverride<string | undefined>(PERMISSION, targets);
       if (need && !user.staffPermissions.includes(need)) throw E.forbidden('NO_PERMISSION', 'An admin has not given you access to this part of the console.');
     }
-    if (staff && user.adminRegionKey && !this.reflector.getAllAndOverride<boolean>(REGIONAL_OK, targets))
-      throw E.forbidden('GLOBAL_STAFF_ONLY', 'This is only for staff who look after the whole service');
     // an account an administrator just made reaches nothing in the console until its owner has chosen their own password (POST /v1/me/password stays open)
     if (staff && user.mustChangePassword) throw E.forbidden('PASSWORD_CHANGE_REQUIRED', 'Choose your own password before you use the admin console.');
     // staff reach the admin console only with two-step sign-in on (they can still open the page that sets it up)

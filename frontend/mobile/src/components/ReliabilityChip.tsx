@@ -10,5 +10,5 @@ export function ReliabilityChip({ r }: { r?: Reliability | null }) {
   const { t } = useT();
   if (!r) return null;
   const tone = r.level === 'needs_care' ? 'warn' : r.level === 'new' ? 'neutral' : 'ok';
-  return <Chip label={r.level === 'very_reliable' ? t('★ Very reliable') : t(r.label)} tone={tone} />;
+  return <Chip label={r.level === 'very_reliable' ? t('Very reliable') : t(r.label)} tone={tone} />;
 }

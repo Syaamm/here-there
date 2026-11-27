@@ -83,7 +83,7 @@ const monthYear = (iso: string) => new Date(iso).toLocaleDateString(undefined, {
 /**
  * One of the two people in a report (the reported person, the person who reported), as a small profile: photo, name, account
  * state, identity check, city, joined, and their record (reports against them, plans hosted and joined), with a button to the
- * full profile under People. Staff who may not open People (no "users" permission, or the person is outside their area) see
+ * full profile under People. Staff who may not open People (no "users" permission) see
  * the name only.
  */
 function PersonCard({ title, id, name, canOpen, onOpen, note }: { title: string; id: string | null; name: string; canOpen: boolean; onOpen?: () => void; note?: string | null }) {
@@ -160,7 +160,6 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   const refreshAll = () => (reload(), summary.reload());
   const act = useAction(refreshAll);
   const mod = can.moderate(me.role);
-  const regional = !!me.scope;
 
   // no assigning: any staff member who sees a report can decide it (the server makes sure only one decision counts)
   const groups: { title: string; items: R[] }[] = [{ title: '', items: focusId ? (data?.items ?? []).filter((r) => r.id === focusId) : (data?.items ?? []) }];
@@ -279,7 +278,7 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
               <Icon name="back" />
               All reports
             </button>
-            {selected &&<Detail key={selected.id} r={selected} mod={mod} regional={regional} busy={act.busy} openUser={openUser} from={`report:${selected.id}:${status}`} canSeePeople={me.role === 'admin' || !!me.permissions?.includes('users')} me={me} onResolve={resolve} onRestore={restore} />}
+            {selected &&<Detail key={selected.id} r={selected} mod={mod} busy={act.busy} openUser={openUser} from={`report:${selected.id}:${status}`} canSeePeople={me.role === 'admin' || !!me.permissions?.includes('users')} me={me} onResolve={resolve} onRestore={restore} />}
           </section>
         </div>
       )}
@@ -287,8 +286,8 @@ export function ReportsPage({ me, openUser, focusId, onClearFocus }: { me: Sessi
   );
 }
 
-function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: boolean; openUser?: (id: string, from?: string) => void; from: string; canSeePeople: boolean; onResolve: (r: R, s: 'resolved' | 'dismissed', note: string, pending?: { hide?: string; warn?: string; verify?: string; suspend?: { days?: number; reason: string } }) => void; onRestore: (r: R) => void }) {
-  const { r, mod, regional, busy } = p;
+function Detail(p: { r: R; me: Session; mod: boolean; busy: boolean; openUser?: (id: string, from?: string) => void; from: string; canSeePeople: boolean; onResolve: (r: R, s: 'resolved' | 'dismissed', note: string, pending?: { hide?: string; warn?: string; verify?: string; suspend?: { days?: number; reason: string } }) => void; onRestore: (r: R) => void }) {
+  const { r, mod, busy } = p;
   const [note, setNote] = useState('');
   const active = activeOf(r);
   const d = active && r.answerBy ? due(r.answerBy) : null;
@@ -414,7 +413,7 @@ function Detail(p: { r: R; me: Session; mod: boolean; regional: boolean; busy: b
           {/* one line: the reason (only needed to close without action; they will be told) and the two decisions */}
           <label className="grow">
             <span className="sr">Reason for closing without action (they will be told)</span>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for closing without action (they will be told)" maxLength={500} />
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason (they will be told)" aria-label="Reason for closing without action (they will be told)" maxLength={500} />
           </label>
           <button className="btn" disabled={busy || !noteOk} onClick={() => p.onResolve(r, 'dismissed', note.trim())}>
             No action needed

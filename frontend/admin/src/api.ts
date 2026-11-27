@@ -11,12 +11,10 @@ export const PERMISSIONS: { id: Permission; label: string }[] = [
   { id: 'users', label: 'Users' },
   { id: 'content', label: 'Content' },
 ];
-/** The part of the service a staff account looks after: one city, region or country. `null` = the whole service. */
-export type Scope = { key: string; name: string; kind: string } | null;
-export type Session = { token: string; refreshToken?: string; email: string; role: Role; name: string; scope?: Scope; permissions?: Permission[] };
+export type Session = { token: string; refreshToken?: string; email: string; role: Role; name: string; permissions?: Permission[] };
 
 export const STAFF: Role[] = ['staff', 'admin'];
-/** Two kinds of console account: Admin (everything, everywhere) and Staff (one area, the parts an admin allowed). The server decides. */
+/** Two kinds of console account: Admin (everything) and Staff (the parts an admin allowed). Both work for the whole service. The server decides. */
 export const can = {
   moderate: (r: Role) => r === 'staff' || r === 'admin',
   verify: (r: Role) => r === 'staff' || r === 'admin',
@@ -33,25 +31,6 @@ export class ApiError extends Error {
     message: string,
   ) {
     super(message);
-  }
-}
-
-const PLACE_KEY = 'ht_admin_place';
-/** Where this person chose to work after signing in: a place key, "all" (the whole service), or nothing yet. */
-export const getPlace = (): { key: string; name: string } | null => {
-  try {
-    const raw = sessionStorage.getItem(PLACE_KEY);
-    return raw ? (JSON.parse(raw) as { key: string; name: string }) : null;
-  } catch {
-    return null;
-  }
-};
-export function setPlace(p: { key: string; name: string } | null) {
-  try {
-    if (p) sessionStorage.setItem(PLACE_KEY, JSON.stringify(p));
-    else sessionStorage.removeItem(PLACE_KEY);
-  } catch {
-    /* storage unavailable: the choice just lives until the page is reloaded */
   }
 }
 
@@ -137,7 +116,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
     try {
       return await fetch(BASE + path, {
         method,
-        headers: { 'content-type': body instanceof Blob ? body.type : 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...(getPlace() && getPlace()!.key !== 'all' ? { 'x-admin-place': getPlace()!.key } : {}) },
+        headers: { 'content-type': body instanceof Blob ? body.type : 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
         body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body), // a picture goes as its own bytes
       });
     } catch {

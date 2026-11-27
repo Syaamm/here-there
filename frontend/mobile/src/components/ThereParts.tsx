@@ -345,7 +345,7 @@ export function ThereFilterSheet({ visible, onClose, children, footer, overlay, 
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps={keyboardTaps} contentContainerStyle={{ paddingHorizontal: sph(20), paddingTop: compact ? sp(14) : sp(22), paddingBottom: compact ? sp(12) : sp(20), gap: compact ? sp(16) : sp(26) }}>
               <CompactSheet.Provider value={!!compact}>{shown.current.children}</CompactSheet.Provider>
             </ScrollView>
-            <View style={{ paddingHorizontal: sph(20), paddingTop: compact ? sp(8) : sp(10), paddingBottom: insets.bottom + (compact ? 12 : 16), gap: compact ? sp(8) : sp(8), borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)', backgroundColor: c.bg }}>{shown.current.footer}</View>
+            <View style={{ paddingHorizontal: sph(20), paddingTop: compact ? sp(8) : sp(10), paddingBottom: compact ? Math.max(insets.bottom - 8, 10) : insets.bottom + 16, gap: compact ? sp(8) : sp(8), borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)', backgroundColor: c.bg }}>{shown.current.footer}</View>
           </Animated.View>
           {shown.current.overlay}
         </Animated.View>

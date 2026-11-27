@@ -1,10 +1,9 @@
-import { inScope, type Scope } from '../regions/regions';
 import { Body, Controller, Get, Injectable, OnModuleDestroy, OnModuleInit, Param, Post, Query } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { beforeKeyset, decodeKeyset, pageLimit, sliceKeyset } from '../common/paging';
-import { CurrentUser, Perm, Public, RegionalOk, Staff } from '../common/auth';
+import { CurrentUser, Perm, Public, Staff } from '../common/auth';
 import { URGENT_CATEGORIES } from '../common/constants';
 import { E } from '../common/errors';
 import { JobsService } from '../common/jobs.service';
@@ -12,7 +11,6 @@ import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/validate';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ReliabilityService } from '../reliability/reliability.controller';
-import { RegionsService } from '../regions/regions.service';
 import { EmailService } from '../common/email.service';
 import { log } from '../common/observability';
 
@@ -90,7 +88,6 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     private readonly jobs: JobsService,
     private readonly email: EmailService,
     private readonly reliability: ReliabilityService,
-    private readonly regions: RegionsService,
   ) {}
 
   onModuleInit() {
@@ -119,17 +116,10 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     await this.audit.log(null, 'report.urgent_alerted', 'report', report.id, { staff: staff.length, emailed });
   }
 
-  /** Who is told about a report: every admin, and the staff who look after its area and may work on reports. */
-  async watchers(reportId: string) {
-    const report = await this.prisma.report.findUnique({ where: { id: reportId }, select: { id: true, targetType: true, targetId: true } });
-    const city = report ? (await this.cityOfReports([report])).get(report.id) : null;
-    const people = await this.prisma.user.findMany({ where: { role: { in: ['admin', 'staff'] }, state: 'active' }, select: { id: true, role: true, adminRegionKey: true, staffPermissions: true } });
-    const out: string[] = [];
-    for (const p of people) {
-      if (p.role === 'admin') out.push(p.id);
-      else if (p.adminRegionKey && p.staffPermissions.includes('reports') && inScope(await this.regions.scopeOf(p), city)) out.push(p.id);
-    }
-    return out;
+  /** Who is told about a report: every admin, and the staff who may work on reports. */
+  async watchers(_reportId: string) {
+    const people = await this.prisma.user.findMany({ where: { role: { in: ['admin', 'staff'] }, state: 'active' }, select: { id: true, role: true, staffPermissions: true } });
+    return people.filter((p) => p.role === 'admin' || p.staffPermissions.includes('reports')).map((p) => p.id);
   }
 
   /** One short email to each of these people. It never carries what the report says; a failure never stops the report. */
@@ -295,48 +285,19 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
     return out;
   }
 
-  /** The city each report belongs to (a person's home city, the activity's city, the trip's start city, the city of the chat a message was in), for staff of one area. */
-  async cityOfReports(reports: { id: string; targetType: string; targetId: string }[]): Promise<Map<string, string | null>> {
-    const ids = (type: string) => reports.filter((r) => r.targetType === type).map((r) => r.targetId);
-    const [users, acts, trips, msgs] = await Promise.all([
-      this.prisma.profile.findMany({ where: { userId: { in: ids('user') } }, select: { userId: true, homeCityKey: true } }),
-      this.prisma.activity.findMany({ where: { id: { in: ids('activity') } }, select: { id: true, cityKey: true } }),
-      this.prisma.trip.findMany({ where: { id: { in: ids('trip') } }, select: { id: true, originKey: true } }),
-      this.prisma.message.findMany({ where: { id: { in: ids('message') } }, select: { id: true, senderId: true, conversation: { select: { activity: { select: { cityKey: true } }, trip: { select: { originKey: true } } } } } }),
-    ]);
-    const senders = await this.prisma.profile.findMany({ where: { userId: { in: msgs.map((m) => m.senderId) } }, select: { userId: true, homeCityKey: true } });
-    const home = new Map([...users, ...senders].map((p) => [p.userId, p.homeCityKey]));
-    const by = new Map<string, string | null>([
-      ...users.map((u) => [`user:${u.userId}`, u.homeCityKey] as const),
-      ...acts.map((a) => [`activity:${a.id}`, a.cityKey] as const),
-      ...trips.map((t) => [`trip:${t.id}`, t.originKey] as const),
-      ...msgs.map((m) => [`message:${m.id}`, m.conversation?.activity?.cityKey ?? m.conversation?.trip?.originKey ?? home.get(m.senderId) ?? null] as const),
-    ]);
-    return new Map(reports.map((r) => [r.id, by.get(`${r.targetType}:${r.targetId}`) ?? null]));
-  }
-
-  /** Throws unless the report is about something in the staff member's area. */
-  async assertReportInScope(scope: Scope | null, report: { id: string; targetType: string; targetId: string }) {
-    if (!scope) return;
-    if (!inScope(scope, (await this.cityOfReports([report])).get(report.id))) throw E.forbidden('OUT_OF_SCOPE', 'That is outside the area you look after');
-  }
-
   /**
-   * The waiting reports (open or in review) of an area, in queue order, as light rows (no names, no messages): the oldest 500 plus
-   * every urgent or escalated one however new, so a long queue can never hide the newest urgent report. For staff of one area
-   * only the reports about it are kept (before any paging, so a page is never short because of the area).
+   * The waiting reports (open or in review), in queue order, as light rows (no names, no messages): the oldest 500 plus
+   * every urgent or escalated one however new, so a long queue can never hide the newest urgent report.
    */
-  private async waitingLight(where: Prisma.ReportWhereInput, now: Date, scope: Scope | null) {
+  private async waitingLight(where: Prisma.ReportWhereInput, now: Date) {
     const select = { id: true, status: true, createdAt: true, category: true, priority: true, escalationLevel: true, escalatedAt: true, targetType: true, targetId: true } as const;
     const [oldest, urgent] = await Promise.all([
       this.prisma.report.findMany({ where, orderBy: [{ createdAt: 'asc' }], take: 500, select }),
       this.prisma.report.findMany({ where: { AND: [where, { OR: [{ priority: 'urgent' }, { category: { in: URGENT_CATEGORIES } }, { escalationLevel: { gt: 0 } }] }] }, orderBy: [{ createdAt: 'asc' }], take: 500, select }),
     ]);
     const merged = [...new Map([...oldest, ...urgent].map((r) => [r.id, r])).values()];
-    const cities = scope ? await this.cityOfReports(merged) : null;
-    const inArea = scope ? merged.filter((r) => inScope(scope, cities!.get(r.id))) : merged;
     return orderQueue(
-      inArea.map((r) => {
+      merged.map((r) => {
         const urgentNow = r.priority === 'urgent' || this.isUrgent(r.category);
         const limit = urgentNow ? ANSWER_WITHIN_HOURS.urgent : ANSWER_WITHIN_HOURS.normal;
         return { id: r.id, status: r.status, open: true, priority: urgentNow ? 'urgent' : 'normal', escalationLevel: r.escalationLevel, escalated: !!r.escalatedAt, overdue: (+now - +r.createdAt) / HOUR > limit, category: r.category, createdAt: r.createdAt, answerBy: new Date(+r.createdAt + limit * HOUR) };
@@ -368,10 +329,9 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** One report with what it was about, how the reporter's earlier reports went, and every step taken on it. */
-  async detail(id: string, scope: Scope | null) {
+  async detail(id: string) {
     const r = await this.prisma.report.findUnique({ where: { id } });
     if (!r) throw E.notFound('Report');
-    await this.assertReportInScope(scope, r);
     const name = async (userId: string | null | undefined) => (userId ? ((await this.prisma.profile.findUnique({ where: { userId }, select: { displayName: true } }))?.displayName ?? null) : null);
     let target: { type: string; title: string; lines: string[]; state?: string | null } | null = null;
     if (r.targetType === 'activity') {
@@ -401,13 +361,13 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** How many reports wait, how many are urgent or overdue, and the ids of the open ones (the console's badge and overview read this, not the whole queue). */
-  async waitingSummary(scope: Scope | null, now = new Date()) {
-    const light = await this.waitingLight({ status: { in: ['open', 'in_review'] }, category: { not: 'host_no_show' } }, now, scope); // "the host did not come" reports are answered under Attendance
-    const total = scope ? light.length : await this.prisma.report.count({ where: { status: { in: ['open', 'in_review'] }, category: { not: 'host_no_show' } } });
+  async waitingSummary(now = new Date()) {
+    const light = await this.waitingLight({ status: { in: ['open', 'in_review'] }, category: { not: 'host_no_show' } }, now); // "the host did not come" reports are answered under Attendance
+    const total = await this.prisma.report.count({ where: { status: { in: ['open', 'in_review'] }, category: { not: 'host_no_show' } } });
     return { total, open: light.filter((x) => x.status === 'open').length, inReview: light.filter((x) => x.status === 'in_review').length, urgent: light.filter((x) => x.priority === 'urgent').length, overdue: light.filter((x) => x.overdue).length, openIds: light.filter((x) => x.status === 'open').map((x) => x.id) };
   }
 
-  async queue(status?: string, category?: string, now = new Date(), scope: Scope | null = null, paging: { limit?: string; cursor?: string; q?: string; who?: string; page?: string } = {}) {
+  async queue(status?: string, category?: string, now = new Date(), paging: { limit?: string; cursor?: string; q?: string; who?: string; page?: string } = {}) {
     // Waiting reports (status open, in_review, or waiting for both): in queue order, a page at a time (default 50) with a cursor for the next; only the
     // page is filled in. Finished ones: newest first, a page at a time (default 200) with a cursor for the next.
     // "disputed" is not a status of its own: it is a decided report (action taken) whose person has asked for a review that is still open.
@@ -443,7 +403,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
         })()
       : waiting
       ? await (async () => {
-          let ordered = await this.waitingLight(where, now, scope);
+          let ordered = await this.waitingLight(where, now);
           let start = 0;
           if (paging.page) {
             // the console lists the newest report first, always; urgent ones are marked, not moved
@@ -482,9 +442,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
             nextCursor = page.nextCursor;
             return page.items;
           });
-    // staff who look after one area see only the reports about it (a report about something no place covers is for the whole-service staff)
-    const cities = scope && !waiting ? await this.cityOfReports(found) : null;
-    const rows = scope && !waiting ? found.filter((r) => inScope(scope, cities!.get(r.id))) : found;
+    const rows = found;
     const evidence = await this.reliability.hostAbsenceEvidence(rows.filter((r) => r.category === 'host_no_show'));
     const who = await this.targetUsers(rows);
     const subjects = [...new Set([...who.values()].filter((x): x is string => !!x))];
@@ -708,16 +666,7 @@ export class ModerationService implements OnModuleInit, OnModuleDestroy {
 export class ModerationController {
   constructor(
     private readonly moderation: ModerationService,
-    private readonly regions: RegionsService,
   ) {}
-
-  /** Staff of one area may only look at or act on a message from a chat in their area (or from a member of it). */
-  private async assertMessageInScope(actor: User, messageId: string) {
-    const scope = await this.regions.scopeOf(actor);
-    if (!scope) return;
-    const city = (await this.moderation.cityOfReports([{ id: messageId, targetType: 'message', targetId: messageId }])).get(messageId);
-    if (!inScope(scope, city)) throw E.forbidden('OUT_OF_SCOPE', 'That is outside the area you look after');
-  }
 
   /** What a person is told about how reports are handled: hours, answer times and the emergency number. Public. */
   @Public()
@@ -736,55 +685,44 @@ export class ModerationController {
     return this.moderation.aboutMe(me, limit, cursor);
   }
 
-  @Staff(...ALL)
+  @Staff('admin')
   @Get('admin/reports/workload')
   workload() {
     return this.moderation.workload();
   }
 
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('reports')
   @Get('admin/messages/:id')
   async message(@CurrentUser() actor: User, @Param('id') id: string) {
-    await this.assertMessageInScope(actor, id);
     return this.moderation.message(id);
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('reports')
   @Post('admin/messages/:id/remove')
   async remove(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
-    await this.assertMessageInScope(actor, id);
     return this.moderation.removeMessage(actor, id, body);
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('reports')
   @Post('admin/messages/:id/restore')
   async restore(@CurrentUser() actor: User, @Param('id') id: string) {
-    await this.assertMessageInScope(actor, id);
     return this.moderation.restoreMessage(actor, id);
   }
 
-  /** A warning is a local action: staff of the person's home city or of a place they have been active in lately. */
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('reports')
   @Post('admin/users/:id/warn')
   async warn(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
-    await this.regions.assertPersonLocal(actor, id);
     return this.moderation.warn(actor, id, body);
   }
 
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('users')
   @Get('admin/users/:id/offender')
   async offender(@CurrentUser() actor: User, @Param('id') id: string) {
-    await this.regions.assertPersonLocal(actor, id);
     return this.moderation.offenderFor(id);
   }
 }

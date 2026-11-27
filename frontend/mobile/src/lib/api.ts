@@ -357,7 +357,7 @@ export type MyAppeal = { thread?: { id: string; fromStaff: boolean; body: string
 // ---------------------------------------------------------------- shared types
 /** One row of "my trips" from the server: a trip you organise or are in, or one you applied to. */
 export type MyTripRow = (Trip & { row: 'joined'; role: string }) | { row: 'application'; applicationId: string; state: string; trip: Trip };
-export type MyTripsPage = { items: MyTripRow[]; nextCursor: string | null; counts: { joined: number; applications: number } };
+export type MyTripsPage = { items: MyTripRow[]; nextCursor: string | null; counts: { joined: number; applications: number; mine?: number; pending?: number; rejected?: number } };
 /** One row of "my activities": one you host or are going to, or one you asked to join. */
 export type MyActivityRow = (Activity & { row: 'joined'; role: string }) | { row: 'request'; requestId: string; state: string; activity: Activity };
 export type MyActivitiesPage = { items: MyActivityRow[]; nextCursor: string | null; counts: { mine: number; pending: number; rejected: number } };
@@ -499,6 +499,9 @@ export type Trip = {
   myApplication?: { id: string; state: string; message: string; canAppeal?: boolean } | null;
   conversationId?: string | null;
   participants?: Participant[];
+  /** after the trip is over: what you said about going (once, final), and the host's note that you did not come, if any */
+  myAttendance?: 'unknown' | 'attended' | 'no_show';
+  myNote?: { id: string; state: string };
   datesConfirmedCount?: number;
   myDatesConfirmed?: boolean;
   /** your circle going on this trip: buddies, and people you follow */

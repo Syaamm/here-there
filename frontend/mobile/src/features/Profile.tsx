@@ -238,7 +238,8 @@ export function Profile({ showBack = false }: { /** the dock is away: a back but
               ),
             )}
           </Grid>
-          {tripsTotal > TRIPS_SHOWN && <Btn title={t('More trips ({n} more)  ›', { n: tripsTotal - TRIPS_SHOWN })} variant="secondary" onPress={() => go('/my-trips')} />}
+          {/* like "View all activities": always there when there is anything; the My trips / Pending / Rejected tabs live on that page */}
+          {tripsTotal > 0 && <Btn title={tripsTotal > Math.min(tripItems.length, TRIPS_SHOWN) ? t('View all trips ({n} more)  ›', { n: tripsTotal - Math.min(tripItems.length, TRIPS_SHOWN) }) : t('View all trips  ›')} variant="secondary" onPress={() => go('/my-trips')} />}
         </>
       )}
 

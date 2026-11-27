@@ -12,7 +12,7 @@ import { post } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import { useAction } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
-
+
 import { sc, sp } from '@/lib/scale';
 /** 18+ confirmation is required here; identity verification comes later, before hosting or joining. */
 export default function Register() {
@@ -35,7 +35,7 @@ export default function Register() {
   // the password rule, said while typing: at least 10 characters (how many so far), and no line breaks or other control characters
   const pwLen = f.password.length;
   const pwBadChars = /[\u0000-\u001F\u007F]/.test(f.password);
-  const pwHint = pwLen === 0 ? t('At least {n} characters', { n: 10 }) : pwLen < 10 ? t('{len} of {n} characters. {more} more to go.', { len: pwLen, n: 10, more: 10 - pwLen }) : t('✓ {n} or more characters', { n: 10 });
+  const pwHint = pwLen === 0 ? t('At least {n} characters', { n: 10 }) : pwLen < 10 ? t('{len} of {n} characters. {more} more to go.', { len: pwLen, n: 10, more: 10 - pwLen }) : t('{n} or more characters', { n: 10 });
   const valid = f.displayName.trim().length >= 2 && /\S+@\S+\.\S+/.test(f.email) && pwLen >= 10 && !pwBadChars && f.homeCity.length >= 2 && adult;
   const submit = () =>
     act.run(async () => {

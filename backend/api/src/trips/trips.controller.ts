@@ -82,6 +82,11 @@ export class TripsController {
     return this.trips.myFavorites(me, limit, cursor);
   }
 
+  @Post('trips/:id/attendance')
+  attendance(@CurrentUser() me: User, @Param('id') id: string, @Body() body: unknown) {
+    return this.trips.confirmAttendance(me, id, body);
+  }
+
   @Post('trips/:id/leave')
   leave(@CurrentUser() me: User, @Param('id') id: string) {
     return this.trips.leave(me, id);
@@ -94,7 +99,7 @@ export class TripsController {
 
   /** Your trips a page at a time (`upcoming=1`: only what is still ahead), plus how many of each kind. */
   @Get('me/trips/page')
-  minePage(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('upcoming') upcoming?: string) {
-    return this.trips.minePage(me, limit, cursor, upcoming);
+  minePage(@CurrentUser() me: User, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('upcoming') upcoming?: string, @Query('tab') tab?: string) {
+    return this.trips.minePage(me, limit, cursor, upcoming, tab);
   }
 }

@@ -101,7 +101,6 @@ export function VerificationsPage({ me: _me }: { me: Session }) {
                         {v.user.homeCity && ` · ${v.user.homeCity}`}
                       </span>
                     </div>
-                    {v.providerRef && v.method === 'document' && <Chip value="Document" tone="plain" />}
                     <span className="small muted nowrap" title={fmt(v.createdAt)}>
                       {v.eligibility === 'pending' ? 'Applied' : 'Joined'}{' '}
                       {fmt(v.createdAt)}

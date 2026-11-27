@@ -16,7 +16,7 @@ import { useAction, useLoad, useRefresh } from '@/lib/hooks';
 import { useLiveEvents } from '@/lib/live';
 import { useTheme } from '@/lib/theme';
 import { localeTag, t, tn, useT } from '@/lib/i18n';
-
+
 import { sc, sp, sph } from '@/lib/scale';
 type Line = { id: string; kind: 'itinerary'; title: string; note: string | null; day: string | null; time: string | null; addedBy: string; canEdit: boolean };
 type Plan = {
@@ -25,7 +25,6 @@ type Plan = {
 };
 
 const DAY = 24 * 3600e3;
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** A calendar day is kept as "YYYY-MM-DD"; it is stored as noon UTC of that date so it stays the same day in every time zone. */
 const atNoon = (key: string) => new Date(`${key}T12:00:00Z`);
 const fmt = (key: string, o: Intl.DateTimeFormatOptions) => atNoon(key).toLocaleDateString(dateLang(), { ...o, timeZone: 'UTC' });
@@ -61,7 +60,9 @@ export default function TripPlan() {
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [day, setDay] = useState<string | null>(null);
-  const [time, setTime] = useState('');
+  // the exact time is typed as two numbers (hour, minute); `time` below is the "HH:MM" they make
+  const [hh, setHh] = useState('');
+  const [mm, setMm] = useState('');
   // "See all": the ideas in full, a page at a time (the plan itself carries only the first few)
   const [all, setAll] = useState<null | 'ideas'>(null);
   const [allRows, setAllRows] = useState<Line[]>([]);
@@ -100,10 +101,17 @@ export default function TripPlan() {
     // a new line goes on the day on show, unless a day (or "no day", for an idea) was asked for
     const wanted = edit ? (edit.day ? edit.day.slice(0, 10) : null) : presetDay === undefined ? active : presetDay;
     setDay(wanted && isPast(wanted) ? (tripDays.includes(today) ? today : null) : wanted);
-    setTime(edit?.time ?? '');
+    setHh(edit?.time?.slice(0, 2) ?? '');
+    setMm(edit?.time?.slice(3, 5) ?? '');
     act.setError(null);
   };
-  const timeOk = time === '' || TIME.test(time);
+  const timeOk = hh === '' ? mm === '' : +hh <= 23 && +mm <= 59;
+  const time = hh !== '' && timeOk ? `${hh.padStart(2, '0')}:${(mm || '0').padStart(2, '0')}` : '';
+  // the "Morning / Afternoon / Evening" choices fill the two boxes
+  const setPart = (v: string) => {
+    setHh(v.slice(0, 2));
+    setMm(v.slice(3, 5));
+  };
   const save = () =>
     void act.run(() => {
       const dayIso = day ? `${day}T12:00:00.000Z` : undefined;
@@ -298,9 +306,21 @@ export default function TripPlan() {
         </View>
         <View style={{ gap: sp(6) }}>
           <Txt variant="label">{t('What time of day?')}</Txt>
-          <Segmented options={parts} value={time} onChange={setTime} />
+          <Segmented options={parts} value={time} onChange={setPart} />
         </View>
-        <Field label={t('Exact time (optional)')} value={time} onChangeText={(v) => setTime(v.replace(/[^0-9:]/g, '').slice(0, 5))} keyboardType="numbers-and-punctuation" maxLength={5} placeholder={t('Like 14:30')} style={pill} error={timeOk ? null : t('Use 24-hour time like 09:30')} />
+        <View style={{ gap: sp(4) }}>
+          <Txt variant="label">{t('Exact time (optional)')}</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp(10) }}>
+            <View style={{ flex: 1 }}>
+              <Field label={t('Hour')} value={hh} onChangeText={(v) => setHh(v.replace(/\D/g, '').slice(0, 2))} keyboardType="number-pad" maxLength={2} placeholder="HH" style={pill} />
+            </View>
+            <Text style={{ color: c.muted, fontSize: 20, marginTop: sc(22) }}>:</Text>
+            <View style={{ flex: 1 }}>
+              <Field label={t('Minute')} value={mm} onChangeText={(v) => setMm(v.replace(/\D/g, '').slice(0, 2))} keyboardType="number-pad" maxLength={2} placeholder="MM" style={pill} />
+            </View>
+          </View>
+          {timeOk ? <Txt variant="small">{t('24-hour time, like 14 and 30')}</Txt> : <Txt variant="small" color={c.danger}>{hh === '' ? t('Type the hour first') : t('Use 24-hour time like 09:30')}</Txt>}
+        </View>
         <Field label={t('Note (optional)')} value={note} onChangeText={setNote} multiline maxLength={500} style={{ borderRadius: sc(24), paddingHorizontal: sph(20) }} />
         <Btn title={t('Save')} loading={act.busy} disabled={title.trim().length < 2 || !timeOk} onPress={save} />
       </Sheet>

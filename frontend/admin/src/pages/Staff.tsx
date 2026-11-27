@@ -3,7 +3,7 @@ import { api, get, PERMISSIONS, post, roleLabel, saveSession, setRefreshToken, s
 import { Select, useBackdropClose } from '../controls';
 import { askConfirm, Avatar, Chip, Empty, errMsg, ErrorBanner, FilterBar, Icon, Loading, Page, Search, useAction, useLoad } from '../ui';
 
-type Member = { id: string; email: string; displayName: string | null; photoUrl: string | null; role: Role; regionKey: string | null; permissions: Permission[]; state: string; mfaEnabled: boolean; mustChangePassword: boolean; createdAt: string };
+type Member = { id: string; email: string; displayName: string | null; photoUrl: string | null; role: Role; permissions: Permission[]; state: string; mfaEnabled: boolean; mustChangePassword: boolean; createdAt: string };
 const MIN = 10; // the same minimum the server asks for
 
 const ALL_PERMS = PERMISSIONS.map((p) => p.id);
@@ -147,7 +147,7 @@ export function StaffPage({ me }: { me: Session }) {
           onClose={() => setEditing(null)}
           onSave={async ({ perms, email, password }) => {
             if (editing.role !== 'staff') await api('PATCH', `/v1/admin/staff/${editing.id}`, { ...(email && email !== editing.email && { email }) });
-            else await api('PATCH', `/v1/admin/staff/${editing.id}`, { regionKey: null, permissions: perms, ...(email && email !== editing.email && { email }), ...(password && { password }) });
+            else await api('PATCH', `/v1/admin/staff/${editing.id}`, { permissions: perms, ...(email && email !== editing.email && { email }), ...(password && { password }) });
             if (editing.role !== 'staff') {
               if (email && email !== editing.email) setSaved('Saved. Sign in with the new email next time.');
             } else if (password || (email && email !== editing.email)) setSaved('Saved. Their sign-in details changed and they were signed out everywhere.');

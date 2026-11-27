@@ -7,7 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { ActivitiesService } from '../activities/activities.service';
 import { AuditService } from '../common/audit.service';
-import { CurrentUser, Perm, RegionalOk, Staff } from '../common/auth';
+import { CurrentUser, Perm, Staff } from '../common/auth';
 import { STAFF_PERMISSIONS, STAFF_ROLES } from '../common/constants';
 import { E } from '../common/errors';
 import { hashPassword } from '../common/password';
@@ -16,7 +16,6 @@ import { banIdentities, liftBans } from '../common/identity';
 import { ModerationService } from '../moderation/moderation.controller';
 import { ReliabilityService } from '../reliability/reliability.controller';
 import { RegionsService } from '../regions/regions.service';
-import { inScope } from '../regions/regions';
 import { MfaService } from '../auth/mfa.controller';
 import { PrismaService } from '../common/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -51,14 +50,12 @@ export const staffCreateSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   displayName: z.string().trim().min(2).max(40),
   role: z.literal('staff').optional(),
-  regionKey: z.string().trim().min(1).max(60).nullable().optional(), // staff have no area any more: they work for the whole service
   permissions: z.array(z.enum(STAFF_PERMISSIONS)).optional(),
   /** the password the administrator gives this person: the administrator looks after it from then on */
   password: z.string().min(10, 'Use at least 10 characters').max(200),
 });
 /** An admin changes what one staff member may do, or where. */
 export const staffUpdateSchema = z.object({
-  regionKey: z.string().trim().min(1).max(60).nullable().optional(), // null takes an old area away
   permissions: z.array(z.enum(STAFF_PERMISSIONS)).optional(),
   email: z.string().trim().toLowerCase().email().max(254).optional(),
   password: z.string().min(10, 'Use at least 10 characters').max(200).optional(),
@@ -82,7 +79,7 @@ function timeWindow(fromRaw?: string, toRaw?: string) {
 
 /** Leave userId out (or send your own) to take the report yourself; an admin may name any staff member. */
 export const assignSchema = z.object({ userId: z.string().min(1).max(64).optional() });
-export const roleSchema = z.object({ role: z.enum(['user', ...STAFF_ROLES]), regionKey: z.string().trim().min(1).max(60).nullable().optional(), permissions: z.array(z.enum(STAFF_PERMISSIONS)).optional() });
+export const roleSchema = z.object({ role: z.enum(['user', ...STAFF_ROLES]), permissions: z.array(z.enum(STAFF_PERMISSIONS)).optional() });
 
 /** Plans that are still on, by their own status: once their end time has passed they count as completed, whatever the stored status says. */
 const LIVE_STATUSES = ['published', 'full', 'planning', 'confirmed'];
@@ -111,21 +108,10 @@ export class AdminController {
     private readonly notifications: NotificationsService,
   ) {}
 
-  /** Account-wide actions (suspend, restore): only staff of the person's home city, or an admin. Never other staff. */
-  private async assertUserInScope(actor: User, userId: string) {
-    await this.regions.assertPersonHome(actor, userId);
-  }
-
-  private async assertActivityInScope(actor: User, activityId: string) {
-    const a = await this.prisma.activity.findUnique({ where: { id: activityId }, select: { cityKey: true } });
-    if (!a) throw E.notFound('Activity');
-    await this.regions.assertCity(actor, a.cityKey);
-  }
-
   // ------------------------------------------------------------ overview
-  @Staff(...ALL)
+  @Staff('admin')
   @Get('overview')
-  async overview(@CurrentUser() actor: User, @Query('from') fromRaw?: string, @Query('to') toRaw?: string, @Headers('x-admin-place') place?: string, @Query('tz') tzRaw?: string) {
+  async overview(@CurrentUser() actor: User, @Query('from') fromRaw?: string, @Query('to') toRaw?: string, @Query('tz') tzRaw?: string) {
     // a range of whole calendar days in the viewer's time zone ("tz"; UTC when none is sent) (default: the last 30, today included, at most five years) and the same length just before it
     const DAY = 24 * 3600 * 1000;
     const day = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(+new Date(v + 'T00:00:00.000Z')) ? new Date(v + 'T00:00:00.000Z') : null);
@@ -146,17 +132,12 @@ export class AdminController {
     const untilAt = at(until);
     const beforeAt = at(before);
     const now = new Date();
-    // with a place chosen (the Switch), every number is for that place only: its people, plans, identity checks and reports
-    const scope = await this.regions.scopeOf(actor, place);
-    const cities = scope ? [...scope.cityKeys] : [];
-    const members = { AND: [{ role: 'user', state: { not: 'deleted' } }, scope ? this.regions.peopleWhere(scope) : {}] } satisfies Prisma.UserWhereInput; // the people the Users page lists: sign-ups only (no staff, admin or demo guests, no erased accounts)
-    const actWhere = (extra: Prisma.ActivityWhereInput = {}): Prisma.ActivityWhereInput => ({ AND: [scope ? { cityKey: { in: cities } } : {}, extra] });
-    const tripWhere = (extra: Prisma.TripWhereInput = {}): Prisma.TripWhereInput => ({ AND: [scope ? { originKey: { in: cities } } : {}, extra] });
-    const checkWhere = (extra: Prisma.VerificationCheckWhereInput): Prisma.VerificationCheckWhereInput => ({ AND: [scope ? { user: { profile: { homeCityKey: { in: cities } } } } : {}, extra] });
-    // reports: all of them for the whole service; for a place only the ones about it (read once, light, and counted here)
-    const allReports = await this.prisma.report.findMany({ where: { category: { not: 'host_no_show' } }, select: { id: true, status: true, category: true, createdAt: true, targetType: true, targetId: true } });
-    const cityOf = scope ? await this.moderation.cityOfReports(allReports) : null;
-    const reportsHere = scope ? allReports.filter((r) => inScope(scope, cityOf!.get(r.id))) : allReports;
+    const members = { AND: [{ role: 'user', state: { not: 'deleted' } }] } satisfies Prisma.UserWhereInput; // the people the Users page lists: sign-ups only (no staff, admin or demo guests, no erased accounts)
+    const actWhere = (extra: Prisma.ActivityWhereInput = {}): Prisma.ActivityWhereInput => extra;
+    const tripWhere = (extra: Prisma.TripWhereInput = {}): Prisma.TripWhereInput => extra;
+    const checkWhere = (extra: Prisma.VerificationCheckWhereInput): Prisma.VerificationCheckWhereInput => extra;
+    // reports: all of them (read once, light, and counted here)
+    const reportsHere = await this.prisma.report.findMany({ where: { category: { not: 'host_no_show' } }, select: { id: true, status: true, category: true, createdAt: true, targetType: true, targetId: true } });
     const inRange = (r: { createdAt: Date }, a: Date, b: Date) => +r.createdAt >= +a && +r.createdAt < +b;
     const reportRows = reportsHere.filter((r) => inRange(r, fromAt, untilAt));
     const count = (st: string) => reportsHere.filter((r) => r.status === st).length;
@@ -174,7 +155,7 @@ export class AdminController {
       this.prisma.trip.count({ where: tripWhere({ status: { in: ['published', 'full', 'planning', 'confirmed'] }, dateEnd: { gt: now } }) }),
     ]);
     const openReports = count('open') + count('in_review');
-    const users = scope ? await this.prisma.user.count({ where: members }) : await this.prisma.user.count();
+    const users = await this.prisma.user.count();
     const created = { createdAt: true } as const;
     const [memberRows, activityRows, tripRows, prevMembers, prevActivities, prevTrips, memberCount, verifiedMembers, decided] = await Promise.all([
       this.prisma.user.findMany({ where: { AND: [members, { createdAt: { gte: fromAt, lt: untilAt } }] }, select: created }),
@@ -225,7 +206,7 @@ export class AdminController {
    * error rate, the slowest recent database statements (never with the values in them) and how long a trivial query takes.
    * Counted by this server process since it started (see deployment/FOR_DEPLOYMENT.md for more than one server).
    */
-  @Staff(...ALL)
+  @Staff('admin')
   @Get('health')
   async health(@Query('minutes') minutes?: string) {
     const n = Math.min(120, Math.max(5, Number(minutes) || 60));
@@ -237,20 +218,16 @@ export class AdminController {
 
   // ------------------------------------------------------------ users
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('users')
   @Get('users')
-  async users(@CurrentUser() actor: User, @Query('q') q?: string, @Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string, @Query('page') pageRaw?: string, @Query('pageSize') pageSizeRaw?: string) {
+  async users(@CurrentUser() actor: User, @Query('q') q?: string, @Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') pageRaw?: string, @Query('pageSize') pageSizeRaw?: string) {
     // timed suspensions that have run out end now, so the list never shows someone as suspended who is not
     await this.prisma.user.updateMany({ where: { state: 'suspended', suspendedUntil: { lte: new Date() } }, data: { state: 'active', suspendedUntil: null } });
-    // staff see the members whose home city is in their area or who have been active there lately, and never other staff
-    const scope = await this.regions.scopeOf(actor, place);
-    // kept apart with AND: the area and the search both use OR, and one must never replace the other
+    // kept apart with AND: the filters and the search must never replace one another
     // only people who signed up in the app: no staff or admin accounts (those are on the Staff page) and no demo guests
     const where: Prisma.UserWhereInput = {
       AND: [
         { role: 'user' },
-        scope ? this.regions.peopleWhere(scope) : {},
         // the same people the dashboard counts: never erased accounts; "unverified" is anyone whose identity is not verified yet
         state === 'unverified' ? { state: { not: 'deleted' }, eligibility: { not: 'verified' } } : state ? { state } : { state: { not: 'deleted' } },
         q ? { OR: [{ email: { contains: q, mode: 'insensitive' } }, { profile: { displayName: { contains: q, mode: 'insensitive' } } }, { id: q }] } : {},
@@ -284,7 +261,6 @@ export class AdminController {
         id: u.id,
         email: u.email,
         role: u.role,
-        adminRegionKey: u.adminRegionKey,
         state: u.state,
         suspendedUntil: u.suspendedUntil,
         eligibility: u.eligibility,
@@ -303,11 +279,9 @@ export class AdminController {
   }
 
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('users')
   @Get('users/:id')
   async user(@CurrentUser() actor: User, @Param('id') id: string) {
-    await this.regions.assertPersonLocal(actor, id);
     const u = await this.prisma.user.findUnique({
       where: { id },
       include: { profile: true, verifications: { orderBy: { createdAt: 'desc' }, take: 5 } },
@@ -353,12 +327,10 @@ export class AdminController {
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('users')
   @Post('users/:id/suspend')
   async suspend(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason, days } = parse(suspendSchema, body);
-    await this.assertUserInScope(actor, id);
     const target = await this.prisma.user.findUnique({ where: { id } });
     if (!target) throw E.notFound('User');
     if (target.id === actor.id) throw E.badRequest('INVALID_TARGET', 'You cannot suspend yourself');
@@ -374,12 +346,10 @@ export class AdminController {
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('users')
   @Post('users/:id/restore')
   async restore(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
-    await this.assertUserInScope(actor, id);
     if (!(await this.prisma.user.findUnique({ where: { id } }))) throw E.notFound('User');
     await this.prisma.user.update({ where: { id }, data: { state: 'active', suspendedUntil: null } });
     await liftBans(this.prisma, id);
@@ -409,11 +379,11 @@ export class AdminController {
       take: 200,
       include: { profile: { select: { displayName: true, photoUrl: true } } },
     });
-    return { items: rows.map((u) => ({ id: u.id, email: u.email, displayName: u.profile?.displayName ?? null, photoUrl: u.profile?.photoUrl ?? null, role: u.role, regionKey: u.adminRegionKey, permissions: u.role === 'admin' ? [...STAFF_PERMISSIONS] : u.staffPermissions, state: u.state, mfaEnabled: !!u.mfaEnabledAt, mustChangePassword: u.mustChangePassword, createdAt: u.createdAt })) };
+    return { items: rows.map((u) => ({ id: u.id, email: u.email, displayName: u.profile?.displayName ?? null, photoUrl: u.profile?.photoUrl ?? null, role: u.role, permissions: u.role === 'admin' ? [...STAFF_PERMISSIONS] : u.staffPermissions, state: u.state, mfaEnabled: !!u.mfaEnabledAt, mustChangePassword: u.mustChangePassword, createdAt: u.createdAt })) };
   }
 
   /**
-   * An administrator makes a staff account for one area, with the parts of the console it may use (all of them unless chosen). The server picks a temporary password and shows it once;
+   * An administrator makes a staff account for the whole service, with the parts of the console it may use (all of them unless chosen). The server picks a temporary password and shows it once;
    * on their first sign-in the console asks them to choose their own password, then to connect an authenticator app, before
    * anything else opens (`mustChangePassword`, cleared by the first password change).
    */
@@ -422,15 +392,12 @@ export class AdminController {
   async createStaff(@CurrentUser() actor: User, @Body() body: unknown) {
     const dto = parse(staffCreateSchema, body);
     if (await this.prisma.user.findUnique({ where: { email: dto.email } })) throw E.conflict('EMAIL_TAKEN', 'An account with that email already exists. Change its role from the Users page instead.');
-    const area = dto.regionKey ?? null;
-    if (area && !(await this.regions.exists(area))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
     const permissions = dto.permissions ?? [...STAFF_PERMISSIONS];
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
         passwordHash: await hashPassword(dto.password),
         role: 'staff',
-        adminRegionKey: area,
         staffPermissions: permissions,
         mustChangePassword: false,
         adultConfirmed: true,
@@ -438,11 +405,11 @@ export class AdminController {
         profile: { create: { displayName: dto.displayName } },
       },
     });
-    await this.audit.log(actor.id, 'staff.create', 'user', user.id, { role: 'staff', regionKey: area, permissions });
-    return { id: user.id, email: user.email, role: user.role, regionKey: area, permissions };
+    await this.audit.log(actor.id, 'staff.create', 'user', user.id, { role: 'staff', permissions });
+    return { id: user.id, email: user.email, role: user.role, permissions };
   }
 
-  /** An admin changes one staff member's area or permissions. Recorded in the audit log with what it was before. */
+  /** An admin changes what one staff member may use. Recorded in the audit log with what it was before. */
   @Staff('admin')
   @Patch('staff/:id')
   async updateStaff(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
@@ -451,9 +418,8 @@ export class AdminController {
     if (!row || row.state === 'deleted') throw E.notFound('User');
     // an administrator may change their own sign-in email here (nothing else: they use everything, and the password has its own page)
     const self = row.role === 'admin' && row.id === actor.id;
-    if (row.role !== 'staff' && !self) throw E.badRequest('INVALID_TARGET', 'Only staff accounts have an area and permissions');
-    if (dto.regionKey && !(await this.regions.exists(dto.regionKey))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
-    const data = self ? {} : { ...(dto.regionKey !== undefined && { adminRegionKey: dto.regionKey }), ...(dto.permissions && { staffPermissions: dto.permissions }) };
+    if (row.role !== 'staff' && !self) throw E.badRequest('INVALID_TARGET', 'Only staff accounts have permissions');
+    const data = self ? {} : { ...(dto.permissions && { staffPermissions: dto.permissions }) };
     // sign-in details: the administrator sets the email and the password of a staff account
     const credentials: Prisma.UserUpdateInput = {};
     if (dto.email && dto.email !== row.email) {
@@ -470,9 +436,9 @@ export class AdminController {
     await this.prisma.user.update({ where: { id }, data: { ...data, ...credentials } });
     // a new password or email ends the person's current sign-ins
     if (changed && !self) await this.prisma.session.deleteMany({ where: { userId: id } }); // your own sign-in stays
-    await this.audit.log(actor.id, 'staff.update', 'user', id, { before: { regionKey: row.adminRegionKey, permissions: row.staffPermissions }, after: data });
+    await this.audit.log(actor.id, 'staff.update', 'user', id, { before: { permissions: row.staffPermissions }, after: data });
     if (changed) await this.audit.log(actor.id, 'staff.credentials', 'user', id, { ...(credentials.email && { emailChanged: true }), ...(credentials.passwordHash && { passwordChanged: true }) });
-    return { id, regionKey: dto.regionKey ?? row.adminRegionKey, permissions: dto.permissions ?? row.staffPermissions };
+    return { id, permissions: dto.permissions ?? row.staffPermissions };
   }
 
   /** An administrator removes a staff account: it can no longer sign in, and its name stays on the audit log. Only staff accounts, never your own. */
@@ -488,7 +454,7 @@ export class AdminController {
       this.prisma.session.deleteMany({ where: { userId: id } }),
       this.prisma.user.update({
         where: { id },
-        data: { email: `deleted-${id}@deleted.invalid`, passwordHash: '!', state: 'deleted', deletedAt: now, passwordChangedAt: now, mfaSecret: null, mfaEnabledAt: null, staffPermissions: [], adminRegionKey: null, mustChangePassword: false },
+        data: { email: `deleted-${id}@deleted.invalid`, passwordHash: '!', state: 'deleted', deletedAt: now, passwordChangedAt: now, mfaSecret: null, mfaEnabledAt: null, staffPermissions: [], mustChangePassword: false },
       }),
     ]);
     await this.audit.log(actor.id, 'staff.delete', 'user', id, { email: row.email });
@@ -498,27 +464,21 @@ export class AdminController {
   @Staff('admin')
   @Post('users/:id/role')
   async setRole(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
-    const { role, regionKey, permissions } = parse(roleSchema, body);
+    const { role, permissions } = parse(roleSchema, body);
     if (id === actor.id) throw E.badRequest('INVALID_TARGET', 'You cannot change your own role');
     if (!(await this.prisma.user.findUnique({ where: { id } }))) throw E.notFound('User');
-    // Staff always look after one city, region or country. Admins and members have no area.
-    const area = role === 'staff' ? (regionKey ?? null) : null;
-    if (role === 'staff' && !area) throw E.badRequest('AREA_REQUIRED', 'Choose the area this staff member looks after');
-    if (area && !(await this.regions.exists(area))) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
     const perms = role === 'staff' ? (permissions ?? [...STAFF_PERMISSIONS]) : [];
-    await this.prisma.user.update({ where: { id }, data: { role, adminRegionKey: area, staffPermissions: perms } });
-    await this.audit.log(actor.id, 'user.role_change', 'user', id, { role, regionKey: area, permissions: perms });
-    return { role, regionKey: area, permissions: perms };
+    await this.prisma.user.update({ where: { id }, data: { role, staffPermissions: perms } });
+    await this.audit.log(actor.id, 'user.role_change', 'user', id, { role, permissions: perms });
+    return { role, permissions: perms };
   }
 
   // ------------------------------------------------------------ verification
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('verification')
   @Get('verifications')
-  async verifications(@CurrentUser() actor: User, @Query('status') status = 'pending', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string, @Query('page') pageRaw?: string, @Query('pageSize') pageSizeRaw?: string, @Query('q') q?: string) {
+  async verifications(@CurrentUser() actor: User, @Query('status') status = 'pending', @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') pageRaw?: string, @Query('pageSize') pageSizeRaw?: string, @Query('q') q?: string) {
     const size = pageLimit(limit, 100, 200);
-    const scope = await this.regions.scopeOf(actor, place);
     // a search: the person's name, email or id
     const needle = q?.trim().slice(0, 80);
     const person: Prisma.UserWhereInput | null = needle ? { OR: [{ email: { contains: needle, mode: 'insensitive' } }, { profile: { displayName: { contains: needle, mode: 'insensitive' } } }, { id: needle }] } : null;
@@ -528,7 +488,7 @@ export class AdminController {
       if (status === 'unverified' || status === 'verified' || status === 'rejected') {
         // the people themselves, by where their identity stands now: verified, rejected, or not verified yet (never checked, waiting or expired).
         // Counted from the accounts, not from the check records, so everyone who is on the service shows up.
-        const where: Prisma.UserWhereInput = { AND: [{ role: 'user' }, { state: { not: 'deleted' } }, { eligibility: status === 'unverified' ? { notIn: ['verified', 'rejected'] } : status }, scope ? this.regions.peopleWhere(scope) : {}, ...(person ? [person] : [])] };
+        const where: Prisma.UserWhereInput = { AND: [{ role: 'user' }, { state: { not: 'deleted' } }, { eligibility: status === 'unverified' ? { notIn: ['verified', 'rejected'] } : status }, ...(person ? [person] : [])] };
         const total = await this.prisma.user.count({ where });
         const pages = Math.max(1, Math.ceil(total / pageSize));
         const page = Math.min(pages, Math.max(1, Math.floor(Number(pageRaw)) || 1));
@@ -539,7 +499,7 @@ export class AdminController {
         for (const c of checks) if (!latest.has(c.userId)) latest.set(c.userId, c);
         return { page, pages, total, pageSize, nextCursor: null, items: users.map((u) => ({ id: u.id, provider: null, method: latest.get(u.id)?.method ?? null, providerRef: latest.get(u.id)?.providerRef ?? null, eligibility: u.eligibility, createdAt: u.createdAt, user: { id: u.id, email: u.email, displayName: u.profile?.displayName, homeCity: u.profile?.homeCity } })) };
       }
-      const where: Prisma.VerificationCheckWhereInput = { AND: [{ eligibility: status }, scope ? { user: { profile: { homeCityKey: { in: [...scope.cityKeys] } } } } : {}, ...(person ? [{ user: person }] : [])] };
+      const where: Prisma.VerificationCheckWhereInput = { AND: [{ eligibility: status }, ...(person ? [{ user: person }] : [])] };
       const total = await this.prisma.verificationCheck.count({ where });
       const pages = Math.max(1, Math.ceil(total / pageSize));
       const page = Math.min(pages, Math.max(1, Math.floor(Number(pageRaw)) || 1));
@@ -547,7 +507,7 @@ export class AdminController {
       return { page, pages, total, pageSize, nextCursor: null, items: rows.map((c) => ({ id: c.id, provider: c.provider, method: c.method, providerRef: c.providerRef, eligibility: c.eligibility, createdAt: c.createdAt, user: { id: c.user.id, email: c.user.email, displayName: c.user.profile?.displayName, homeCity: c.user.profile?.homeCity } })) };
     }
     const all = await this.prisma.verificationCheck.findMany({
-      where: { AND: [{ eligibility: status }, scope ? { user: { profile: { homeCityKey: { in: [...scope.cityKeys] } } } } : {}, afterKeyset(decodeKeyset(cursor))] },
+      where: { AND: [{ eligibility: status }, afterKeyset(decodeKeyset(cursor))] },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: size + 1,
       include: { user: { select: { id: true, email: true, profile: { select: { displayName: true, homeCity: true } } } } },
@@ -569,19 +529,16 @@ export class AdminController {
 
   /** Everyone (or only the verified, or only the not-verified) as plain rows for a spreadsheet. Recorded in the audit log. */
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('verification')
   @Get('verifications/export')
-  async verificationsExport(@CurrentUser() actor: User, @Query('status') status = 'all', @Headers('x-admin-place') place?: string) {
-    const scope = await this.regions.scopeOf(actor, place);
-    const where: Prisma.UserWhereInput = { AND: [{ role: 'user' }, { state: { not: 'deleted' } }, status === 'verified' ? { eligibility: 'verified' } : status === 'unverified' ? { eligibility: { not: 'verified' } } : {}, scope ? this.regions.peopleWhere(scope) : {}] };
+  async verificationsExport(@CurrentUser() actor: User, @Query('status') status = 'all') {
+    const where: Prisma.UserWhereInput = { AND: [{ role: 'user' }, { state: { not: 'deleted' } }, status === 'verified' ? { eligibility: 'verified' } : status === 'unverified' ? { eligibility: { not: 'verified' } } : {}] };
     const users = await this.prisma.user.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50000, select: { email: true, eligibility: true, createdAt: true, verifiedUntil: true, state: true, profile: { select: { displayName: true, homeCity: true } } } });
     await this.audit.log(actor.id, 'verification.export', 'user', 'all', { status, count: users.length });
     return { items: users.map((u) => ({ name: u.profile?.displayName ?? '', email: u.email, city: u.profile?.homeCity ?? '', verified: u.eligibility === 'verified', identityCheck: u.eligibility, accountState: u.state, joined: u.createdAt, verifiedUntil: u.verifiedUntil })) };
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('verification')
   @Post('verifications/:id/decision')
   async decideVerification(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
@@ -589,7 +546,6 @@ export class AdminController {
     // staff decide only for people whose home city is in their area
     const check = await this.prisma.verificationCheck.findUnique({ where: { id }, select: { userId: true } });
     if (!check) throw E.notFound('Verification');
-    await this.regions.assertPersonHome(actor, check.userId);
     // A staff approval is the human confirmation that the person is an adult with a genuine ID.
     return this.verification.decide(id, decision, actor.id, { adult: decision === 'verified' ? true : undefined, reason });
   }
@@ -626,40 +582,35 @@ export class AdminController {
   // ------------------------------------------------------------ moderation: reports
   /** How many reports wait (and how many are urgent or overdue), with the ids of the open ones: what the sidebar badge and the overview read. */
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('reports')
   @Get('reports/waiting')
-  async waitingReports(@CurrentUser() actor: User, @Headers('x-admin-place') place?: string) {
-    return this.moderation.waitingSummary(await this.regions.scopeOf(actor, place));
+  async waitingReports() {
+    return this.moderation.waitingSummary();
   }
 
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('reports')
   @Get('reports')
-  async reports(@CurrentUser() actor: User, @Query('status') status?: string, @Query('category') category?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string, @Query('q') q?: string, @Query('who') who?: string, @Query('page') page?: string) {
-    return this.moderation.queue(status, category, new Date(), await this.regions.scopeOf(actor, place), { limit, cursor, q, who, page });
+  async reports(@CurrentUser() actor: User, @Query('status') status?: string, @Query('category') category?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('q') q?: string, @Query('who') who?: string, @Query('page') page?: string) {
+    return this.moderation.queue(status, category, new Date(), { limit, cursor, q, who, page });
   }
 
   /** One report with everything about it: what was reported, what the plan or message was, and both people's history with reports. */
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('reports')
   @Get('reports/:id')
   async reportDetail(@CurrentUser() actor: User, @Param('id') id: string) {
-    return this.moderation.detail(id, await this.regions.scopeOf(actor));
+    return this.moderation.detail(id);
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('reports')
   @Post('reports/:id/assign')
   async assign(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { userId } = parse(assignSchema, body ?? {});
     const r = await this.prisma.report.findUnique({ where: { id } });
     if (!r) throw E.notFound('Report');
-    await this.moderation.assertReportInScope(await this.regions.scopeOf(actor), r);
-    // staff take a report themselves; an admin may give it to any staff member who looks after its area and works on reports
+    // staff take a report themselves; an admin may give it to any staff member who works on reports
     let to = actor;
     if (userId && userId !== actor.id) {
       if (actor.role !== 'admin') throw E.forbidden('ADMIN_ONLY', 'Only an admin can give a report to someone else');
@@ -667,11 +618,6 @@ export class AdminController {
       if (!target || target.state !== 'active' || !['staff', 'admin'].includes(target.role)) throw E.badRequest('INVALID_TARGET', 'Choose an active staff member');
       if (target.role === 'staff') {
         if (!target.staffPermissions.includes('reports')) throw E.badRequest('INVALID_TARGET', 'That staff member does not work on reports');
-        try {
-          await this.moderation.assertReportInScope(await this.regions.scopeOf(target), r);
-        } catch {
-          throw E.badRequest('INVALID_TARGET', 'That staff member does not look after the area of this report');
-        }
       }
       to = target;
     }
@@ -682,14 +628,12 @@ export class AdminController {
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('reports')
   @Post('reports/:id/resolve')
   async resolve(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const dto = parse(resolveSchema, body);
     const report = await this.prisma.report.findUnique({ where: { id } });
     if (!report) throw E.notFound('Report');
-    await this.moderation.assertReportInScope(await this.regions.scopeOf(actor), report);
     const data = { status: dto.status, resolution: dto.resolution, assignedTo: actor.id, resolvedAt: dto.status === 'in_review' ? null : new Date() };
     if (dto.status === 'in_review') {
       await this.prisma.report.update({ where: { id }, data });
@@ -717,15 +661,16 @@ export class AdminController {
 
   // ------------------------------------------------------------ moderation: content
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('content')
   @Get('activities')
-  async activitiesList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string, @Query('from') fromRaw?: string, @Query('to') toRaw?: string, @Query('by') by?: string, @Query('page') pageRaw?: string) {
+  async activitiesList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('from') fromRaw?: string, @Query('to') toRaw?: string, @Query('by') by?: string, @Query('page') pageRaw?: string, @Query('q') qRaw?: string) {
     const size = pageRaw ? pageLimit(limit, 20, 50) : pageLimit(limit, 100, 200);
-    const scope = await this.regions.scopeOf(actor, place);
+    // a search over the whole list (not just the page on screen): title, venue, city or the host's name
+    const needle = qRaw?.trim().slice(0, 80);
+    const search = needle ? { OR: [{ title: { contains: needle, mode: 'insensitive' as const } }, { venueName: { contains: needle, mode: 'insensitive' as const } }, { city: { contains: needle, mode: 'insensitive' as const } }, { host: { profile: { displayName: { contains: needle, mode: 'insensitive' as const } } } }] } : {};
     // with a window: by when they happen (from..to earliest first; only "to": what already happened, latest first)
     const win = timeWindow(fromRaw, toRaw);
-    const baseWhere = { AND: [statusFilter(status, 'endsAt'), scope ? { cityKey: { in: [...scope.cityKeys] } } : {}, win ? (by === 'created' ? { createdAt: win.range } : { startsAt: win.range }) : {}] };
+    const baseWhere = { AND: [statusFilter(status, 'endsAt'), search, win ? (by === 'created' ? { createdAt: win.range } : { startsAt: win.range }) : {}] };
     // numbered pages ("Page 1 / 10")
     let numbered: { page: number; pages: number; total: number; pageSize: number } | null = null;
     if (pageRaw) {
@@ -746,7 +691,7 @@ export class AdminController {
     return {
       nextCursor: numbered ? null : nextCursor,
       ...(numbered ?? {}),
-      limitMonths: await this.regions.limitMonths(scope, 'here'),
+      limitMonths: await this.regions.limitMonths('here'),
       items: rows.map((a) => ({
         id: a.id,
         createdAt: a.createdAt,
@@ -767,25 +712,24 @@ export class AdminController {
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('content')
   @Post('activities/:id/remove')
   async removeActivity(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
-    await this.assertActivityInScope(actor, id);
     await this.audit.log(actor.id, 'activity.remove_reason', 'activity', id, { reason });
     return this.activities.cancel(actor, id, true);
   }
 
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('content')
   @Get('trips')
-  async tripsList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Headers('x-admin-place') place?: string, @Query('from') fromRaw?: string, @Query('to') toRaw?: string, @Query('by') by?: string, @Query('page') pageRaw?: string) {
+  async tripsList(@CurrentUser() actor: User, @Query('status') status?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('from') fromRaw?: string, @Query('to') toRaw?: string, @Query('by') by?: string, @Query('page') pageRaw?: string, @Query('q') qRaw?: string) {
     const size = pageRaw ? pageLimit(limit, 20, 50) : pageLimit(limit, 100, 200);
-    const scope = await this.regions.scopeOf(actor, place);
+    // a search over the whole list (not just the page on screen): title, destination, departure city or the organizer's name
+    const needle = qRaw?.trim().slice(0, 80);
+    const search = needle ? { OR: [{ title: { contains: needle, mode: 'insensitive' as const } }, { destination: { contains: needle, mode: 'insensitive' as const } }, { originCity: { contains: needle, mode: 'insensitive' as const } }, { host: { profile: { displayName: { contains: needle, mode: 'insensitive' as const } } } }] } : {};
     const win = timeWindow(fromRaw, toRaw);
-    const baseWhere = { AND: [statusFilter(status, 'dateEnd'), scope ? { originKey: { in: [...scope.cityKeys] } } : {}, win ? (by === 'created' ? { createdAt: win.range } : { dateStart: { ...(win.range.lt && { lt: win.range.lt }) }, dateEnd: { ...(win.range.gte && { gte: win.range.gte }) } }) : {}] };
+    const baseWhere = { AND: [statusFilter(status, 'dateEnd'), search, win ? (by === 'created' ? { createdAt: win.range } : { dateStart: win.range }) : {}] }; // a trip sits on the day it starts, like an activity (not on the day it was added, nor in every month it spans)
     let numbered: { page: number; pages: number; total: number; pageSize: number } | null = null;
     if (pageRaw) {
       const total = await this.prisma.trip.count({ where: baseWhere });
@@ -805,7 +749,7 @@ export class AdminController {
     return {
       nextCursor: numbered ? null : nextCursor,
       ...(numbered ?? {}),
-      limitMonths: await this.regions.limitMonths(scope, 'there'),
+      limitMonths: await this.regions.limitMonths('there'),
       items: rows.map((t) => ({
         id: t.id,
         createdAt: t.createdAt,
@@ -829,24 +773,19 @@ export class AdminController {
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('content')
   @Post('trips/:id/remove')
   async removeTrip(@CurrentUser() actor: User, @Param('id') id: string, @Body() body: unknown) {
     const { reason } = parse(reasonSchema, body);
-    const trip = await this.prisma.trip.findUnique({ where: { id }, select: { originKey: true } });
-    if (!trip) throw E.notFound('Trip');
-    await this.regions.assertCity(actor, trip.originKey);
+    if (!(await this.prisma.trip.findUnique({ where: { id }, select: { id: true } }))) throw E.notFound('Trip');
     await this.audit.log(actor.id, 'trip.remove_reason', 'trip', id, { reason });
     return this.trips.cancel(actor, id, true);
   }
 
   @Staff(...MOD)
-  @RegionalOk()
   @Perm('content')
   @Post('activities/:id/members/:userId/remove')
   async removeMember(@CurrentUser() actor: User, @Param('id') id: string, @Param('userId') userId: string) {
-    await this.assertActivityInScope(actor, id);
     return this.activities.removeMember(actor, id, userId, true);
   }
 

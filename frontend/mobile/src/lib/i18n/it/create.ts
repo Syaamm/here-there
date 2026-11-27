@@ -341,6 +341,7 @@ export const create: Record<string, string> = {
   'Budget and preferences': 'Budget e preferenze',
   'Review and publish': 'Rivedi e pubblica',
   'Where next? For example, Japan': 'Dove vai? Per esempio, Giappone',
+  'Where next?': 'Dove vai?',
   // sample data label
   'SAMPLE': 'ESEMPIO',
   'Sample content, not a real person': 'Contenuto di esempio, non una persona reale',

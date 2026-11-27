@@ -8,11 +8,11 @@ export const AGE_GROUPS: [value: string, label: string][] = [
 export const ageGroupLabel = (v?: string | null) => AGE_GROUPS.find(([k]) => k === v)?.[1] ?? 'All ages';
 
 export const CATS: Record<string, { label: string; emoji: string }> = {
-  coffee: { label: 'Coffee', emoji: '☕' },
-  drinks: { label: 'Drinks', emoji: '🍸' },
-  food: { label: 'Food', emoji: '🍽️' },
-  sports: { label: 'Sports', emoji: '🏃' },
-  culture: { label: 'Culture', emoji: '🎨' },
+  coffee: { label: 'Coffee', emoji: '' },
+  drinks: { label: 'Drinks', emoji: '' },
+  food: { label: 'Food', emoji: '' },
+  sports: { label: 'Sports', emoji: '' },
+  culture: { label: 'Culture', emoji: '' },
 };
 
 /** Soft, green-led tints for activity cards (stand-ins until real venue photos exist). Never the only cue: text labels carry the meaning. */

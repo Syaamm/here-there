@@ -120,7 +120,6 @@ export function say(e: E, names: Record<string, string>): Said {
     case 'phone.removed': return byWho(['removed their phone number']);
     case 'phone.duplicate_cleared': return s('The phone number of ', obj, ' was cleared (another account confirmed it)');
     case 'staff.create':
-      add('Area', name(m?.regionKey, ''));
       add('Can use', list(m?.permissions));
       return byWho(['added ', obj, ' as staff']);
     case 'staff.delete': return byWho(['deleted the staff account of ', obj]);
@@ -128,10 +127,6 @@ export function say(e: E, names: Record<string, string>): Said {
       const before = (m?.before ?? {}) as Record<string, unknown>;
       const after = (m?.after ?? {}) as Record<string, unknown>;
       const changed: string[] = [];
-      if (after.adminRegionKey !== undefined && after.adminRegionKey !== before.regionKey) {
-        changed.push('area');
-        add('Area', `${name(before.regionKey, 'none')} → ${name(after.adminRegionKey, 'none')}`);
-      }
       if (Array.isArray(after.staffPermissions)) {
         const was = Array.isArray(before.permissions) ? (before.permissions as string[]) : [];
         const now = after.staffPermissions as string[];
@@ -144,7 +139,6 @@ export function say(e: E, names: Record<string, string>): Said {
       return byWho([`changed the ${changed.join(' and ') || 'settings'} of `, obj]);
     }
     case 'user.role_change':
-      if (m?.regionKey) add('Area', name(m.regionKey, ''));
       if (Array.isArray(m?.permissions) && m.role === 'staff') add('Can use', list(m.permissions));
       return byWho(['made ', obj, ` ${m?.role === 'user' ? 'a member' : m?.role === 'admin' ? 'an admin' : roleLabel(String(m?.role ?? '')).toLowerCase()}`]);
     // moderation: people
@@ -334,7 +328,7 @@ export function AuditPage({ openReport }: { openReport?: (id: string) => void })
         </button>
       }
     >
-      <FilterBar search={<Search label="Search the audit log" placeholder="Search a person, plan, action or id" value={q} onChange={setQ} />}>
+      <FilterBar search={<Search label="Search the audit log" placeholder="Search person, plan, action or id" value={q} onChange={setQ} />}>
         <Select aria-label="Who did it" value={who} onChange={setWho}>
           {WHO.map((w) => (
             <option key={w.id} value={w.id}>

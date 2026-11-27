@@ -54,18 +54,18 @@ describe('Content by when it happens', () => {
     assert.equal((await h.get(`/v1/admin/overview?from=2020-01-01&to=${day(0)}`, h.adminToken)).body.period.days.length, 366);
   });
 
-  it('tells each viewer how far ahead plans can go where they look after', async () => {
+  it('tells every viewer how far ahead plans can go (the longest limit of any place)', async () => {
     // the defaults: activities a month ahead, trips six
     assert.equal((await h.get('/v1/admin/activities', h.adminToken)).body.limitMonths, 1);
     assert.equal((await h.get('/v1/admin/trips', h.adminToken)).body.limitMonths, 6);
-    // Milan allows activities three months ahead: its staff and the admin (the longest anywhere) see three
+    // Milan allows activities three months ahead: staff and the admin alike see the longest anywhere, three
     const milanStaff = await h.staff('MilanContent', { permissions: ['content'] });
     assert.equal((await h.call('PATCH', `/v1/admin/regions/${milanStaff.regionKey}`, h.adminToken, { hereMonths: 3 })).status, 200);
     assert.equal((await h.get('/v1/admin/activities', milanStaff.token)).body.limitMonths, 3);
     assert.equal((await h.get('/v1/admin/activities', h.adminToken)).body.limitMonths, 3);
-    // a Rome staff member still has the default
+    // staff have no area: a staff member set up for Rome sees the same
     const romeStaff = await h.staff('RomeContent', { city: 'Rome', permissions: ['content'] });
-    assert.equal((await h.get('/v1/admin/activities', romeStaff.token)).body.limitMonths, 1);
+    assert.equal((await h.get('/v1/admin/activities', romeStaff.token)).body.limitMonths, 3);
   });
 
   it('lists the audit log from a chosen time', async () => {

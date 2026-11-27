@@ -12,7 +12,7 @@ import { ReportSheet } from '@/components/ReportSheet';
 import { InfoRow, ManageCard, type ManageRow } from '@/components/ActivityParts';
 import { Text } from '@/components/ScaledText';
 import { TripGoingGrid, TripHostCard } from '@/components/TripParts';
-import { Banner, BottomBar, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
+import { Avatar, Banner, BottomBar, Btn, Chip, Empty, ErrorBanner, Row, Screen, Txt, useGo } from '@/components/ui';
 import { del, get, post, type Trip } from '@/lib/api';
 import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
@@ -63,13 +63,13 @@ export default function TripDetail() {
 
   if (loading && !trip)
     return (
-      <Screen hero={<Hero plain color={HERO} emoji="✈️" />}>
+      <Screen hero={<Hero plain color={HERO} icon="airplane-outline" />}>
         <SkeletonDetail />
       </Screen>
     );
   if (error || !trip)
     return (
-      <Screen hero={<Hero plain color={HERO} emoji="✈️" />}>
+      <Screen hero={<Hero plain color={HERO} icon="airplane-outline" />}>
         <Empty title={t('Trip not found')}>{t('It may have been cancelled or is no longer available.')}</Empty>
       </Screen>
     );
@@ -113,6 +113,7 @@ export default function TripDetail() {
   const style = tripStyle(trip);
   const photo = style ? TRIP_PHOTOS[style] : undefined; // the picture of the trip's travel style (trips have no photos of their own)
   const going = trip.participants ?? [];
+  const over = Date.now() >= new Date(trip.dateEnd).getTime() + 24 * 3600 * 1000; // the last day counts in full (as on the server)
 
   // The one main action sits in a bar fixed to the bottom; the lesser ones stay in the page.
   type Primary = { title: string; onPress?: () => void; variant?: 'secondary'; disabled?: boolean; loading?: boolean; caption?: string; icon?: React.ComponentProps<typeof Ionicons>['name'] };
@@ -155,7 +156,7 @@ export default function TripDetail() {
         onRefresh={onRefresh}
         refreshing={refreshing}
         bottomRoom={primary ? barH : undefined}
-        fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={HERO} emoji="✈️" image={photo} /> }}
+        fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={HERO} icon="airplane-outline" image={photo} /> }}
       >
         <Stack.Screen options={{ headerShown: false }} />
 
@@ -197,6 +198,72 @@ export default function TripDetail() {
           </Row>
         ) : null}
 
+        {over && trip.status !== 'cancelled' ? (
+          // finished: the same as an activity. Each traveller says once whether they went, the group sees who did.
+          <View style={{ gap: sp(10), marginTop: sp(14) }}>
+            {trip.isMember && !trip.isHost ? (
+              <View style={{ backgroundColor: c.accentSoft, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{trip.myAttendance === 'attended' ? t('You said you were there') : trip.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
+                {trip.myAttendance === 'attended' || trip.myAttendance === 'no_show' ? (
+                  <Txt variant="small">{t('Thanks. Your answer is saved and cannot be changed. The group sees whether you went.')}</Txt>
+                ) : (
+                  <>
+                    <Txt variant="small">{t('One tap, and it cannot be changed after. The group sees whether you went. We never track your location.')}</Txt>
+                    <Row style={{ gap: sp(8) }}>
+                      <Btn title={t('Yes, I went')} small style={{ flex: 1 }} disabled={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/attendance`, { attended: true }))} />
+                      <Btn title={t("No, I didn't")} small variant="secondary" style={{ flex: 1 }} disabled={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/attendance`, { attended: false }))} />
+                    </Row>
+                  </>
+                )}
+              </View>
+            ) : null}
+            {/* the organizer marked you as not having come: what it is now, and the way to dispute it */}
+            {trip.myNote && trip.myNote.state !== 'overturned' ? (
+              <View style={{ backgroundColor: c.warnBg, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{trip.myNote.state === 'marked' ? t("The host says you didn't come") : trip.myNote.state === 'disputed' ? t("You asked for a review of the host's note") : t("A moderator confirmed the host's note")}</Txt>
+                {trip.myNote.state === 'marked' ? (
+                  <>
+                    <Txt variant="small">{t('If you were there, you can dispute it.')}</Txt>
+                    <Btn title={t('Dispute')} small variant="secondary" onPress={() => go(`/reliability?markId=${trip.myNote!.id}`)} />
+                  </>
+                ) : null}
+              </View>
+            ) : null}
+            {/* who went, in three groups: the organizer and everyone who said yes, those who said no, and those who have not answered yet */}
+            {(() => {
+              const isOrg = (p: { role: string }) => p.role === 'organizer' || p.role === 'host';
+              const yes = going.filter((p) => p.attendance === 'attended' || (isOrg(p) && p.attendance !== 'no_show'));
+              const no = going.filter((p) => p.attendance === 'no_show');
+              const open = going.filter((p) => !isOrg(p) && (!p.attendance || p.attendance === 'unknown'));
+              return (
+                [
+                  ['attended', t('Attended ({n})', { n: yes.length }), yes, 'checkmark-circle', c.green],
+                  ['no_show', t('Did not attend ({n})', { n: no.length }), no, 'close-circle', c.danger],
+                  ['unknown', t('Not answered yet ({n})', { n: open.length }), open, 'help-circle-outline', c.muted],
+                ] as const
+              ).map(([k, title, people, icon, tint]) =>
+                people.length === 0 ? null : (
+                  <View key={k} style={{ gap: sp(4), marginTop: sp(6) }}>
+                    <Row style={{ gap: sp(8), alignItems: 'center' }}>
+                      <Ionicons name={icon} size={sc(18)} color={tint} />
+                      <Txt variant="h3" accessibilityRole="header" style={{ fontSize: 16 }}>{title}</Txt>
+                    </Row>
+                    {people.map((p) => (
+                      <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={isOrg(p) ? t('{name}, organizer. Open profile', { name: p.displayName }) : t('{name}. Open profile', { name: p.displayName })} onPress={() => go(`/user/${p.id}`)}>
+                        <Row style={{ gap: sp(12), paddingVertical: sp(4), opacity: k === 'unknown' ? 0.65 : 1 }}>
+                          <Avatar name={p.displayName} uri={p.photoUrl} size={40} />
+                          <Txt variant="h3" style={{ flex: 1, fontSize: 16 }}>{p.displayName}</Txt>
+                          {isOrg(p) ? <Chip label={t('Organizer')} tone="info" /> : null}
+                          {k === 'attended' && !isOrg(p) ? <Ionicons accessibilityLabel={t('Confirmed they went')} name="checkmark-circle" size={sc(20)} color={c.green} /> : k === 'no_show' ? <Ionicons accessibilityLabel={t('Said they did not go')} name="close-circle" size={sc(20)} color={c.danger} /> : null}
+                        </Row>
+                      </Pressable>
+                    ))}
+                  </View>
+                ),
+              );
+            })()}
+          </View>
+        ) : (
         <View style={{ gap: sp(18), marginTop: sp(14) }}>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text accessibilityRole="header" style={{ color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '500' }}>{t("Who's going")}</Text>
@@ -211,6 +278,7 @@ export default function TripDetail() {
             a11y={`${t('{going} of {capacity} going', { going: trip.members, capacity: trip.maxCapacity })}. ${t('Going: {names}', { names: going.map((p) => p.displayName).join(', ') })}`}
           />
         </View>
+        )}
 
         {trip.datesState === 'proposed' && !closed ? (
           <View style={{ backgroundColor: c.accentSoft, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
@@ -223,7 +291,7 @@ export default function TripDetail() {
                 <Txt variant="small">{p.datesConfirmed ? t('Confirmed') : t('Waiting')}</Txt>
               </Row>
             ))}
-            {trip.isMember && !trip.myDatesConfirmed ? <Btn title={t('I can travel on these dates')} small loading={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/confirm-dates`))} /> : trip.myDatesConfirmed ? <Txt variant="small" bold color={c.green}>{t('You confirmed these dates ✓')}</Txt> : null}
+            {trip.isMember && !trip.myDatesConfirmed ? <Btn title={t('I can travel on these dates')} small loading={act.busy} onPress={() => void act.run(() => post(`/v1/trips/${id}/confirm-dates`))} /> : trip.myDatesConfirmed ? <Txt variant="small" bold color={c.green}>{t('You confirmed these dates')}</Txt> : null}
           </View>
         ) : null}
 

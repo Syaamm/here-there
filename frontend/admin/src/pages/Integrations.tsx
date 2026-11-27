@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, get, post } from '../api';
 import { Select, useBackdropClose } from '../controls';
-import { askConfirm, Empty, errMsg, ErrorBanner, Icon, Loading, Switch, useAction, useLoad } from '../ui';
+import { askConfirm, Empty, errMsg, ErrorBanner, Icon, Loading, Page, Switch, useAction, useLoad } from '../ui';
 
 type Field = { key: string; label: string; secret?: boolean; optional?: boolean; multiline?: boolean; hidden?: boolean; placeholder?: string; options?: [string, string][]; default?: string };
 type Provider = { id: string; label: string; blurb?: string; fields: Field[] };
@@ -25,6 +25,8 @@ export function IntegrationsPage() {
   const toggle = (r: Integration, on: boolean) => act.run(async () => void (await api('PATCH', `/v1/admin/integrations/${r.id}`, { active: on })));
 
   return (
+    // Page supplies the scrolling body (.page-body): the console shell never scrolls by itself, so without it a tall list is cut off
+    <Page title="Integrations">
     <div className="int-page">
       <ErrorBanner message={error ?? act.error} onRetry={reload} />
       {loading && !data && <Loading rows={4} />}
@@ -92,6 +94,7 @@ export function IntegrationsPage() {
         />
       )}
     </div>
+    </Page>
   );
 }
 
@@ -138,9 +141,6 @@ function IntegrationDialog({ kind, label, providers, row, onClose, onSaved }: { 
             <span className="int-dlg-kind">{label}</span>
             <h2 id="int-dlg">{editing ? 'Edit Integration' : 'New Integration'}</h2>
           </div>
-          <button type="button" className="int-dlg-x" onClick={onClose} aria-label="Close">
-            ×
-          </button>
         </header>
         <div className="int-dlg-body">
           <ErrorBanner message={error} />

@@ -3,8 +3,7 @@ import { AttendanceMark, Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { beforeKeyset, decodeKeyset, pageLimit, pageOf, sliceKeyset } from '../common/paging';
-import { CurrentUser, Perm, Public, RegionalOk, Staff } from '../common/auth';
-import { RegionsService } from '../regions/regions.service';
+import { CurrentUser, Perm, Public, Staff } from '../common/auth';
 import { E } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { RateLimiter } from '../common/rate-limiter';
@@ -510,7 +509,6 @@ export class ReliabilityService {
 export class ReliabilityController {
   constructor(
     private readonly reliability: ReliabilityService,
-    private readonly regions: RegionsService,
   ) {}
 
   /** How levels work, in plain words (what / how / why cards). Public, like the retention page. */
@@ -570,31 +568,29 @@ export class ReliabilityController {
   }
 
   // ---- moderators
-  @Staff(...ALL)
+  @Staff('admin')
   @Get('admin/no-shows')
   adminList(@Query('state') state?: string, @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('page') page?: string, @Query('q') q?: string) {
     return this.reliability.adminList(state, limit, cursor, page, q);
   }
 
   /** Hosts who say many people did not come (or whose notes keep being overturned): the check from the reliability hardening list. */
-  @Staff(...ALL)
+  @Staff('admin')
   @Get('admin/no-shows/hosts')
   adminHosts(@Query('all') all?: string) {
     return this.reliability.adminHosts(all === 'true');
   }
 
-  @Staff(...MOD)
+  @Staff('admin')
   @Post('admin/no-shows/:markId/decision')
   decide(@CurrentUser() actor: User, @Param('markId') markId: string, @Body() body: unknown) {
     return this.reliability.decide(actor, markId, body);
   }
 
   @Staff(...ALL)
-  @RegionalOk()
   @Perm('users')
   @Get('admin/users/:id/reliability')
   async forStaff(@CurrentUser() actor: User, @Param('id') id: string) {
-    await this.regions.assertPersonLocal(actor, id);
     return this.reliability.forStaff(id);
   }
 }

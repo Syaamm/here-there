@@ -118,6 +118,13 @@ export function useKeyboardOverlap(air = ANDROID_AIR) {
   return { inset, box, onLayout };
 }
 
+/**
+ * A bottom gap that follows the keyboard instead of jumping: `closed` when the keyboard is down, `open` once it is up, and in
+ * between while it moves (driven by the same animated `inset` of useKeyboardOverlap). Switching the gap on the keyboard's
+ * "will hide" event made it jump at the first frame, while the page was still sliding: that was the flicker.
+ */
+export const keyboardGap = (inset: Animated.Value, closed: number, open: number) => inset.interpolate({ inputRange: [0, 60], outputRange: [closed, open], extrapolate: 'clamp' });
+
 let keyboardHeight = 0; // how tall the keyboard is right now (0 when it is down)
 let keyboardTop = Infinity; // where its top edge is (see keyboardTopOf)
 let sheetsOpen = 0; // pop-up sheets showing: while one is, the page behind it must not scroll for a field that is in the sheet

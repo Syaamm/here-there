@@ -3,6 +3,7 @@ import { Image, type ImageSource } from 'expo-image';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { Animated, Easing, PixelRatio, Platform, Pressable, Text as RNText, View, type ScrollViewInstance, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import { reducedMotion } from './Pop';
+import { catIcon } from '@/lib/catIcon';
 import { get } from '@/lib/api';
 import { localeTag, useT } from '@/lib/i18n';
 import { tick } from '@/lib/haptics';
@@ -112,7 +113,7 @@ export function PillArea({ label, style, ...rest }: TextInputProps & { label: st
 export function RoundPhoto({ source, size, ring, emoji, tint }: { source?: ImageSource | number; size: number; ring?: boolean; /** a category an admin made has no photo: its emoji on its colour */ emoji?: string; tint?: string }) {
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', borderWidth: ring ? 1.5 : 0, borderColor: '#fff' }}>
-      {source ? <Image source={source} contentFit="cover" style={{ width: '100%', height: '100%' }} /> : <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: tint ?? '#CFE0D6' }}><RNText style={{ fontSize: size * 0.5 }}>{emoji || '•'}</RNText></View>}
+      {source ? <Image source={source} contentFit="cover" style={{ width: '100%', height: '100%' }} /> : <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: tint ?? '#CFE0D6' }}><Ionicons name={catIcon(emoji)} size={size * 0.5} color="#102F29" /></View>}
     </View>
   );
 }

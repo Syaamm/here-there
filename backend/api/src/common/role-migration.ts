@@ -6,7 +6,7 @@ import { PrismaService } from './prisma.service';
 
 /** The demo logins that existed before there were only two kinds of console account. */
 const OLD_DEMO_STAFF = ['support@herethere.local', 'moderator@herethere.local', 'trustlead@herethere.local'];
-/** The one demo staff login (development and demo servers only): it looks after Milan, where the demo people live. */
+/** The one demo staff login (development and demo servers only). */
 export const DEMO_STAFF = { email: 'staff@herethere.local', password: 'staff-demo-1', name: 'Staff' };
 
 /**
@@ -34,21 +34,17 @@ export class RoleMigration implements OnModuleInit {
     // only on a database made by the demo seed (the default admin is there), never in tests or on a real system
     if (!(await this.prisma.user.findUnique({ where: { email: 'admin@herethere.local' } }))) return;
     if (await this.prisma.user.findUnique({ where: { email: DEMO_STAFF.email } })) return;
-    await this.prisma.region.upsert({ where: { key: 'global' }, update: {}, create: { key: 'global', name: 'Whole service', kind: 'global' } });
-    await this.prisma.region.upsert({ where: { key: 'it' }, update: {}, create: { key: 'it', name: 'Italy', kind: 'country', parentKey: 'global' } });
-    const milan = (await this.prisma.region.findUnique({ where: { cityKey: 'milan' } })) ?? (await this.prisma.region.create({ data: { key: 'it-milan', name: 'Milan', kind: 'city', parentKey: 'it', cityKey: 'milan' } }));
     await this.prisma.user.create({
       data: {
         email: DEMO_STAFF.email,
         passwordHash: await hashPassword(DEMO_STAFF.password),
         role: 'staff',
-        adminRegionKey: milan.key,
         staffPermissions: [...STAFF_PERMISSIONS],
         adultConfirmed: true,
         emailVerifiedAt: new Date(),
         profile: { create: { displayName: DEMO_STAFF.name, homeCity: 'Milan', homeCityKey: 'milan' } },
       },
     });
-    log('info', 'demo staff login created', { email: DEMO_STAFF.email, area: milan.key });
+    log('info', 'demo staff login created', { email: DEMO_STAFF.email });
   }
 }

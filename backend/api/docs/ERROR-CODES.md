@@ -17,7 +17,6 @@ Every failed request returns the same body:
 | Code | Status | What it means | What the app should do |
 | --- | --- | --- | --- |
 | `ADULT_CONFIRMATION_REQUIRED` | 400 | A new account via Apple or Google needs the 18+ confirmation first. | Show the confirmation, then send the request again with adultConfirmed: true. |
-| `AREA_REQUIRED` | 400 | A staff account must look after one city, region or country. | Choose an area. |
 | `BAD_REQUEST` | 400 | The request body could not be read (for example malformed JSON). | Fix the request; do not retry unchanged. |
 | `CODE_EXPIRED` | 400 | The confirmation code has expired. | Start the step again. |
 | `CONSENT_REQUIRED` | 400 | The person has not agreed to the identity document and facial check. | Show the consent screen before starting. |
@@ -27,6 +26,10 @@ Every failed request returns the same body:
 | `DRAFT_TOO_LARGE` | 400 | The draft is far longer than any real form. | Ask the person to shorten it. |
 | `EMAIL_REQUIRED` | 400 | The provider did not give a confirmed email address, which an account needs. | Offer email sign-up instead. |
 | `IMAGE_TOO_LARGE` | 400 | The picture is over the 6 MB limit. | Ask for a smaller picture. |
+| `INTEGRATION_FIELD` | 400 | A detail the provider needs is missing, or is not one of its settings. | Show the message and fill in the field. |
+| `INTEGRATION_PROVIDER` | 400 | That provider is not one of the choices for this kind of service. | Offer only the providers in the catalog from GET /v1/admin/integrations. |
+| `INTEGRATION_SIMULATED` | 400 | A test-only service (fixed code, simulated or instant identity check) cannot be switched on a production server. | Choose a real provider. |
+| `INVALID_CATEGORY` | 400 | The category of a new activity is not one an administrator has made and turned on. | Offer only the categories from GET /v1/categories. |
 | `INVALID_CODE` | 400 | The 6-digit code is wrong or has expired. | Offer to send a new code. |
 | `INVALID_CURSOR` | 400 | The paging cursor is malformed or was made for a different list. | Restart the list from the first page. |
 | `INVALID_DATES` | 400 | The dates are not allowed (for example a trip that starts in the past). | Ask the person to choose other dates. |
@@ -78,17 +81,14 @@ Every failed request returns the same body:
 | `BLOCKED` | 403 | One of the two people has blocked the other. | Treat as not found; do not reveal who blocked whom. |
 | `EMAIL_NOT_VERIFIED` | 403 | The email address must be confirmed first. | Open the email confirmation step. |
 | `FORBIDDEN` | 403 | The person is not allowed to do this (staff role too low, or not their own item). | Hide the action; show the message if it was tried. |
-| `GLOBAL_STAFF_ONLY` | 403 | A staff account limited to one area used a screen that is only for staff of the whole service. | Hide that screen for staff who have an area (see GET /v1/admin/scope). |
 | `GUEST_READ_ONLY` | 403 | A guest ("explore demo") session tried to change something. | Offer to create an account. |
 | `INVITE_ONLY` | 403 | The activity or trip is by invitation only. | Hide the join button. |
 | `MFA_REQUIRED` | 403 | Staff must have two-step sign-in on to use this part of the console (or to turn it off). | Send the person to the Security page to set it up. |
-| `NO_AREA` | 403 | This staff account has no area yet, so it reaches nothing in the console. | Ask an admin to give the account an area on the Staff page. |
 | `NO_PERMISSION` | 403 | An admin has not given this staff account access to that part of the console. | Ask an admin to change your permissions on the Staff page. |
 | `NOT_A_MEMBER` | 403 | The person is not an approved member, so the group chat is closed to them. | Show "pending approval" or the join button, never the chat. |
 | `NOT_HOST` | 403 | Only the host of the activity can do this. | Hide the action for other people. |
 | `NOT_ORGANIZER` | 403 | Only the organizer of the trip can do this. | Hide the action for other people. |
 | `NOT_YOUR_LINE` | 403 | Only the person who added a plan line, or the organizer, can change or remove it. | Hide the edit actions on other people lines. |
-| `OUT_OF_SCOPE` | 403 | A staff member who looks after one city, region or country tried to act on something outside it. | Show the message; the item is for staff of another area or the whole service. |
 | `OWN_APPEAL` | 403 | Staff cannot decide an appeal they made themselves. | Ask another moderator. |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | A staff account made by an administrator must choose its own password before it can use the console. | Show the "choose your password" screen; it calls POST /v1/me/password with the temporary password as the current one. |
 | `PHONE_BLOCKED` | 403 | This mobile number is on the ban list (it belonged to a removed account). | Show the message and point to support; do not say why. |
@@ -123,6 +123,7 @@ Every failed request returns the same body:
 | `ALREADY_DECIDED` | 409 | This verification check was already decided. | Refresh the case. |
 | `ALREADY_REQUESTED` | 409 | The person already has a request for this activity; the message names its state. | Show the existing request. |
 | `ALREADY_VERIFIED` | 409 | The person is already verified; use "require re-verification" instead. | Refresh the case. |
+| `ALREADY_VOTED` | 409 | This person has already voted in this poll. | Show their vote and hide the vote buttons. |
 | `APPEAL_DECIDED` | 409 | A moderator already decided this appeal. | Reload the queue. |
 | `APPEAL_OPEN` | 409 | The person already has an appeal waiting for a decision. | Show it and tell them to wait for the answer. |
 | `APPLICANT_BUSY` | 409 | The person has joined or created another plan at the same time since they asked, so they cannot be approved. | Tell the host the person is busy then; the request stays as it is. |
@@ -133,6 +134,8 @@ Every failed request returns the same body:
 | `CANNOT_REMOVE_HOST` | 409 | The host cannot be removed from their own activity. | Hide "remove" on the host. |
 | `CANNOT_REMOVE_ORGANIZER` | 409 | The organizer cannot be removed from their own trip. | Hide "remove" on the organizer. |
 | `CAPACITY_BELOW_MEMBERS` | 409 | The new capacity is lower than the number of approved members. | Show the minimum allowed. |
+| `CATEGORY_EXISTS` | 409 | A category with that name already exists. | Show the message and choose another name. |
+| `CATEGORY_IN_USE` | 409 | Activities or trips still use the category, so it cannot be removed. | Turn it off instead. |
 | `CITY_ALREADY_ASSIGNED` | 409 | That city name already belongs to another place. | Show which place has it; change that one instead. |
 | `CONVERSATION_CLOSED` | 409 | The chat is read-only (24 hours after the end, or the activity or trip was cancelled). | Show the chat as read-only. |
 | `DATE_CHANGES_USED` | 409 | The trip has used all the date changes it is allowed (5, through date polls). | Do not offer "use these dates"; tell the organizer why. The trip's `dateChangesLeft` says how many remain. |
@@ -145,6 +148,7 @@ Every failed request returns the same body:
 | `HOST_CANNOT_LEAVE` | 409 | The host must cancel or hand over the activity first. | Offer cancel or hand over. |
 | `IS_HOST` | 409 | The person is the host of this activity. | Hide the join button. |
 | `IS_ORGANIZER` | 409 | The person is the organizer of this trip. | Hide the apply button. |
+| `LAST_CATEGORY` | 409 | It is the last category turned on, and one must always stay on. | Turn another one on first. |
 | `MARK_LOCKED` | 409 | The note was disputed or decided, so the host cannot take it back. | Show the note as it is; a moderator decides. |
 | `MARK_NOT_OPEN` | 409 | The host tried to say who did not come before the plan started. | Show the notes only once the plan has started. |
 | `MARK_WINDOW_CLOSED` | 409 | The 48 hours after the plan ended, in which a host can say who did not come, have passed. | Hide the action; the host can no longer add notes. |
@@ -152,7 +156,7 @@ Every failed request returns the same body:
 | `NO_DATES_TO_CONFIRM` | 409 | No final dates are waiting for confirmation. | Refresh the trip. |
 | `NOT_DECLINED` | 409 | Only a request or application that the host or organizer declined can be asked about again. | Hide the Ask again action. |
 | `NOT_DISPUTABLE` | 409 | The note is already disputed or decided by a moderator. | Show its state. |
-| `NOT_FINISHED` | 409 | Attendance can only be given once the activity has ended. | Hide the question until then. |
+| `NOT_FINISHED` | 409 | Attendance can only be given once the activity or trip has ended. | Hide the question until then. |
 | `NOT_OPTED_IN` | 409 | The person answered about a traveler without having turned travel matching on. | Show the opt-in screen. |
 | `NOT_PENDING` | 409 | There is no identity check in progress. | Refresh the verification status. |
 | `NOT_REJECTED` | 409 | Only a rejected verification can be overturned. | Refresh the case. |
@@ -160,7 +164,6 @@ Every failed request returns the same body:
 | `NOTHING_TO_APPEAL` | 409 | There is no rejected check, staff removal or suspension to appeal. | Hide the appeal action. |
 | `ORGANIZER_CANNOT_LEAVE` | 409 | The organizer must cancel the trip or hand it over first. | Offer cancel. |
 | `PHONE_IN_USE` | 409 | This mobile number is already confirmed on another account. | Ask for a different number. |
-| `PLACE_HAS_STAFF` | 409 | Staff accounts are still assigned to the place. | Change their area first. |
 | `PLACE_NOT_EMPTY` | 409 | The place still has places under it. | Remove or move those first. |
 | `PLAN_CANCELLED` | 409 | The plan was cancelled, so nobody can be noted as not coming. | Hide the action. |
 | `PLAN_FULL` | 409 | The trip plan already holds the most lines allowed of that kind (60). | Ask the group to tidy the plan first. |
@@ -173,6 +176,7 @@ Every failed request returns the same body:
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (10). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
+| `TRIP_CANCELLED` | 409 | The trip was cancelled. | Refresh the trip and show it as cancelled. |
 | `TRIP_CLOSED` | 409 | The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over). | Hide the edit, apply, favourite and share actions. |
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |
 | `TRIP_NOT_STARTED` | 409 | The trip has not started yet, so it cannot be ended. | Offer End once the first day has come; before that the organizer can cancel it. |

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { api, getPlace, getRefreshToken, loadSession, roleLabel, saveSession, setPlace, setRefreshToken, setToken, setUnauthorizedHandler, STAFF, type Permission, type Role, type Scope, type Session } from './api';
+import { api, getRefreshToken, loadSession, roleLabel, saveSession, setRefreshToken, setToken, setUnauthorizedHandler, STAFF, type Permission, type Role, type Session } from './api';
 import { AuditPage } from './pages/Audit';
 import { ContentPage } from './pages/Content';
 import { AppealsPage } from './pages/Appeals';
@@ -20,23 +20,23 @@ import { Avatar, Chip, clearLoadCache, DialogHost, errMsg, ErrorBanner, urlParam
 
 // ---------------------------------------------------------------- sections and their tabs
 type SectionId = 'dashboard' | 'reports' | 'verification' | 'users' | 'content' | 'team' | 'settings' | 'audit';
-type Tab = { id: string; label: string; admin?: boolean; regional?: boolean; perm?: Permission };
-type Section = { id: SectionId; label: string; icon: IconName; group: string; tabs?: Tab[]; admin?: boolean; regional?: boolean; perm?: Permission };
+type Tab = { id: string; label: string; admin?: boolean; perm?: Permission };
+type Section = { id: SectionId; label: string; icon: IconName; group: string; tabs?: Tab[]; admin?: boolean; perm?: Permission };
 
 const SECTIONS: Section[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'overview', group: 'Decide', admin: true },
-  { id: 'reports', label: 'Reports', icon: 'flag', group: 'Decide', regional: true, perm: 'reports', tabs: [{ id: 'reports', label: 'Reports', regional: true }, { id: 'appeals', label: 'Appeals', regional: true }, { id: 'noshows', label: 'Attendance', admin: true }] },
-  { id: 'verification', label: 'Verification', icon: 'shield', group: 'Decide', regional: true, perm: 'verification' },
-  { id: 'users', label: 'Users', icon: 'users', group: 'Community', regional: true, perm: 'users' },
-  { id: 'content', label: 'Content', icon: 'layers', group: 'Community', regional: true, perm: 'content' },
+  { id: 'reports', label: 'Reports', icon: 'flag', group: 'Decide', perm: 'reports', tabs: [{ id: 'reports', label: 'Reports' }, { id: 'appeals', label: 'Appeals' }, { id: 'noshows', label: 'Attendance', admin: true }] },
+  { id: 'verification', label: 'Verification', icon: 'shield', group: 'Decide', perm: 'verification' },
+  { id: 'users', label: 'Users', icon: 'users', group: 'Community', perm: 'users' },
+  { id: 'content', label: 'Content', icon: 'layers', group: 'Community', perm: 'content' },
   { id: 'team', label: 'Staff', icon: 'userPlus', group: 'Team', admin: true },
-  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', regional: true, tabs: [{ id: 'overview', label: 'Overview', regional: true }, { id: 'security', label: 'Two-step sign-in', regional: true }, { id: 'integrations', label: 'Integrations', admin: true }] },
+  { id: 'settings', label: 'Settings', icon: 'settings', group: 'Setup', tabs: [{ id: 'overview', label: 'Overview' }, { id: 'security', label: 'Two-step sign-in' }, { id: 'integrations', label: 'Integrations', admin: true }] },
   { id: 'audit', label: 'Audit log', icon: 'clock', group: 'Setup', admin: true },
 ];
 
-/** What this account may open: an admin everything; staff only the parts of their area an admin allowed. */
+/** What this account may open: an admin everything; staff only the parts an admin allowed. */
 const allowed = (role: Role, perms: Permission[]) => {
-  const ok = (x: { admin?: boolean; regional?: boolean; perm?: Permission }) => role === 'admin' || (!x.admin && !!x.regional && (!x.perm || perms.includes(x.perm)));
+  const ok = (x: { admin?: boolean; perm?: Permission }) => role === 'admin' || (!x.admin && (!x.perm || perms.includes(x.perm)));
   return SECTIONS.filter(ok)
     .map((s) => ({ ...s, tabs: s.tabs?.filter(ok) }))
     .filter((s) => !s.tabs || s.tabs.length > 0);
@@ -64,9 +64,9 @@ const readRoute = () => {
 };
 
 type MfaStatus = { enabled: boolean; required: boolean; passwordChangeRequired: boolean; setupNeeded: boolean; canSkip: boolean; recoveryCodesLeft: number };
-type Boot = { scope: { scope: Scope; permissions?: Permission[] }; mfa: MfaStatus };
+type Boot = { scope: { permissions?: Permission[] }; mfa: MfaStatus };
 /**
- * What the console last learned about this account (its area, permissions and two-step status), kept in this browser so a
+ * What the console last learned about this account (its permissions and two-step status), kept in this browser so a
  * page reload opens the console at once instead of a loading screen; the server is asked again straight away and its answer
  * wins. Only a plain, finished state is kept (no password change or two-step setup pending). It only shapes the menu: the
  * server checks every request itself.
@@ -119,7 +119,6 @@ export default function App() {
     if (getRefreshToken()) void api('POST', '/v1/auth/logout', { refreshToken: getRefreshToken() }).catch(() => undefined);
     setToken(null);
     setRefreshToken(null);
-    setPlace(null);
     saveSession(null);
     setSession(null);
     try {
@@ -187,7 +186,7 @@ type ConsoleProps = {
 };
 
 function Console({ session: signedIn, updateSession, loc, go, reportId, setReportId, userId, setUserId, badge, logout }: ConsoleProps) {
-  const scopeLoad = useLoad(() => api<{ scope: Scope; permissions?: Permission[] }>('GET', '/v1/admin/scope'), [signedIn.token]);
+  const scopeLoad = useLoad(() => api<{ permissions?: Permission[] }>('GET', '/v1/admin/scope'), [signedIn.token]);
   const mfa = useLoad(() => api<MfaStatus>('GET', '/v1/me/mfa'), [signedIn.token]);
   // a reload shows the console straight away from what this browser remembers; the fresh answers replace it when they come
   const [boot] = useState(() => readBoot(signedIn.email));
@@ -197,11 +196,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
     if (!scopeLoad.data || !mfa.data) return;
     writeBoot(signedIn.email, mfa.data.passwordChangeRequired || (mfa.data.setupNeeded && mfa.data.required) ? null : { scope: scopeLoad.data, mfa: mfa.data });
   }, [scopeLoad.data, mfa.data, signedIn.email]);
-  const session: Session = { ...signedIn, scope: scopeData?.scope ?? null, permissions: scopeData?.permissions ?? [] };
-  // The console is not split by place: everything works for the whole service. (A place chosen in an older version is forgotten.)
-  useEffect(() => {
-    if (getPlace()) setPlace(null);
-  }, []);
+  const session: Session = { ...signedIn, permissions: scopeData?.permissions ?? [] };
 
   const [drawer, setDrawer] = useState(false);
   // The sidebar can be folded to a narrow strip of icons (computers and tablets; on a phone it is the drawer). The choice is
@@ -478,7 +473,7 @@ function Console({ session: signedIn, updateSession, loc, go, reportId, setRepor
               <>
                 <strong>{session.name}</strong>
                 <span className="muted small">
-                  {roleLabel(session.role)}{session.scope ? ` · ${session.scope.name}` : ''}
+                  {roleLabel(session.role)}
                 </span>
               </>
             }

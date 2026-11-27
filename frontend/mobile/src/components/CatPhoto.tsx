@@ -1,7 +1,8 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ReactNode } from 'react';
 import { Image } from 'expo-image';
-import { View, type StyleProp, type ViewStyle } from 'react-native';
-import { Text } from 'react-native';
+import { Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { catIcon } from '@/lib/catIcon';
 import { ageGroupLabel, catColor, CAT_IMAGES, CATS } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { sc } from '@/lib/scale';
@@ -23,7 +24,7 @@ export function CatPhoto({ category, style, children, age, ageTop }: { category:
   return (
     <View style={[{ backgroundColor: catColor(category), overflow: 'hidden' }, style]}>
       {src ? <Image source={src} contentFit="cover" accessibilityElementsHidden importantForAccessibility="no" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} /> : null}
-      {!src && CATS[category]?.emoji ? <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 28, opacity: 0.9 }}>{CATS[category].emoji}</Text></View> : null}
+      {!src && CATS[category] ? <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}><Ionicons name={catIcon(CATS[category].emoji, category)} size={sc(28)} color="#102F29" style={{ opacity: 0.7 }} /></View> : null}
       {children}
       <AgeBadge age={age} top={ageTop} />
     </View>

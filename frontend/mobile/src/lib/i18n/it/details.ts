@@ -525,6 +525,8 @@ export const details: Record<string, string> = {
   '{amount} below the low end of the range': '{amount} sotto il minimo dell’intervallo',
   'No day yet: goes on the ideas list': 'Nessun giorno: va tra le idee',
   'Like 14:30': 'Es. 14:30',
+  '24-hour time, like 14 and 30': 'Formato 24 ore, ad esempio 14 e 30',
+  'Type the hour first': "Scrivi prima l'ora",
   // shorter texts (lean pass)
   'This chat is archived: read only.': 'Chat archiviata: sola lettura.',
   'This activity has ended: read only.': 'Attività conclusa: sola lettura.',

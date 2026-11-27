@@ -182,9 +182,13 @@ describe('sign in with Google or Apple, and the document-only identity check', (
     const first = await social(t);
     assert.equal(first.body.code, 'ADULT_CONFIRMATION_REQUIRED');
     assert.equal(await prisma.user.count({ where: { email: 'social-new@example.com' } }), 0, 'nothing is created before they confirm');
-    const made = await social(t, { adultConfirmed: true });
-    assert.equal(made.status, 201, JSON.stringify(made.body));
-    assert.equal(made.body.created, true, 'a new account says so, so the app can start onboarding');
+    const step1 = await social(t, { adultConfirmed: true });
+    assert.equal(step1.status, 201, JSON.stringify(step1.body));
+    assert.equal(step1.body.pending, true, 'a new account must first enter the code mailed to it');
+    assert.equal(step1.body.token, undefined, 'no session before the code is entered');
+    const confirmed = await post('/v1/auth/register/confirm', undefined, { email: 'social-new@example.com', code: emailedCode('social-new@example.com'), ticket: step1.body.ticket });
+    assert.equal(confirmed.status, 201, JSON.stringify(confirmed.body));
+    const made = { ...confirmed, body: { ...confirmed.body, created: true } }; // the app starts onboarding after this step
     assert.equal(made.body.user.email, 'social-new@example.com');
     assert.equal(made.body.user.emailVerified, true, 'the provider has confirmed the address');
     assert.equal(made.body.user.profile.displayName, 'Sam Social');

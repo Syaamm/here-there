@@ -4,7 +4,7 @@ import './UserPanel.css';
 import { actionLabel, say, type E } from './Audit';
 import { askChoiceText, askText, cap, Avatar, Chip, ErrorBanner, fmt, FilterBar, Icon, Loading, Page, PageBar, RowMenu, Search, Segmented, urlParam, useAction, useUrlParam, useLoad } from '../ui';
 
-type U = { adminRegionKey?: string | null; id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
+type U = { id: string; email: string; role: Role; state: string; suspendedUntil: string | null; eligibility: string; emailVerified: boolean; adultVerified: boolean; phoneVerified: boolean; verifiedUntil: string | null; reverifyReason: string | null; lastRejectionReason: string | null; displayName?: string; photoUrl?: string | null; homeCity?: string; createdAt: string };
 type Detail = {
   id: string;
   email: string;

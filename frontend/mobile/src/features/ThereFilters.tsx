@@ -72,7 +72,7 @@ export function useThereFilters(ext?: { destination: string; setDestination: (v:
 export type ThereFilters = ReturnType<typeof useThereFilters>;
 
 /** The full filter sheet. `extra` is drawn first (Home puts its "how far ahead" choice there); `onSearch` runs when Search is tapped. */
-export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, extra }: { f: ThereFilters; visible: boolean; onClose: () => void; onSearch: () => void; searching?: boolean; extra?: ReactNode }) {
+export function ThereFiltersSheet({ f, visible, onClose, onSearch, onClearAll, searching, extra }: { f: ThereFilters; visible: boolean; onClose: () => void; onSearch: () => void; /** what "Clear all" does besides emptying the sheet's own fields (the page's own choices, and the results it shows) */ onClearAll?: () => void; searching?: boolean; extra?: ReactNode }) {
   const { t } = useT();
   useCategories();
   const [calendar, setCalendar] = useState<null | 'start' | 'end'>(null);
@@ -96,7 +96,7 @@ export function ThereFiltersSheet({ f, visible, onClose, onSearch, searching, ex
               onSearch();
             }}
           />
-          <Btn title={t('Clear all')} variant="ghost" small onPress={f.clearAll} />
+          <Btn title={t('Clear all')} variant="ghost" small onPress={() => (f.clearAll(), onClearAll?.())} />
         </>
       }
       overlay={

@@ -1,6 +1,6 @@
 # HERE & THERE API
 
-Version 0.1.0. Generated from `openapi.json` by `npm run docs`: do not edit by hand.
+Version 0.1.4. Generated from `openapi.json` by `npm run docs`: do not edit by hand.
 
 The shared backend for **HERE.** (activities happening soon) and **THERE.** (trips and travel buddies), used by the mobile app and the admin console. One account and one verification serve both products.
 
@@ -19,13 +19,13 @@ Request bodies and query strings are generated from the same validation rules th
 ## Contents
 
 - [Shared links](#shared-links) (4)
-- [HERE activities](#here-activities) (32)
-- [Admin console](#admin-console) (44)
+- [HERE activities](#here-activities) (34)
+- [Admin console](#admin-console) (59)
 - [Sign-in and account](#sign-in-and-account) (33)
-- [Safety, blocks and follows](#safety-blocks-and-follows) (13)
+- [Safety, blocks and follows](#safety-blocks-and-follows) (14)
 - [Chat and date polls](#chat-and-date-polls) (8)
 - [Profile and photo](#profile-and-photo) (16)
-- [THERE trips](#there-trips) (32)
+- [THERE trips](#there-trips) (33)
 - [Notifications and push](#notifications-and-push) (10)
 - [Identity verification](#identity-verification) (6)
 - [API description](#api-description) (1)
@@ -110,7 +110,8 @@ Parameters
 | Name | In | Type | Required | Notes |
 | --- | --- | --- | --- | --- |
 | `city` | query | string | no |  |
-| `category` | query | one of: `coffee`, `drinks`, `food`, `sports`, `culture` | no |  |
+| `category` | query | string (1 to 40 characters) | no |  |
+| `q` | query | string (2 to 40 characters) | no |  |
 | `from` | query | string (date-time) | no |  |
 | `to` | query | string (date-time) | no |  |
 | `lat` | query | number (-90 to 90) | no |  |
@@ -143,7 +144,7 @@ Request body (JSON)
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `title` | string (2 to 80 characters) | yes |  |
-| `category` | one of: `coffee`, `drinks`, `food`, `sports`, `culture` | yes |  |
+| `category` | string (1 to 40 characters) | yes |  |
 | `tags` | array of string (1 to 24 characters) | no | default `[]` |
 | `description` | string (0 to 150 characters) | no |  |
 | `city` | string (2 to 60 characters) | yes |  |
@@ -156,12 +157,13 @@ Request body (JSON)
 | `capacity` | integer (2 to 20) | yes |  |
 | `visibility` | one of: `public`, `invite_only` | no | default `"public"` |
 | `joinPolicy` | one of: `host_approval`, `instant` | no | default `"host_approval"` |
+| `ageGroup` | one of: `all`, `18-25`, `25-35`, `35+` | no | default `"all"` |
 | `language` | string (0 to 20 characters) | no |  |
 
 Responses
 
 - **200**: the new activity. withdrawn: [{ kind, id, title }] lists your own requests at the same time that were withdrawn because of it (first accepted wins), so the screen can say so; empty when none.
-- **400**: The request is not acceptable. Codes: `CONTENT_REJECTED`, `INVALID_SCHEDULE`, `VALIDATION_FAILED`
+- **400**: The request is not acceptable. Codes: `CONTENT_REJECTED`, `INVALID_CATEGORY`, `INVALID_SCHEDULE`, `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `VERIFICATION_REQUIRED`
 - **409**: Conflicts with the current state. Codes: `DUPLICATE_ACTIVITY`, `TIME_CLASH`, `TOO_MANY_OPEN_ACTIVITIES`
@@ -704,6 +706,43 @@ Responses
 - **404**: Not found. Codes: `NOT_FOUND`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
+### `GET /v1/categories`
+
+**The categories the apps offer: here (for an activity) and there (travel categories, which a trip carries as tags), only the ones turned on, in the order an administrator set**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `kind` | query | one of: `here`, `there` | no |  |
+
+Responses
+
+- **200**: { here: [{ key, label, emoji, color, imageUrl }], there: [...] }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `GET /v1/categories/{id}/image`
+
+**The picture of a category, as a plain image address (open without signing in)**
+
+Access: public (no token needed).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: the image (webp)
+- **404**: Not found. Codes: `NOT_FOUND`
+
 ### `GET /v1/me/activities/overlapping`
 
 **My plans that overlap a time window**
@@ -809,7 +848,7 @@ Parameters
 | Name | In | Type | Required | Notes |
 | --- | --- | --- | --- | --- |
 | `q` | query | string (2 to 100 characters) | yes |  |
-| `kind` | query | one of: `place`, `area`, `city`, `destination` | no | default `"place"` |
+| `kind` | query | one of: `place`, `area`, `city`, `destination`, `venue` | no | default `"place"` |
 | `lat` | query | number (-90 to 90) | no |  |
 | `lng` | query | number (-180 to 180) | no |  |
 | `city` | query | string (0 to 80 characters) | no |  |
@@ -835,7 +874,7 @@ Parameters
 
 Responses
 
-- **200**: { city, region, here: { months, latest, text, setBy }, there: { months, latest, text, setBy } }. here is for an activity in that city, there for a trip that starts from it. latest is the last moment a plan may start. setBy names the place whose admin set the limit (null for the built-in default). Without a city: the whole service's setting.
+- **200**: { city, region, here: { months, latest, text, setBy }, there: { months, latest, text, setBy }, area: { km, setBy } }. area.km is how far around the centre of the city its activities are shown and may be placed (25 unless an administrator set another distance for the city or a place above it). here is for an activity in that city, there for a trip that starts from it. latest is the last moment a plan may start. setBy names the place whose admin set the limit (null for the built-in default). Without a city: the whole service's setting.
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
@@ -858,12 +897,13 @@ Parameters
 | `status` | query | string | no |  |
 | `limit` | query | string | no |  |
 | `cursor` | query | string | no |  |
+| `q` | query | string | no |  |
 | `from` | query | string | no |  |
 | `to` | query | string | no |  |
 
 Responses
 
-- **200**: { items, nextCursor, limitMonths }. Without from/to: newest created first. limitMonths: how far ahead activities can be planned in the area this account looks after (the longest of its places).
+- **200**: { items, nextCursor, limitMonths }. Without from/to: newest created first. limitMonths: how far ahead activities can be planned (the longest limit of any place).
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
@@ -971,6 +1011,35 @@ Responses
 - **404**: Not found. Codes: `NOT_FOUND`
 - **409**: Conflicts with the current state. Codes: `APPEAL_DECIDED`, `NOT_REJECTED`
 
+### `POST /v1/admin/appeals/{id}/reply`
+
+**Write to the person before deciding (to ask a question or say what is missing); they are told**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: staff, admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `message` | string (2 to 1000 characters) | yes |  |
+
+Responses
+
+- **200**: { id }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`, `OWN_APPEAL`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `APPEAL_DECIDED`
+
 ### `GET /v1/admin/audit`
 
 **Read-only history of staff and safety actions**
@@ -996,13 +1065,159 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
+### `GET /v1/admin/categories`
+
+**Every category, turned off ones too, with how many activities or trips use it (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `kind` | query | one of: `here`, `there` | no |  |
+
+Responses
+
+- **200**: { items: [{ id, kind, key, label, emoji, color, imageUrl, position, active, uses }] }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `POST /v1/admin/categories`
+
+**Add an activity (here) or travel (there) category (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `kind` | one of: `here`, `there` | yes |  |
+| `label` | string (2 to 24 characters) | yes |  |
+| `emoji` | string (0 to 8 characters) | no | default `""` |
+| `color` | string | no |  |
+
+Responses
+
+- **200**: { id, key }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **409**: Conflicts with the current state. Codes: `CATEGORY_EXISTS`
+
+### `DELETE /v1/admin/categories/{id}`
+
+**Remove a category nothing uses; a used one is turned off instead (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { ok }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `CATEGORY_IN_USE`, `LAST_CATEGORY`
+
+### `PATCH /v1/admin/categories/{id}`
+
+**Rename a category, change its emoji or colour, move it (position) or turn it on or off (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `label` | string (2 to 24 characters) | no |  |
+| `emoji` | string (0 to 8 characters) | no |  |
+| `color` | string | no |  |
+| `active` | boolean | no |  |
+| `position` | integer (0 to 1000) | no |  |
+
+Responses
+
+- **200**: { id }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `CATEGORY_EXISTS`, `LAST_CATEGORY`
+
+### `DELETE /v1/admin/categories/{id}/image`
+
+**Remove the picture of a category; the app then shows its emoji on its colour (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { imageUrl: null }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
+
+### `PUT /v1/admin/categories/{id}/image`
+
+**Upload the picture of a category (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+The request body is the raw image (Content-Type image/jpeg, image/png or image/webp, 6 MB at most), not JSON. It is cropped square and kept as a small webp.
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { imageUrl }
+- **400**: The request is not acceptable. Codes: `IMAGE_TOO_LARGE`, `INVALID_IMAGE`, `NO_IMAGE`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
+
 ### `GET /v1/admin/health`
 
 **How the service is doing right now: per-minute counters, error rate, slow database calls (table and action, with the request id)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
-Staff only. Roles: staff, admin.
+Staff only. Roles: admin.
 
 Parameters
 
@@ -1016,6 +1231,98 @@ Responses
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `GET /v1/admin/integrations`
+
+**The email, SMS and identity-verification services set up in Settings > Integrations, with what each needs. The one switched on for a kind is what the app runs on, instead of the .env settings. Secrets are never returned, only the last four characters (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Responses
+
+- **200**: { catalog, kinds, items: [{ id, kind, provider, name, description, active, settings, secretsSet, updatedAt }] }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `POST /v1/admin/integrations`
+
+**Add an email, SMS or identity-verification service; its secrets are stored encrypted (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `kind` | one of: `email`, `sms`, `verification` | yes |  |
+| `provider` | string (1 to 30 characters) | yes |  |
+| `name` | string (2 to 60 characters) | yes |  |
+| `description` | string (0 to 120 characters) | no | default `""` |
+| `values` | object | no | default `{}` |
+| `active` | boolean | no |  |
+
+Responses
+
+- **200**: { id }
+- **400**: The request is not acceptable. Codes: `INTEGRATION_FIELD`, `INTEGRATION_PROVIDER`, `INTEGRATION_SIMULATED`, `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+
+### `DELETE /v1/admin/integrations/{id}`
+
+**Remove a service (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { id }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
+
+### `PATCH /v1/admin/integrations/{id}`
+
+**Rename a service, change its details (a secret left empty is kept) or turn it on; turning one on turns the others of its kind off (administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string (2 to 60 characters) | no |  |
+| `description` | string (0 to 120 characters) | no |  |
+| `values` | object | no |  |
+| `active` | boolean | no |  |
+
+Responses
+
+- **200**: { id }
+- **400**: The request is not acceptable. Codes: `INTEGRATION_FIELD`, `INTEGRATION_SIMULATED`, `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
 
 ### `GET /v1/admin/messages/{id}`
 
@@ -1093,7 +1400,7 @@ Responses
 
 Access: signed in (`Authorization: Bearer <token>`).
 
-Staff only. Roles: staff, admin.
+Staff only. Roles: admin.
 
 Parameters
 
@@ -1116,7 +1423,7 @@ Responses
 
 Access: signed in (`Authorization: Bearer <token>`).
 
-Staff only. Roles: staff, admin.
+Staff only. Roles: admin.
 
 Parameters
 
@@ -1145,7 +1452,7 @@ Responses
 
 Access: signed in (`Authorization: Bearer <token>`).
 
-Staff only. Roles: staff, admin.
+Staff only. Roles: admin.
 
 Parameters
 
@@ -1166,7 +1473,7 @@ Responses
 
 Access: signed in (`Authorization: Bearer <token>`).
 
-Staff only. Roles: staff, admin.
+Staff only. Roles: admin.
 
 Parameters
 
@@ -1174,6 +1481,7 @@ Parameters
 | --- | --- | --- | --- | --- |
 | `from` | query | string | no |  |
 | `to` | query | string | no |  |
+| `tz` | query | string | no |  |
 
 Responses
 
@@ -1192,13 +1500,13 @@ Staff only. Roles: staff, admin.
 
 Responses
 
-- **200**: { scope, defaults: { here, there }, ranges, items: [{ key, name, kind, parentKey, cityKey, hereMonths, thereMonths, effective: { here, hereFrom, there, thereFrom }, children, staff, canEdit, canDelete }] }. hereMonths and thereMonths are what the place itself sets (null = follows the place above); effective is what applies. Staff of one area see only their own place and what is under it.
+- **200**: { scope, defaults: { here, there, area }, ranges, items: [{ key, name, kind, parentKey, cityKey, hereMonths, thereMonths, areaKm, effective: { here, hereFrom, there, thereFrom, area, areaFrom }, children, staff, canEdit, canDelete }] }. hereMonths and thereMonths are what the place itself sets (null = follows the place above); effective is what applies. Staff of one area see only their own place and what is under it.
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
 ### `POST /v1/admin/regions`
 
-**Add a country, region or city under a place you look after (administrators)**
+**Add a country, region or city under a place (administrators)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1215,18 +1523,19 @@ Request body (JSON)
 | `cityKey` | string (2 to 60 characters) | no |  |
 | `hereMonths` | integer (1 to 12) or null | no |  |
 | `thereMonths` | integer (1 to 24) or null | no |  |
+| `areaKm` | integer (1 to 100) or null | no |  |
 
 Responses
 
 - **200**: { key }
 - **400**: The request is not acceptable. Codes: `INVALID_PLACE`, `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`, `OUT_OF_SCOPE`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 - **409**: Conflicts with the current state. Codes: `CITY_ALREADY_ASSIGNED`
 
 ### `DELETE /v1/admin/regions/{key}`
 
-**Remove a place that has nothing under it and no staff (administrators)**
+**Remove a place that has nothing under it (administrators)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1243,13 +1552,13 @@ Responses
 - **200**: { ok }
 - **400**: The request is not acceptable. Codes: `INVALID_PLACE`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`, `OUT_OF_SCOPE`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
-- **409**: Conflicts with the current state. Codes: `PLACE_HAS_STAFF`, `PLACE_NOT_EMPTY`
+- **409**: Conflicts with the current state. Codes: `PLACE_NOT_EMPTY`
 
 ### `PATCH /v1/admin/regions/{key}`
 
-**Change a place's name or its planning limits: HERE months (1 to 12) and THERE months (1 to 24); null = follow the place above (administrators)**
+**Change a place's name or its planning limits: HERE months (1 to 12) and THERE months (1 to 24) and the coverage distance around a city in km (areaKm, 1 to 100); null = follow the place above (administrators)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1268,14 +1577,29 @@ Request body (JSON)
 | `name` | string (2 to 60 characters) | no |  |
 | `hereMonths` | integer (1 to 12) or null | no |  |
 | `thereMonths` | integer (1 to 24) or null | no |  |
+| `areaKm` | integer (1 to 100) or null | no |  |
 
 Responses
 
 - **200**: { key }
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`, `OUT_OF_SCOPE`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
+
+### `POST /v1/admin/regions/reset-city-limits`
+
+**Make every city follow the default planning limits again (clears the own HERE and THERE months and coverage distance of each city; administrators)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Responses
+
+- **200**: { reset }, the number of cities that had their own limits
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
 ### `GET /v1/admin/regions/unassigned`
 
@@ -1283,7 +1607,7 @@ Responses
 
 Access: signed in (`Authorization: Bearer <token>`).
 
-Staff only. Roles: staff, admin.
+Staff only. Roles: admin.
 
 Responses
 
@@ -1315,6 +1639,27 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
+### `GET /v1/admin/reports/{id}`
+
+**One report with everything about it: what was reported, what the plan or message was, the history with reports of both people, and every step taken**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: staff, admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { report, target, reporter, subject, events }
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
+
 ### `POST /v1/admin/reports/{id}/assign`
 
 **Take a report, or (admins) give it to a staff member**
@@ -1337,10 +1682,10 @@ Request body (JSON)
 
 Responses
 
-- **200**: { ok, assignedTo }. Staff take a report themselves. An admin may name any active staff member who looks after the area of the report and works on reports; that person is notified.
+- **200**: { ok, assignedTo }. Staff take a report themselves. An admin may name any active staff member who works on reports; that person is notified.
 - **400**: The request is not acceptable. Codes: `INVALID_TARGET`, `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`, `OUT_OF_SCOPE`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
 
 ### `POST /v1/admin/reports/{id}/resolve`
@@ -1395,7 +1740,7 @@ Responses
 
 Access: signed in (`Authorization: Bearer <token>`).
 
-Staff only. Roles: staff, admin.
+Staff only. Roles: admin.
 
 Responses
 
@@ -1405,7 +1750,7 @@ Responses
 
 ### `GET /v1/admin/scope`
 
-**Which part of the service this staff account looks after**
+**Which parts of the console this account may use**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1413,7 +1758,7 @@ Staff only. Roles: staff, admin.
 
 Responses
 
-- **200**: { role, scope: null | { key, name, kind }, permissions }. permissions: the parts of the console this account may use (reports, verification, users, content; all of them for an admin). null means the whole service; otherwise one city, region or country.
+- **200**: { role, permissions }. permissions: the parts of the console this account may use (reports, verification, users, content; all of them for an admin). Every account works for the whole service.
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
@@ -1433,7 +1778,7 @@ Responses
 
 ### `POST /v1/admin/staff`
 
-**Create a staff account for one area, with the parts of the console it may use (admins only)**
+**Create a staff account, with the parts of the console it may use (admins only)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1446,20 +1791,42 @@ Request body (JSON)
 | `email` | string (email) (0 to 254 characters) | yes |  |
 | `displayName` | string (2 to 40 characters) | yes |  |
 | `role` | `"staff"` | no |  |
-| `regionKey` | string (1 to 60 characters) | yes |  |
 | `permissions` | array of one of: `reports`, `verification`, `users`, `content` | no |  |
+| `password` | string (10 to 200 characters) | yes |  |
 
 Responses
 
-- **200**: { id, email, role, regionKey, permissions, temporaryPassword }. The temporary password is shown once. At the first sign-in the console asks the person to choose their own password (once), then to connect an authenticator app; until the password is changed every console route answers PASSWORD_CHANGE_REQUIRED.
-- **400**: The request is not acceptable. Codes: `INVALID_PLACE`, `VALIDATION_FAILED`
+- **200**: { id, email, role, permissions, temporaryPassword }. The temporary password is shown once. At the first sign-in the console asks the person to choose their own password (once), then to connect an authenticator app; until the password is changed every console route answers PASSWORD_CHANGE_REQUIRED.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`, `GLOBAL_STAFF_ONLY`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`
 - **409**: Conflicts with the current state. Codes: `EMAIL_TAKEN`
+
+### `DELETE /v1/admin/staff/{id}`
+
+**Remove a staff account: it can no longer sign in, and its name stays on the audit log (admins only, never your own)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Responses
+
+- **200**: { ok }
+- **400**: The request is not acceptable. Codes: `INVALID_TARGET`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`
+- **404**: Not found. Codes: `NOT_FOUND`
 
 ### `PATCH /v1/admin/staff/{id}`
 
-**Change the area or permissions of a staff member (admins only)**
+**Change the permissions of a staff member (admins only)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1475,13 +1842,14 @@ Request body (JSON)
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `regionKey` | string (1 to 60 characters) | no |  |
 | `permissions` | array of one of: `reports`, `verification`, `users`, `content` | no |  |
+| `email` | string (email) (0 to 254 characters) | no |  |
+| `password` | string (10 to 200 characters) | no |  |
 
 Responses
 
-- **200**: { id, regionKey, permissions }. Recorded in the audit log with the values before.
-- **400**: The request is not acceptable. Codes: `INVALID_PLACE`, `INVALID_TARGET`, `VALIDATION_FAILED`
+- **200**: { id, permissions }. Recorded in the audit log with the values before.
+- **400**: The request is not acceptable. Codes: `INVALID_TARGET`, `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
@@ -1501,12 +1869,13 @@ Parameters
 | `status` | query | string | no |  |
 | `limit` | query | string | no |  |
 | `cursor` | query | string | no |  |
+| `q` | query | string | no |  |
 | `from` | query | string | no |  |
 | `to` | query | string | no |  |
 
 Responses
 
-- **200**: { items, nextCursor, limitMonths }. Windows go by the start date. limitMonths: how far ahead trips can be planned in the area this account looks after.
+- **200**: { items, nextCursor, limitMonths }. Windows go by the start date. limitMonths: how far ahead trips can be planned.
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
@@ -1771,7 +2140,7 @@ Responses
 
 ### `POST /v1/admin/users/{id}/role`
 
-**Change a person's staff role, and the area they look after (whole-service administrators only)**
+**Change a person's staff role, and what a staff member may use (administrators only)**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1788,20 +2157,19 @@ Request body (JSON)
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `role` | one of: `user`, `staff`, `admin` | yes |  |
-| `regionKey` | string (1 to 60 characters) or null | no |  |
 | `permissions` | array of one of: `reports`, `verification`, `users`, `content` | no |  |
 
 Responses
 
-- **200**: { role, regionKey }. regionKey limits a staff account to one city, region or country and everything under it; leave it out for the whole service.
-- **400**: The request is not acceptable. Codes: `INVALID_PLACE`, `VALIDATION_FAILED`
+- **200**: { role, permissions }.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
-- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`, `GLOBAL_STAFF_ONLY`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `ADMIN_ONLY`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
 
 ### `POST /v1/admin/users/{id}/suspend`
 
-**Suspend (timed, or until restored); open reports about them resolve automatically**
+**Suspend (timed, or until restored); reports about them stay open until a moderator decides them**
 
 Access: signed in (`Authorization: Bearer <token>`).
 
@@ -1910,6 +2278,27 @@ Responses
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 - **404**: Not found. Codes: `NOT_FOUND`
 - **409**: Conflicts with the current state. Codes: `ALREADY_DECIDED`
+
+### `GET /v1/admin/verifications/export`
+
+**The people on the Verification page as a list for a spreadsheet**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Staff only. Roles: staff, admin.
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `status` | query | string | no |  |
+
+Responses
+
+- **200**: { items: [{ name, email, city, verified, identityCheck, accountState, joined, verifiedUntil }] }, up to 50000 people.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`, `FORBIDDEN`
 
 ## Sign-in and account
 
@@ -2078,9 +2467,10 @@ Request body (JSON)
 
 Responses
 
-- **200**: { pending: true, email, ticket }, the same whether or not the address already has an account (so it cannot be used to find out who is a member). A new address gets its account and a 6-digit email code (in development echoed back as devCode); a known address gets an email saying so and a ticket that matches nothing. Finish with /v1/auth/register/confirm.
+- **200**: { pending: true, email, ticket }: a new address gets its account and a 6-digit email code (in development echoed back as devCode). An address that already has an account is refused with EMAIL_TAKEN, so the app can say so. Finish with /v1/auth/register/confirm.
 - **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **403**: Not allowed. Codes: `REGISTRATION_BLOCKED`
+- **409**: Conflicts with the current state. Codes: `EMAIL_TAKEN`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `POST /v1/auth/register/confirm`
@@ -2582,6 +2972,34 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **404**: Not found. Codes: `NOT_FOUND`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/me/appeals/{id}/reply`
+
+**Write to the moderators on one of my open appeals**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `message` | string (2 to 1000 characters) | yes |  |
+
+Responses
+
+- **200**: { id }
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `APPEAL_DECIDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `GET /v1/me/connections`
@@ -3353,13 +3771,23 @@ Responses
 
 ### `GET /v1/me/trips/page`
 
-**My trips, paged**
+**My trips, paged. tab=mine (organised or in, finished ones last), pending or rejected, like My activities; no tab: everything, soonest first (upcoming=1: only what is still ahead)**
 
 Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `tab` | query | string | no |  |
+| `upcoming` | query | string | no |  |
+| `limit` | query | string | no |  |
+| `cursor` | query | string | no |  |
 
 Responses
 
 - **200**: A page: { items, nextCursor } (nextCursor is null on the last page).
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
@@ -3382,12 +3810,17 @@ Parameters
 | `travelStyle` | query | one of: `together`, `meet_at_destination` | no |  |
 | `startFrom` | query | string (date-time) | no |  |
 | `startTo` | query | string (date-time) | no |  |
+| `endTo` | query | string (date-time) | no |  |
 | `budgetMax` | query | number (0 to 9007199254740991) | no |  |
 | `includesTransport` | query | one of: `true`, `false` | no |  |
 | `tags` | query | string | no |  |
 | `groupSize` | query | one of: `2-3`, `4-6`, `7-10`, `10+` | no |  |
 | `openOnly` | query | one of: `true`, `false` | no |  |
 | `excludeMine` | query | one of: `true`, `false` | no |  |
+| `south` | query | number (-90 to 90) | no |  |
+| `north` | query | number (-90 to 90) | no |  |
+| `west` | query | number (-180 to 180) | no |  |
+| `east` | query | number (-180 to 180) | no |  |
 | `cursor` | query | string | no |  |
 | `limit` | query | number (1 to 50) | no | default `20` |
 
@@ -3414,6 +3847,8 @@ Request body (JSON)
 | `title` | string (2 to 80 characters) | no |  |
 | `destination` | string (2 to 100 characters) | yes |  |
 | `destinationPlaceId` | string (0 to 200 characters) | no |  |
+| `destinationLat` | number (-90 to 90) | no |  |
+| `destinationLng` | number (-180 to 180) | no |  |
 | `timeZone` | string (0 to 60 characters) | no |  |
 | `travelStyle` | one of: `together`, `meet_at_destination` | no | default `"together"` |
 | `originCity` | string (0 to 60 characters) | no |  |
@@ -3430,6 +3865,7 @@ Request body (JSON)
 | `capacity` | integer (2 to 20) | no |  |
 | `groupSize` | one of: `2-3`, `4-6`, `7-10`, `10+` | no | default `"4-6"` |
 | `visibility` | one of: `public`, `invite_only` | no | default `"public"` |
+| `ageGroup` | one of: `all`, `18-25`, `25-35`, `35+` | no | default `"all"` |
 
 Responses
 
@@ -3624,6 +4060,34 @@ Responses
 - **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
 - **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
 - **404**: Not found. Codes: `NOT_FOUND`
+- **429**: Too many requests. Codes: `RATE_LIMITED`
+
+### `POST /v1/trips/{id}/attendance`
+
+**Say whether I went on the trip (voluntary, about myself, once: it cannot be changed after)**
+
+Access: signed in (`Authorization: Bearer <token>`).
+
+Parameters
+
+| Name | In | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | yes |  |
+
+Request body (JSON)
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `attended` | boolean | yes |  |
+
+Responses
+
+- **200**: Done.
+- **400**: The request is not acceptable. Codes: `VALIDATION_FAILED`
+- **401**: Not signed in. Codes: `INVALID_TOKEN`, `UNAUTHENTICATED`
+- **403**: Not allowed. Codes: `ACCOUNT_SUSPENDED`
+- **404**: Not found. Codes: `NOT_FOUND`
+- **409**: Conflicts with the current state. Codes: `ATTENDANCE_CLOSED`, `ATTENDANCE_SET`, `NOT_FINISHED`
 - **429**: Too many requests. Codes: `RATE_LIMITED`
 
 ### `POST /v1/trips/{id}/cancel`
@@ -4303,7 +4767,6 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | Code | Status | What it means | What the app should do |
 | --- | --- | --- | --- |
 | `ADULT_CONFIRMATION_REQUIRED` | 400 | A new account via Apple or Google needs the 18+ confirmation first. | Show the confirmation, then send the request again with adultConfirmed: true. |
-| `AREA_REQUIRED` | 400 | A staff account must look after one city, region or country. | Choose an area. |
 | `BAD_REQUEST` | 400 | The request body could not be read (for example malformed JSON). | Fix the request; do not retry unchanged. |
 | `CODE_EXPIRED` | 400 | The confirmation code has expired. | Start the step again. |
 | `CONSENT_REQUIRED` | 400 | The person has not agreed to the identity document and facial check. | Show the consent screen before starting. |
@@ -4313,6 +4776,10 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `DRAFT_TOO_LARGE` | 400 | The draft is far longer than any real form. | Ask the person to shorten it. |
 | `EMAIL_REQUIRED` | 400 | The provider did not give a confirmed email address, which an account needs. | Offer email sign-up instead. |
 | `IMAGE_TOO_LARGE` | 400 | The picture is over the 6 MB limit. | Ask for a smaller picture. |
+| `INTEGRATION_FIELD` | 400 | A detail the provider needs is missing, or is not one of its settings. | Show the message and fill in the field. |
+| `INTEGRATION_PROVIDER` | 400 | That provider is not one of the choices for this kind of service. | Offer only the providers in the catalog from GET /v1/admin/integrations. |
+| `INTEGRATION_SIMULATED` | 400 | A test-only service (fixed code, simulated or instant identity check) cannot be switched on a production server. | Choose a real provider. |
+| `INVALID_CATEGORY` | 400 | The category of a new activity is not one an administrator has made and turned on. | Offer only the categories from GET /v1/categories. |
 | `INVALID_CODE` | 400 | The 6-digit code is wrong or has expired. | Offer to send a new code. |
 | `INVALID_CURSOR` | 400 | The paging cursor is malformed or was made for a different list. | Restart the list from the first page. |
 | `INVALID_DATES` | 400 | The dates are not allowed (for example a trip that starts in the past). | Ask the person to choose other dates. |
@@ -4354,17 +4821,14 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `BLOCKED` | 403 | One of the two people has blocked the other. | Treat as not found; do not reveal who blocked whom. |
 | `EMAIL_NOT_VERIFIED` | 403 | The email address must be confirmed first. | Open the email confirmation step. |
 | `FORBIDDEN` | 403 | The person is not allowed to do this (staff role too low, or not their own item). | Hide the action; show the message if it was tried. |
-| `GLOBAL_STAFF_ONLY` | 403 | A staff account limited to one area used a screen that is only for staff of the whole service. | Hide that screen for staff who have an area (see GET /v1/admin/scope). |
 | `GUEST_READ_ONLY` | 403 | A guest ("explore demo") session tried to change something. | Offer to create an account. |
 | `INVITE_ONLY` | 403 | The activity or trip is by invitation only. | Hide the join button. |
 | `MFA_REQUIRED` | 403 | Staff must have two-step sign-in on to use this part of the console (or to turn it off). | Send the person to the Security page to set it up. |
-| `NO_AREA` | 403 | This staff account has no area yet, so it reaches nothing in the console. | Ask an admin to give the account an area on the Staff page. |
 | `NO_PERMISSION` | 403 | An admin has not given this staff account access to that part of the console. | Ask an admin to change your permissions on the Staff page. |
 | `NOT_A_MEMBER` | 403 | The person is not an approved member, so the group chat is closed to them. | Show "pending approval" or the join button, never the chat. |
 | `NOT_HOST` | 403 | Only the host of the activity can do this. | Hide the action for other people. |
 | `NOT_ORGANIZER` | 403 | Only the organizer of the trip can do this. | Hide the action for other people. |
 | `NOT_YOUR_LINE` | 403 | Only the person who added a plan line, or the organizer, can change or remove it. | Hide the edit actions on other people lines. |
-| `OUT_OF_SCOPE` | 403 | A staff member who looks after one city, region or country tried to act on something outside it. | Show the message; the item is for staff of another area or the whole service. |
 | `OWN_APPEAL` | 403 | Staff cannot decide an appeal they made themselves. | Ask another moderator. |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | A staff account made by an administrator must choose its own password before it can use the console. | Show the "choose your password" screen; it calls POST /v1/me/password with the temporary password as the current one. |
 | `PHONE_BLOCKED` | 403 | This mobile number is on the ban list (it belonged to a removed account). | Show the message and point to support; do not say why. |
@@ -4389,6 +4853,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `ALREADY_DECIDED` | 409 | This verification check was already decided. | Refresh the case. |
 | `ALREADY_REQUESTED` | 409 | The person already has a request for this activity; the message names its state. | Show the existing request. |
 | `ALREADY_VERIFIED` | 409 | The person is already verified; use "require re-verification" instead. | Refresh the case. |
+| `ALREADY_VOTED` | 409 | This person has already voted in this poll. | Show their vote and hide the vote buttons. |
 | `APPEAL_DECIDED` | 409 | A moderator already decided this appeal. | Reload the queue. |
 | `APPEAL_OPEN` | 409 | The person already has an appeal waiting for a decision. | Show it and tell them to wait for the answer. |
 | `APPLICANT_BUSY` | 409 | The person has joined or created another plan at the same time since they asked, so they cannot be approved. | Tell the host the person is busy then; the request stays as it is. |
@@ -4399,6 +4864,8 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `CANNOT_REMOVE_HOST` | 409 | The host cannot be removed from their own activity. | Hide "remove" on the host. |
 | `CANNOT_REMOVE_ORGANIZER` | 409 | The organizer cannot be removed from their own trip. | Hide "remove" on the organizer. |
 | `CAPACITY_BELOW_MEMBERS` | 409 | The new capacity is lower than the number of approved members. | Show the minimum allowed. |
+| `CATEGORY_EXISTS` | 409 | A category with that name already exists. | Show the message and choose another name. |
+| `CATEGORY_IN_USE` | 409 | Activities or trips still use the category, so it cannot be removed. | Turn it off instead. |
 | `CITY_ALREADY_ASSIGNED` | 409 | That city name already belongs to another place. | Show which place has it; change that one instead. |
 | `CONVERSATION_CLOSED` | 409 | The chat is read-only (24 hours after the end, or the activity or trip was cancelled). | Show the chat as read-only. |
 | `DATE_CHANGES_USED` | 409 | The trip has used all the date changes it is allowed (5, through date polls). | Do not offer "use these dates"; tell the organizer why. The trip's `dateChangesLeft` says how many remain. |
@@ -4411,6 +4878,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `HOST_CANNOT_LEAVE` | 409 | The host must cancel or hand over the activity first. | Offer cancel or hand over. |
 | `IS_HOST` | 409 | The person is the host of this activity. | Hide the join button. |
 | `IS_ORGANIZER` | 409 | The person is the organizer of this trip. | Hide the apply button. |
+| `LAST_CATEGORY` | 409 | It is the last category turned on, and one must always stay on. | Turn another one on first. |
 | `MARK_LOCKED` | 409 | The note was disputed or decided, so the host cannot take it back. | Show the note as it is; a moderator decides. |
 | `MARK_NOT_OPEN` | 409 | The host tried to say who did not come before the plan started. | Show the notes only once the plan has started. |
 | `MARK_WINDOW_CLOSED` | 409 | The 48 hours after the plan ended, in which a host can say who did not come, have passed. | Hide the action; the host can no longer add notes. |
@@ -4418,7 +4886,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `NO_DATES_TO_CONFIRM` | 409 | No final dates are waiting for confirmation. | Refresh the trip. |
 | `NOT_DECLINED` | 409 | Only a request or application that the host or organizer declined can be asked about again. | Hide the Ask again action. |
 | `NOT_DISPUTABLE` | 409 | The note is already disputed or decided by a moderator. | Show its state. |
-| `NOT_FINISHED` | 409 | Attendance can only be given once the activity has ended. | Hide the question until then. |
+| `NOT_FINISHED` | 409 | Attendance can only be given once the activity or trip has ended. | Hide the question until then. |
 | `NOT_OPTED_IN` | 409 | The person answered about a traveler without having turned travel matching on. | Show the opt-in screen. |
 | `NOT_PENDING` | 409 | There is no identity check in progress. | Refresh the verification status. |
 | `NOT_REJECTED` | 409 | Only a rejected verification can be overturned. | Refresh the case. |
@@ -4426,7 +4894,6 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `NOTHING_TO_APPEAL` | 409 | There is no rejected check, staff removal or suspension to appeal. | Hide the appeal action. |
 | `ORGANIZER_CANNOT_LEAVE` | 409 | The organizer must cancel the trip or hand it over first. | Offer cancel. |
 | `PHONE_IN_USE` | 409 | This mobile number is already confirmed on another account. | Ask for a different number. |
-| `PLACE_HAS_STAFF` | 409 | Staff accounts are still assigned to the place. | Change their area first. |
 | `PLACE_NOT_EMPTY` | 409 | The place still has places under it. | Remove or move those first. |
 | `PLAN_CANCELLED` | 409 | The plan was cancelled, so nobody can be noted as not coming. | Hide the action. |
 | `PLAN_FULL` | 409 | The trip plan already holds the most lines allowed of that kind (60). | Ask the group to tidy the plan first. |
@@ -4439,6 +4906,7 @@ Every failure answers `{ statusCode, code, message, details? }`. Branch on `code
 | `TOO_MANY_DRAFTS` | 409 | The person already keeps the most drafts allowed (10 per kind). | Offer to delete an old draft first. |
 | `TOO_MANY_OPEN_ACTIVITIES` | 409 | The host already has the maximum of upcoming activities (10). | Ask them to finish or cancel one. |
 | `TOO_MANY_OPEN_POLLS` | 409 | A trip can have only a few open date polls. | Ask the organizer to close one. |
+| `TRIP_CANCELLED` | 409 | The trip was cancelled. | Refresh the trip and show it as cancelled. |
 | `TRIP_CLOSED` | 409 | The trip can no longer be edited, applied to or saved (it was cancelled, has started or is over). | Hide the edit, apply, favourite and share actions. |
 | `TRIP_FULL` | 409 | The group is full. | Show "full" or the waiting-list option. |
 | `TRIP_NOT_STARTED` | 409 | The trip has not started yet, so it cannot be ended. | Offer End once the first day has come; before that the organizer can cancel it. |

@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Injectable, OnModuleInit, Param, Patch, 
 import { Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
-import { CurrentUser, RegionalOk, Staff } from '../common/auth';
+import { CurrentUser, Staff } from '../common/auth';
 import { STAFF_PERMISSIONS, STAFF_ROLES } from '../common/constants';
 import { E } from '../common/errors';
 import { log } from '../common/observability';
@@ -11,8 +11,8 @@ import { TtlCache } from '../common/ttl-cache';
 import { parse } from '../common/validate';
 import {
   AREA_KM_RANGE, DEFAULT_AREA_KM, DEFAULT_HERE_MONTHS, DEFAULT_THERE_MONTHS, GLOBAL_KEY, HERE_MONTHS_RANGE, THERE_MONTHS_RANGE,
-  chainOf, cityKeyOf, effectiveAreaKm, effectiveMonths, inScope, latestStart, monthsWord, scopeFor, subtree,
-  type RegionRow, type Scope,
+  chainOf, cityKeyOf, effectiveAreaKm, effectiveMonths, latestStart, monthsWord,
+  type RegionRow,
 } from './regions';
 
 const ALL = [...STAFF_ROLES];
@@ -37,8 +37,6 @@ export const updateRegionSchema = z.object({
   areaKm: km.nullable().optional(), // null: follow the place above
 });
 export const limitsQuery = z.object({ city: z.string().trim().max(80).optional() });
-
-const outOfScope = () => E.forbidden('OUT_OF_SCOPE', 'That is outside the area you look after');
 
 @Injectable()
 export class RegionsService implements OnModuleInit {
@@ -116,83 +114,20 @@ export class RegionsService implements OnModuleInit {
     return l;
   }
 
-  // ---------------------------------------------------------------- staff scope
-  /**
-   * What a staff member may reach. `place` is where they chose to work after signing in (header X-Admin-Place): it can only
-   * NARROW what the account may reach, never widen it. A staff account for the whole service with a place chosen sees that
-   * place; an account limited to an area may choose that area or a place inside it, and anything else is refused.
-   */
-  async scopeOf(user: { adminRegionKey?: string | null }, place?: string | null): Promise<Scope | null> {
+  /** How far ahead plans can be made, in months: the longest limit of any place (a country with one city allowed further ahead gives that city's limit). */
+  async limitMonths(which: 'here' | 'there') {
     const rows = await this.all();
-    const own = scopeFor(rows, user.adminRegionKey);
-    const chosen = (place ?? '').trim();
-    if (!chosen || chosen === 'all') return own;
-    if (!rows.some((r) => r.key === chosen)) throw E.badRequest('INVALID_PLACE', 'That place does not exist');
-    if (own && !own.regionKeys.has(chosen)) throw outOfScope();
-    return scopeFor(rows, chosen);
-  }
-  /** Throws unless the staff member may touch something in this city. Staff of the whole service always may. */
-  async assertCity(user: { adminRegionKey?: string | null }, cityKey: string | null | undefined) {
-    const scope = await this.scopeOf(user);
-    if (!inScope(scope, cityKey ? cityKey.trim().toLowerCase() : null)) throw outOfScope();
-  }
-
-  /**
-   * The members a staff member may see: their home city is in the area, or they have been active there in the last 30 days
-   * (hosted or joined an activity there, or a trip that starts there). A person from New York planning things in Milan shows up
-   * for Milan staff while they are there. Never other staff.
-   */
-  peopleWhere(scope: Scope): Prisma.UserWhereInput {
-    const cities = [...scope.cityKeys];
-    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
-    return {
-      role: 'user',
-      OR: [
-        { profile: { homeCityKey: { in: cities } } },
-        { activitiesHosted: { some: { cityKey: { in: cities }, startsAt: { gte: since } } } },
-        { activityMemberships: { some: { activity: { cityKey: { in: cities }, startsAt: { gte: since } } } } },
-        { trips: { some: { originKey: { in: cities }, dateEnd: { gte: since } } } },
-        { tripMemberships: { some: { trip: { originKey: { in: cities }, dateEnd: { gte: since } } } } },
-      ],
-    };
-  }
-  /**
-   * How far ahead plans can be made for what this viewer looks after, in months: the longest limit of any place in their area
-   * (a country with one city allowed further ahead gives that city's limit), or of the whole service when there is no area.
-   */
-  async limitMonths(scope: Scope | null, which: 'here' | 'there') {
-    const rows = await this.all();
-    const places = scope ? rows.filter((r) => scope.regionKeys.has(r.key)) : rows;
-    const months = places.map((r) => effectiveMonths(chainOf(rows, r), which).months);
+    const months = rows.map((r) => effectiveMonths(chainOf(rows, r), which).months);
     return months.length ? Math.max(...months) : effectiveMonths([], which).months;
   }
 
-  /** Local actions (seeing someone, warning them, removing them from a plan, hiding a message): home city or active in the area. */
-  async assertPersonLocal(user: { adminRegionKey?: string | null }, userId: string) {
-    const scope = await this.scopeOf(user);
-    if (!scope) return;
-    if (!(await this.prisma.user.count({ where: { AND: [{ id: userId }, this.peopleWhere(scope)] } }))) throw outOfScope();
-  }
-  /** Account-wide actions (suspending, restoring, identity checks): only the staff of the person's home city, or an admin. */
-  async assertPersonHome(user: { adminRegionKey?: string | null }, userId: string) {
-    const scope = await this.scopeOf(user);
-    if (!scope) return;
-    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true, profile: { select: { homeCityKey: true } } } });
-    if (!target) throw E.notFound('User');
-    if (target.role !== 'user' || !inScope(scope, target.profile?.homeCityKey)) throw outOfScope();
-  }
-
   // ---------------------------------------------------------------- the admin's list
-  async list(actor: User) {
+  async list() {
     const rows = await this.all();
-    const scope = scopeFor(rows, actor.adminRegionKey);
-    const shown = scope ? rows.filter((r) => scope.regionKeys.has(r.key)) : rows;
+    const shown = rows;
     const kids = new Map<string, number>();
     for (const r of rows) if (r.parentKey) kids.set(r.parentKey, (kids.get(r.parentKey) ?? 0) + 1);
-    const staff = await this.prisma.user.groupBy({ by: ['adminRegionKey'], where: { adminRegionKey: { not: null }, state: 'active' }, _count: { _all: true } });
-    const staffBy = new Map(staff.map((s) => [s.adminRegionKey, s._count._all]));
     return {
-      scope: scope && { key: scope.regionKey, name: scope.name, kind: scope.kind },
       defaults: { here: DEFAULT_HERE_MONTHS, there: DEFAULT_THERE_MONTHS, area: DEFAULT_AREA_KM },
       ranges: { here: HERE_MONTHS_RANGE, there: THERE_MONTHS_RANGE, area: AREA_KM_RANGE },
       items: shown.map((r) => {
@@ -201,12 +136,12 @@ export class RegionsService implements OnModuleInit {
         const there = effectiveMonths(chain, 'there');
         const area = effectiveAreaKm(chain);
         return {
-          key: r.key, name: r.name, kind: r.kind, parentKey: scope && r.key === scope.regionKey ? null : r.parentKey, cityKey: r.cityKey,
+          key: r.key, name: r.name, kind: r.kind, parentKey: r.parentKey, cityKey: r.cityKey,
           hereMonths: r.hereMonths, thereMonths: r.thereMonths, areaKm: r.areaKm,
           effective: { here: here.months, hereFrom: here.from?.name ?? null, there: there.months, thereFrom: there.from?.name ?? null, area: area.km, areaFrom: area.from?.name ?? null },
-          children: kids.get(r.key) ?? 0, staff: staffBy.get(r.key) ?? 0,
-          canEdit: r.key === GLOBAL_KEY ? !scope : true,
-          canDelete: r.key !== GLOBAL_KEY && !(scope && r.key === scope.regionKey) && (kids.get(r.key) ?? 0) === 0,
+          children: kids.get(r.key) ?? 0,
+          canEdit: true,
+          canDelete: r.key !== GLOBAL_KEY && (kids.get(r.key) ?? 0) === 0,
         };
       }),
     };
@@ -227,20 +162,17 @@ export class RegionsService implements OnModuleInit {
   }
 
   // ---------------------------------------------------------------- changes (administrators)
-  private async mustBeInside(actor: User, key: string) {
+  private async mustExist(key: string) {
     const rows = await this.all();
-    const scope = scopeFor(rows, actor.adminRegionKey);
     const row = rows.find((r) => r.key === key);
     if (!row) throw E.notFound('Place');
-    if (scope && !scope.regionKeys.has(key)) throw outOfScope();
-    if (key === GLOBAL_KEY && scope) throw outOfScope();
-    return { rows, scope, row };
+    return { rows, row };
   }
 
   async create(actor: User, body: unknown) {
     const dto = parse(createRegionSchema, body);
     const parentKey = dto.parentKey ?? GLOBAL_KEY;
-    const { rows, row: parent } = await this.mustBeInside(actor, parentKey);
+    const { rows, row: parent } = await this.mustExist(parentKey);
     if (parent.kind === 'city') throw E.badRequest('INVALID_PLACE', 'A city cannot have places under it');
     if (dto.kind === 'country' && parent.kind !== 'global') throw E.badRequest('INVALID_PLACE', 'A country sits directly under the whole service');
     if (dto.kind === 'region' && parent.kind === 'city') throw E.badRequest('INVALID_PLACE', 'A region cannot sit under a city');
@@ -262,7 +194,7 @@ export class RegionsService implements OnModuleInit {
 
   async update(actor: User, key: string, body: unknown) {
     const dto = parse(updateRegionSchema, body);
-    const { row } = await this.mustBeInside(actor, key);
+    const { row } = await this.mustExist(key);
     const data = {
       ...(dto.name !== undefined && { name: dto.name }),
       ...(dto.hereMonths !== undefined && { hereMonths: dto.hereMonths }),
@@ -276,37 +208,27 @@ export class RegionsService implements OnModuleInit {
     return { key };
   }
 
-  /** Every city in the actor's area stops having its own limits and follows the place above (the default) again. */
+  /** Every city stops having its own limits and follows the place above (the default) again. */
   async resetCityLimits(actor: User) {
     const rows = await this.all();
-    const scope = scopeFor(rows, actor.adminRegionKey);
-    const keys = rows.filter((r) => r.kind === 'city' && (!scope || scope.regionKeys.has(r.key)) && (r.hereMonths !== null || r.thereMonths !== null || r.areaKm !== null)).map((r) => r.key);
+    const keys = rows.filter((r) => r.kind === 'city' && (r.hereMonths !== null || r.thereMonths !== null || r.areaKm !== null)).map((r) => r.key);
     if (keys.length === 0) return { reset: 0 };
     await this.prisma.region.updateMany({ where: { key: { in: keys } }, data: { hereMonths: null, thereMonths: null, areaKm: null, updatedById: actor.id } });
     this.changed();
-    await this.audit.log(actor.id, 'region.limits_reset', 'region', scope?.regionKey ?? GLOBAL_KEY, { cities: keys.length });
+    await this.audit.log(actor.id, 'region.limits_reset', 'region', GLOBAL_KEY, { cities: keys.length });
     return { reset: keys.length };
   }
 
   async remove(actor: User, key: string) {
-    const { rows, scope, row } = await this.mustBeInside(actor, key);
+    const { rows, row } = await this.mustExist(key);
     if (key === GLOBAL_KEY) throw E.badRequest('INVALID_PLACE', 'The whole service cannot be removed');
-    if (scope && key === scope.regionKey) throw outOfScope(); // your own place is removed by the staff above you
     if (rows.some((r) => r.parentKey === key)) throw E.conflict('PLACE_NOT_EMPTY', 'Remove the places under it first');
-    if ((await this.prisma.user.count({ where: { adminRegionKey: key } })) > 0) throw E.conflict('PLACE_HAS_STAFF', 'Staff accounts are still assigned to it. Change their area first.');
     await this.prisma.region.delete({ where: { key } });
     this.changed();
     await this.audit.log(actor.id, 'region.removed', 'region', key, { name: row.name, kind: row.kind });
     return { ok: true };
   }
 
-  /** Is `key` a place that exists (used when giving a staff account its area)? */
-  async exists(key: string) {
-    return (await this.all()).some((r) => r.key === key);
-  }
-  async cityKeysUnder(key: string) {
-    return subtree(await this.all(), key).map((r) => r.cityKey).filter((k): k is string => !!k);
-  }
 }
 
 @Controller('v1/regions')
@@ -331,53 +253,44 @@ export class RegionsPublicController {
 export class RegionsAdminController {
   constructor(private readonly regions: RegionsService) {}
 
-  /** Which part of the service this staff account looks after: everything (`scope: null`) or one city, region or country. */
+  /** Which parts of the console this account may use: everything for an admin, what an admin allowed for staff. */
   @Staff(...ALL)
-  @RegionalOk()
   @Get('scope')
   async scope(@CurrentUser() me: User) {
-    const s = await this.regions.scopeOf(me);
-    // which parts of the console this account may use: everything for an admin, what an admin allowed for staff
-    return { role: me.role, scope: s && { key: s.regionKey, name: s.name, kind: s.kind }, permissions: me.role === 'admin' ? [...STAFF_PERMISSIONS] : me.staffPermissions };
+    return { role: me.role, permissions: me.role === 'admin' ? [...STAFF_PERMISSIONS] : me.staffPermissions };
   }
 
   @Staff(...ALL)
-  @RegionalOk()
   @Get('regions')
-  list(@CurrentUser() me: User) {
-    return this.regions.list(me);
+  list() {
+    return this.regions.list();
   }
 
-  /** Whole-service staff only (a regional account has no business seeing places outside its own). */
-  @Staff(...ALL)
+  @Staff('admin')
   @Get('regions/unassigned')
   unassigned() {
     return this.regions.unassigned();
   }
 
   @Staff('admin')
-  @RegionalOk()
   @Post('regions')
   create(@CurrentUser() me: User, @Body() body: unknown) {
     return this.regions.create(me, body);
   }
 
   @Staff('admin')
-  @RegionalOk()
   @Post('regions/reset-city-limits')
   resetCityLimits(@CurrentUser() me: User) {
     return this.regions.resetCityLimits(me);
   }
 
   @Staff('admin')
-  @RegionalOk()
   @Patch('regions/:key')
   update(@CurrentUser() me: User, @Param('key') key: string, @Body() body: unknown) {
     return this.regions.update(me, key, body);
   }
 
   @Staff('admin')
-  @RegionalOk()
   @Delete('regions/:key')
   remove(@CurrentUser() me: User, @Param('key') key: string) {
     return this.regions.remove(me, key);

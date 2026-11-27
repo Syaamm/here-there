@@ -68,33 +68,3 @@ export function effectiveMonths(chain: RegionRow[], which: 'here' | 'there') {
   return { months: which === 'here' ? DEFAULT_HERE_MONTHS : DEFAULT_THERE_MONTHS, from: null };
 }
 
-/** Every place under `rootKey` (including itself). */
-export function subtree(rows: RegionRow[], rootKey: string): RegionRow[] {
-  const kids = new Map<string, RegionRow[]>();
-  for (const r of rows) if (r.parentKey) kids.set(r.parentKey, [...(kids.get(r.parentKey) ?? []), r]);
-  const root = rows.find((r) => r.key === rootKey);
-  if (!root) return [];
-  const out: RegionRow[] = [];
-  const seen = new Set<string>();
-  const walk = (r: RegionRow) => {
-    if (seen.has(r.key)) return;
-    seen.add(r.key);
-    out.push(r);
-    for (const k of kids.get(r.key) ?? []) walk(k);
-  };
-  walk(root);
-  return out;
-}
-
-/** What a staff account may reach: a place and everything under it. `null` means the whole service. */
-export type Scope = { regionKey: string; name: string; kind: string; regionKeys: Set<string>; cityKeys: Set<string> };
-
-export function scopeFor(rows: RegionRow[], regionKey: string | null | undefined): Scope | null {
-  if (!regionKey) return null;
-  const inside = subtree(rows, regionKey);
-  const root = inside[0];
-  // a scope that points at a place that no longer exists reaches nothing (it never falls back to "everything")
-  return { regionKey, name: root?.name ?? regionKey, kind: root?.kind ?? 'city', regionKeys: new Set(inside.map((r) => r.key)), cityKeys: new Set(inside.map((r) => r.cityKey).filter((k): k is string => !!k)) };
-}
-
-export const inScope = (scope: Scope | null, cityKey: string | null | undefined) => !scope || (!!cityKey && scope.cityKeys.has(cityKey));

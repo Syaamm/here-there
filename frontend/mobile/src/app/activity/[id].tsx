@@ -18,6 +18,7 @@ import { shareLink } from '@/lib/shareLink';
 import { useMe } from '@/lib/auth';
 import { useVerifyGate } from '@/lib/verifyGate';
 import { ageGroupLabel, catColor, CATS } from '@/lib/constants';
+import { catIcon } from '@/lib/catIcon';
 import { confirmAsync } from '@/lib/confirm';
 import { dayWord, hhmm, zoneTag } from '@/lib/format';
 import { useAction, useLoad, useRefresh } from '@/lib/hooks';
@@ -187,7 +188,7 @@ export default function ActivityDetail() {
         onRefresh={onRefresh}
         refreshing={refreshing}
         bottomRoom={primary ? barH : undefined}
-        fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={catColor(a.category)} category={a.category} emoji={cat?.emoji} /> }}
+        fixedHero={{ height: PHOTO, stop: top + 84, photo: <Hero plain round height={PHOTO} color={catColor(a.category)} category={a.category} icon={cat ? catIcon(cat.emoji, a.category) : undefined} /> }}
       >
         <Stack.Screen options={{ headerShown: false }} />
 
@@ -242,7 +243,7 @@ export default function ActivityDetail() {
           <View style={{ gap: sp(10) }}>
             {a.isMember && a.status !== 'cancelled' ? (
               <View style={{ backgroundColor: c.accentSoft, borderRadius: sc(14), padding: sp(12), gap: sp(8) }}>
-                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{a.myAttendance === 'attended' ? `✓ ${t('You said you were there')}` : a.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
+                <Txt variant="h3" style={{ fontSize: 16, lineHeight: 21 }}>{a.myAttendance === 'attended' ? t("You said you were there") : a.myAttendance === 'no_show' ? t("You said you weren't there") : t('Were you there?')}</Txt>
                 {/* one answer, final: once given, the buttons go and only the answer stays */}
                 {a.myAttendance === 'attended' || a.myAttendance === 'no_show' ? (
                   <Txt variant="small">{t('Thanks. Your answer is saved and cannot be changed. The group sees whether you went.')}</Txt>

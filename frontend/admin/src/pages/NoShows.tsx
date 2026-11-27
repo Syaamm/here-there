@@ -104,6 +104,8 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
     }
     return out;
   })();
+  // on a tablet or phone the two lists do not fit side by side: this picks which one is shown (the switch only appears there)
+  const [pane, setPane] = useState<'people' | 'hosts'>('people');
   const person = (p?: Person) =>
     p ? (
       <button className="ns-link" onClick={() => openUser?.(p.id, 'noshows')}>
@@ -120,7 +122,10 @@ export function NoShowsPage({ me, openUser }: { me: Session; openUser?: (id: str
       </FilterBar>
       <ErrorBanner message={error ?? act.error} />
       {loading && !data && <Loading rows={5} />}
-      <div className="ns-cols">
+      <div className="ns-switch">
+        <Segmented label="Which list" value={pane} onChange={setPane} options={[{ id: 'people', label: `People (${items.length})` }, { id: 'hosts', label: `Hosts (${hostLoad.data?.total ?? hostReports.length})` }]} />
+      </div>
+      <div className="ns-cols" data-pane={pane}>
       <section className="ns-scroll ns-box ns-hosts-box" aria-label="The host did not come">
         <div className="ns-list">
           <header className="ns-head">
